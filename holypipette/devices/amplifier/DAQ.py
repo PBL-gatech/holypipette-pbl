@@ -7,6 +7,7 @@ import scipy.signal as signal
 import math
 import time
 import threading
+import logging
 
 __all__ = ['DAQ', 'FakeDAQ']
 
@@ -25,13 +26,14 @@ class DAQ:
         self.cmdChannel = cmdChannel
         self.latestResistance = None
         self.isRunningCurrentProtocol = False
+        self.isRunningVoltageProtocol = False
         self._deviceLock = threading.Lock()
 
         self.latest_protocol_data = None
 
         #read constants
 
-        print(f'Using {self.readDev}/{self.readChannel} for reading and {self.cmdDev}/{self.cmdChannel} for writing.')
+        logging.info(f'Using {self.readDev}/{self.readChannel} for reading and {self.cmdDev}/{self.cmdChannel} for writing.')
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         numSamples = int(samplesPerSec * recordingTime)
@@ -78,6 +80,32 @@ class DAQ:
         task.write(data)
         
         return task
+    # def getDataFromVoltageProtocol(self, samplesPerSec = 50000, durationSec = 0.1):
+    #     '''Holds the cell of interest at a holding voltage for 10 seconds. Returns the data from the holding period.
+    #     '''
+    #     #start running protocol
+    #     self.isRunningVoltageProtocol = True
+    #     self.latest_protocol_data = None #clear data
+    #     logging.info(f'Holding cell at -70mV for {durationSec} seconds.')
+    #     logging.info(f'reading at {samplesPerSec} samples per second.')
+    #     logging.info(f'starting read...')
+
+    #     # Read the analog input
+    #     self._deviceLock.acquire()
+    #     data = self._readAnalogInput(samplesPerSec, durationSec)
+    #     self._deviceLock.release()
+
+    #     # Create the time data (xdata)
+    #     xdata = np.linspace(0, durationSec, len(data))
+
+    #     # Store the data
+    #     self.latest_protocol_data = (xdata, data)
+        #print the first 500 data points
+        # logging.info(f'Voltage protocol data: {data[:500]}')
+        # self.isRunningVoltageProtocol = False
+        
+        # return self.latest_protocol_data
+
     
     def getDataFromCurrentProtocol(self, startCurrentPicoAmp=-200, endCurrentPicoAmp=300, stepCurrentPicoAmp=100, highTimeMs=400):
         '''Sends a series of square waves from startCurrentPicoAmp to endCurrentPicoAmp (inclusive) with stepCurrentPicoAmp pA increments.
@@ -100,7 +128,7 @@ class DAQ:
 
         for i in range(num_waves):
             currentAmps = startCurrent + i * stepCurrentPicoAmp * 1e-12
-            print(f'Sending {currentAmps * 1e12} pA square wave.')
+            logging.info(f'Sending {currentAmps * 1e12} pA square wave.')
 
             #convert to DAQ output
             amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
@@ -129,6 +157,7 @@ class DAQ:
                 self.latest_protocol_data.append([xdata, data])
         
         self.isRunningCurrentProtocol = False
+        
 
         return self.latest_protocol_data
 
@@ -212,7 +241,7 @@ class DAQ:
                 highPeak = np.max(highSide)
                 lowPeak = np.min(highSide)
                 peakToPeak = highPeak - lowPeak
-                # print(f'Peak to peak: {peakToPeak * 1e12} ({highPeak * 1e12} - {lowPeak * 1e12})')
+                # logging.info(f'Peak to peak: {peakToPeak * 1e12} ({highPeak * 1e12} - {lowPeak * 1e12})')
 
             #find second rising edge after falling edge
             secondRisingEdge = np.where(shiftedData[secondFallingEdge:] > triggerVal)[0][0] + secondFallingEdge
@@ -230,7 +259,7 @@ class DAQ:
                 return shiftedData
             
         except Exception as e:
-            print(e)
+            logging.info(e)
             #we got an invalid square wave
             if calcResistance:
                 return data, None
@@ -239,6 +268,38 @@ class DAQ:
         
     
 class FakeDAQ:
+    def __init__(self):
+        self.latestResistance = 6 * 10 ** 6
+        self.latest_protocol_data = None
+        self.isRunningCurrentProtocol = False
+
+    def resistance(self):
+        return self.latestResistance + np.random.normal(0, 0.1 * 10 ** 6)
+
+    def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        #create a wave_freq Hz square wave
+        data = np.zeros(int(samplesPerSec / recordingTime))
+        onTime = 1 / wave_freq * dutyCycle * samplesPerSec
+        offTime = 1 / wave_freq * (1-dutyCycle) * samplesPerSec
+
+        #calc period
+        period = onTime + offTime
+
+        #convert to int
+        onTime = int(onTime)
+        offTime = int(offTime)
+        period = int(period)
+
+        wavesPerSec = samplesPerSec // period
+
+        for i in range(wavesPerSec):
+            data[i * period : i * period + onTime] = amplitude
+
+
+        xdata = np.linspace(0, recordingTime, len(data), dtype=float)
+
+        data = np.array([xdata, data]), self.resistance()
+        return data
     def __init__(self):
         self.latestResistance = 6 * 10 ** 6
         self.latest_protocol_data = None

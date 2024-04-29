@@ -2,12 +2,14 @@
 Pressure Controller classes to communicate with the Pressure Controller Box made by the IBB
 '''
 from logging import exception
+import logging
 from .pressurecontroller import PressureController
 import serial.tools.list_ports
 import serial
 import time
 import threading
 import collections
+logging.basicConfig(level=logging.INFO)
 
 all = ['IBBPressureController']
 
@@ -54,7 +56,7 @@ class IBBPressureController(PressureController):
         '''
 
         allPorts = [COMPort for COMPort in serial.tools.list_ports.comports()]
-        print(f"Attempting to find IBB Pressure Box from: {[(p.product, hex(p.vid) if p.vid != None else None, p.name) for p in allPorts]}")
+        logging.info(f"Attempting to find IBB Pressure Box from: {[(p.product, hex(p.vid) if p.vid != None else None, p.name) for p in allPorts]}")
 
         possiblePorts = []
         for p in serial.tools.list_ports.comports():
@@ -63,15 +65,15 @@ class IBBPressureController(PressureController):
         
         if len(possiblePorts) == 1:
             port = possiblePorts[0]
-            print(f"Auto detected IBBPressureBox on port {port.name}")
+            logging.info(f"Auto detected IBBPressureBox on port {port.name}")
         else:
             exception(f"Could not find pressure controller serial interface from ports: {[p.name for p in possiblePorts]}")
             exit()
         
         arduSerial = serial.Serial(port=port.device, baudrate=9600, timeout=3)
-        print("waiting for arduino to init...")
+        logging.info("waiting for arduino to init...")
         time.sleep(2) #wait for serial port to init #TODO: wait for serial responses instead?
-        print("done")
+        logging.info("done")
 
         return arduSerial
 
@@ -97,9 +99,10 @@ class IBBPressureController(PressureController):
         '''Tell pressure controller to go to a given setpoint pressure in native DAC units
         '''
         self.setpoint_raw = raw_pressure
-        print(f"Setting pressure to {self.nativeToMbar(raw_pressure)} mbar (raw: {raw_pressure})")
+        logging.info(f"Setting pressure to {self.nativeToMbar(raw_pressure)} mbar (raw: {raw_pressure})")
 
         cmd = f"set {self.channel} {raw_pressure}\n"
+        logging.info(f"Sending command: {cmd}")
         self.serial.write(bytes(cmd, 'ascii'))
         self.serial.flush()
 
@@ -117,7 +120,7 @@ class IBBPressureController(PressureController):
     def get_setpoint_raw(self):
         '''Gets the current setpoint in native DAC units
         '''
-        print(f"Current setpoint: {self.nativeToMbar(self.setpoint_raw)} mbar (raw: {self.setpoint_raw})")
+        logging.info(f"Current setpoint: {self.nativeToMbar(self.setpoint_raw)} mbar (raw: {self.setpoint_raw})")
         return self.setpoint_raw
     
     def get_pressure(self):
@@ -132,6 +135,7 @@ class IBBPressureController(PressureController):
         '''Tell the onboard arduino to pulse pressure for a certain period of time
         '''
         cmd = f"pulse {self.channel} {delayMs}\n"
+        logging.info(f"Pulsing pressure for {delayMs} ms")
         self.serial.write(bytes(cmd, 'ascii')) #do serial writing in main thread for timing?
         self.serial.flush()
         
@@ -149,8 +153,10 @@ class IBBPressureController(PressureController):
         '''
         if atm:
             cmd = f"switchAtm {self.channel}\n" #switch to ATM command
+            logging.info("Switching to ATM")
         else:
             cmd = f"switchP {self.channel}\n" #switch to Pressure command
+            logging.info("Switching to Pressure")
         self.serial.write(bytes(cmd, 'ascii'))
         self.serial.flush()
 
@@ -192,7 +198,7 @@ class IBBPressureController(PressureController):
 
                 #make what was actually received and what was expected match
                 if resp != expected:
-                    print(f"INVALID PRESSURE COMMAND, EXPECTED RESPONSE {expected} BUT GOT {resp}")
+                    logging.info(f"INVALID PRESSURE COMMAND, EXPECTED RESPONSE {expected} BUT GOT {resp}")
                     self.expectedResponses.clear()
                 
                 #grab the next line
@@ -201,6 +207,6 @@ class IBBPressureController(PressureController):
             while len(self.expectedResponses) > 0 and time.time() - self.expectedResponses[0][0] > self.serialCmdTimeout:
                 #the response on top of expectedResponses has timed out!
                 self.expectedResponses.popleft() #remove timed out response
-                print("PRESSURE BOX SERIAL RESPONSE TIMEOUT!")
+                logging.info("PRESSURE BOX SERIAL RESPONSE TIMEOUT!")
             
             time.sleep(0.01) #sleep less when there might be things to do shortly

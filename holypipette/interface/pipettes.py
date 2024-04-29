@@ -45,7 +45,8 @@ class PipetteInterface(TaskInterface):
                     print('Stage calibration:')
                     print(cal['stage'])
             else:
-                print('No calibration file found, need to calibrate before usage!')
+                pass
+            # print('No calibration file found, need to calibrate before usage!')
 
 
         self.cleaning_bath_position = None

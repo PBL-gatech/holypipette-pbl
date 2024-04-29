@@ -2,10 +2,10 @@ import time
 
 import numpy as np
 import cv2
-from holypipette.devices.amplifier.amplifier import Amplifier
-from holypipette.devices.amplifier.DAQ import DAQ
-from holypipette.devices.manipulator.calibratedunit import CalibratedUnit
-from holypipette.devices.manipulator.microscope import Microscope
+from ..devices.amplifier.amplifier import Amplifier
+from ..devices.amplifier.DAQ import DAQ
+from ..devices.manipulator.calibratedunit import CalibratedUnit
+from ..devices.manipulator.microscope import Microscope
 import collections
 
 from holypipette.config import Config
@@ -37,6 +37,17 @@ class AutoPatcher(TaskController):
         self.initial_resistance = None
 
         self.current_protocol_graph = None
+    def run_voltage_protocol(self):
+        self.info('Running voltage protocol')
+        self.amplifier.voltage_clamp()
+        self.sleep(0.25)
+        self.amplifier.set_holding(-0.070)
+        self.sleep(0.25)
+        # self.daq.getDataFromVoltageProtocol()
+        self.sleep(0.25)
+        self.info('finished running voltage protocol')
+        self.amplifier.set_holding(0)
+        self.run_current_protocol()
 
     def run_current_protocol(self):
         self.info('Running current protocol')
@@ -45,7 +56,11 @@ class AutoPatcher(TaskController):
         self.daq.getDataFromCurrentProtocol()
         self.sleep(0.25)
         self.amplifier.voltage_clamp()
+        self.info('finished running current protocol')
 
+    def run_protocols(self):
+        self.run_current_protocol()
+        
     def break_in(self):
         '''
         Breaks in. The pipette must be in cell-attached mode

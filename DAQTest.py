@@ -4,13 +4,21 @@ from nidaqmx.types import CtrTime
 import numpy as np
 import matplotlib.pyplot as plt
 
-ampRead = 'cDAQ1Mod2'
-ampCmd = 'cDaq1Mod1'
+ampRead = 'cDAQ1Mod1'
+ampCmd = 'cDAQ1Mod4'
 
 #list all daq devices connected
 system = nidaqmx.system.System.local()
 devices = system.devices
-print([d for d in devices])
+for device in system.devices:
+    print(f'Device name: {device.name}')
+    print('AI channels:', device.ai_physical_chans.channel_names)
+    print('AO channels:', device.ao_physical_chans.channel_names)
+    print('DI lines:', device.di_lines)
+    print('DO lines:', device.do_lines)
+# print("Devices:")
+# print([d for d in devices])
+
 
 ampReadDev = devices[ampRead]
 ampCmdDev = devices[ampCmd]
@@ -49,7 +57,7 @@ def sendSquareWave(device, channel, wave_freq, samplesPerSec, dutyCycle):
         data[i * period : i * period + onTime] = 5
 
     
-    print(data)
+    # print(data)
     task.write(data)
     
     task.start()
@@ -63,7 +71,7 @@ def readAnalogInputContinuous(device, channel):
         task.timing.cfg_samp_clk_timing(10000, sample_mode=nidaqmx.constants.AcquisitionType.FINITE, samps_per_chan=1000)
         task.triggers.reference_trigger.cfg_anlg_edge_ref_trig(f'{device}/{channel}', pretrigger_samples = 10, trigger_slope=nidaqmx.constants.Slope.RISING, trigger_level = 2 )
         # task.triggers.reference_trigger.cfg_anlg_edge_ref_trig("Dev1/ai0", pretrigger_samples = 10, trigger_slope=nidaqmx.constants.Slope.FALLING, trigger_level = 5)
-        squareWave = sendSquareWave(ampCmd, 'ao1', 100, 1000, 0.5)
+        squareWave = sendSquareWave(ampCmd, 'ao0', 100, 1000, 0.5)
 
 
         while True:
@@ -89,7 +97,9 @@ def readAnalogInputContinuous(device, channel):
     
 if __name__ == '__main__':
     import time
-    readAnalogInputContinuous(ampRead, 'ai0')
+
+    print('starting continuous read')
+    readAnalogInputContinuous(ampRead, 'ai1')
     # squareWave = sendSquareWave(ampCmd, 'ao1', 100, 1000, 0.5)
     # time.sleep(60)
     # squareWave.stop()

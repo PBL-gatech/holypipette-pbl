@@ -640,7 +640,7 @@ class CameraGui(QtWidgets.QMainWindow):
         Close the GUI.
         '''
         if self.camera:
-            print('closing GUI')
+            logging.info('closing GUI')
             self.camera.stop_acquisition()
             self.camera.stop_recording()
             self.camera.close()

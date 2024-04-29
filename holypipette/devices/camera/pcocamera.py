@@ -121,7 +121,7 @@ class PcoCamera(Camera):
             self.lastFrame = img
             # print(meta)
         except Exception as e:
-            return self.lastFrame #there was an error grabbing the most recent frame
+            return self.last_frame #there was an error grabbing the most recent frame
 
         return img
 

@@ -9,11 +9,11 @@ import PyQt5.QtGui as QtGui
 import numpy as np
 
 
-from holypipette.controller import TaskController
-from holypipette.gui.manipulator import ManipulatorGui
-from holypipette.interface.patch import AutoPatchInterface
-from holypipette.interface.pipettes import PipetteInterface
-from holypipette.interface.base import command
+from ..controller import TaskController
+from ..gui.manipulator import ManipulatorGui
+from ..interface.patch import AutoPatchInterface
+from ..interface.pipettes import PipetteInterface
+from ..interface.base import command
 
 
 class PatchGui(ManipulatorGui):
@@ -44,10 +44,10 @@ class PatchGui(ManipulatorGui):
         cellsorter_tab = CellSorterButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals)
         self.add_tab(cellsorter_tab, 'Cell Sorter', index = 0)
 
-        # Update the pressure and information in the status bar every 50ms
+        # Update the pressure and information in the status bar every 16ms
         self.pressure_timer = QtCore.QTimer()
         self.pressure_timer.timeout.connect(self.display_pressure)
-        self.pressure_timer.start(50)
+        self.pressure_timer.start(16)
         self.patch_interface.set_pressure_near()
 
     def display_pressure(self):
@@ -187,7 +187,8 @@ class PatchButtons(ButtonTabWidget):
         self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
         self.init_stage_pos = None #used to store bootup positions so we can reset to them
         self.init_pipette_pos = None
-
+        
+       
         #add a box for cal
         buttonList = [['Calibrate Stage','Set Cell Plane'], ['Add Pipette Cal Point', 'Finish Pipette Cal'], ['Save Calibration', 'Recalibrate Pipette']]
         cmds = [[self.pipette_interface.calibrate_stage, self.pipette_interface.set_floor], [self.pipette_interface.record_cal_point, self.pipette_interface.finish_calibration], [self.pipette_interface.write_calibration, self.pipette_interface.recalibrate_manipulator]]
@@ -195,7 +196,7 @@ class PatchButtons(ButtonTabWidget):
 
         #add a box for movement
         buttonList = [[ 'Focus Cell Plane', 'Focus Pipette Plane'], ['Fix Backlash', 'Center Pipette'], ['Run protocol']]
-        cmds = [[self.pipette_interface.go_to_floor, self.pipette_interface.focus_pipette], [self.pipette_interface.fix_backlash, self.pipette_interface.center_pipette], [self.patch_interface.run_current_protocol]]
+        cmds = [[self.pipette_interface.go_to_floor, self.pipette_interface.focus_pipette], [self.pipette_interface.fix_backlash, self.pipette_interface.center_pipette], [self.patch_interface.run_protocols]]
         self.addButtonList('movement', layout, buttonList, cmds)
 
         #add a box for patching cmds
@@ -203,10 +204,10 @@ class PatchButtons(ButtonTabWidget):
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell], [self.patch_interface.patch, self.patch_interface.break_in], [self.patch_interface.store_cleaning_position], [self.patch_interface.clean_pipette]]
         self.addButtonList('patching', layout, buttonList, cmds)
 
-        #add a box for Lumencor LED control
-        buttonList = [['None'], ['Violet', 'Blue'], ['Cyan', 'Yellow'], ['Red', 'Near Infrared']]
-        cmds = [[self.do_nothing], [self.do_nothing, self.do_nothing], [self.do_nothing, self.do_nothing], [self.do_nothing, self.do_nothing]]
-        self.addButtonList('Lumencor LED', layout, buttonList, cmds)
+        # #add a box for Lumencor LED control
+        # buttonList = [['None'], ['Violet', 'Blue'], ['Cyan', 'Yellow'], ['Red', 'Near Infrared']]
+        # cmds = [[self.do_nothing], [self.do_nothing, self.do_nothing], [self.do_nothing, self.do_nothing], [self.do_nothing, self.do_nothing]]
+        # self.addButtonList('Lumencor LED', layout, buttonList, cmds)
         
         self.setLayout(layout)
 
