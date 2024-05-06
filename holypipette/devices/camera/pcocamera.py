@@ -34,6 +34,9 @@ class PcoCamera(Camera):
 
         #setup the pco camera for continuous streaming
         self.cam = pco.Camera()
+
+        print(f"CAMERA {self.cam}")
+
         # self.ca .sdk.set_timestamp_mode('binary & ascii')
         config = {'exposure time': 10e-3,
                     'roi': (1, 1, 2048, 2048),
@@ -96,9 +99,12 @@ class PcoCamera(Camera):
         self.cam.wait_for_first_image()
 
     def normalize(self, img = None):
+        print(f"BEFORE IMAGE: {img}")
         if img is None:
             img = self.get_16bit_image()
-
+            print(f"IMAGE after get_16bit_image: {img}")
+            # print(type(img))
+        print(f"AFTER IMAGE: {img}")
         #is there a better way to do this?
         #maybe 2 stdevs instead?
         self.lowerBound = img.min()
@@ -117,11 +123,15 @@ class PcoCamera(Camera):
         self.frameno = self.cam.rec.get_status()['dwProcImgCount']
         
         try:
+            # print(f"IMAGE NUMBER: {PcoCamera.PCO_RECORDER_LATEST_IMAGE}")
+            # img, meta = self.cam.image(PcoCamera.PCO_RECORDER_LATEST_IMAGE)
+            # this is the line that is causing an error if pco <= 2.1.2
             img, meta = self.cam.image(image_number=PcoCamera.PCO_RECORDER_LATEST_IMAGE)
             self.lastFrame = img
             # print(meta)
         except Exception as e:
-            return self.last_frame #there was an error grabbing the most recent frame
+            print(f"ERROR in get_16bit_image: {e}")
+            return self.last_frame # there was an error grabbing the most recent frame
 
         return img
 
@@ -136,7 +146,7 @@ class PcoCamera(Camera):
         #     focusLvl = self.pipetteFocuser.get_pipette_focus(img)
         #     print(focusLvl)
 
-        #apply upper / lower bounds (normalization)
+        # apply upper / lower bounds (normalization)
         span = self.upperBound - self.lowerBound
 
         if span == 0:
