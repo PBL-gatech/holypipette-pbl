@@ -26,7 +26,7 @@ class PcoCamera(Camera):
 
     PCO_RECORDER_LATEST_IMAGE = 0xFFFFFFFF
 
-    def __init__(self, width : int = 2048, height : int = 2048):
+    def __init__(self, width : int = 1280, height : int = 1280):
         super(PcoCamera, self).__init__()
 
         self.width = width #update superclass img width / height vars
@@ -39,7 +39,7 @@ class PcoCamera(Camera):
 
         # self.ca .sdk.set_timestamp_mode('binary & ascii')
         config = {'exposure time': 10e-3,
-                    'roi': (1, 1, 2048, 2048),
+                    'roi': (385, 385, 1664, 1664),
                     'timestamp': 'off',
                     'trigger': 'auto sequence',
                     'acquire': 'auto',

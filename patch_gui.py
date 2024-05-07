@@ -1,8 +1,8 @@
 import sys
 
-
+import PyQt5.QtWidgets as QtWidgets
 import traceback
-from PyQt5 import QtWidgets
+# from PyQt5 import QtWidgets
 
 from holypipette.log_utils import console_logger
 from holypipette.interface import AutoPatchInterface
