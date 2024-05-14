@@ -37,17 +37,6 @@ class AutoPatcher(TaskController):
         self.initial_resistance = None
 
         self.current_protocol_graph = None
-    def run_voltage_protocol(self):
-        self.info('Running voltage protocol')
-        self.amplifier.voltage_clamp()
-        self.sleep(0.25)
-        self.amplifier.set_holding(-0.070)
-        self.sleep(0.25)
-        # self.daq.getDataFromVoltageProtocol()
-        self.sleep(0.25)
-        self.info('finished running voltage protocol')
-        self.amplifier.set_holding(0)
-        self.run_current_protocol()
 
     def run_current_protocol(self):
         self.info('Running current protocol')
@@ -58,8 +47,6 @@ class AutoPatcher(TaskController):
         self.amplifier.voltage_clamp()
         self.info('finished running current protocol')
 
-    def run_protocols(self):
-        self.run_current_protocol()
         
     def break_in(self):
         '''

@@ -13,59 +13,7 @@ from collections import deque
 from holypipette.devices.amplifier import DAQ
 from holypipette.devices.pressurecontroller import PressureController
 
-__all__ = ["EPhysGraph", "CurrentProtocolGraph","VoltageProtocolGraph"]
-# __all__ = ["EPhysGraph", "CurrentProtocolGraph"]
-
-class VoltageProtocolGraph(QWidget):
-    def __init__(self, daq : DAQ):
-        super().__init__()
-
-        layout = QVBoxLayout()
-        self.setWindowTitle("Voltage Protocol")
-        logging.getLogger('matplotlib.font_manager').disabled = True
-        self.daq = daq
-        self.protocolPlot = PlotWidget()
-        self.protocolPlot.setBackground('w')
-        self.protocolPlot.getAxis('left').setPen('k')
-        self.protocolPlot.getAxis('bottom').setPen('k')
-        self.protocolPlot.setLabel('left', "Current", units='pA')
-        self.protocolPlot.setLabel('bottom', "Samples", units='')
-        layout.addWidget(self.protocolPlot)
-
-        self.latestDisplayedData = None
-
-        self.setLayout(layout)
-        self.raise_()
-        self.show()
-
-        #hide window
-        self.setHidden(True)
-
-        #remap close event to hide window
-        self.closeEvent = lambda: self.setHidden(True)
-
-        #start async daq data update
-        self.updateTimer = QtCore.QTimer()
-        self.updateDt = 100 #ms
-        self.updateTimer.timeout.connect(self.update_plot)
-        self.updateTimer.start(self.updateDt)
-
-    def update_plot(self):
-        #is what we displayed the exact same?
-        if self.latestDisplayedData == self.daq.latest_protocol_data or self.daq.latest_protocol_data is None:
-            return
-
-        #if the window was closed or hidden, relaunch it
-        if self.isHidden():
-            self.show()
-
-        colors = ['k', 'r', 'g', 'b', 'y', 'm', 'c']
-        self.protocolPlot.clear()
-        for i, graph in enumerate(self.daq.latest_protocol_data):
-            xData = graph[0]
-            yData = graph[1]
-            self.protocolPlot.plot(xData, yData, pen=colors[i])
-        self.latestDisplayedData = self.daq.latest_protocol_data.copy()
+__all__ = ["EPhysGraph", "CurrentProtocolGraph"]
 
 class CurrentProtocolGraph(QWidget):
     def __init__(self, daq : DAQ):
@@ -142,6 +90,8 @@ class EPhysGraph(QWidget):
         self.setWindowTitle("Electrophysiology")
 
         self.squareWavePlot = PlotWidget()
+        # * numerator below is ms!
+        # self.squareWavePlot.setXRange(0, 10/1000, padding=0)
         self.pressurePlot = PlotWidget()
         self.resistancePlot = PlotWidget()
 
@@ -213,7 +163,7 @@ class EPhysGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        #start async daq data update
+        # start async daq data update
         self.lastestDaqData = None
         self.daqUpdateThread = threading.Thread(target=self.updateDAQDataAsync, daemon=True)
         self.daqUpdateThread.start()
@@ -224,21 +174,29 @@ class EPhysGraph(QWidget):
 
     def updateDAQDataAsync(self):
         while True:
-            time.sleep(0.1)
+            # time.sleep(0.1)
 
-            if self.daq.isRunningCurrentProtocol or self.daq.isRunningVoltageProtocol:
-                continue #don't run membrane test while running a current protocol
+            if self.daq.isRunningCurrentProtocol:
+                continue # don't run membrane test while running a current protocol
 
-            self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(100, 50000, 0.5, 0.5, 0.1)
+            # * setting frequency to 100Hz fixed the resistance chart on bath mode but isn't needed on cell mode (it can be 10Hz??)
+            # self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(100, 50000, 0.5, 0.5, 0.1)
+            self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
             if resistance is not None:
                 self.resistanceDeque.append(resistance)
                 self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
 
     def update_plot(self):
-        #update current graph
+        # update current graph
+        # print("1", self.lastestDaqData)
+        # what happens here?
+
         if self.lastestDaqData is not None:
+            # print("3", len(self.lastestDaqData))
             self.squareWavePlot.clear()
             self.squareWavePlot.plot(self.lastestDaqData[0, :], self.lastestDaqData[1, :])
+            # print(len(self.lastestDaqData[0, :]))
+            # print(len(self.lastestDaqData[1, :]))
             self.lastestDaqData = None
         
         #update pressure graph
