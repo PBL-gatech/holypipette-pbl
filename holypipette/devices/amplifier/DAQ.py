@@ -5,7 +5,7 @@ import nidaqmx.constants
 import numpy as np
 import scipy.signal as signal
 import math
-import sys, os
+# import sys, os
 import time
 import threading
 import logging
@@ -109,10 +109,10 @@ class DAQ:
         self.latest_protocol_data = None #clear data
         num_waves = int((endCurrentPicoAmp - startCurrentPicoAmp) / stepCurrentPicoAmp) + 1
 
-        #convert to amps
+        # convert to amps
         startCurrent = startCurrentPicoAmp * 1e-12
 
-        #get wave frequency Hz
+        # get wave frequency Hz
         wave_freq = 1 / (2 * highTimeMs * 1e-3)
 
         #general constants for square waves
@@ -188,12 +188,10 @@ class DAQ:
         # Truncate the array
         left_bound = 10
         right_bound = 100
-        # * bound is arbitrary, like the 10 below.
+        # * bound is arbitrary, just to make it look good on the graph
         data = data[max_index-left_bound:min_index + right_bound]
         xdata = xdata[max_index-left_bound:min_index + right_bound]
 
-
-        # * Multplying here makes it 1ms faster
         # convert from V to pA
         data *= 2000
         # convert from pA to Amps
@@ -293,10 +291,11 @@ class DAQ:
             # return shiftedData
             
         except Exception as e:
-            exc_type, exc_obj, exc_tb = sys.exc_info()
-            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            logging.error(f"{exc_type}, {fname}, {exc_tb.tb_lineno}")
-            #we got an invalid square wave
+            # * we got an invalid square wave
+            logging.error(f"Error in getResistancefromCurrent: {e}")
+            # exc_type, exc_obj, exc_tb = sys.exc_info()
+            # fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            # logging.error(f"{exc_type}, {fname}, {exc_tb.tb_lineno}")
             if calcResistance:
                 return data, None
             return data
