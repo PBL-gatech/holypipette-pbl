@@ -172,11 +172,12 @@ class DAQ:
         # print("Time to unlock", time.time() - start1)
 
         # print("Before Shape", data.shape)
+        # ? Why 0.02?
         data, self.latestResistance = self._getResistancefromCurrent(data, amplitude * 0.02, samplesPerSec)
         triggeredSamples = data.shape[0]
         xdata = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
-
         # print(xdata)
+
 
         # Gradient
         gradientData = np.gradient(data, xdata)        
@@ -185,10 +186,11 @@ class DAQ:
         min_index = np.argmin(gradientData[max_index:]) + max_index
         
         # Truncate the array
-        bound = 100
+        left_bound = 10
+        right_bound = 100
         # * bound is arbitrary, like the 10 below.
-        data = data[max_index-10:min_index + bound]
-        xdata = xdata[max_index-10:min_index + bound]
+        data = data[max_index-left_bound:min_index + right_bound]
+        xdata = xdata[max_index-left_bound:min_index + right_bound]
 
 
         # * Multplying here makes it 1ms faster
@@ -196,11 +198,12 @@ class DAQ:
         data *= 2000
         # convert from pA to Amps
         data *= 1e-12
+
         logging.info(f"Time to acquire & transform data: {time.time() - start0}")
         return np.array([xdata, data]), self.latestResistance
     
     def resistance(self):
-        logging.warn("latestResistance", self.latestResistance)
+        # logging.warn("latestResistance", self.latestResistance)
         return self.latestResistance
 
     def _filter60Hz(self, data):
@@ -232,10 +235,6 @@ class DAQ:
             mean = np.mean(shiftedData)
             lowAvg = np.mean(shiftedData[shiftedData < mean])
             highAvg = np.mean(shiftedData[shiftedData > mean])
-            # maxPoint = np.max(shiftedData)
-            # minPoint = np.min(shiftedData)
-            # std = np.std(data)
-            # print(std)
 
             # #split data into high and low wave
             # triggerVal = np.mean(shiftedData)
@@ -296,7 +295,7 @@ class DAQ:
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            logging.info(f"{exc_type}, {fname}, {exc_tb.tb_lineno}")
+            logging.error(f"{exc_type}, {fname}, {exc_tb.tb_lineno}")
             #we got an invalid square wave
             if calcResistance:
                 return data, None
