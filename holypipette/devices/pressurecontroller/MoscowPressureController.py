@@ -50,39 +50,44 @@ class MoscowPressureController(PressureController):
         # self.responseDeamon.setDaemon(True) #make sure thread dies with main thread
         # self.responseDeamon.start()
 
-        time.sleep(2) #wait for arduino to boot up
+        time.sleep(2) # wait for arduino to boot up
 
-        #set initial configuration of pressure controller
+        # set initial configuration of pressure controller
         self.set_ATM(False)
         self.set_pressure(20)
 
     def autodetectSerial(self):
-        '''Use VID and name of serial devices to figure out which one is the Moscow Pressure box
+        '''
+        Use VID and name of serial devices to figure out which one is the Moscow Pressure box
         '''
 
         allPorts = [COMPort for COMPort in serial.tools.list_ports.comports()]
         logging.info(f"Attempting to find Moscow Pressure Box from: {[(p.product, hex(p.vid) if p.vid != None else None, p.name) for p in allPorts]}")
 
     def set_pressure(self, pressure):
-        '''Tell pressure controller to go to a given setpoint pressure in mbar
+        '''
+        Tell pressure controller to go to a given setpoint pressure in mbar
         '''
         nativeUnits = self.mbarToNative(pressure)
         self.set_pressure_raw(nativeUnits)
     
     def mbarToNative(self, pressure):
-        '''Comvert from a pressure in mBar to native units
+        '''
+        Comvert from a pressure in mBar to native units
         '''
         raw_pressure = int(pressure * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero)
         return min(max(raw_pressure, 0), 4095) #clamp native units to 0-4095
 
     def nativeToMbar(self, raw_pressure):
-        '''Comvert from native units to a pressure in mBar
+        '''
+        Comvert from native units to a pressure in mBar
         '''
         pressure = (raw_pressure - MoscowPressureController.nativeZero) / MoscowPressureController.nativePerMbar
         return pressure
 
     def set_pressure_raw(self, raw_pressure):
-        '''Tell pressure controller to go to a given setpoint pressure in native DAC units
+        '''
+        Tell pressure controller to go to a given setpoint pressure in native DAC units
         '''
         self.setpoint_raw = raw_pressure
         logging.info(f"Setting pressure to {self.nativeToMbar(raw_pressure)} mbar (raw: {raw_pressure})")
@@ -104,12 +109,14 @@ class MoscowPressureController(PressureController):
         self.expectedResponses.append((time.time(), f"{raw_pressure}"))
 
     def get_setpoint(self):
-        '''Gets the current setpoint in millibar
+        '''
+        Gets the current setpoint in millibar
         '''
         return self.nativeToMbar(self.setpoint_raw)
 
     def get_setpoint_raw(self):
-        '''Gets the current setpoint in native DAC units
+        '''
+        Gets the current setpoint in native DAC units
         '''
         logging.info(f"Current setpoint: {self.nativeToMbar(self.setpoint_raw)} mbar (raw: {self.setpoint_raw})")
         return self.setpoint_raw
@@ -127,10 +134,11 @@ class MoscowPressureController(PressureController):
         return readvalue
     
     def read_sensor(self):
-        '''Read the pressure sensor value from the arduino
+        '''
+        Read the pressure sensor value from the arduino
         '''
         pressure = self.readerSerial.readline().decode('utf-8').strip()
-        if pressure == None or pressure == "": #no data received
+        if pressure == None or pressure == "": # no data received
             logging.error("No data received from pressure sensor")
             return None
         else: 

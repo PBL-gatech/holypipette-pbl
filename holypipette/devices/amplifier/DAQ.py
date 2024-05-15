@@ -191,6 +191,7 @@ class DAQ:
         # * bound is arbitrary, just to make it look good on the graph
         data = data[max_index-left_bound:min_index + right_bound]
         xdata = xdata[max_index-left_bound:min_index + right_bound]
+        # gradientData = gradientData[max_index-left_bound:min_index + right_bound]
 
         # convert from V to pA
         data *= 2000
@@ -212,12 +213,12 @@ class DAQ:
         return data
 
     def _shiftWaveToZero(self, data, lowZero=True):
-        mean = np.median(data)
+        median = np.median(data)
 
         if lowZero:
-            zeroAvg = np.mean(data[data < mean])
+            zeroAvg = np.mean(data[data < median])
         else:
-            zeroAvg = np.mean(data[data > mean])
+            zeroAvg = np.mean(data[data > median])
 
         #set data mean to 0
         shiftedData = data - zeroAvg
