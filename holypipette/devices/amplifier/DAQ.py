@@ -60,24 +60,40 @@ class DAQ:
         task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
         task.timing.cfg_samp_clk_timing(samplesPerSec, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
         
+        # For testing purposes
+        # newdata = np.zeros(int(samplesPerSec * recordingTime))
+
         # create a wave_freq Hz square wave
         data = np.zeros(int(samplesPerSec * recordingTime))
         # print("data len", data.shape)
-        onTime = int(1 / wave_freq * dutyCycle * samplesPerSec)
-        # print("onTime", onTime)
-        # this can be improved as dutyCycle is a %
-        offTime = int(1 / wave_freq * (1-dutyCycle) * samplesPerSec)
-        # print("offTime", offTime)
-        period = onTime + offTime
+
+        # * Old way of doing it
+        # onTime_old = int(1 / wave_freq * dutyCycle * samplesPerSec)
+        # offTime_old = int(1 / wave_freq * (1-dutyCycle) * samplesPerSec)
+        # period_old = onTime_old + offTime_old
+        # print("period", period)
+        
+        
+        period = int(1 / wave_freq * samplesPerSec)
+        onTime = int(period * dutyCycle)
+        # offTime = period - onTime
+        # print("Period old= period2 ", period_old == period)
+        # print("ontime old= ontime2 ", onTime_old == onTime)
+        # print("offTime old= offTime2 ", offTime_old == offTime)
 
         wavesPerSec = samplesPerSec // period
         # print("wavesPerSec", wavesPerSec)
 
-        for i in range(wavesPerSec):
-            data[i * period : i * period + onTime] = 0
-            data[i * period + onTime : (i+1) * period] = amplitude
 
-        # print("Data", data)
+        # for i in range(wavesPerSec):
+        #     data[i * period_old : i * period_old + onTime_old] = 0
+        #     data[i * period_old + onTime_old : (i+1) * period_old] = amplitude
+
+        # * This should achieve the same result as the above for loop
+        data[:wavesPerSec*period:onTime] = 0
+        data[onTime:wavesPerSec*period] = amplitude
+
+        # print(np.array_equal(data, newdata))
 
         task.write(data)
         
@@ -141,7 +157,7 @@ class DAQ:
     
     def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         # measure the time it took to acquire the data
-        # start0 = time.time()
+        start0 = time.time()
         # start1 = time.time()
         self._deviceLock.acquire()
         sendTask = self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
@@ -158,20 +174,9 @@ class DAQ:
         # print("Before Shape", data.shape)
         data, self.latestResistance = self._getResistancefromCurrent(data, amplitude * 0.02, samplesPerSec)
         triggeredSamples = data.shape[0]
-        # print("After Shape", data.shape)
-        # print("Triggered Samples", triggeredSamples)
-        # print("Latest Resistance", self.latestResistance)
-        # print("Shape after", data.shape)
         xdata = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
 
-        #convert from V to pA
-        data *= 2000
-
-        #convert from pA to Amps
-        data *= 1e-12
-
         # print(xdata)
-        # print("Time to acquire data", time.time() - start0)
 
         # Gradient
         gradientData = np.gradient(data, xdata)        
@@ -185,6 +190,13 @@ class DAQ:
         data = data[max_index-10:min_index + bound]
         xdata = xdata[max_index-10:min_index + bound]
 
+
+        # * Multplying here makes it 1ms faster
+        # convert from V to pA
+        data *= 2000
+        # convert from pA to Amps
+        data *= 1e-12
+        logging.info(f"Time to acquire & transform data: {time.time() - start0}")
         return np.array([xdata, data]), self.latestResistance
     
     def resistance(self):
