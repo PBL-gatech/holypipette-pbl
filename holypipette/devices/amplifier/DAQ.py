@@ -67,16 +67,16 @@ class DAQ:
         data = np.zeros(int(samplesPerSec * recordingTime))
         # print("data len", data.shape)
 
-        # * Old way of doing it
+        # * Old way of doing it: .7 * 10^-6 SLOWER when measured with perf_counter
         # onTime_old = int(1 / wave_freq * dutyCycle * samplesPerSec)
         # offTime_old = int(1 / wave_freq * (1-dutyCycle) * samplesPerSec)
         # period_old = onTime_old + offTime_old
         # print("period", period)
         
-        
         period = int(1 / wave_freq * samplesPerSec)
         onTime = int(period * dutyCycle)
         # offTime = period - onTime
+        # Testing that the old and new mathod match
         # print("Period old= period2 ", period_old == period)
         # print("ontime old= ontime2 ", onTime_old == onTime)
         # print("offTime old= offTime2 ", offTime_old == offTime)
@@ -157,8 +157,7 @@ class DAQ:
     
     def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         # measure the time it took to acquire the data
-        start0 = time.time()
-        # start1 = time.time()
+        # start0 = time.time()
         self._deviceLock.acquire()
         sendTask = self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
         sendTask.start()
@@ -169,7 +168,7 @@ class DAQ:
         sendTask.close()
         self._deviceLock.release()
         
-        # print("Time to unlock", time.time() - start1)
+        # print("Time to unlock", time.time() - start0)
 
         # print("Before Shape", data.shape)
         # ? Why 0.02?
@@ -198,7 +197,7 @@ class DAQ:
         # convert from pA to Amps
         data *= 1e-12
 
-        logging.info(f"Time to acquire & transform data: {time.time() - start0}")
+        # logging.info(f"Time to acquire & transform data: {time.time() - start0}")
         return np.array([xdata, data]), self.latestResistance
     
     def resistance(self):
