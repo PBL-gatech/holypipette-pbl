@@ -174,6 +174,7 @@ class EPhysGraph(QWidget):
 
     def updateDAQDataAsync(self):
         while True:
+            # This slows down the rate your graph gets updated (bc the graph only gets updated if there is NEW data)
             # time.sleep(0.1)
 
             if self.daq.isRunningCurrentProtocol:
@@ -191,15 +192,10 @@ class EPhysGraph(QWidget):
 
     def update_plot(self):
         # update current graph
-        # print("1", self.lastestDaqData)
-        # what happens here?
 
         if self.lastestDaqData is not None:
-            # print("3", len(self.lastestDaqData))
             self.squareWavePlot.clear()
             self.squareWavePlot.plot(self.lastestDaqData[0, :], self.lastestDaqData[1, :])
-            # print(len(self.lastestDaqData[0, :]))
-            # print(len(self.lastestDaqData[1, :]))
             self.lastestDaqData = None
         
         #update pressure graph
@@ -217,10 +213,11 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
 
     def pressureCommandBoxReturnPressed(self):
-        '''Manually change pressure setpoint
+        '''
+        Manually change pressure setpoint
         '''
 
-        #get text from box
+        # get text from box
         text = self.pressureCommandBox.text()
         self.pressureCommandBox.clear()
 
