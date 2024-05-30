@@ -27,7 +27,10 @@ void loop() {
   // print out the value you read:
   // Serial.println(sensorValue - 512);
   float Y = M * (sensorValue - 512);
-  Serial.println(Y);
+  Serial.print("S");
+  Serial.print(Y);
+  // Serial.println(Y);
+  Serial.println("E");
   // float outputV = ((0.8 * 5) / (1034*2)) * (sensorValue + 1034) + 0.1 * 5;
   // Serial.println(outputV);
   delay(10);  // delay in between reads for stability

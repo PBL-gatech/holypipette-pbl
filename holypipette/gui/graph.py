@@ -93,11 +93,13 @@ class EPhysGraph(QWidget):
         # * numerator below is ms!
         # self.squareWavePlot.setXRange(0, 10/1000, padding=0)
         self.pressurePlot = PlotWidget()
+        # self.pressurePlot2 = PlotWidget()
         self.resistancePlot = PlotWidget()
 
         #set background color of plots
         self.squareWavePlot.setBackground('w')
         self.pressurePlot.setBackground('w')
+        # self.pressurePlot2.setBackground('w')
         self.resistancePlot.setBackground('w')
 
         #set axis colors to black
@@ -105,6 +107,8 @@ class EPhysGraph(QWidget):
         self.squareWavePlot.getAxis('bottom').setPen('k')
         self.pressurePlot.getAxis('left').setPen('k')
         self.pressurePlot.getAxis('bottom').setPen('k')
+        # self.pressurePlot2.getAxis('left').setPen('k')
+        # self.pressurePlot2.getAxis('bottom').setPen('k')
         self.resistancePlot.getAxis('left').setPen('k')
         self.resistancePlot.getAxis('bottom').setPen('k')
 
@@ -119,11 +123,13 @@ class EPhysGraph(QWidget):
 
         self.pressureData = deque(maxlen=100)
         self.resistanceDeque = deque(maxlen=100)
+        self.pressureAvgs = deque(maxlen=100)
 
         #create a quarter layout for 4 graphs
         layout = QVBoxLayout()
         layout.addWidget(self.squareWavePlot)
         layout.addWidget(self.pressurePlot)
+        # layout.addWidget(self.pressurePlot2)
         layout.addWidget(self.resistancePlot)
 
         #make resistance plot show current resistance in text
@@ -159,7 +165,7 @@ class EPhysGraph(QWidget):
         self.setLayout(layout)
         
         self.updateTimer = QtCore.QTimer()
-        self.updateDt = 100 #ms
+        self.updateDt = 33 #ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
@@ -167,6 +173,10 @@ class EPhysGraph(QWidget):
         self.lastestDaqData = None
         self.daqUpdateThread = threading.Thread(target=self.updateDAQDataAsync, daemon=True)
         self.daqUpdateThread.start()
+        currentPressureReading = None
+        self.pressureUpdateThread = threading.Thread(target=self.updatePressureAsync, daemon=True)
+        self.pressureUpdateThread.start()
+
 
         #show window and bring to front
         self.raise_()
@@ -189,6 +199,16 @@ class EPhysGraph(QWidget):
             if resistance is not None:
                 self.resistanceDeque.append(resistance)
                 self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
+    def updatePressureAsync(self):
+        while True:
+            currentPressureReading = self.pressureController.measure()
+            # logging.info(f"Pressure: {currentPressureReading}")
+            if currentPressureReading is not None:
+                self.pressureData.append(currentPressureReading)
+                # logging.info(f"Pressure: {currentPressureReading}")
+                self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(currentPressureReading))
+
+            
 
     def update_plot(self):
         # update current graph
@@ -199,17 +219,35 @@ class EPhysGraph(QWidget):
             self.lastestDaqData = None
         
         #update pressure graph
-        self.pressureData.append(self.pressureController.measure())
-        pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
+        currentPressureReading = self.pressureController.measure()
+        self.pressureData.append(currentPressureReading)
+        # print(currentPressureReading)
+        # logging.info(f"Pressure length : {len(self.pressureData)}")
+        # pressureX = [i * self.updateDt / 10 for i in range(len(self.pressureData))]
+        # pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
+
+        # print(pressureX)
+        # print(len(pressureX))
         self.pressurePlot.clear()
+        pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
         self.pressurePlot.plot(pressureX, self.pressureData, pen='k')
 
-        #update resistance graph
+        # bound = 10
+        # if len(self.pressureData) % 10 == 0:
+        #     last_five = list(self.pressureData)[-bound:]
+        #     avg = sum(last_five) / bound
+        #     self.pressureAvgs.append(avg)
+        #     self.pressurePlot2.clear()
+        #     pressureX2 = [i * self.updateDt / 1000 for i in range(len(self.pressureAvgs))]
+        #     self.pressurePlot2.plot(pressureX2, self.pressureAvgs, pen='k')
+
+
+        # update resistance graph
         self.resistancePlot.clear()
         resistanceDeque = [i for i in range(len(self.resistanceDeque))]
         self.resistancePlot.plot(resistanceDeque, self.resistanceDeque, pen='k')
 
-        self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(self.pressureController.measure()))
+        # self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(currentPressureReading))
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
 
     def pressureCommandBoxReturnPressed(self):

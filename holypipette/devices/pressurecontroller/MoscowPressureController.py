@@ -22,8 +22,9 @@ class MoscowPressureController(PressureController):
     validProducts = ["USB Serial"] #TODO: move to a constants or json file?
     validVIDs = [0x1a86, 0x403]
                     
-    nativePerMbar = 5 # The number of native pressure transucer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
+    nativePerMbar = float(4096/1380) # The number of native pressure transucer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
     nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
+    conversionFactor = 17
 
     serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
@@ -37,6 +38,9 @@ class MoscowPressureController(PressureController):
         if readerSerial is not None:
             # no port specified, we will use the user supplied serial port
             self.readerSerial= readerSerial
+        else: 
+            self.readerSerial = None
+            logging.error("No reader serial port available")
 
         self.channel = channel
         self.isATM = None
@@ -45,16 +49,12 @@ class MoscowPressureController(PressureController):
 
         self.lastVal = 0
 
-        #setup a deamon thread to ensure arduino responses are correct
-        # self.responseDeamon = threading.Thread(target = self.waitForArduinoResponses)
-        # self.responseDeamon.setDaemon(True) #make sure thread dies with main thread
-        # self.responseDeamon.start()
 
         time.sleep(2) # wait for arduino to boot up
 
         # set initial configuration of pressure controller
         self.set_ATM(False)
-        self.set_pressure(20)
+        self.set_pressure(800) #set initial pressure to 800 mbar
 
     def autodetectSerial(self):
         '''
@@ -69,13 +69,14 @@ class MoscowPressureController(PressureController):
         Tell pressure controller to go to a given setpoint pressure in mbar
         '''
         nativeUnits = self.mbarToNative(pressure)
+        # logging.info(f"Setting pressure to {nativeUnits} mbar")
         self.set_pressure_raw(nativeUnits)
     
     def mbarToNative(self, pressure):
         '''
         Comvert from a pressure in mBar to native units
         '''
-        raw_pressure = int(pressure * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero)
+        raw_pressure = int((pressure - MoscowPressureController.conversionFactor) * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero)
         return min(max(raw_pressure, 0), 4095) #clamp native units to 0-4095
 
     def nativeToMbar(self, raw_pressure):
@@ -102,7 +103,7 @@ class MoscowPressureController(PressureController):
         self.controllerSerial.flush()
         logging.info(f"SenT command: {cmd}")
 
-        #add expected arduino responces
+        # add expected arduino responces
         self.expectedResponses.append((time.time(), f"set {self.channel} {raw_pressure}"))
         self.expectedResponses.append((time.time(), f"set"))
         self.expectedResponses.append((time.time(), f"{self.channel}"))
@@ -118,7 +119,7 @@ class MoscowPressureController(PressureController):
         '''
         Gets the current setpoint in native DAC units
         '''
-        logging.info(f"Current setpoint: {self.nativeToMbar(self.setpoint_raw)} mbar (raw: {self.setpoint_raw})")
+        # logging.info(f"Current setpoint: {self.nativeToMbar(self.setpoint_raw)} mbar (raw: {self.setpoint_raw})")
         return self.setpoint_raw
     
     def get_pressure(self):
@@ -127,9 +128,18 @@ class MoscowPressureController(PressureController):
         readvalue = self.read_sensor()
         # logging.warning(f"Pressure: {readvalue} mbar")
         # logging.warning(f"TYPE: {type(readvalue)}")
+        # ? Here I thought that MAYBE if we check that the new value is withina certain % range of the last value, we can assume that the value is correct
+        # ? and not just a random value. This is because the pressure sensor sometimes has a cutoff --> 177.32 mbar will be sent as
+        # ? 17 mbar AND THEn 7.32 mbar
+        # ? However this is not ideal I think....
         if readvalue is None:
             readvalue = self.lastVal
         else:
+            # check that lastVal isnt 0 and that the sensor value isn't above 40% different than what was last recorded. if it is, then we keep the last value
+            # if self.lastVal != 0 and abs(readvalue - self.lastVal) > 0.4*self.lastVal:
+            #     logging.warning(f"Pressure value {readvalue} mbar is more than 40% different than last recorded value {self.lastVal} mbar. Keeping last value.")
+            #     readvalue = self.lastVal
+            # else:
             self.lastVal = readvalue
         return readvalue
     
@@ -137,18 +147,64 @@ class MoscowPressureController(PressureController):
         '''
         Read the pressure sensor value from the arduino
         '''
-        pressure = self.readerSerial.readline().decode('utf-8').strip()
-        if pressure == None or pressure == "": # no data received
-            logging.error("No data received from pressure sensor")
-            return None
-        else: 
-            try: 
-                pressure = float(pressure)
-                # logging.info(f"Pressure: {pressure} mbar")
-                return pressure
-            except ValueError:
-                logging.error(f"Received non-numeric data: {pressure}, type: {type(pressure)}")
-                return None
+        if self.readerSerial.in_waiting > 0:
+            pressure = self.readerSerial.readline().decode('utf-8').strip()
+            # logging.info(f"Pressure (no filter): {pressure} mbar")
+            # logging.info(f"Pressure: {pressure} mbar, {type(pressure)}")
+            # if pressure.isdigit():
+            # pressure = float(pressure)
+            # else:
+            #     pressure = None
+            #     logging.warning("Invalid pressure data received")
+            if 'S' in pressure and 'E' in pressure:
+            # Extract the pressure reading between the markers
+                start_idx = pressure.find('S')
+                end_idx = pressure.find('E')
+                pressure_str = pressure[start_idx+1:end_idx]
+
+                # Try to convert the extracted pressure string to float
+                try:
+                    pressure = float(pressure_str)
+                    logging.info(f"Pressure: {pressure} mbar")
+                except ValueError:
+                    logging.warning("Invalid pressure data received")
+
+            else:
+                pressure = None
+                logging.warning("Incomplete or invalid data received")
+
+        elif self.readerSerial.in_waiting == 0:
+        #     pressure = 800
+            pressure = None
+            logging.warning("No data received from pressure sensor")
+
+        else:
+            # pressure  = 800
+            pressure = None
+            logging.warning("something ain't right")
+
+        return pressure
+
+                    
+        #something aint right with the GUI, but data does seem to get through and change the pressure value on the terminal
+        # you can check with teh digital manometer too.
+                  
+        # if self.readerSerial == None:
+        #     # logging.error("No reader serial port available")
+        #     return 0
+        # else:
+        #     if self.readerSerial.in_waiting > 0:
+        #         pressure = self.readerSerial.readline().decode('utf-8').strip()
+        #     # if pressure == None or pressure == "": # no data received
+        #     #     logging.error("No data received from pressure sensor")
+        #     #     return 0
+        #         try: 
+        #             pressure = float(pressure)
+        #             # logging.info(f"Pressure: {pressure} mbar")
+        #             return pressure
+        #         except ValueError:
+        #             logging.error(f"Received non-numeric data: {pressure}, type: {type(pressure)}")
+        #             return 0
 
 
     def measure(self):
@@ -164,10 +220,10 @@ class MoscowPressureController(PressureController):
         self.controllerSerial.flush()
         
         #add expected arduino responces
-        self.expectedResponses.append((time.time(), f"pulse {self.channel} {delayMs}"))
-        self.expectedResponses.append((time.time(), f"pulse"))
-        self.expectedResponses.append((time.time(), f"{self.channel}"))
-        self.expectedResponses.append((time.time(), f"{delayMs}"))
+        # self.expectedResponses.append((time.time(), f"pulse {self.channel} {delayMs}"))
+        # self.expectedResponses.append((time.time(), f"pulse"))
+        # self.expectedResponses.append((time.time(), f"{self.channel}"))
+        # self.expectedResponses.append((time.time(), f"{delayMs}"))
 
 
     def set_ATM(self, atm):
@@ -187,16 +243,16 @@ class MoscowPressureController(PressureController):
         self.isATM = atm
 
         #add the expected arduino responses 
-        if atm:
-            self.expectedResponses.append((time.time(), f"switchAtm {self.channel}"))
-            self.expectedResponses.append((time.time(), f"switchAtm"))
-            self.expectedResponses.append((time.time(), f"{self.channel}"))
-            self.expectedResponses.append((time.time(), f"0"))
-        else:
-            self.expectedResponses.append((time.time(), f"switchP {self.channel}"))
-            self.expectedResponses.append((time.time(), f"switchP"))
-            self.expectedResponses.append((time.time(), f"{self.channel}"))
-            self.expectedResponses.append((time.time(), f"0"))
+        # if atm:
+        #     self.expectedResponses.append((time.time(), f"switchAtm {self.channel}"))
+        #     self.expectedResponses.append((time.time(), f"switchAtm"))
+        #     self.expectedResponses.append((time.time(), f"{self.channel}"))
+        #     self.expectedResponses.append((time.time(), f"0"))
+        # else:
+        #     self.expectedResponses.append((time.time(), f"switchP {self.channel}"))
+        #     self.expectedResponses.append((time.time(), f"switchP"))
+        #     self.expectedResponses.append((time.time(), f"{self.channel}"))
+        #     self.expectedResponses.append((time.time(), f"0"))
 
     # def waitForArduinoResponses(self):
     #     '''Continuously ensure that all expected responses are received within the timeout period.
@@ -224,6 +280,8 @@ class MoscowPressureController(PressureController):
     #             if resp != expected:
     #                 logging.info(f"INVALID PRESSURE COMMAND, EXPECTED RESPONSE {expected} BUT GOT {resp}")
     #                 self.expectedResponses.clear()
+    #             else :
+    #                 logging.info(f"Pressure Box Response: {resp}")
                 
     #             #grab the next line
     #             resp = self.controllerSerial.readline().decode("ascii")

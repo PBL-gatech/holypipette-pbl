@@ -46,9 +46,9 @@ daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0') #This is "old" DAQ
 
 # daq = FakeDAQ()
 # amplifier = FakeAmplifier()
-pressure = FakePressureController()
+# pressure = FakePressureController()
 amplifier = MultiClampChannel(channel=1)
-# pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
-# pressureReaderSerial = serial.Serial(port='COM8', baudrate=9600, timeout=0)
+pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
+pressureReaderSerial = serial.Serial(port='COM8', baudrate=9600, timeout=0)
 # pressure = IBBPressureController(channel=1, arduinoSerial=pressureControllerSerial)
-# pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
+pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
