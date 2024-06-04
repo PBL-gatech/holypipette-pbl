@@ -211,8 +211,6 @@ class EPhysGraph(QWidget):
         while True:
             currentPressureReading = self.pressureController.measure()
             # logging.info(f"Pressure: {currentPressureReading}")
-            print("HEHHHHHHOOOOOO")
-            logging.warn("HEHHHHHHOOOOOO")
             if currentPressureReading is not None:
                 self.pressureData.append(currentPressureReading)
                 # logging.info(f"Pressure: {currentPressureReading}")
