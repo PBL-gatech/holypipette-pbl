@@ -49,12 +49,11 @@ class MoscowPressureController(PressureController):
 
         self.lastVal = 0
 
-
         time.sleep(2) # wait for arduino to boot up
 
         # set initial configuration of pressure controller
         self.set_ATM(False)
-        self.set_pressure(800) #set initial pressure to 800 mbar
+        self.set_pressure(20) #set initial pressure to 800 mbar
 
     def autodetectSerial(self):
         '''
@@ -149,13 +148,7 @@ class MoscowPressureController(PressureController):
         '''
         if self.readerSerial.in_waiting > 0:
             pressure = self.readerSerial.readline().decode('utf-8').strip()
-            # logging.info(f"Pressure (no filter): {pressure} mbar")
-            # logging.info(f"Pressure: {pressure} mbar, {type(pressure)}")
-            # if pressure.isdigit():
-            # pressure = float(pressure)
-            # else:
-            #     pressure = None
-            #     logging.warning("Invalid pressure data received")
+
             if 'S' in pressure and 'E' in pressure:
             # Extract the pressure reading between the markers
                 start_idx = pressure.find('S')
@@ -174,12 +167,10 @@ class MoscowPressureController(PressureController):
                 logging.warning("Incomplete or invalid data received")
 
         elif self.readerSerial.in_waiting == 0:
-        #     pressure = 800
             pressure = None
             logging.warning("No data received from pressure sensor")
 
         else:
-            # pressure  = 800
             pressure = None
             logging.warning("something ain't right")
 

@@ -33,5 +33,8 @@ void loop() {
   Serial.println("E");
   // float outputV = ((0.8 * 5) / (1034*2)) * (sensorValue + 1034) + 0.1 * 5;
   // Serial.println(outputV);
-  delay(10);  // delay in between reads for stability
+  // THIS DELAY IS CRUCIAL, ANYTHING LESS THAN 33ms WILL CAUSE THE GRAPH TO NOT UPDATE
+  // FAST ENOUGH. Think about trying to cmpress 100fps video in 60fps. You can't.
+  // this is becase of what is in graph.py, updateDt (set to 33ms)
+  delay(33);  // delay in between reads for stability
 }
