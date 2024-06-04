@@ -121,6 +121,7 @@ class EPhysGraph(QWidget):
 
         self.pressureData = deque(maxlen=100)
         self.resistanceDeque = deque(maxlen=100)
+        # self.pressureData.append(0)
 
         #create a quarter layout for 4 graphs
         layout = QVBoxLayout()
@@ -155,12 +156,12 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox.setValidator(QtGui.QIntValidator(-1000, 1000))
 
 
-        self.pressureCommandSlider = QSlider(Qt.Horizontal)
-        self.pressureCommandSlider.setMinimum(-500)
-        self.pressureCommandSlider.setMaximum(500)
-        self.pressureCommandSlider.setValue(20)
-        self.pressureCommandSlider.setTickInterval(100)
-        self.pressureCommandSlider.setTickPosition(QSlider.TicksBelow)
+        # self.pressureCommandSlider = QSlider(Qt.Horizontal)
+        # self.pressureCommandSlider.setMinimum(-500)
+        # self.pressureCommandSlider.setMaximum(500)
+        # self.pressureCommandSlider.setValue(20)
+        # self.pressureCommandSlider.setTickInterval(100)
+        # self.pressureCommandSlider.setTickPosition(QSlider.TicksBelow)
 
         # self.bottomBarLayout.addWidget(self.pressureCommandSlider)
         self.bottomBarLayout.addWidget(self.pressureCommandBox)
@@ -234,10 +235,6 @@ class EPhysGraph(QWidget):
         self.pressurePlot.clear()
         pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
         self.pressurePlot.plot(pressureX, self.pressureData, pen='k')
-        
-        logging.warn(self.pressureData[0])
-        logging.warn(self.pressureData[99])
-
 
         # update resistance graph
         self.resistancePlot.clear()

@@ -149,7 +149,10 @@ class MoscowPressureController(PressureController):
         if self.readerSerial.in_waiting > 0:
             pressure = self.readerSerial.readline().decode('utf-8').strip()
 
-            if 'S' in pressure and 'E' in pressure:
+            # check that S and E are in the string only once and that S is the first index and E is the last index
+
+            if pressure[0] == "S" and pressure[-1] == "E":
+            # pressure.count("S") == 1 and pressure.count("E") == 1 and pressure.find("S") < pressure.find("E"):
             # Extract the pressure reading between the markers
                 start_idx = pressure.find('S')
                 end_idx = pressure.find('E')
