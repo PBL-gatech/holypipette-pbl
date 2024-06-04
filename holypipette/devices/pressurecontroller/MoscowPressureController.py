@@ -142,6 +142,9 @@ class MoscowPressureController(PressureController):
             self.lastVal = readvalue
         return readvalue
     
+    def getlastVal(self):
+        return self.lastVal
+    
     def read_sensor(self):
         '''
         Read the pressure sensor value from the arduino
@@ -151,12 +154,10 @@ class MoscowPressureController(PressureController):
 
             # check that S and E are in the string only once and that S is the first index and E is the last index
 
-            if pressure[0] == "S" and pressure[-1] == "E":
+            if "S" in pressure and "E" in pressure and pressure[0] == "S" and pressure[-1] == "E":
             # pressure.count("S") == 1 and pressure.count("E") == 1 and pressure.find("S") < pressure.find("E"):
             # Extract the pressure reading between the markers
-                start_idx = pressure.find('S')
-                end_idx = pressure.find('E')
-                pressure_str = pressure[start_idx+1:end_idx]
+                pressure_str = pressure[1:-1]
 
                 # Try to convert the extracted pressure string to float
                 try:
