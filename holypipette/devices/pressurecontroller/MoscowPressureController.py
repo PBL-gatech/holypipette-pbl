@@ -23,7 +23,7 @@ class MoscowPressureController(PressureController):
                     
     nativePerMbar = float(4096/1380) # The number of native pressure transucer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
     nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
-    conversionFactor = 17
+    conversionFactor = -29
 
     serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
@@ -73,7 +73,7 @@ class MoscowPressureController(PressureController):
         '''
         Comvert from a pressure in mBar to native units
         '''
-        raw_pressure = int((pressure - MoscowPressureController.conversionFactor) * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero)
+        raw_pressure = int((pressure) * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero - MoscowPressureController.conversionFactor)
         return min(max(raw_pressure, 0), 4095) #clamp native units to 0-4095
 
     def nativeToMbar(self, raw_pressure):

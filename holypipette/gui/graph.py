@@ -219,7 +219,7 @@ class EPhysGraph(QWidget):
             self.lastestDaqData = None
         
         #update pressure graph
-        currentPressureReading = self.pressureController.measure()
+        currentPressureReading = int(self.pressureController.measure())
         self.pressureData.append(currentPressureReading)
 
         # print(pressureX)
