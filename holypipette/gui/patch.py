@@ -50,9 +50,13 @@ class PatchGui(ManipulatorGui):
         self.pressure_timer.start(16)
         self.patch_interface.set_pressure_near()
 
+    # this is heavily affecting performance. If we use lastVal it introduces a delay of of a few seconds
+    # however this implementation means that we are reading the arduino meaure twice, and that delays are being stacked?
     def display_pressure(self):
-        pressure = self.patch_interface.pressure.get_pressure()
-        self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(pressure))
+        # current_pressure  = self.patch_interface.pressure.get_pressure()
+        # current_pressure  = self.patch_interface.pressure.measure()
+        current_pressure  = self.patch_interface.pressure.getLastVal()
+        self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(current_pressure))
 
     def register_commands(self):
         super(PatchGui, self).register_commands()

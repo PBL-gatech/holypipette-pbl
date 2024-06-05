@@ -3,7 +3,6 @@
 Pressure Controller classes to communicate with the Pressure Controller Box made by the IBB.
 Additionally, redesigning a closed loop pressure controller for the Moscow Rig
 '''
-from logging import exception
 import logging
 from .pressurecontroller import PressureController
 import serial.tools.list_ports
@@ -29,12 +28,13 @@ class MoscowPressureController(PressureController):
     serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
     def __init__(self, channel, controllerSerial=None,readerSerial=None):
-        super(MoscowPressureController, self).__init__()
+        super().__init__()
+        # time.sleep(2) # wait for arduino to boot up
 
         if controllerSerial is not None:
             # no port specified, we will use the user supplied serial port
             self.controllerSerial = controllerSerial
-            
+        
         if readerSerial is not None:
             # no port specified, we will use the user supplied serial port
             self.readerSerial= readerSerial
@@ -45,15 +45,13 @@ class MoscowPressureController(PressureController):
         self.channel = channel
         self.isATM = None
         self.setpoint_raw = None
-        self.expectedResponses = collections.deque() #use a deque instead of a list for O(1) pop from beginning
+        self.expectedResponses = collections.deque() # use a deque instead of a list for O(1) pop from beginning
 
         self.lastVal = 0
 
-        time.sleep(2) # wait for arduino to boot up
-
         # set initial configuration of pressure controller
         self.set_ATM(False)
-        self.set_pressure(20) #set initial pressure to 800 mbar
+        self.set_pressure(800) #set initial pressure to 800 mbar
 
     def autodetectSerial(self):
         '''
@@ -122,90 +120,52 @@ class MoscowPressureController(PressureController):
         return self.setpoint_raw
     
     def get_pressure(self):
-        # obtains pressure 
-        # return self.get_setpoint() #maybe add a pressure sensor down the line?
-        readvalue = self.read_sensor()
-        # logging.warning(f"Pressure: {readvalue} mbar")
-        # logging.warning(f"TYPE: {type(readvalue)}")
-        # ? Here I thought that MAYBE if we check that the new value is withina certain % range of the last value, we can assume that the value is correct
-        # ? and not just a random value. This is because the pressure sensor sometimes has a cutoff --> 177.32 mbar will be sent as
-        # ? 17 mbar AND THEn 7.32 mbar
-        # ? However this is not ideal I think....
-        if readvalue is None:
-            readvalue = self.lastVal
-        else:
-            # check that lastVal isnt 0 and that the sensor value isn't above 40% different than what was last recorded. if it is, then we keep the last value
-            # if self.lastVal != 0 and abs(readvalue - self.lastVal) > 0.4*self.lastVal:
-            #     logging.warning(f"Pressure value {readvalue} mbar is more than 40% different than last recorded value {self.lastVal} mbar. Keeping last value.")
-            #     readvalue = self.lastVal
-            # else:
-            self.lastVal = readvalue
-        return readvalue
-    
-    def getlastVal(self):
-        return self.lastVal
-    
-    def read_sensor(self):
         '''
         Read the pressure sensor value from the arduino
         '''
+        # return self.get_setpoint() #maybe add a pressure sensor down the line?
+            
+        pressureVal = self.lastVal
         if self.readerSerial.in_waiting > 0:
-            pressure = self.readerSerial.readline().decode('utf-8').strip()
+            reading = self.readerSerial.readline().decode('utf-8').strip()
+            print(reading)
 
             # check that S and E are in the string only once and that S is the first index and E is the last index
-
-            if "S" in pressure and "E" in pressure and pressure[0] == "S" and pressure[-1] == "E":
+            # 
+            # adding more checks results in lag somehow maybe, freezing. 
+            # the GUI actuallu unfreezes due to an empty string being read in and therefore
+            # pressure[0] or [-1] is indexing out of bounds, introducing a lag where the computer catches up and suddenly
+            # can read values?!!
+            # if "S" in pressure and "E" in pressure and pressure[0] == "S" and pressure[-1] == "E":
+            # if pressure.startswith("S") and pressure.endswith("E"):
             # pressure.count("S") == 1 and pressure.count("E") == 1 and pressure.find("S") < pressure.find("E"):
+            if reading[0] == "S" and reading[-1] == "E":
             # Extract the pressure reading between the markers
-                pressure_str = pressure[1:-1]
+                pressure_str = reading[1:-1]
 
                 # Try to convert the extracted pressure string to float
                 try:
-                    pressure = float(pressure_str)
-                    logging.info(f"Pressure: {pressure} mbar")
+                    pressureVal = float(pressure_str)
+                    # logging.info(f"Pressure: {pressureVal} mbar")
+                    self.lastVal = pressureVal 
                 except ValueError:
+                    # pressureVal = None
                     logging.warning("Invalid pressure data received")
-
             else:
-                pressure = None
+                # pressureVal = None
                 logging.warning("Incomplete or invalid data received")
-
-        elif self.readerSerial.in_waiting == 0:
-            pressure = None
+        else:
+            # pressureVal = None
             logging.warning("No data received from pressure sensor")
 
-        else:
-            pressure = None
-            logging.warning("something ain't right")
-
-        return pressure
-
-                    
-        #something aint right with the GUI, but data does seem to get through and change the pressure value on the terminal
-        # you can check with teh digital manometer too.
-                  
-        # if self.readerSerial == None:
-        #     # logging.error("No reader serial port available")
-        #     return 0
-        # else:
-        #     if self.readerSerial.in_waiting > 0:
-        #         pressure = self.readerSerial.readline().decode('utf-8').strip()
-        #     # if pressure == None or pressure == "": # no data received
-        #     #     logging.error("No data received from pressure sensor")
-        #     #     return 0
-        #         try: 
-        #             pressure = float(pressure)
-        #             # logging.info(f"Pressure: {pressure} mbar")
-        #             return pressure
-        #         except ValueError:
-        #             logging.error(f"Received non-numeric data: {pressure}, type: {type(pressure)}")
-        #             return 0
-
+        return pressureVal
+    
+    def getLastVal(self):
+        return self.lastVal
 
     def measure(self):
         return self.get_pressure()
     
-
     def pulse(self, delayMs):
         '''Tell the onboard arduino to pulse pressure for a certain period of time
         '''

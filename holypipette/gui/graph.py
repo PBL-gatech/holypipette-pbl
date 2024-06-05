@@ -119,9 +119,10 @@ class EPhysGraph(QWidget):
         self.resistancePlot.setLabel('bottom', "Samples", units='')
 
 
+        # self.pressureData = deque([0.0]*100, maxlen=100)
         self.pressureData = deque(maxlen=100)
         self.resistanceDeque = deque(maxlen=100)
-        # self.pressureData.append(0)
+        # print(self.pressureData)
 
         #create a quarter layout for 4 graphs
         layout = QVBoxLayout()
@@ -173,7 +174,7 @@ class EPhysGraph(QWidget):
         
         self.updateTimer = QtCore.QTimer()
         # this has to match the arduino sensor delay
-        self.updateDt = 33 #ms
+        self.updateDt = 16 # ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
@@ -182,8 +183,8 @@ class EPhysGraph(QWidget):
         self.daqUpdateThread = threading.Thread(target=self.updateDAQDataAsync, daemon=True)
         self.daqUpdateThread.start()
     
-        self.pressureUpdateThread = threading.Thread(target=self.updatePressureAsync, daemon=True)
-        self.pressureUpdateThread.start()
+        # self.pressureUpdateThread = threading.Thread(target=self.updatePressureAsync, daemon=True)
+        # self.pressureUpdateThread.start()
 
 
         #show window and bring to front
@@ -207,15 +208,6 @@ class EPhysGraph(QWidget):
             if resistance is not None:
                 self.resistanceDeque.append(resistance)
                 self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
-
-    def updatePressureAsync(self):
-        while True:
-            currentPressureReading = self.pressureController.measure()
-            # logging.info(f"Pressure: {currentPressureReading}")
-            if currentPressureReading is not None:
-                self.pressureData.append(currentPressureReading)
-                # logging.info(f"Pressure: {currentPressureReading}")
-                self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(currentPressureReading))
 
 
     def update_plot(self):
@@ -274,8 +266,7 @@ class EPhysGraph(QWidget):
         #try to convert to float
         try:
             pressure = float(text)
+            # set pressure
+            self.pressureController.set_pressure(pressure)
         except ValueError:
             return
-
-        #set pressure
-        self.pressureController.set_pressure(pressure)

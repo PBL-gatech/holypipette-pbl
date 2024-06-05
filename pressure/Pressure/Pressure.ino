@@ -36,5 +36,5 @@ void loop() {
   // THIS DELAY IS CRUCIAL, ANYTHING LESS THAN 33ms WILL CAUSE THE GRAPH TO NOT UPDATE
   // FAST ENOUGH. Think about trying to cmpress 100fps video in 60fps. You can't.
   // this is becase of what is in graph.py, updateDt (set to 33ms)
-  delay(33);  // delay in between reads for stability
+  delay(16);  // delay in between reads for stability
 }
