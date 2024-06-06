@@ -1,21 +1,19 @@
 import logging
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import Qt
 
 
-from pyqtgraph import PlotWidget, plot
+from pyqtgraph import PlotWidget
 
 import threading
-import time
 
 import numpy as np
 from collections import deque
 from holypipette.devices.amplifier import DAQ
 from holypipette.devices.pressurecontroller import PressureController
 
-__all__ = ["EPhysGraph", "CurrentProtocolGraph"]
+__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph"]
 
 class CurrentProtocolGraph(QWidget):
     def __init__(self, daq : DAQ):
@@ -25,13 +23,13 @@ class CurrentProtocolGraph(QWidget):
         self.setWindowTitle("Current Protocol")
         logging.getLogger('matplotlib.font_manager').disabled = True
         self.daq = daq
-        self.protocolPlot = PlotWidget()
-        self.protocolPlot.setBackground('w')
-        self.protocolPlot.getAxis('left').setPen('k')
-        self.protocolPlot.getAxis('bottom').setPen('k')
-        self.protocolPlot.setLabel('left', "Voltage", units='V')
-        self.protocolPlot.setLabel('bottom', "Samples", units='')
-        layout.addWidget(self.protocolPlot)
+        self.cprotocolPlot = PlotWidget()
+        self.cprotocolPlot.setBackground('w')
+        self.cprotocolPlot.getAxis('left').setPen('k')
+        self.cprotocolPlot.getAxis('bottom').setPen('k')
+        self.cprotocolPlot.setLabel('left', "Voltage", units='V')
+        self.cprotocolPlot.setLabel('bottom', "Samples", units='')
+        layout.addWidget(self.cprotocolPlot)
 
         self.latestDisplayedData = None
 
@@ -63,13 +61,69 @@ class CurrentProtocolGraph(QWidget):
             self.isShown = True
 
         colors = ['k', 'r', 'g', 'b', 'y', 'm', 'c']
-        self.protocolPlot.clear()
+        self.cprotocolPlot.clear()
         for i, graph in enumerate(self.daq.latest_protocol_data):
             xData = graph[0]
             yData = graph[1]
-            self.protocolPlot.plot(xData, yData, pen=colors[i])
+            self.cprotocolPlot.plot(xData, yData, pen=colors[i])
 
         self.latestDisplayedData = self.daq.latest_protocol_data.copy()
+
+
+class VoltageProtocolGraph(QWidget):
+    def __init__(self, daq : DAQ):
+        super().__init__()
+
+        layout = QVBoxLayout()
+        self.setWindowTitle("Voltage Protocol (Membrane Test)")
+        logging.getLogger('matplotlib.font_manager').disabled = True
+        self.daq = daq
+        self.vprotocolPlot = PlotWidget()
+        self.vprotocolPlot.setBackground('w')
+        self.vprotocolPlot.getAxis('left').setPen('k')
+        self.vprotocolPlot.getAxis('bottom').setPen('k')
+        self.vprotocolPlot.setLabel('left', "PicoAmps", units='pA')
+        self.vprotocolPlot.setLabel('bottom', "Samples", units='')
+        layout.addWidget(self.vprotocolPlot)
+
+        self.latestDisplayedData = None
+
+        self.setLayout(layout)
+        self.raise_()
+        self.show()
+
+        #hide window
+        self.setHidden(True)
+
+        #remap close event to hide window
+        self.closeEvent = lambda: self.setHidden(True)
+
+        self.updateTimer = QtCore.QTimer()
+        self.updateDt = 100 #ms
+        self.updateTimer.timeout.connect(self.update_plot)
+        self.updateTimer.start(self.updateDt)
+
+    def update_plot(self):
+        #is what we displayed the exact same?
+
+        # logging.warning("window should be shown")
+        if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.voltage_protocol_data)) or self.daq.voltage_protocol_data is None:
+            return
+        
+        #if the window was closed or hidden, relaunch it
+        if self.isHidden():
+            self.setHidden(False)
+            self.isShown = True
+
+        if self.daq.voltage_protocol_data is not None:
+            self.vprotocolPlot.clear()
+            print(self.daq.voltage_protocol_data[0, :])
+            print(self.daq.voltage_protocol_data[1, :])
+            self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :])
+            self.daq.latest_protocol_data = None
+
+        self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
+
 
 class EPhysGraph(QWidget):
     """A window that plots electrophysiology data from the DAQ

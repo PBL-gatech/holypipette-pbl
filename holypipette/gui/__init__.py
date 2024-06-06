@@ -3,4 +3,4 @@ from .livefeed import *
 from .camera import *
 from .manipulator import *
 from .patch import *
-from .graph import CurrentProtocolGraph, EPhysGraph
+from .graph import CurrentProtocolGraph, EPhysGraph, VoltageProtocolGraph

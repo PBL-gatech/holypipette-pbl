@@ -31,6 +31,8 @@ class DAQ:
         self._deviceLock = threading.Lock()
 
         self.latest_protocol_data = None
+        self.current_protocol_data = None
+        self.voltage_protocol_data = None
 
         #read constants
 
@@ -60,26 +62,12 @@ class DAQ:
         task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
         task.timing.cfg_samp_clk_timing(samplesPerSec, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
         
-        # For testing purposes
-        # newdata = np.zeros(int(samplesPerSec * recordingTime))
-
         # create a wave_freq Hz square wave
         data = np.zeros(int(samplesPerSec * recordingTime))
         # print("data len", data.shape)
-
-        # * Old way of doing it: .7 * 10^-6 SLOWER when measured with perf_counter
-        # onTime_old = int(1 / wave_freq * dutyCycle * samplesPerSec)
-        # offTime_old = int(1 / wave_freq * (1-dutyCycle) * samplesPerSec)
-        # period_old = onTime_old + offTime_old
-        # print("period", period)
         
         period = int(1 / wave_freq * samplesPerSec)
         onTime = int(period * dutyCycle)
-        # offTime = period - onTime
-        # Testing that the old and new mathod match
-        # print("Period old= period2 ", period_old == period)
-        # print("ontime old= ontime2 ", onTime_old == onTime)
-        # print("offTime old= offTime2 ", offTime_old == offTime)
 
         wavesPerSec = samplesPerSec // period
         # print("wavesPerSec", wavesPerSec)
@@ -93,8 +81,6 @@ class DAQ:
         data[:wavesPerSec*period:onTime] = 0
         data[onTime:wavesPerSec*period] = amplitude
 
-        # print(np.array_equal(data, newdata))
-
         task.write(data)
         
         return task
@@ -106,7 +92,7 @@ class DAQ:
         '''
 
         self.isRunningCurrentProtocol = True
-        self.latest_protocol_data = None #clear data
+        self.latest_protocol_data = None # clear data
         num_waves = int((endCurrentPicoAmp - startCurrentPicoAmp) / stepCurrentPicoAmp) + 1
 
         # convert to amps
@@ -150,10 +136,22 @@ class DAQ:
                 self.latest_protocol_data.append([xdata, data])
         
         self.isRunningCurrentProtocol = False
-        
 
         return self.latest_protocol_data
 
+    def getDataFromVoltageProtocol(self):
+        '''Sends a square wave to determine membrane properties, returns time constant, resistance, and capacitance.'''
+        self.isRunningCurrentProtocol = True
+        # self.latest_protocol_data = None # clear data
+        self.voltage_protocol_data = None # clear data
+
+        self.voltage_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
+        self.lastest_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
+
+        self.isRunningCurrentProtocol = False
+
+        # return self.latest_protocol_data
+        return self.voltage_protocol_data
     
     def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         # measure the time it took to acquire the data

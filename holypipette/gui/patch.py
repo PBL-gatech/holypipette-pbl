@@ -199,8 +199,8 @@ class PatchButtons(ButtonTabWidget):
         self.addButtonList('calibration', layout, buttonList, cmds)
 
         #add a box for movement
-        buttonList = [[ 'Focus Cell Plane', 'Focus Pipette Plane'], ['Fix Backlash', 'Center Pipette'], ['Run protocol']]
-        cmds = [[self.pipette_interface.go_to_floor, self.pipette_interface.focus_pipette], [self.pipette_interface.fix_backlash, self.pipette_interface.center_pipette], [self.patch_interface.run_current_protocol]]
+        buttonList = [[ 'Focus Cell Plane', 'Focus Pipette Plane'], ['Fix Backlash', 'Center Pipette'], ['Run protocols']]
+        cmds = [[self.pipette_interface.go_to_floor, self.pipette_interface.focus_pipette], [self.pipette_interface.fix_backlash, self.pipette_interface.center_pipette], [self.patch_interface.run_protocols]]
         self.addButtonList('movement', layout, buttonList, cmds)
 
         #add a box for patching cmds
@@ -212,6 +212,11 @@ class PatchButtons(ButtonTabWidget):
         # buttonList = [['None'], ['Violet', 'Blue'], ['Cyan', 'Yellow'], ['Red', 'Near Infrared']]
         # cmds = [[self.do_nothing], [self.do_nothing, self.do_nothing], [self.do_nothing, self.do_nothing], [self.do_nothing, self.do_nothing]]
         # self.addButtonList('Lumencor LED', layout, buttonList, cmds)
+
+        #add a box for Rig Recorder
+        buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
+        cmds = [[self.do_nothing, self.do_nothing], [self.do_nothing, self.do_nothing]]
+        self.addButtonList('Rig Recorder', layout, buttonList, cmds)
         
         self.setLayout(layout)
 

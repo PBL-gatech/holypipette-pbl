@@ -128,7 +128,7 @@ class MoscowPressureController(PressureController):
         pressureVal = self.lastVal
         if self.readerSerial.in_waiting > 0:
             reading = self.readerSerial.readline().decode('utf-8').strip()
-            print(reading)
+            # print(reading)
 
             # check that S and E are in the string only once and that S is the first index and E is the last index
             # 

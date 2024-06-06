@@ -102,14 +102,28 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.pipette_controller.calibrated_cellsorter.center_cellsorter_on_point, argument=[cellx, celly, cellz])
 
     @blocking_command(category='DAQ',
-            description='Run a Current Protocol on the Cell',
-            task_description='Run a Current Protocol on the Cell')
+            description='Run Protocols on the Cell',
+            task_description='Run Protocols on the Cell')
+    
+    def run_protocols(self):
+        self.execute(self.current_autopatcher.run_protocols)
+   
 
-    def run_current_protocol(self):
-        #grab cell from list
+    # @blocking_command(category='DAQ',
+    #         description='Run a Current Protocol on the Cell',
+    #         task_description='Run a Current Protocol on the Cell')
 
-        #move cell sorter to cell
-        self.execute(self.current_autopatcher.run_current_protocol)
+    # def run_current_protocol(self):
+        # self.execute(self.current_autopatcher.run_current_protocol)
+
+    # @blocking_command(category='DAQ',
+    #         description='Run a Voltage Protocol on the Cell',
+    #         task_description='Run a Voltage Protocol on the Cell')
+
+    # def run_voltage_protocol(self):
+    #     self.execute(self.current_autopatcher.run_voltage_protocol)
+
+    
 
     @command(category='Patch', description='Add a mouse position to the list of cells to patch')
     def add_cell(self, position):
