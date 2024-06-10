@@ -1,6 +1,6 @@
 import sys
 
-import PyQt5.QtWidgets as QtWidgets
+from PyQt5.QtWidgets import QApplication
 import traceback
 
 from holypipette.log_utils import console_logger
@@ -14,7 +14,7 @@ from setup_Moscow_rig import *
 
 console_logger()  # Log to the standard console as well
 
-app = QtWidgets.QApplication(sys.argv)
+app = QApplication(sys.argv)
 
 pipette_controller = PipetteInterface(stage, microscope, camera, unit, cellSorterManip, cellSorterController)
 patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller)
