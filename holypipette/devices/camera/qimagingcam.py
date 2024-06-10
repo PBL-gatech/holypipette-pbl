@@ -97,13 +97,13 @@ class QImagingCam(Camera):
         if img is None:
             img = self.get_16bit_image()
 
-        #is there a better way to do this?
-        #maybe 2 stdevs instead?
+        # is there a better way to do this?
+        # maybe 2 stdevs instead?
         self.lowerBound = img.min()
         self.upperBound = img.max()
 
     def get_frame_no(self):
-        return 0 #TODO: is this ok?
+        return 0 # TODO: is this ok?
         
     def get_16bit_image(self):
         '''get a 16 bit color image from the camera (no normalization)

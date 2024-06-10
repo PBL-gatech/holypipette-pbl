@@ -146,7 +146,7 @@ class DAQ:
         self.voltage_protocol_data = None # clear data
 
         self.voltage_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
-        self.lastest_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
+        # self.lastest_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
 
         self.isRunningCurrentProtocol = False
 
@@ -306,6 +306,20 @@ class FakeDAQ:
 
     def resistance(self):
         return self.latestResistance + np.random.normal(0, 0.1 * 10 ** 6)
+    
+    def getDataFromVoltageProtocol(self):
+        '''Sends a square wave to determine membrane properties, returns time constant, resistance, and capacitance.'''
+        self.isRunningCurrentProtocol = True
+        # self.latest_protocol_data = None # clear data
+        self.voltage_protocol_data = None # clear data
+
+        self.voltage_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
+        # self.lastest_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
+
+        self.isRunningCurrentProtocol = False
+
+        # return self.latest_protocol_data
+        return self.voltage_protocol_data
 
     def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         #create a wave_freq Hz square wave

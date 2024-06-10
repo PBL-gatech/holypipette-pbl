@@ -2,13 +2,11 @@ import sys
 
 import PyQt5.QtWidgets as QtWidgets
 import traceback
-# from PyQt5 import QtWidgets
 
 from holypipette.log_utils import console_logger
 from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
 from holypipette.gui import PatchGui, EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph
-
 
 # from setup_IBB_rig import *
 # from setup_fake_rig import *

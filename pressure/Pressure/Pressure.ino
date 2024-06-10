@@ -13,7 +13,7 @@
 // ! NOTE: Sending air to the BOTTON valve DECREASES analog pressure reading
 // ! NOTE: Sending air to the TOP valve INCREASES analog pressure reading
 
-const int numReadings = 100;  // number of readings to average
+const int numReadings = 25;  // number of readings to average
 float readings[numReadings];   // the readings from the analog input
 int readIndex = 0;           // the index of the current reading
 float total = 0;               // the running total

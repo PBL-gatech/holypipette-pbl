@@ -28,6 +28,7 @@ class PatchGui(ManipulatorGui):
         self.setWindowTitle("Patch GUI")
         # Note that pipette interface already runs in a thread, we need to use
         # the same for the patch interface
+
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
 
@@ -53,9 +54,9 @@ class PatchGui(ManipulatorGui):
     # this is heavily affecting performance. If we use lastVal it introduces a delay of of a few seconds
     # however this implementation means that we are reading the arduino meaure twice, and that delays are being stacked?
     def display_pressure(self):
-        # current_pressure  = self.patch_interface.pressure.get_pressure()
-        # current_pressure  = self.patch_interface.pressure.measure()
-        current_pressure  = self.patch_interface.pressure.getLastVal()
+        # current_pressure = self.patch_interface.pressure.get_pressure()
+        # current_pressure = self.patch_interface.pressure.measure()
+        current_pressure = self.patch_interface.pressure.getLastVal()
         self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(current_pressure))
 
     def register_commands(self):

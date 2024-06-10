@@ -79,7 +79,8 @@ class PcoCamera(Camera):
             self.cam.close()
 
     def get_frame_rate(self):
-        return 1 / self.cam.get_exposure_time() #TODO: this is ideal, can we get actual fps?
+        # TODO: this is ideal, can we get actual fps?
+        return 1 / self.cam.get_exposure_time()
 
     def reset(self):
         self.cam.close()
@@ -162,7 +163,7 @@ class PcoCamera(Camera):
         img[np.where(img > 255)] = 255
         img = img.astype(np.uint8)
 
-        #resize if needed
+        # resize if needed
         if self.width != None and self.height != None:
             img = cv2.resize(img, (self.width, self.height), interpolation= cv2.INTER_LINEAR)
 
@@ -171,13 +172,13 @@ class PcoCamera(Camera):
         #     if out is not None:
         #         img = cv2.circle(img, out, 2, 0, 2)
 
-        #find good points to track
+        # find good points to track
         # corners = cv2.goodFeaturesToTrack(img, 250, 0.005, 10)
         # corners = np.int0(corners)
         
-        #draw points on image
+        # draw points on image
 
-        #we only want the top 100 corners
+        # we only want the top 100 corners
 
         # if self.lastFrame is not None:
         #     flow = cv2.calcOpticalFlowFarneback(self.lastFrame, img, None, 0.5, 3, 15, 3, 5, 1.2, 0)

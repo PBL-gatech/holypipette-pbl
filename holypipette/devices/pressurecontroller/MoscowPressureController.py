@@ -37,7 +37,7 @@ class MoscowPressureController(PressureController):
         
         if readerSerial is not None:
             # no port specified, we will use the user supplied serial port
-            self.readerSerial= readerSerial
+            self.readerSerial = readerSerial
         else: 
             self.readerSerial = None
             logging.error("No reader serial port available")
@@ -187,10 +187,10 @@ class MoscowPressureController(PressureController):
            atm = False -> pressure output comes from pressure regulator
         '''
         if atm:
-            cmd = f"switchAtm {self.channel}\n" #switch to ATM command
+            cmd = f"switchAtm {self.channel}\n" # switch to ATM command
             logging.info("Switching to ATM")
         else:
-            cmd = f"switchP {self.channel}\n" #switch to Pressure command
+            cmd = f"switchP {self.channel}\n" # switch to Pressure command
             logging.info("Switching to Pressure")
         self.controllerSerial.write(bytes(cmd, 'ascii'))
         self.controllerSerial.flush()
