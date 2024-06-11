@@ -55,8 +55,8 @@ class PatchGui(ManipulatorGui):
     # however this implementation means that we are reading the arduino meaure twice, and that delays are being stacked?
     def display_pressure(self):
         # current_pressure = self.patch_interface.pressure.get_pressure()
-        current_pressure = self.patch_interface.pressure.measure()
-        # current_pressure = self.patch_interface.pressure.getLastVal()
+        # current_pressure = self.patch_interface.pressure.measure()
+        current_pressure = self.patch_interface.pressure.getLastVal()
         self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(current_pressure))
 
     def register_commands(self):

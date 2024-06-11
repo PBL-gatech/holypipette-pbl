@@ -122,35 +122,29 @@ class MoscowPressureController(PressureController):
         # logging.info(f"Current setpoint: {self.nativeToMbar(self.setpoint_raw)} mbar (raw: {self.setpoint_raw})")
         return self.setpoint_raw
     
+
     def get_pressure(self):
         '''
-        Read the pressure sensor value from the arduino
+        Read the pressure sensor value from the Arduino
         '''
-        # return self.get_setpoint() #maybe add a pressure sensor down the line?
-            
         pressureVal = self.lastVal
+
+        # Send a request command to the Arduino
+        self.readerSerial.write(b'R')
+
+        # Wait for the response
         if self.readerSerial.in_waiting > 0:
             reading = self.readerSerial.readline().decode('utf-8').strip()
-            # print(reading)
 
-            # check that S and E are in the string only once and that S is the first index and E is the last index
-            # 
-            # adding more checks results in lag somehow maybe, freezing. 
-            # the GUI actuallu unfreezes due to an empty string being read in and therefore
-            # pressure[0] or [-1] is indexing out of bounds, introducing a lag where the computer catches up and suddenly
-            # can read values?!!
-            # if "S" in pressure and "E" in pressure and pressure[0] == "S" and pressure[-1] == "E":
-            # if pressure.startswith("S") and pressure.endswith("E"):
-            # pressure.count("S") == 1 and pressure.count("E") == 1 and pressure.find("S") < pressure.find("E"):
-            if reading[0] == "S" and reading[-1] == "E":
-            # Extract the pressure reading between the markers
+            # Check that S and E are in the string only once and that S is the first index and E is the last index
+            if reading.startswith("S") and reading.endswith("E"):
+                # Extract the pressure reading between the markers
                 pressure_str = reading[1:-1]
-
                 # Try to convert the extracted pressure string to float
                 try:
                     pressureVal = float(pressure_str)
                     # logging.info(f"Pressure: {pressureVal} mbar")
-                    self.lastVal = pressureVal 
+                    self.lastVal = pressureVal
                 except ValueError:
                     # pressureVal = None
                     logging.warning("Invalid pressure data received")
@@ -162,6 +156,8 @@ class MoscowPressureController(PressureController):
             logging.warning("No data received from pressure sensor")
 
         return pressureVal
+
+    
     
     def getLastVal(self):
         return self.lastVal

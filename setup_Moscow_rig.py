@@ -7,31 +7,12 @@ from holypipette.devices.amplifier.amplifier import FakeAmplifier
 from holypipette.devices.amplifier.DAQ import FakeDAQ, DAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.camera.qimagingcam import QImagingCam
-from holypipette.devices.pressurecontroller import IBBPressureController, FakePressureController, TestPressureController
-# from holypipette.devices.pressurecontroller.MoscowPressureController import MoscowPressureController
-# from holypipette.devices.pressurecontroller import TestPressureController
+from holypipette.devices.pressurecontroller import IBBPressureController, FakePressureController, TestPressureController,MoscowPressureController
 from holypipette.devices.camera.camera import FakeCamera
 from holypipette.devices.camera import FakeCalCamera, FakePipetteManipulator
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 
-
-ser8 = serial.Serial('COM8')
-if ser8.isOpen():
-    print("CLOSING 8")
-    ser8.close()
-ser5 = serial.Serial('COM5') 
-if ser5.isOpen():
-    print("CLOSING 5")
-    ser5.close()
-ser3 = serial.Serial('COM3')
-if ser3.isOpen():
-    print("CLOSING 3")
-    ser3.close()
-ser6 = serial.Serial('COM6') 
-if ser6.isOpen():
-    print("CLOSING 6")
-    ser6.close()
 
 controllerSerial = serial.Serial('COM6')
 controller = ScientificaSerialNoEncoder(controllerSerial)
@@ -71,5 +52,5 @@ amplifier = MultiClampChannel(channel=1)
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
 pressureReaderSerial = serial.Serial(port='COM8', baudrate=9600, timeout=0)
 # pressure = IBBPressureController(channel=1, arduinoSerial=pressureControllerSerial)
-pressure = TestPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
-# pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
+# pressure = TestPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
+pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)

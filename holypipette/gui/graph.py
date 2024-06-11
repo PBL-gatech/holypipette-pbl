@@ -13,6 +13,10 @@ from collections import deque
 from holypipette.devices.amplifier import DAQ
 from holypipette.devices.pressurecontroller import PressureController
 
+from holypipette.utils import FileLogger
+
+from datetime import datetime
+
 __all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph"]
 
 class CurrentProtocolGraph(QWidget):
@@ -240,6 +244,10 @@ class EPhysGraph(QWidget):
         # self.pressureUpdateThread = threading.Thread(target=self.updatePressureAsync, daemon=True)
         # self.pressureUpdateThread.start()
 
+        # recorderFilename = "recording.csv"
+        # self.recorder = FileLogger(recorderFilename)
+        self.lastDaqData = []
+
 
         #show window and bring to front
         self.raise_()
@@ -261,7 +269,7 @@ class EPhysGraph(QWidget):
             self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
             if resistance is not None:
                 self.resistanceDeque.append(resistance)
-                # self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
+                self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
 
 
     def update_plot(self):
@@ -270,7 +278,8 @@ class EPhysGraph(QWidget):
         if self.lastestDaqData is not None:
             self.squareWavePlot.clear()
             self.squareWavePlot.plot(self.lastestDaqData[0, :], self.lastestDaqData[1, :])
-            self.lastestDaqData = None
+            self.lastDaqData = self.lastestDaqData
+            # self.lastestDaqData = None
         
         #update pressure graph
         currentPressureReading = int(self.pressureController.measure())
@@ -290,6 +299,10 @@ class EPhysGraph(QWidget):
         # self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(currentPressureReading))
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
         # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
+
+        # self.recorder.write_data(currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[1, :]), datetime.now().timestamp())
+        self.lastestDaqData = None
+
 
     def pressureCommandSliderChanged(self):
         '''
