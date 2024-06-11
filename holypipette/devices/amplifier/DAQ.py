@@ -26,7 +26,7 @@ class DAQ:
         self.readChannel = readChannel
         self.cmdChannel = cmdChannel
         self.latestResistance = None
-        self.isRunningCurrentProtocol = False
+        self.isRunningProtocol = False
         self.isRunningVoltageProtocol = False
         self._deviceLock = threading.Lock()
 
@@ -91,7 +91,7 @@ class DAQ:
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
         '''
 
-        self.isRunningCurrentProtocol = True
+        self.isRunningProtocol = True
         self.latest_protocol_data = None # clear data
         num_waves = int((endCurrentPicoAmp - startCurrentPicoAmp) / stepCurrentPicoAmp) + 1
 
@@ -135,20 +135,20 @@ class DAQ:
             else:
                 self.latest_protocol_data.append([xdata, data])
         
-        self.isRunningCurrentProtocol = False
+        self.isRunningProtocol = False
 
         return self.latest_protocol_data
 
     def getDataFromVoltageProtocol(self):
         '''Sends a square wave to determine membrane properties, returns time constant, resistance, and capacitance.'''
-        self.isRunningCurrentProtocol = True
+        self.isRunningProtocol = True
         # self.latest_protocol_data = None # clear data
         self.voltage_protocol_data = None # clear data
 
         self.voltage_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
         # self.lastest_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
 
-        self.isRunningCurrentProtocol = False
+        self.isRunningProtocol = False
 
         # return self.latest_protocol_data
         return self.voltage_protocol_data
@@ -302,7 +302,7 @@ class FakeDAQ:
     def __init__(self):
         self.latestResistance = 6 * 10 ** 6
         self.latest_protocol_data = None
-        self.isRunningCurrentProtocol = False
+        self.isRunningProtocol = False
         self.current_protocol_data = None
         self.voltage_protocol_data = None
 
@@ -311,14 +311,14 @@ class FakeDAQ:
     
     def getDataFromVoltageProtocol(self):
         '''Sends a square wave to determine membrane properties, returns time constant, resistance, and capacitance.'''
-        self.isRunningCurrentProtocol = True
+        self.isRunningProtocol = True
         # self.latest_protocol_data = None # clear data
         self.voltage_protocol_data = None # clear data
 
         self.voltage_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
         # self.lastest_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
 
-        self.isRunningCurrentProtocol = False
+        self.isRunningProtocol = False
 
         # return self.latest_protocol_data
         return self.voltage_protocol_data

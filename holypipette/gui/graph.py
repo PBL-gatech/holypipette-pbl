@@ -197,6 +197,10 @@ class EPhysGraph(QWidget):
         self.resistanceLabel.setText("Resistance: ")
         self.bottomBarLayout.addWidget(self.resistanceLabel)
 
+        self.capacitanceLabel = QLabel()
+        self.capacitanceLabel.setText("Capacitance: ")
+        self.bottomBarLayout.addWidget(self.capacitanceLabel)
+
         #make bottom bar height 20px
         self.bottomBar.setMaximumHeight(20)
         self.bottomBar.setMinimumHeight(20)
@@ -244,8 +248,8 @@ class EPhysGraph(QWidget):
         # self.pressureUpdateThread = threading.Thread(target=self.updatePressureAsync, daemon=True)
         # self.pressureUpdateThread.start()
 
-        # recorderFilename = "recording.csv"
-        # self.recorder = FileLogger(recorderFilename)
+        recorderFilename = "experiments/rig_recorder_data/graph_recording.csv"
+        self.recorder = FileLogger(recorderFilename)
         self.lastDaqData = []
 
 
@@ -258,7 +262,7 @@ class EPhysGraph(QWidget):
             # This slows down the rate your graph gets updated (bc the graph only gets updated if there is NEW data)
             # time.sleep(0.1)
 
-            if self.daq.isRunningCurrentProtocol:
+            if self.daq.isRunningProtocol:
                 continue # don't run membrane test while running a current protocol
 
             # * setting frequency to 100Hz fixed the resistance chart on bath mode but isn't needed on cell mode (it can be 10Hz??)
@@ -270,6 +274,8 @@ class EPhysGraph(QWidget):
             if resistance is not None:
                 self.resistanceDeque.append(resistance)
                 self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
+                self.capacitanceLabel.setText("Capacitance: {:.2f} pF\t".format(resistance / 1e-12))
+                
 
 
     def update_plot(self):
@@ -300,7 +306,7 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
         # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
-        # self.recorder.write_data(currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[1, :]), datetime.now().timestamp())
+        self.recorder.write_data(currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[1, :]), datetime.now().timestamp())
         self.lastestDaqData = None
 
 

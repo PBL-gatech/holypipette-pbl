@@ -141,7 +141,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         #periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indicies))
-        pos_timer.start(200)
+        pos_timer.start(16)
         self.pos_update_timers.append(pos_timer)
     
     def addButtonList(self, box_name: str, layout, buttonNames, cmds):
