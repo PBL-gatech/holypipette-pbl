@@ -261,7 +261,7 @@ class EPhysGraph(QWidget):
             self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
             if resistance is not None:
                 self.resistanceDeque.append(resistance)
-                self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
+                # self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
 
 
     def update_plot(self):

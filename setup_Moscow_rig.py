@@ -15,18 +15,35 @@ from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 
 
-controllerSerial = serial.Serial('COM6')
-controller = ScientificaSerialNoEncoder(controllerSerial)
+ser8 = serial.Serial('COM8')
+if ser8.isOpen():
+    print("CLOSING 8")
+    ser8.close()
+ser5 = serial.Serial('COM5') 
+if ser5.isOpen():
+    print("CLOSING 5")
+    ser5.close()
+ser3 = serial.Serial('COM3')
+if ser3.isOpen():
+    print("CLOSING 3")
+    ser3.close()
+ser6 = serial.Serial('COM6') 
+if ser6.isOpen():
+    print("CLOSING 6")
+    ser6.close()
 
-pipetteSerial = serial.Serial('COM3')
-pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
-stage = ManipulatorUnit(controller, [1, 2])
+# controllerSerial = serial.Serial('COM6')
+# controller = ScientificaSerialNoEncoder(controllerSerial)
 
-# controller = FakeManipulator(min=[-240000, 50000, 280000],
-#                              max=[-230000, 60000, 290000])
-# pipetteManip = FakeManipulator(min=[0, 0, 0],
-#                                       max=[4000, 20000, 20000])
+# pipetteSerial = serial.Serial('COM3')
+# pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
 # stage = ManipulatorUnit(controller, [1, 2])
+
+controller = FakeManipulator(min=[-240000, 50000, 280000],
+                             max=[-230000, 60000, 290000])
+pipetteManip = FakeManipulator(min=[0, 0, 0],
+                                      max=[4000, 20000, 20000])
+stage = ManipulatorUnit(controller, [1, 2])
 
 cellSorterController = FakeCellSorterController()
 cellSorterManip = FakeCellSorterManip()
@@ -46,9 +63,10 @@ daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0')
 
 # daq = FakeDAQ()
 # amplifier = FakeAmplifier()
-# pressure = FakePressureController()
+pressure = FakePressureController()
 amplifier = MultiClampChannel(channel=1)
-pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
-pressureReaderSerial = serial.Serial(port='COM8', baudrate=9600, timeout=0)
-# pressure = IBBPressureController(channel=1, arduinoSerial=pressureControllerSerial)
-pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
+# pressureSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
+# pressure = IBBPressureController(channel=1, arduinoSerial=pressureSerial)
+# pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
+# pressureReaderSerial = serial.Serial(port='COM8', baudrate=9600, timeout=0)
+# pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)

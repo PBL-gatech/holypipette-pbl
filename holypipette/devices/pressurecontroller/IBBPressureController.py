@@ -30,10 +30,10 @@ class IBBPressureController(PressureController):
 
         if arduinoSerial == None:
             # no port specified, we need to auto detect the arduino's serial interface
-            self.controllerSerial = self.autodetectSerial()
+            self.serial = self.autodetectSerial()
         else:
             # user sepecified a Serial interface for the arduino
-            self.controllerSerial = arduinoSerial
+            self.serial = arduinoSerial
 
         self.channel = channel
         self.isATM = None
@@ -41,10 +41,10 @@ class IBBPressureController(PressureController):
         self.expectedResponses = collections.deque() #use a deque instead of a list for O(1) pop from beginning
         self.serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
-        #setup a deamon thread to ensure arduino responses are correct
-        self.responseDeamon = threading.Thread(target = self.waitForArduinoResponses)
-        self.responseDeamon.setDaemon(True) #make sure thread dies with main thread
-        self.responseDeamon.start()
+        # #setup a deamon thread to ensure arduino responses are correct
+        # self.responseDeamon = threading.Thread(target = self.waitForArduinoResponses)
+        # self.responseDeamon.setDaemon(True) #make sure thread dies with main thread
+        # self.responseDeamon.start()
 
         time.sleep(2) #wait for arduino to boot up
 
@@ -108,8 +108,8 @@ class IBBPressureController(PressureController):
         logging.info(type(cmd))
         logging.info(cmd)
         logging.info(bytes(cmd, 'ascii'))
-        self.controllerSerial.write(bytes(cmd, 'ascii'))
-        self.controllerSerial.flush()
+        self.serial.write(bytes(cmd, 'ascii'))
+        self.serial.flush()
 
         #add expected arduino responces
         self.expectedResponses.append((time.time(), f"set {self.channel} {raw_pressure}"))
@@ -141,8 +141,8 @@ class IBBPressureController(PressureController):
         '''
         cmd = f"pulse {self.channel} {delayMs}\n"
         logging.info(f"Pulsing pressure for {delayMs} ms")
-        self.controllerSerial.write(bytes(cmd, 'ascii')) #do serial writing in main thread for timing?
-        self.controllerSerial.flush()
+        self.serial.write(bytes(cmd, 'ascii')) #do serial writing in main thread for timing?
+        self.serial.flush()
         
         #add expected arduino responces
         self.expectedResponses.append((time.time(), f"pulse {self.channel} {delayMs}"))
@@ -162,8 +162,8 @@ class IBBPressureController(PressureController):
         else:
             cmd = f"switchP {self.channel}\n" #switch to Pressure command
             logging.info("Switching to Pressure")
-        self.controllerSerial.write(bytes(cmd, 'ascii'))
-        self.controllerSerial.flush()
+        self.serial.write(bytes(cmd, 'ascii'))
+        self.serial.flush()
 
         self.isATM = atm
 
@@ -184,12 +184,12 @@ class IBBPressureController(PressureController):
            Runs in a deamon thread.
         '''
         while True:
-            if len(self.expectedResponses) == 0 and self.controllerSerial.in_waiting == 0:
+            if len(self.expectedResponses) == 0 and self.serial.in_waiting == 0:
                 time.sleep(0.1)
                 continue #nothing to do
             
             #check for new responses
-            resp = self.controllerSerial.readline().decode("ascii")
+            resp = self.serial.readline().decode("ascii")
             logging.info(f"Received BEFORE PROCESSING: {resp}")
             while len(resp) > 0: #process all commands 
                 #remove newlines from string
@@ -210,7 +210,7 @@ class IBBPressureController(PressureController):
                     self.expectedResponses.clear()
                 
                 #grab the next line
-                resp = self.controllerSerial.readline().decode("ascii")
+                resp = self.serial.readline().decode("ascii")
             
             while len(self.expectedResponses) > 0 and time.time() - self.expectedResponses[0][0] > self.serialCmdTimeout:
                 #the response on top of expectedResponses has timed out!

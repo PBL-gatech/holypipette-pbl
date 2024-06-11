@@ -100,12 +100,13 @@ class PcoCamera(Camera):
         self.cam.wait_for_first_image()
 
     def normalize(self, img = None):
-        print(f"BEFORE IMAGE: {img}")
+        print ("NORMALIZING")
+        # print(f"BEFORE IMAGE: {img}")
         if img is None:
             img = self.get_16bit_image()
-            print(f"IMAGE after get_16bit_image: {img}")
+            # print(f"IMAGE after get_16bit_image: {img}")
             # print(type(img))
-        print(f"AFTER IMAGE: {img}")
+        # print(f"AFTER IMAGE: {img}")
         #is there a better way to do this?
         #maybe 2 stdevs instead?
         self.lowerBound = img.min()

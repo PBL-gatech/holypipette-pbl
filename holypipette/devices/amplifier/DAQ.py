@@ -303,6 +303,8 @@ class FakeDAQ:
         self.latestResistance = 6 * 10 ** 6
         self.latest_protocol_data = None
         self.isRunningCurrentProtocol = False
+        self.current_protocol_data = None
+        self.voltage_protocol_data = None
 
     def resistance(self):
         return self.latestResistance + np.random.normal(0, 0.1 * 10 ** 6)
