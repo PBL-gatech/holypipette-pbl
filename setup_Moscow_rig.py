@@ -7,8 +7,9 @@ from holypipette.devices.amplifier.amplifier import FakeAmplifier
 from holypipette.devices.amplifier.DAQ import FakeDAQ, DAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.camera.qimagingcam import QImagingCam
-from holypipette.devices.pressurecontroller import IBBPressureController, FakePressureController
-from holypipette.devices.pressurecontroller.MoscowPressureController import MoscowPressureController
+from holypipette.devices.pressurecontroller import IBBPressureController, FakePressureController, TestPressureController
+# from holypipette.devices.pressurecontroller.MoscowPressureController import MoscowPressureController
+# from holypipette.devices.pressurecontroller import TestPressureController
 from holypipette.devices.camera.camera import FakeCamera
 from holypipette.devices.camera import FakeCalCamera, FakePipetteManipulator
 from holypipette.devices.manipulator import *
@@ -32,12 +33,12 @@ if ser6.isOpen():
     print("CLOSING 6")
     ser6.close()
 
-# controllerSerial = serial.Serial('COM6')
-# controller = ScientificaSerialNoEncoder(controllerSerial)
+controllerSerial = serial.Serial('COM6')
+controller = ScientificaSerialNoEncoder(controllerSerial)
 
-# pipetteSerial = serial.Serial('COM3')
-# pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
-# stage = ManipulatorUnit(controller, [1, 2])
+pipetteSerial = serial.Serial('COM3')
+pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
+stage = ManipulatorUnit(controller, [1, 2])
 
 controller = FakeManipulator(min=[-240000, 50000, 280000],
                              max=[-230000, 60000, 290000])
@@ -65,8 +66,10 @@ daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0')
 # amplifier = FakeAmplifier()
 pressure = FakePressureController()
 amplifier = MultiClampChannel(channel=1)
-# pressureSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
-# pressure = IBBPressureController(channel=1, arduinoSerial=pressureSerial)
-# pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
-# pressureReaderSerial = serial.Serial(port='COM8', baudrate=9600, timeout=0)
+
+
+pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
+pressureReaderSerial = serial.Serial(port='COM8', baudrate=9600, timeout=0)
+# pressure = IBBPressureController(channel=1, arduinoSerial=pressureControllerSerial)
+pressure = TestPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
 # pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)

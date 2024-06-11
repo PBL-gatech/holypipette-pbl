@@ -107,22 +107,6 @@ class AutoPatchInterface(TaskInterface):
     
     def run_protocols(self):
         self.execute(self.current_autopatcher.run_protocols)
-   
-
-    # @blocking_command(category='DAQ',
-    #         description='Run a Current Protocol on the Cell',
-    #         task_description='Run a Current Protocol on the Cell')
-
-    # def run_current_protocol(self):
-        # self.execute(self.current_autopatcher.run_current_protocol)
-
-    # @blocking_command(category='DAQ',
-    #         description='Run a Voltage Protocol on the Cell',
-    #         task_description='Run a Voltage Protocol on the Cell')
-
-    # def run_voltage_protocol(self):
-    #     self.execute(self.current_autopatcher.run_voltage_protocol)
-
     
 
     @command(category='Patch', description='Add a mouse position to the list of cells to patch')

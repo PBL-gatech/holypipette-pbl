@@ -34,6 +34,9 @@ class MoscowPressureController(PressureController):
         if controllerSerial is not None:
             # no port specified, we will use the user supplied serial port
             self.controllerSerial = controllerSerial
+        else:
+            self.controllerSerial = None
+            logging.error("No controller serial port available")
         
         if readerSerial is not None:
             # no port specified, we will use the user supplied serial port
