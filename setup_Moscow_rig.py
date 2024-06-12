@@ -44,9 +44,9 @@ unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0')
 
 # daq = FakeDAQ()
-# amplifier = FakeAmplifier()
-pressure = FakePressureController()
-amplifier = MultiClampChannel(channel=1)
+amplifier = FakeAmplifier()
+# pressure = FakePressureController()
+# amplifier = MultiClampChannel(channel=1)
 
 
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)

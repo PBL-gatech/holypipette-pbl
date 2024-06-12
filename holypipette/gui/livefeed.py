@@ -4,6 +4,9 @@ from PyQt5.QtCore import Qt
 
 import traceback
 import numpy as np
+from datetime import datetime
+
+from holypipette.utils.FileLogger import FileLogger
 
 
 __all__ = ['LiveFeedQt']
@@ -33,6 +36,8 @@ class LiveFeedQt(QtWidgets.QLabel):
         self.setMinimumSize(640, 480)
         self.setAlignment(Qt.AlignCenter)
 
+        self.recorder = FileLogger(folder_path="experiments/rig_recorder_data/")
+
         # Remember the last frame that we displayed, to not unnecessarily
         # process/show the same frame for slow input sources
         self._last_frameno = None
@@ -61,6 +66,8 @@ class LiveFeedQt(QtWidgets.QLabel):
         try:
             # get last frame from camera
             frameno, frame = self.camera.last_frame()
+            self.recorder.write_camera_frames(datetime.now().timestamp(), frame, frameno)
+
             if frame is None:
                 return  # Frame acquisition thread has stopped
             if self._last_frameno is None or self._last_frameno != frameno:
@@ -87,6 +94,8 @@ class LiveFeedQt(QtWidgets.QLabel):
             
             q_image = QtGui.QImage(frame.data, self.width, self.height,
                                    bytesPerLine, format)
+            
+            
 
             if format == QtGui.QImage.Format_RGB888:
                 # OpenCV returns images as 24bit BGR (and not RGB), but there is no

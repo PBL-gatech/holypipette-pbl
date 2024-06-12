@@ -15,6 +15,8 @@ from ..interface.patch import AutoPatchInterface
 from ..interface.pipettes import PipetteInterface
 from ..interface.base import command
 
+from holypipette.utils import FileLogger
+from datetime import datetime
 
 class PatchGui(ManipulatorGui):
 
@@ -120,14 +122,14 @@ class ButtonTabWidget(QtWidgets.QWidget):
         #add a box for manipulator and stage positions
         box = QtWidgets.QGroupBox(name)
         row = QtWidgets.QHBoxLayout()
-        indicies = []
+        indices = []
         #create a new row for each position
         for j, axis in enumerate(axes):
             #create a label for the position
             label = QtWidgets.QLabel(f'{axis}: TODO')
             row.addWidget(label)
 
-            indicies.append(len(self.pos_labels))
+            indices.append(len(self.pos_labels))
             self.pos_labels.append(label)
         box.setLayout(row)
         layout.addWidget(box)
@@ -140,7 +142,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
 
         #periodically update the position labels
         pos_timer = QtCore.QTimer()
-        pos_timer.timeout.connect(lambda: update_func(indicies))
+        pos_timer.timeout.connect(lambda: update_func(indices))
         pos_timer.start(16)
         self.pos_update_timers.append(pos_timer)
     
@@ -188,11 +190,17 @@ class PatchButtons(ButtonTabWidget):
         layout = QtWidgets.QVBoxLayout()
         layout.setAlignment(Qt.AlignTop)
 
+        self.stage_xy = [0, 0]
+        self.stage_z = 0
+        self.pipette_xyz = [0,0,0]
+        
+        self.recorder = FileLogger(folder_path="experiments/rig_recorder_data/", recorder_filename = "movement_recording.csv")
+
         self.addPositionBox('stage position (um)', layout, self.update_stage_pos_labels, tare_func=self.tare_stage)
         self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
         self.init_stage_pos = None #used to store bootup positions so we can reset to them
         self.init_pipette_pos = None
-        
+
        
         #add a box for cal
         buttonList = [['Calibrate Stage','Set Cell Plane'], ['Add Pipette Cal Point', 'Finish Pipette Cal'], ['Save Calibration', 'Recalibrate Pipette']]
@@ -221,18 +229,29 @@ class PatchButtons(ButtonTabWidget):
         
         self.setLayout(layout)
 
+    def close(self):
+        self.recorder.close()
+        super(PatchButtons, self).close()
+    def closeEvent(self):
+        self.recorder.close()
+        super(PatchButtons, self).closeEvent()
+
     def tare_pipette(self):
         currPos = self.pipette_interface.calibrated_unit.unit.position()
         self.init_pipette_pos = currPos
 
-    def update_pipette_pos_labels(self, indicies):
+    def update_pipette_pos_labels(self, indices):
         #update the position labels
         currPos = self.pipette_interface.calibrated_unit.unit.position()
         if self.init_pipette_pos is None:
             self.init_pipette_pos = currPos
         currPos = currPos - self.init_pipette_pos
 
-        for i, ind in enumerate(indicies):
+        self.recorder.write_movement_data(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, currPos[0], currPos[1], currPos[2])
+
+        self.pipette_xyz = currPos
+
+        for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
             label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
 
@@ -242,17 +261,23 @@ class PatchButtons(ButtonTabWidget):
         self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
 
 
-    def update_stage_pos_labels(self, indicies):
+    def update_stage_pos_labels(self, indices):
         #update the position labels
         xyPos = self.pipette_interface.calibrated_stage.position()
         zPos = self.pipette_interface.microscope.position()
 
         if self.init_stage_pos is None:
             self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+
         xyPos = xyPos - self.init_stage_pos[0:2]
         zPos = zPos - self.init_stage_pos[2]
 
-        for i, ind in enumerate(indicies):
+        self.recorder.write_movement_data(datetime.now().timestamp(), xyPos[0], xyPos[1], zPos, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
+
+        self.stage_xy = xyPos
+        self.stage_z = zPos
+
+        for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
             if i < 2:
                 label.setText(f'{label.text().split(":")[0]}: {xyPos[i]:.2f}')
@@ -286,10 +311,10 @@ class CellSorterButtons(ButtonTabWidget):
 
         self.setLayout(layout)
 
-    def update_cellsorter_pos_labels(self, indicies):
+    def update_cellsorter_pos_labels(self, indices):
         #update the position labels
         currPos = self.pipette_interface.calibrated_cellsorter.position()
-        for _, ind in enumerate(indicies):
+        for _, ind in enumerate(indices):
             label = self.pos_labels[ind]
             label.setText(f'{label.text().split(":")[0]}: {currPos:.2f}')
 

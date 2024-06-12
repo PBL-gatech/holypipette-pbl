@@ -236,7 +236,7 @@ class EPhysGraph(QWidget):
         
         self.updateTimer = QtCore.QTimer()
         # this has to match the arduino sensor delay
-        self.updateDt = 16 # ms
+        self.updateDt = 33 # ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
@@ -248,14 +248,19 @@ class EPhysGraph(QWidget):
         # self.pressureUpdateThread = threading.Thread(target=self.updatePressureAsync, daemon=True)
         # self.pressureUpdateThread.start()
 
-        recorderFilename = "experiments/rig_recorder_data/graph_recording.csv"
-        self.recorder = FileLogger(recorderFilename)
+        self.recorder = FileLogger(folder_path="experiments/rig_recorder_data/", recorder_filename = "graph_recording.csv")
         self.lastDaqData = []
 
 
         #show window and bring to front
         self.raise_()
         self.show()
+
+
+    def close(self):
+        self.recorder.close()
+        logging.info("closing graph")
+        super(EPhysGraph, self).hide()
 
     def updateDAQDataAsync(self):
         while True:
@@ -306,7 +311,7 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
         # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
-        self.recorder.write_data(currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[1, :]), datetime.now().timestamp())
+        self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[1, :]))
         self.lastestDaqData = None
 
 
