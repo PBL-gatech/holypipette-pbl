@@ -10,6 +10,8 @@ import pco
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
 from holypipette.deepLearning.pipetteFocuser import PipetteFocuser, FocusLevels
 from collections import deque
+from datetime import datetime
+import logging
 
 try:
     import cv2
@@ -56,6 +58,10 @@ class PcoCamera(Camera):
 
         self.upperBound = 255
         self.lowerBound = 0
+
+        self.last_frame_time = None
+        self.fps = 0
+
         # self.pipetteFinder = PipetteFinder()
         self.pipetteFocuser = PipetteFocuser()
 
@@ -80,7 +86,15 @@ class PcoCamera(Camera):
 
     def get_frame_rate(self):
         # TODO: this is ideal, can we get actual fps?
-        return 1 / self.cam.get_exposure_time()
+        # return 1 / self.cam.get_exposure_time()
+        # * A way to calculate FPS
+        current_time = time.time()
+        if self.last_frame_time is not None:
+            time_diff = current_time - self.last_frame_time
+            self.fps = 1.0 / time_diff
+        self.last_frame_time = current_time
+
+        return self.fps
 
     def reset(self):
         self.cam.close()
@@ -100,7 +114,7 @@ class PcoCamera(Camera):
         self.cam.wait_for_first_image()
 
     def normalize(self, img = None):
-        print ("NORMALIZING")
+        print("NORMALIZING")
         # print(f"BEFORE IMAGE: {img}")
         if img is None:
             img = self.get_16bit_image()
@@ -122,6 +136,7 @@ class PcoCamera(Camera):
         # if self.frameno == self.cam.rec.get_status()['dwProcImgCount'] and self.lastFrame is not None:
         #     return self.lastFrame
         # else:
+        print('-----get 16 bit image----- PcoCamera.py')
         self.frameno = self.cam.rec.get_status()['dwProcImgCount']
         
         try:
@@ -130,10 +145,14 @@ class PcoCamera(Camera):
             # this is the line that is causing an error if pco <= 2.1.2
             img, meta = self.cam.image(image_number=PcoCamera.PCO_RECORDER_LATEST_IMAGE)
             self.lastFrame = img
+            # self.recorder.write_camera_frames(datetime.now().timestamp(), frame, frameno)
+            # logging.debug(f"Got image from camera: {datetime.now()}")
             # print(meta)
         except Exception as e:
             print(f"ERROR in get_16bit_image: {e}")
             return self.last_frame # there was an error grabbing the most recent frame
+
+        # logging.info(f"FPS in pcocamera: {self.get_frame_rate():.2f}")
 
         return img
 
@@ -154,15 +173,25 @@ class PcoCamera(Camera):
         if span == 0:
             span = 1 #prevent divide by 0 for blank images
 
-        img = img.astype(np.float32)
-        img = img - self.lowerBound
-        img = img / span
+        
+        img = np.clip((img.astype(np.float32) - self.lowerBound) / span * 255, 0, 255).astype(np.uint8)
 
-        #convert to 8 bit color
-        img = img * 255
-        img[np.where(img < 0)] = 0
-        img[np.where(img > 255)] = 255
-        img = img.astype(np.uint8)
+        # img = img.astype(np.float32)
+        # img = img - self.lowerBound
+        # img = img / span
+
+        # #convert to 8 bit color
+        # img = img * 255
+        # img[np.where(img < 0)] = 0
+        # img[np.where(img > 255)] = 255
+        # img = img.astype(np.uint8)
+
+        # if not np.array_equal(img_test, img):
+        #     print("ERROR: NORMALIZATION FAILED")
+        #     print(f"IMG: {img}")
+        #     print(f"IMG_TEST: {img_test}")
+        # else:
+        #     print("NORMALIZATION PASSED")
 
         # resize if needed
         if self.width != None and self.height != None:

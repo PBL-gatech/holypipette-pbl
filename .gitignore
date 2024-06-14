@@ -9,3 +9,5 @@ dist/
 CellSorterSerial.py
 
 
+*.webp
+/experiments/rig_recorder_data

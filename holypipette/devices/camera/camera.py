@@ -11,6 +11,7 @@ import datetime
 import time
 import threading
 import imageio
+import logging
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -103,13 +104,28 @@ class AcquisitionThread(threading.Thread):
         self.queues = queues
         self.raw_queues = raw_queues
         self.running = True
+        
+        self.last_frame_time = None
+        self.fps = 0
 
         threading.Thread.__init__(self, name='image_acquire_thread')
+
+        
+    def get_frame_rate(self):
+        # * A way to calculate FPS
+        current_time = time.time()
+        if self.last_frame_time is not None:
+            time_diff = current_time - self.last_frame_time
+            self.fps = 1.0 / time_diff
+        self.last_frame_time = current_time
+
+        return self.fps
 
     def run(self):
         self.running = True
 
         start_time = time.time()
+
         last_report = start_time
         acquired_frames = 0
         last_frame = 0
@@ -129,11 +145,13 @@ class AcquisitionThread(threading.Thread):
             for queue in self.raw_queues:
                 queue.append((last_frame, datetime.datetime.now(), snap_time - start_time, raw))
 
+            # logging.info(f"FPS in camera: {self.get_frame_rate():.2f}")
+
             last_frame += 1
             acquired_frames += 1
             if snap_time - last_report > 1:
                 frame_rate = acquired_frames / (snap_time - last_report)
-                # print('Acquiring {:.1f} fps'.format(frame_rate))
+                # logging.warning('Acquiring {:.1f} fps'.format(frame_rate))
                 last_report = snap_time
                 acquired_frames = 0
         
@@ -255,8 +273,27 @@ class Camera(object):
         (frame_number, frame)
         '''
         try:
-            last_entry = self._last_frame_queue[0]
+            # * the deque has a maxsize of 1, so we can do this
+            # maybe we should use a list instead of a deque?
+            # ? should we change this to grab the last element instead, as it is more intuitive?
+            # last_entry = self._last_frame_queue[0]
+            last_entry = self._last_frame_queue[-1]
             return last_entry[0], last_entry[-1]
+        except IndexError:  # no frame (yet)
+            return None
+    
+    def last_frame_data(self):
+        '''
+        Get the last snapped frame and its number
+
+        Returns
+        -------
+        (frame_number, date, frame)
+        '''
+        try:
+            last_entry = self._last_frame_queue[0]
+            # print('last_entry:', last_entry)
+            return last_entry[0], last_entry[1], last_entry[-1]
         except IndexError:  # no frame (yet)
             return None
 

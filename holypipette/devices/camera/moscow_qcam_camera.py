@@ -94,6 +94,7 @@ class moscowQCamera(Camera):
         '''get a 16 bit color image from the camera (no normalization)
            this compares to raw_snap which returns a 8 bit image with normalization
         '''
+        print('-----get 16 bit image----- mostow_qcam_camera.py')
         self.lock.acquire()
         if self.cam.getRemainingImageCount() > 0:
             self.prev_frame = copy.deepcopy(self.cam.popNextImage()).astype(np.uint8)

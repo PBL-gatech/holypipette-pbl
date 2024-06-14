@@ -6,6 +6,9 @@ import traceback
 import numpy as np
 from datetime import datetime
 
+import logging
+import time
+
 from holypipette.utils.FileLogger import FileLogger
 
 
@@ -36,18 +39,21 @@ class LiveFeedQt(QtWidgets.QLabel):
         self.setMinimumSize(640, 480)
         self.setAlignment(Qt.AlignCenter)
 
-        self.recorder = FileLogger(folder_path="experiments/rig_recorder_data/")
+        self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/")
 
         # Remember the last frame that we displayed, to not unnecessarily
         # process/show the same frame for slow input sources
         self._last_frameno = None
         self._last_edited_frame = None
+        
+        self.last_frame_time = None
+        self.fps = 0
 
         self.update_image()
 
         timer = QtCore.QTimer(self)
         timer.timeout.connect(self.update_image)
-        timer.start(33) # 30 fps
+        timer.start(16) #30fps
 
     def mousePressEvent(self, event):
         # Ignore clicks that are not on the image
@@ -61,15 +67,31 @@ class LiveFeedQt(QtWidgets.QLabel):
         if self.mouse_handler is not None:
             self.mouse_handler(event)
 
+    
+    def get_frame_rate(self):
+        # * A way to calculate FPS
+        current_time = time.time()
+        if self.last_frame_time is not None:
+            time_diff = current_time - self.last_frame_time
+            self.fps = 1.0 / time_diff
+        self.last_frame_time = current_time
+
+        return self.fps
+
     @QtCore.pyqtSlot()
     def update_image(self):
         try:
             # get last frame from camera
-            frameno, frame = self.camera.last_frame()
-            self.recorder.write_camera_frames(datetime.now().timestamp(), frame, frameno)
+            frameno, frame_time, frame = self.camera.last_frame_data()
 
             if frame is None:
                 return  # Frame acquisition thread has stopped
+
+            self.recorder.write_camera_frames(frame_time.timestamp(), frame, frameno)
+            # logging.info(f"FPS in livefeed: {self.get_frame_rate():.2f}")
+            
+
+            # ! THIS MAKES NO SENSE! WHY WOULD WE ASSIGN THE FRAME TO A PREVIOUS VERSION?
             if self._last_frameno is None or self._last_frameno != frameno:
                 # No need to preprocess a frame again if it has not changed
                 frame = self.image_edit(frame)
@@ -78,6 +100,7 @@ class LiveFeedQt(QtWidgets.QLabel):
                 self._last_frameno = frameno
             else:
                 frame = self._last_edited_frame
+
             
             if len(frame.shape) == 2:
                 # Grayscale image via MicroManager

@@ -194,7 +194,7 @@ class PatchButtons(ButtonTabWidget):
         self.stage_z = 0
         self.pipette_xyz = [0,0,0]
         
-        self.recorder = FileLogger(folder_path="experiments/rig_recorder_data/", recorder_filename = "movement_recording.csv")
+        self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", recorder_filename = "movement_recording.csv")
 
         self.addPositionBox('stage position (um)', layout, self.update_stage_pos_labels, tare_func=self.tare_stage)
         self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
