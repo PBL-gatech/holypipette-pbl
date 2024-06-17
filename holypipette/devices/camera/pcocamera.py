@@ -136,7 +136,7 @@ class PcoCamera(Camera):
         # if self.frameno == self.cam.rec.get_status()['dwProcImgCount'] and self.lastFrame is not None:
         #     return self.lastFrame
         # else:
-        print('-----get 16 bit image----- PcoCamera.py')
+        # print('-----get 16 bit image----- PcoCamera.py')
         self.frameno = self.cam.rec.get_status()['dwProcImgCount']
         
         try:

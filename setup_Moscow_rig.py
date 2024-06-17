@@ -14,18 +14,18 @@ from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 
 
-controllerSerial = serial.Serial('COM6')
-controller = ScientificaSerialNoEncoder(controllerSerial)
+# controllerSerial = serial.Serial('COM6')
+# controller = ScientificaSerialNoEncoder(controllerSerial)
 
-pipetteSerial = serial.Serial('COM3')
-pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
-stage = ManipulatorUnit(controller, [1, 2])
-
-# controller = FakeManipulator(min=[-240000, 50000, 280000],
-#                              max=[-230000, 60000, 290000])
-# pipetteManip = FakeManipulator(min=[0, 0, 0],
-#                                       max=[4000, 20000, 20000])
+# pipetteSerial = serial.Serial('COM3')
+# pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
 # stage = ManipulatorUnit(controller, [1, 2])
+
+controller = FakeManipulator(min=[-240000, 50000, 280000],
+                             max=[-230000, 60000, 290000])
+pipetteManip = FakeManipulator(min=[0, 0, 0],
+                                      max=[4000, 20000, 20000])
+stage = ManipulatorUnit(controller, [1, 2])
 
 cellSorterController = FakeCellSorterController()
 cellSorterManip = FakeCellSorterManip()

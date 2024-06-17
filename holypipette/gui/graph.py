@@ -14,10 +14,11 @@ from holypipette.devices.amplifier import DAQ
 from holypipette.devices.pressurecontroller import PressureController
 
 from holypipette.utils import FileLogger
+# from holypipette.utils import EPhysLogger
 
 from datetime import datetime
 
-__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph"]
+__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph, HoldingProtocolGraph"]
 
 class CurrentProtocolGraph(QWidget):
     def __init__(self, daq : DAQ):
@@ -53,6 +54,7 @@ class CurrentProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
+        # self.ephys_logger = EPhysLogger()
 
     def update_plot(self):
         #is what we displayed the exact same?
@@ -70,7 +72,6 @@ class CurrentProtocolGraph(QWidget):
             xData = graph[0]
             yData = graph[1]
             self.cprotocolPlot.plot(xData, yData, pen=colors[i])
-
         self.latestDisplayedData = self.daq.latest_protocol_data.copy()
 
 
@@ -107,6 +108,8 @@ class VoltageProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
+        # self.ephys_logger = EPhysLogger()
+
     def update_plot(self):
         #is what we displayed the exact same?
 
@@ -124,9 +127,70 @@ class VoltageProtocolGraph(QWidget):
             print(self.daq.voltage_protocol_data[0, :])
             print(self.daq.voltage_protocol_data[1, :])
             self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :])
+            # timestamp = datetime.now().timestamp()
+            # self.ephys_logger.write_ephys_data(timestamp, "VoltageProtocol", self.daq.voltage_protocol_data)
             self.daq.latest_protocol_data = None
 
         self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
+
+
+class HoldingProtocolGraph(QWidget):
+    def __init__(self, daq : DAQ):
+        super().__init__()
+
+        layout = QVBoxLayout()
+        self.setWindowTitle("Holding Protocol (E/I PSC Test")
+        logging.getLogger('matplotlib.font_manager').disabled = True
+        self.daq = daq
+        self.hprotocolPlot = PlotWidget()
+        self.hprotocolPlot.setBackground('w')
+        self.hprotocolPlot.getAxis('left').setPen('k')
+        self.hprotocolPlot.getAxis('bottom').setPen('k')
+        self.hprotocolPlot.setLabel('left', "PicoAmps", units='pA')
+        self.hprotocolPlot.setLabel('bottom', "Samples", units='')
+        layout.addWidget(self.hprotocolPlot)
+
+        self.latestDisplayedData = None
+
+        self.setLayout(layout)
+        self.raise_()
+        self.show()
+
+        #hide window
+        self.setHidden(True)
+
+        #remap close event to hide window
+        self.closeEvent = lambda: self.setHidden(True)
+
+        self.updateTimer = QtCore.QTimer()
+        self.updateDt = 10 #ms
+        self.updateTimer.timeout.connect(self.update_plot)
+        self.updateTimer.start(self.updateDt)
+
+        # self.ephys_logger = EPhysLogger()
+
+    def update_plot(self):
+        #is what we displayed the exact same?
+
+        # logging.warning("window should be shown")
+        if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.holding_protocol_data)) or self.daq.holding_protocol_data is None:
+            return
+        
+        #if the window was closed or hidden, relaunch it
+        if self.isHidden():
+            self.setHidden(False)
+            self.isShown = True
+
+        if self.daq.holding_protocol_data is not None:
+            self.hprotocolPlot.clear()
+            print(self.daq.holding_protocol_data[0, :])
+            print(self.daq.holding_protocol_data[1, :])
+            self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :])
+            # timestamp = datetime.now().timestamp()
+            # self.ephys_logger.write_ephys_data(timestamp, "HoldingProtocol", self.daq.holding_protocol_data)
+            self.daq.latest_protocol_data = None
+
+        self.latestDisplayedData = self.daq.holding_protocol_data.copy()
 
 
 class EPhysGraph(QWidget):

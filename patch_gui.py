@@ -8,7 +8,7 @@ from PyQt5 import QtWidgets
 from holypipette.log_utils import console_logger
 from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
-from holypipette.gui import PatchGui, EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph
+from holypipette.gui import PatchGui, EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 
 # from setup_IBB_rig import *
 # from setup_fake_rig import *
@@ -25,6 +25,7 @@ graphs = EPhysGraph(daq, pressure)
 graphs.show()
 currentProtocolGraph = CurrentProtocolGraph(daq)
 voltageProtocolGraph = VoltageProtocolGraph(daq)
+holdingProtocolGraph = HoldingProtocolGraph(daq)
 
 
 gui.initialize()

@@ -66,7 +66,7 @@ class FileLogger:
 
         self.write_event.clear()
         image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value - self.time_truth_timestamp) + ".webp"
-        logging.info("Saving image frame #" + str(frameno))
+        # logging.info("Saving image frame #" + str(frameno))
         self.executor.submit(self._save_image, frame, image_path)
         self.last_frame = frameno
 
@@ -77,3 +77,4 @@ class FileLogger:
             self.file.close()
             self.file = None
         self.executor.shutdown(wait=True)
+

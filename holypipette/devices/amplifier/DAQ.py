@@ -33,6 +33,7 @@ class DAQ:
         self.latest_protocol_data = None
         self.current_protocol_data = None
         self.voltage_protocol_data = None
+        self.holding_protocol_data = None
 
         #read constants
 
@@ -138,6 +139,23 @@ class DAQ:
         self.isRunningProtocol = False
 
         return self.latest_protocol_data
+    
+    def getDataFromHoldingProtocol(self):
+        ''' measures data from Post synaptic currents to determine spontaneous activity from other connected neurons'''
+        self.isRunningProtocol = True
+        self.holding_protocol_data = None # clear data
+        self._deviceLock.acquire()
+        data  = self._readAnalogInput(50000, 1)
+        self._deviceLock.release()
+        triggeredSamples = data.shape[0]
+        xdata = np.linspace(0, triggeredSamples / 50000, triggeredSamples, dtype=float)
+        self.isRunningProtocol = False
+
+        self.holding_protocol_data = np.array([xdata, data])
+
+        return self.holding_protocol_data
+
+
 
     def getDataFromVoltageProtocol(self):
         '''Sends a square wave to determine membrane properties, returns time constant, resistance, and capacitance.'''
