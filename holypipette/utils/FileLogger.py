@@ -5,8 +5,9 @@ from PIL import Image
 import concurrent.futures
 import threading
 
+
 class FileLogger:
-    def __init__(self, folder_path="experiments/Data", recorder_filename="recording.csv"):
+    def __init__(self, folder_path="experiments/Data/", recorder_filename="recording.csv", isVideo = False):
         self.time_truth = datetime.now()
         self.time_truth_timestamp = self.time_truth.timestamp()
         self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
@@ -17,6 +18,12 @@ class FileLogger:
 
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.write_event = threading.Event()
+
+        self.frame_executor = None
+        self.write_frame = None
+        if isVideo:
+            self.frame_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            self.write_frame = threading.Event()
         print("FileLogger created at: ", self.time_truth_timestamp)
 
         self.create_folder()
@@ -53,7 +60,8 @@ class FileLogger:
     def _save_image(self, frame, path):
         image = Image.fromarray(frame)
         image.save(path, format="webp")
-        self.write_event.set()  # Signal that image saving is done
+        logging.info("Image saved at: " + path)
+        self.write_frame.set()  # Signal that image saving is done
 
     def write_camera_frames(self, time_value, frame, frameno):
         if frameno is None:
@@ -64,10 +72,10 @@ class FileLogger:
         if frameno <= self.last_frame:
             return
 
-        self.write_event.clear()
+        self.write_frame.clear()
         image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value - self.time_truth_timestamp) + ".webp"
-        # logging.info("Saving image frame #" + str(frameno))
-        self.executor.submit(self._save_image, frame, image_path)
+        logging.info("Saving image frame #" + str(frameno))
+        self.frame_executor.submit(self._save_image, frame, image_path)
         self.last_frame = frameno
 
     def close(self):
@@ -76,5 +84,53 @@ class FileLogger:
             self.write_event.wait()  # Wait for the last task to complete
             self.file.close()
             self.file = None
+        logging.info("Closing csv recorder writing thread")
         self.executor.shutdown(wait=True)
+        logging.info("Closing frame saving thread")
+        self.frame_executor.shutdown(wait=True)
 
+
+class EPhysLogger:
+    def __init__(self, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
+        self.time_truth = datetime.now()
+        self.time_truth_timestamp = self.time_truth.timestamp()
+        self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
+        self.filename = f"{ephys_filename}_data.csv"
+        
+        self.create_folder()
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self.write_event = threading.Event()
+        print("EPhysSaver created at: ", self.time_truth_timestamp)
+
+    def create_folder(self):
+        # check that the folder exists
+        if not os.path.exists(os.path.dirname(self.folder_path)):
+            try:
+                # os.makedirs(os.path.dirname(self.folder_path))
+                # * created a folder deeper will always create the parent folder
+                os.makedirs(os.path.dirname(self.folder_path))
+            except OSError as exc:
+                logging.error("Error creating folder for recording: %s", exc)
+    
+    def open(self):
+        self.file = open(self.filename, 'w')
+
+    def _write_to_file(self, content):
+        if self.file is None:
+            self.open()
+        self.file.write(content)
+        self.write_event.set()  # Signal that writing is done
+
+    def write_ephys_data(self, time_value, data):
+        self.write_event.clear()
+        content = f"{time_value},{','.join(map(str, data))}\n"
+        self.executor.submit(self._write_to_file, content)
+
+    def close(self):
+        if self.file is not None:
+            logging.info("CLOSING FILE: ", self.filename)
+            self.write_event.wait()  # Wait for the last task to complete
+            self.file.close()
+            self.file = None
+        logging.info("Closing csv recorder writing thread")
+        self.executor.shutdown(wait=True)

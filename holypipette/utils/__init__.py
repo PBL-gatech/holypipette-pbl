@@ -1,2 +1,2 @@
-from .FileLogger import *
-from .EPhysLogger import *
+# from .FileLogger import FileLogger
+from .FileLogger import FileLogger, EPhysLogger

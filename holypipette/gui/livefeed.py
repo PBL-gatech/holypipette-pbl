@@ -39,7 +39,7 @@ class LiveFeedQt(QtWidgets.QLabel):
         self.setMinimumSize(640, 480)
         self.setAlignment(Qt.AlignCenter)
 
-        self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/")
+        self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", isVideo=True)
 
         # Remember the last frame that we displayed, to not unnecessarily
         # process/show the same frame for slow input sources

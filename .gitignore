@@ -7,7 +7,7 @@ docs/
 dist/
 *.egg-info/
 CellSorterSerial.py
-
+__pycache__/
 
 *.webp
-/experiments/rig_recorder_data
+experiments/Data/rig_recorder_data/

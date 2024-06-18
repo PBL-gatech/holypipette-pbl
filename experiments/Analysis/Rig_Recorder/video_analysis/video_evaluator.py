@@ -93,6 +93,6 @@ def create_videos_from_directory(input_dir, output_dir):
     print(final_video_name_constant_fps)
 
 # Example usage
-input_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\rig_recorder_data\2024_06_14-16_50\camera_frames'
-output_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\rig_recorder_data\2024_06_14-16_50\output_videos'
+input_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_18-16_15\camera_frames'
+output_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_18-16_15\output_videos'
 create_videos_from_directory(input_directory, output_directory)

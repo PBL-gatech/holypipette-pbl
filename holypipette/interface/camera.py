@@ -5,6 +5,8 @@ import warnings
 import cv2
 from numpy import *
 from holypipette.interface import TaskInterface, command, blocking_command
+from PIL import Image
+
 
 class CameraInterface(TaskInterface):
     updated_exposure = QtCore.pyqtSignal('QString', 'QString')
@@ -58,11 +60,11 @@ class CameraInterface(TaskInterface):
     @command(category='Camera',
              description='Save the current image to a file')
     def save_image(self):
-        try:
-            from PIL import Image
-        except ImportError:
-            self.error('Saving images needs the PIL or Pillow module')
-            return
+        # try:
+        #     from PIL import Image
+        # except ImportError:
+        #     self.error('Saving images needs the PIL or Pillow module')
+        #     return
         frame, _ = self.camera.snap()
         fname, _ = QtWidgets.QFileDialog.getSaveFileName(caption='Save image',
                                                          filter='Images (*.png, *.tiff)',

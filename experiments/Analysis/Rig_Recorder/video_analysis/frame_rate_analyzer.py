@@ -57,7 +57,7 @@ def process_images_and_plot(input_directory, output_directory, output_filename):
 
 
 # Example usage:
-input_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\rig_recorder_data\2024_06_14-16_50\camera_frames'
-output_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\rig_recorder_data\2024_06_14-16_50\output_videos'
+input_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_18-16_15\camera_frames'
+output_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_18-16_15\output_videos'
 output_filename = 'framerate_plot.png'
 process_images_and_plot(input_directory, output_directory, output_filename)

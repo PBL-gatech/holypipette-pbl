@@ -13,12 +13,11 @@ from collections import deque
 from holypipette.devices.amplifier import DAQ
 from holypipette.devices.pressurecontroller import PressureController
 
-from holypipette.utils import FileLogger
-# from holypipette.utils import EPhysLogger
+from holypipette.utils import FileLogger, EPhysLogger
 
 from datetime import datetime
 
-__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph, HoldingProtocolGraph"]
+__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "HoldingProtocolGraph"]
 
 class CurrentProtocolGraph(QWidget):
     def __init__(self, daq : DAQ):
@@ -54,7 +53,7 @@ class CurrentProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        # self.ephys_logger = EPhysLogger()
+        # self.ephys_logger = EPhysLogger(ephys_filename="CurrentProtocol")
 
     def update_plot(self):
         #is what we displayed the exact same?
@@ -108,7 +107,7 @@ class VoltageProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        # self.ephys_logger = EPhysLogger()
+        self.ephys_logger = EPhysLogger(ephys_filename = "VoltageProtocol")
 
     def update_plot(self):
         #is what we displayed the exact same?
@@ -127,8 +126,8 @@ class VoltageProtocolGraph(QWidget):
             print(self.daq.voltage_protocol_data[0, :])
             print(self.daq.voltage_protocol_data[1, :])
             self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :])
-            # timestamp = datetime.now().timestamp()
-            # self.ephys_logger.write_ephys_data(timestamp, "VoltageProtocol", self.daq.voltage_protocol_data)
+            timestamp = datetime.now().timestamp()
+            self.ephys_logger.write_ephys_data(timestamp, self.daq.voltage_protocol_data)
             self.daq.latest_protocol_data = None
 
         self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
@@ -167,13 +166,14 @@ class HoldingProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        # self.ephys_logger = EPhysLogger()
+        self.ephys_logger = EPhysLogger(ephys_filename = "HoldingProtocol")
 
     def update_plot(self):
         #is what we displayed the exact same?
 
         # logging.warning("window should be shown")
         if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.holding_protocol_data)) or self.daq.holding_protocol_data is None:
+            logging.warning("no new data, skipping plot update")
             return
         
         #if the window was closed or hidden, relaunch it
@@ -186,8 +186,8 @@ class HoldingProtocolGraph(QWidget):
             print(self.daq.holding_protocol_data[0, :])
             print(self.daq.holding_protocol_data[1, :])
             self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :])
-            # timestamp = datetime.now().timestamp()
-            # self.ephys_logger.write_ephys_data(timestamp, "HoldingProtocol", self.daq.holding_protocol_data)
+            timestamp = datetime.now().timestamp()
+            self.ephys_logger.write_ephys_data(timestamp, self.daq.holding_protocol_data)
             self.daq.latest_protocol_data = None
 
         self.latestDisplayedData = self.daq.holding_protocol_data.copy()
@@ -375,7 +375,13 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
         # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
-        self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[1, :]))
+        try:
+            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[1, :]))
+        except Exception as e:
+            logging.error(f"lastDaqData[1, :] is a tuple - {e}")
+            logging.error(self.lastDaqData[1, :])
+            logging.error(list(self.lastDaqData[1, :]))
+
         self.lastestDaqData = None
 
 

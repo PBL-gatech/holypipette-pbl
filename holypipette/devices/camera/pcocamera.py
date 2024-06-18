@@ -145,7 +145,6 @@ class PcoCamera(Camera):
             # this is the line that is causing an error if pco <= 2.1.2
             img, meta = self.cam.image(image_number=PcoCamera.PCO_RECORDER_LATEST_IMAGE)
             self.lastFrame = img
-            # self.recorder.write_camera_frames(datetime.now().timestamp(), frame, frameno)
             # logging.debug(f"Got image from camera: {datetime.now()}")
             # print(meta)
         except Exception as e:
