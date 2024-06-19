@@ -1,9 +1,7 @@
 import sys
-
 from PyQt5.QtWidgets import QApplication
 import traceback
 from PyQt5 import QtWidgets
-
 
 from holypipette.log_utils import console_logger
 from holypipette.interface import AutoPatchInterface
@@ -26,7 +24,6 @@ graphs.show()
 currentProtocolGraph = CurrentProtocolGraph(daq)
 voltageProtocolGraph = VoltageProtocolGraph(daq)
 holdingProtocolGraph = HoldingProtocolGraph(daq)
-
 
 gui.initialize()
 gui.show()

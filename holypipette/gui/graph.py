@@ -123,12 +123,15 @@ class VoltageProtocolGraph(QWidget):
 
         if self.daq.voltage_protocol_data is not None:
             self.vprotocolPlot.clear()
-            print(self.daq.voltage_protocol_data[0, :])
-            print(self.daq.voltage_protocol_data[1, :])
+            # print(self.daq.voltage_protocol_data[0, :])
+            # print(self.daq.voltage_protocol_data[1, :])
             self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :])
             timestamp = datetime.now().timestamp()
+            logging.info(f"writing ephys data to file: {timestamp}")
             self.ephys_logger.write_ephys_data(timestamp, self.daq.voltage_protocol_data)
-            self.daq.latest_protocol_data = None
+            logging.info(f"ephys data written to file: {timestamp}")
+            self.daq.voltage_protocol_data = None
+            logging.info(f"latest_protocol_data set to None")
 
         self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
 
@@ -169,13 +172,13 @@ class HoldingProtocolGraph(QWidget):
         self.ephys_logger = EPhysLogger(ephys_filename = "HoldingProtocol")
 
     def update_plot(self):
-        #is what we displayed the exact same?
 
         # logging.warning("window should be shown")
+        # is what we displayed the exact same?
         if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.holding_protocol_data)) or self.daq.holding_protocol_data is None:
-            logging.warning("no new data, skipping plot update")
+            # logging.warning("no new data, skipping plot update")
             return
-        
+        logging.warning("new data, updating plot")
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
             self.setHidden(False)
@@ -183,14 +186,19 @@ class HoldingProtocolGraph(QWidget):
 
         if self.daq.holding_protocol_data is not None:
             self.hprotocolPlot.clear()
-            print(self.daq.holding_protocol_data[0, :])
-            print(self.daq.holding_protocol_data[1, :])
+            # logging.info(self.daq.holding_protocol_data[0, :])
+            # logging.info(self.daq.holding_protocol_data[1, :])
             self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :])
             timestamp = datetime.now().timestamp()
-            self.ephys_logger.write_ephys_data(timestamp, self.daq.holding_protocol_data)
-            self.daq.latest_protocol_data = None
+            self.ephys_logger.write_ephys_data(timestamp, self.daq.holding_protocol_data[1])
+            # logging.warn(self.daq.holding_protocol_data)
+            # logging.warn(len(self.daq.holding_protocol_data[0]))
+            # logging.warn(len(self.daq.holding_protocol_data[1]))
+            # logging.warn(f"{','.join(map(str, self.daq.holding_protocol_data))}")
+            self.latestDisplayedData = self.daq.holding_protocol_data.copy()
+            self.daq.holding_protocol_data = None
 
-        self.latestDisplayedData = self.daq.holding_protocol_data.copy()
+        # self.latestDisplayedData = self.daq.holding_protocol_data.copy()
 
 
 class EPhysGraph(QWidget):
@@ -376,7 +384,7 @@ class EPhysGraph(QWidget):
         # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
         try:
-            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[1, :]))
+            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[0, :]), list(self.lastDaqData[1, :]))
         except Exception as e:
             logging.error(f"lastDaqData[1, :] is a tuple - {e}")
             logging.error(self.lastDaqData[1, :])

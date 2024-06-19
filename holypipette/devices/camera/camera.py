@@ -26,6 +26,7 @@ except:
     warnings.warn('OpenCV not available')
 from PIL import Image
 
+
 __all__ = ['Camera', 'FakeCamera', 'RecordedVideoCamera']
 
 
@@ -110,6 +111,7 @@ class AcquisitionThread(threading.Thread):
 
         threading.Thread.__init__(self, name='image_acquire_thread')
 
+        # self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", isVideo=True)
         
     def get_frame_rate(self):
         # * A way to calculate FPS
@@ -191,7 +193,9 @@ class Camera(object):
                                                      queues=[self._last_frame_queue],
                                                      raw_queues=[self.raw_frame_queue])
         self._acquisition_thread.start()
-    
+
+        # frameno, frame_time, frame = self.last_frame_data()
+
     def stop_acquisition(self):
         self._acquisition_thread.running = False
 

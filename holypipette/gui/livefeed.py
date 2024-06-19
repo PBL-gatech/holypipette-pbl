@@ -90,7 +90,6 @@ class LiveFeedQt(QtWidgets.QLabel):
             self.recorder.write_camera_frames(frame_time.timestamp(), frame, frameno)
             # logging.info(f"FPS in livefeed: {self.get_frame_rate():.2f}")
             
-
             # ! THIS MAKES NO SENSE! WHY WOULD WE ASSIGN THE FRAME TO A PREVIOUS VERSION?
             if self._last_frameno is None or self._last_frameno != frameno:
                 # No need to preprocess a frame again if it has not changed

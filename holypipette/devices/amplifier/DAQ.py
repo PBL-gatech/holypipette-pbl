@@ -152,6 +152,7 @@ class DAQ:
         self.isRunningProtocol = False
 
         self.holding_protocol_data = np.array([xdata, data])
+        # print("Holding Protocol Data", self.holding_protocol_data)
 
         return self.holding_protocol_data
 

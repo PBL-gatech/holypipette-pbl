@@ -247,7 +247,8 @@ class PatchButtons(ButtonTabWidget):
             self.init_pipette_pos = currPos
         currPos = currPos - self.init_pipette_pos
 
-        self.recorder.write_movement_data(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, currPos[0], currPos[1], currPos[2])
+        self.recorder.setBatchMoves(True)
+        self.recorder.write_movement_data_batch(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, currPos[0], currPos[1], currPos[2])
 
         self.pipette_xyz = currPos
 
@@ -272,7 +273,8 @@ class PatchButtons(ButtonTabWidget):
         xyPos = xyPos - self.init_stage_pos[0:2]
         zPos = zPos - self.init_stage_pos[2]
 
-        self.recorder.write_movement_data(datetime.now().timestamp(), xyPos[0], xyPos[1], zPos, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
+        self.recorder.setBatchMoves(True)
+        self.recorder.write_movement_data_batch(datetime.now().timestamp(), xyPos[0], xyPos[1], zPos, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
 
         self.stage_xy = xyPos
         self.stage_z = zPos

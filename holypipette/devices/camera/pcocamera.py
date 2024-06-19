@@ -13,6 +13,7 @@ from collections import deque
 from datetime import datetime
 import logging
 
+
 try:
     import cv2
 except ImportError:

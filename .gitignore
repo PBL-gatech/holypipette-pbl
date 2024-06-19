@@ -11,3 +11,4 @@ __pycache__/
 
 *.webp
 experiments/Data/rig_recorder_data/
+experiments/Data/patch_clamp_data/

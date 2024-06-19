@@ -1,13 +1,68 @@
-import os
 import logging
 from datetime import datetime
-from PIL import Image
-import concurrent.futures
 import threading
+from collections import deque
+import imageio
+import os
 
 
-class FileLogger:
-    def __init__(self, folder_path="experiments/Data/", recorder_filename="recording.csv", isVideo = False):
+# class FileLogger(threading.Thread):
+#     def __init__(self, folder_path="experiments/Data/", recorder_filename="recording.csv", isVideo = False,  batch_size=500):
+#         self.time_truth = datetime.now()
+#         self.time_truth_timestamp = self.time_truth.timestamp()
+#         self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
+#         self.camera_folder_path = self.folder_path + "camera_frames/"
+#         self.filename = self.folder_path + recorder_filename
+#         self.file = None
+#         self.last_frame = 0
+#         self.batch_size = batch_size
+
+#         self.write_event = threading.Event()
+#         self.is_video = isVideo
+#         self.write_frame = threading.Event() if isVideo else None
+
+#         print("FileLogger created at: ", self.time_truth_timestamp)
+
+#         self.batch_frames = deque(maxlen=batch_size)
+
+#         self.create_folder()
+
+#     def create_folder(self):
+#         # check that the folder exists
+#         if not os.path.exists(os.path.dirname(self.folder_path)):
+#             try:
+#                 # os.makedirs(os.path.dirname(self.folder_path))
+#                 # * created a folder deeper will always create the parent folder
+#                 os.makedirs(os.path.dirname(self.camera_folder_path))
+#             except OSError as exc:
+#                 logging.error("Error creating folder for recording: %s", exc)
+
+#     def open(self):
+#         self.file = open(self.filename, 'w')
+
+#     def _write_to_file(self, content):
+#         if self.file is None:
+#             self.open()
+#         self.file.write(content)
+#         self.write_event.set()  # Signal that writing is done
+
+#     def write_graph_data(self, time_value, pressure, resistance, time_current, current):
+#         self.write_event.clear()
+#         content = f"{time_value}  {pressure}  {resistance}  {time_current}  {current}\n"
+#         # content = f"{time_value - self.time_truth_timestamp}  {pressure}  {resistance}  {time_current}  {current}\n"
+#         threading.Thread(target=self._write_to_file, args=(content,)).start()
+
+#     def write_movement_data(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
+#         self.write_event.clear()
+#         content = f"{time_value}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
+#         # content = f"{time_value - self.time_truth_timestamp}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
+#         threading.Thread(target=self._write_to_file, args=(content,)).start()
+
+
+
+class FileLogger(threading.Thread):
+    def __init__(self, folder_path="experiments/Data/", recorder_filename="recording.csv", isVideo=False, batch_size=500):
+        super().__init__()
         self.time_truth = datetime.now()
         self.time_truth_timestamp = self.time_truth.timestamp()
         self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
@@ -15,52 +70,113 @@ class FileLogger:
         self.filename = self.folder_path + recorder_filename
         self.file = None
         self.last_frame = 0
+        self.batch_size = batch_size
 
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self.batch_mode_movements = False
+        self.batch_mode_graph = False
+
         self.write_event = threading.Event()
+        self.is_video = isVideo
+        self.write_frame = threading.Event() if isVideo else None
 
-        self.frame_executor = None
-        self.write_frame = None
-        if isVideo:
-            self.frame_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            self.write_frame = threading.Event()
-        print("FileLogger created at: ", self.time_truth_timestamp)
+        self.batch_frames = deque(maxlen=batch_size)
+        self.graph_contents = deque(maxlen=batch_size)
+        self.movement_contents = deque(maxlen=batch_size)
+
+        self.last_movement_time = None
+        self.last_graph_time = None
+
+        logging.info("FileLogger created at: %s", self.time_truth_timestamp)
 
         self.create_folder()
 
     def create_folder(self):
-        # check that the folder exists
-        if not os.path.exists(os.path.dirname(self.folder_path)):
+        if not os.path.exists(self.folder_path):
             try:
-                # os.makedirs(os.path.dirname(self.folder_path))
-                # * created a folder deeper will always create the parent folder
-                os.makedirs(os.path.dirname(self.camera_folder_path))
+                os.makedirs(self.camera_folder_path)
+                print(f"Created folder at: {self.folder_path}")
             except OSError as exc:
                 logging.error("Error creating folder for recording: %s", exc)
 
     def open(self):
         self.file = open(self.filename, 'w')
+        print(f"Opened file at: {self.filename}")
 
-    def _write_to_file(self, content):
+    def _write_to_file(self, contents):
         if self.file is None:
             self.open()
-        self.file.write(content)
+        self.file.write(contents)
         self.write_event.set()  # Signal that writing is done
+        print("Wrote file contents at path: ", self.filename)
 
-    def write_graph_data(self, time_value, pressure, resistance, current):
+    def _write_to_file_batch(self, contents):
+        if self.file is None:
+            self.open()
+        self.file.writelines(contents)
+        self.file.flush()
+        self.write_event.set()  # Signal that writing is done
+        print("Wrote file contents at path: ", self.filename)
+
+    def write_graph_data_batch(self, time_value, pressure, resistance, time_current, current):
+        # content = f"{time_value - self.time_truth_timestamp}  {pressure}  {resistance}  {time_current}  {current}\n"
+        if time_value == self.last_graph_time:
+            return
+        self.last_graph_time = time_value
+
+        content = f"{time_value}  {pressure}  {resistance}  {time_current}  {current}\n"
+        self.graph_contents.append(content)
+        if len(self.graph_contents) >= self.batch_size - 50:
+            self._flush_contents(self.graph_contents)
+    
+    def write_graph_data(self, time_value, pressure, resistance, time_current, current):
+        # content = f"{time_value - self.time_truth_timestamp}  {pressure}  {resistance}  {time_current}  {current}\n"
+        if time_value == self.last_graph_time:
+            return
+        self.last_graph_time = time_value
+        content = f"{time_value}  {pressure}  {resistance}  {time_current}  {current}\n"
         self.write_event.clear()
-        content = f"{time_value - self.time_truth_timestamp}  {pressure}  {resistance}    {current}\n"
-        self.executor.submit(self._write_to_file, content)
+        threading.Thread(target=self._write_to_file, args=(content,)).start()
 
     def write_movement_data(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
+        # content = f"{time_value - self.time_truth_timestamp}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
+        if time_value == self.last_movement_time:
+            return
+        self.last_movement_time = time_value
+        content = f"{time_value}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
         self.write_event.clear()
-        content = f"{time_value - self.time_truth_timestamp}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
-        self.executor.submit(self._write_to_file, content)
+        threading.Thread(target=self._write_to_file, args=(content,)).start()
 
-    def _save_image(self, frame, path):
-        image = Image.fromarray(frame)
-        image.save(path, format="webp")
-        logging.info("Image saved at: " + path)
+    def write_movement_data_batch(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
+        # content = f"{time_value - self.time_truth_timestamp}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
+        if time_value == self.last_movement_time:
+            return
+        self.last_movement_time = time_value
+
+        content = f"{time_value}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
+
+        self.movement_contents.append(content)
+        if len(self.movement_contents) >= self.batch_size - 50:
+            self._flush_contents(self.movement_contents)
+
+    def _flush_contents(self, data):
+        if data:
+            contents = data.copy()
+            data.clear()
+            self.write_event.clear()
+            threading.Thread(target=self._write_to_file_batch, args=(contents,)).start()
+
+    def _save_image(self, frame, frameno, time_value, path):
+        self.batch_frames.append((frameno, frame, time_value, path))
+        if len(self.batch_frames) >= self.batch_size - 20:
+            self.write_frame.clear()
+            threading.Thread(target=self._write_batch_to_disk).start()
+
+    def _write_batch_to_disk(self):
+        # data = self.batch_frames.copy()
+        # self.batch_frames.clear()
+        while self.batch_frames:
+            frameno, frame, time_value, path = self.batch_frames.popleft()
+            imageio.imwrite(path, frame)
         self.write_frame.set()  # Signal that image saving is done
 
     def write_camera_frames(self, time_value, frame, frameno):
@@ -72,33 +188,43 @@ class FileLogger:
         if frameno <= self.last_frame:
             return
 
-        self.write_frame.clear()
-        image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value - self.time_truth_timestamp) + ".webp"
-        logging.info("Saving image frame #" + str(frameno))
-        self.frame_executor.submit(self._save_image, frame, image_path)
+        image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".webp"
+        # image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value - self.time_truth_timestamp) + ".webp"
+        self._save_image(frame, frameno, time_value, image_path)
         self.last_frame = frameno
+
+    def setBatchGraph(self, value=True):
+        self.batch_mode_graph = value
+    def setBatchMoves(self, value=True):
+        self.batch_mode_movements = value
 
     def close(self):
         if self.file is not None:
-            logging.info("CLOSING FILE: ", self.filename)
+            logging.info("Closing file: %s", self.filename)
+            if self.batch_mode_graph and self.graph_contents:
+                self._flush_contents(self.graph_contents)
+            if self.batch_mode_movements and self.movement_contents:
+                self._flush_contents(self.movement_contents)
             self.write_event.wait()  # Wait for the last task to complete
             self.file.close()
             self.file = None
-        logging.info("Closing csv recorder writing thread")
-        self.executor.shutdown(wait=True)
-        logging.info("Closing frame saving thread")
-        self.frame_executor.shutdown(wait=True)
+        logging.info("Closing CSV recorder writing thread")
+        if self.batch_frames:
+            self._write_batch_to_disk()
+        if self.is_video:
+            logging.info("Closing frame saving thread")
 
 
-class EPhysLogger:
+
+class EPhysLogger(threading.Thread):
     def __init__(self, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
         self.time_truth = datetime.now()
         self.time_truth_timestamp = self.time_truth.timestamp()
         self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
-        self.filename = f"{ephys_filename}_data.csv"
-        
+        self.filename = self.folder_path + f"{ephys_filename}_data_{datetime.now().strftime("%H_%M_%S")}.csv"
+        self.file = None
+
         self.create_folder()
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self.write_event = threading.Event()
         print("EPhysSaver created at: ", self.time_truth_timestamp)
 
@@ -123,9 +249,13 @@ class EPhysLogger:
 
     def write_ephys_data(self, time_value, data):
         self.write_event.clear()
-        content = f"{time_value},{','.join(map(str, data))}\n"
-        self.executor.submit(self._write_to_file, content)
-
+        print("Writing ephys data")
+        print("len of data: ", len(data))
+        content = f"{time_value}    {data}\n"
+        # content = f"{time_value}    {data[0, :]}    {data[1, :]}\n"
+        # content = f"{time_value}    {' '.join(map(str, data))}\n"
+        threading.Thread(target=self._write_to_file, args=(content,)).start()
+        
     def close(self):
         if self.file is not None:
             logging.info("CLOSING FILE: ", self.filename)
@@ -133,4 +263,3 @@ class EPhysLogger:
             self.file.close()
             self.file = None
         logging.info("Closing csv recorder writing thread")
-        self.executor.shutdown(wait=True)
