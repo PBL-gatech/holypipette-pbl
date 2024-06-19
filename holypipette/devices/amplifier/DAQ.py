@@ -131,14 +131,14 @@ class DAQ:
             xdata = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
             time.sleep(0.5)
 
-            if self.latest_protocol_data is None:
-                self.latest_protocol_data = [[xdata, data]]
+            if self.current_protocol_data is None:
+                self.current_protocol_data = [[xdata, data]]
             else:
-                self.latest_protocol_data.append([xdata, data])
+                self.current_protocol_data.append([xdata, data])
         
         self.isRunningProtocol = False
 
-        return self.latest_protocol_data
+        return self.current_protocol_data
     
     def getDataFromHoldingProtocol(self):
         ''' measures data from Post synaptic currents to determine spontaneous activity from other connected neurons'''

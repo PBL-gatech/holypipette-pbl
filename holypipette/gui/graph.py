@@ -53,25 +53,45 @@ class CurrentProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        # self.ephys_logger = EPhysLogger(ephys_filename="CurrentProtocol")
+        self.ephys_logger = EPhysLogger(ephys_filename="CurrentProtocol")
 
     def update_plot(self):
         #is what we displayed the exact same?
-        if self.latestDisplayedData == self.daq.latest_protocol_data or self.daq.latest_protocol_data is None:
+        if self.latestDisplayedData == self.daq.current_protocol_data or self.daq.current_protocol_data is None:
             return
         
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
             self.setHidden(False)
             self.isShown = True
-
+        # curr = self.daq.latest_protocol_data
+        # logging.info('length of current protocol data: ' + str(len(curr[0])) + ' ' + str(len(curr[1])))
         colors = ['k', 'r', 'g', 'b', 'y', 'm', 'c']
         self.cprotocolPlot.clear()
-        for i, graph in enumerate(self.daq.latest_protocol_data):
+
+        save_data = None
+        temp_data = deque(self.daq.current_protocol_data.copy())
+
+        for i, graph in enumerate(self.daq.current_protocol_data):
+        #     #logging the data type of self.daq.latest_protocol_data
+        #     # logging.info(f"data type: {type(self.daq.current_protocol_data)}")
+        
+        #     # print("Enumerating graph:, ", i, graph)
+            save_data = temp_data.popleft()
+
             xData = graph[0]
             yData = graph[1]
+            # print(len(xData), len(yData))
             self.cprotocolPlot.plot(xData, yData, pen=colors[i])
-        self.latestDisplayedData = self.daq.latest_protocol_data.copy()
+            save_data = np.array([xData, yData])
+            timestamp = datetime.now().timestamp()
+            logging.info("writing current ephys data to file")
+            self.ephys_logger.write_ephys_data(timestamp, save_data, colors[i])
+            if i == 6:
+                self.daq.current_protocol_data = None
+
+        self.latestDisplayedData = self.daq.current_protocol_data.copy()
+        
 
 
 class VoltageProtocolGraph(QWidget):
@@ -125,15 +145,14 @@ class VoltageProtocolGraph(QWidget):
             self.vprotocolPlot.clear()
             # print(self.daq.voltage_protocol_data[0, :])
             # print(self.daq.voltage_protocol_data[1, :])
-            self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :])
+            colors = ['k']
+            self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :], pen=colors[0])
             timestamp = datetime.now().timestamp()
-            logging.info(f"writing ephys data to file: {timestamp}")
-            self.ephys_logger.write_ephys_data(timestamp, self.daq.voltage_protocol_data)
-            logging.info(f"ephys data written to file: {timestamp}")
+            logging.info("writing Voltage ephys data to file")
+            self.ephys_logger.write_ephys_data(timestamp, self.daq.voltage_protocol_data, colors[0])
+            self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
             self.daq.voltage_protocol_data = None
-            logging.info(f"latest_protocol_data set to None")
-
-        self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
+        
 
 
 class HoldingProtocolGraph(QWidget):
@@ -178,6 +197,7 @@ class HoldingProtocolGraph(QWidget):
         if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.holding_protocol_data)) or self.daq.holding_protocol_data is None:
             # logging.warning("no new data, skipping plot update")
             return
+
         logging.warning("new data, updating plot")
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
@@ -186,15 +206,11 @@ class HoldingProtocolGraph(QWidget):
 
         if self.daq.holding_protocol_data is not None:
             self.hprotocolPlot.clear()
-            # logging.info(self.daq.holding_protocol_data[0, :])
-            # logging.info(self.daq.holding_protocol_data[1, :])
-            self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :])
+
+            colors = ['k']
+            self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :], pen=colors[0])
             timestamp = datetime.now().timestamp()
-            self.ephys_logger.write_ephys_data(timestamp, self.daq.holding_protocol_data[1])
-            # logging.warn(self.daq.holding_protocol_data)
-            # logging.warn(len(self.daq.holding_protocol_data[0]))
-            # logging.warn(len(self.daq.holding_protocol_data[1]))
-            # logging.warn(f"{','.join(map(str, self.daq.holding_protocol_data))}")
+            self.ephys_logger.write_ephys_data(timestamp, self.daq.holding_protocol_data, colors[0])
             self.latestDisplayedData = self.daq.holding_protocol_data.copy()
             self.daq.holding_protocol_data = None
 
@@ -308,7 +324,7 @@ class EPhysGraph(QWidget):
         
         self.updateTimer = QtCore.QTimer()
         # this has to match the arduino sensor delay
-        self.updateDt = 33 # ms
+        self.updateDt = 16 # ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 

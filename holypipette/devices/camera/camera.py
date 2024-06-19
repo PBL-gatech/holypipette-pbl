@@ -24,8 +24,6 @@ try:
     import cv2
 except:
     warnings.warn('OpenCV not available')
-from PIL import Image
-
 
 __all__ = ['Camera', 'FakeCamera', 'RecordedVideoCamera']
 

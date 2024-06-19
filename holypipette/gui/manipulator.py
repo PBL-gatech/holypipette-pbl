@@ -156,9 +156,9 @@ class ManipulatorGui(CameraGui):
                                          self.interface.move_pipette_z,
                                          argument=-distance, default_doc=False)
 
-        #save image command
-        self.register_key_action(Qt.Key_I, Qt.NoModifier,
-                                 self.save_image)
+        # #save image command
+        # self.register_key_action(Qt.Key_I, Qt.NoModifier,
+        #                          self.save_image)
 
         # Show the tip
         self.register_key_action(Qt.Key_T, Qt.NoModifier,

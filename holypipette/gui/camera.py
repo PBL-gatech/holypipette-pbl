@@ -630,8 +630,8 @@ class CameraGui(QtWidgets.QMainWindow):
                                  default_doc=False)
         self.help_window.register_custom_action('Camera', '+/-',
                                                 'Increase/decrease exposure by 2.5ms')
-        self.register_key_action(Qt.Key_I, None,
-                                 self.camera_interface.save_image)
+        # self.register_key_action(Qt.Key_I, None,
+        #                          self.camera_interface.save_image)
         self.register_key_action(Qt.Key_I, Qt.SHIFT,
                                  self.toggle_recording)
 
