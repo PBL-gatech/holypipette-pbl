@@ -1,6 +1,5 @@
 import csv
 import matplotlib.pyplot as plt
-from collections import deque
 
 def extract_data_and_plot(file_path):
 
