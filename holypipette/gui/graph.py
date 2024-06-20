@@ -442,3 +442,19 @@ class EPhysGraph(QWidget):
             self.pressureController.set_pressure(pressure)
         except ValueError:
             return
+    def pressureATMCommandBoxReturnPressed(self):
+        '''
+       Toggle pressure controller between ATM and last command pressure
+        '''
+
+        # get text from box
+        text = self.pressureCommandBox.text()
+        self.pressureCommandBox.clear()
+
+        #try to convert to float
+        try:
+            pressure = float(text)
+            # toggle  between ATM and last command pressure
+            self.pressureController.set_pressure(pressure * 1013.25)
+        except ValueError:
+            return
