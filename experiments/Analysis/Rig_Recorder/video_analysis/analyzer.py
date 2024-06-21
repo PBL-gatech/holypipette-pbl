@@ -438,12 +438,19 @@ import pandas as pd
 import subprocess
 
 # # # # Directory containing the .webp images
-image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\resistance_frames"
-# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\camera_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\movement_frames"
+image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\camera_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\current_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\resistance_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\pressure_frames"
 
 
 # Output video file directory
-output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_current_videos"
+output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_videos"
+# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_movement_videos"
+# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_current_videos"
+# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_resistance_videos"
+# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_pressure_videos"
 os.makedirs(output_video_directory, exist_ok=True)
 
 # # # # # Output video file
@@ -470,17 +477,23 @@ num_frames = len(df_files)
 total_duration = df_files['interval'].sum()
 
 # Create the output filename with the number of frames and total duration
-output_filename = f"output_resistance_{num_frames}frames_{total_duration:.2f}seconds.mp4"
+output_filename = f"output_{num_frames}frames_{total_duration:.2f}seconds.mp4"
 output_video = os.path.join(output_video_directory, output_filename)
+
+# Define a minimum duration in seconds
+MIN_DURATION = 0.032
 
 # Write the image sequence with durations to a text file for FFmpeg
 input_list_path = os.path.join(image_directory, 'input_images.txt')
 with open(input_list_path, 'w') as f:
     for idx, row in df_files.iterrows():
         image_path = os.path.join(image_directory, row['filename'])
-        duration = row['interval']
+        # Ensure the duration is at least the minimum duration
+        duration = max(row['interval'], MIN_DURATION)
+        # Format the duration to avoid scientific notation
+        formatted_duration = f"{duration:.5f}"
         f.write(f"file '{image_path}'\n")
-        f.write(f"duration {duration}\n")
+        f.write(f"duration {formatted_duration}\n")
 
 # Add the last image again for FFmpeg to process it correctly
 last_image_path = os.path.join(image_directory, df_files.iloc[-1]['filename'])
