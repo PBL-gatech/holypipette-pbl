@@ -32,18 +32,18 @@ class FileLogger(threading.Thread):
         self.last_graph_time = None
         self.recording = False
 
-        self.enable_recording = False
+        self.recording_enabled = False
 
         logging.info("FileLogger created at: %s", self.time_truth_timestamp)
 
         self.create_folder()
 
     def toggle_recording(self):
-        if self.enable_recording:
-            self.enable_recording = False
+        if self.recording_enabled:
+            self.recording_enabled = False
             print("Recording stopped")
         else:
-            self.enable_recording = True
+            self.recording_enabled = True
             print("Recording started")
 
     def create_folder(self):
@@ -74,6 +74,8 @@ class FileLogger(threading.Thread):
         # print("Wrote file contents at path: ", self.filename)
 
     def write_graph_data_batch(self, time_value, pressure, resistance, time_current, current):
+        if not self.recording_enabled:
+            return
         # content = f"{time_value - self.time_truth_timestamp}  {pressure}  {resistance}  {time_current}  {current}\n"
         if time_value == self.last_graph_time:
             return
@@ -85,6 +87,8 @@ class FileLogger(threading.Thread):
             self._flush_contents(self.graph_contents)
     
     def write_graph_data(self, time_value, pressure, resistance, time_current, current):
+        if not self.recording_enabled:
+            return
         # content = f"{time_value - self.time_truth_timestamp}  {pressure}  {resistance}  {time_current}  {current}\n"
         if time_value == self.last_graph_time:
             return
@@ -94,6 +98,8 @@ class FileLogger(threading.Thread):
         threading.Thread(target=self._write_to_file, args=(content,)).start()
 
     def write_movement_data(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
+        if not self.recording_enabled:
+            return
         # content = f"{time_value - self.time_truth_timestamp}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
         if time_value == self.last_movement_time:
             return
@@ -103,6 +109,8 @@ class FileLogger(threading.Thread):
         threading.Thread(target=self._write_to_file, args=(content,)).start()
 
     def write_movement_data_batch(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
+        if not self.recording_enabled:
+            return
         # content = f"{time_value - self.time_truth_timestamp}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
         if time_value == self.last_movement_time:
             return
@@ -136,6 +144,8 @@ class FileLogger(threading.Thread):
         self.write_frame.set()  # Signal that image saving is done
 
     def write_camera_frames(self, time_value, frame, frameno):
+        if not self.recording_enabled:
+            return
         if frameno is None:
             logging.info("No frame number detected. Closing the camera recorder")
             self.close()
@@ -179,6 +189,7 @@ class EPhysLogger(threading.Thread):
         self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
         self.filename = self.folder_path + f"{ephys_filename}"
         self.file = None
+        self.recording_enabled = False
 
         self.create_folder()
         self.write_event = threading.Event()
@@ -203,6 +214,8 @@ class EPhysLogger(threading.Thread):
         self.write_event.set()  # Signal that writing is done
     
     def write_ephys_data(self, time_value, data, color):
+        if not self.recording_enabled:
+            return
         self.write_event.clear()
         print("Writing ephys data")
         # print("len of data: ", len(data[0]))
