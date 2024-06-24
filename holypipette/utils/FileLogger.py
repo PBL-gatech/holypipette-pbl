@@ -5,6 +5,14 @@ from collections import deque
 import imageio
 import os
 
+recording_enabled = False
+
+def setRecording():
+    global recording_enabled 
+    recording_enabled = not recording_enabled
+    print("Recording state: ", recording_enabled)
+
+
 class FileLogger(threading.Thread):
     def __init__(self, folder_path="experiments/Data/", recorder_filename="recording.csv", isVideo=False, batch_size=500):
         super().__init__()
@@ -32,18 +40,21 @@ class FileLogger(threading.Thread):
         self.last_graph_time = None
         self.recording = False
 
-        self.recording_enabled = False
+        # self.recording_enabled = True
 
         logging.info("FileLogger created at: %s", self.time_truth_timestamp)
-
         self.create_folder()
 
+
     def toggle_recording(self):
-        if self.recording_enabled:
-            self.recording_enabled = False
+        if recording_enabled:
+        # if self.recording_enabled:
+            # self.recording_enabled = False
+            recording_enabled = False
             print("Recording stopped")
         else:
-            self.recording_enabled = True
+            recording_enabled = True
+            # self.recording_enabled = True
             print("Recording started")
 
     def create_folder(self):
@@ -74,7 +85,9 @@ class FileLogger(threading.Thread):
         # print("Wrote file contents at path: ", self.filename)
 
     def write_graph_data_batch(self, time_value, pressure, resistance, time_current, current):
-        if not self.recording_enabled:
+        global recording_enabled
+        if not recording_enabled:
+        # if not self.recording_enabled:
             return
         # content = f"{time_value - self.time_truth_timestamp}  {pressure}  {resistance}  {time_current}  {current}\n"
         if time_value == self.last_graph_time:
@@ -87,7 +100,9 @@ class FileLogger(threading.Thread):
             self._flush_contents(self.graph_contents)
     
     def write_graph_data(self, time_value, pressure, resistance, time_current, current):
-        if not self.recording_enabled:
+        global recording_enabled
+        if not recording_enabled:
+        # if not self.recording_enabled:
             return
         # content = f"{time_value - self.time_truth_timestamp}  {pressure}  {resistance}  {time_current}  {current}\n"
         if time_value == self.last_graph_time:
@@ -98,7 +113,9 @@ class FileLogger(threading.Thread):
         threading.Thread(target=self._write_to_file, args=(content,)).start()
 
     def write_movement_data(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
-        if not self.recording_enabled:
+        global recording_enabled
+        if not recording_enabled:
+        # if not self.recording_enabled:
             return
         # content = f"{time_value - self.time_truth_timestamp}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
         if time_value == self.last_movement_time:
@@ -109,7 +126,9 @@ class FileLogger(threading.Thread):
         threading.Thread(target=self._write_to_file, args=(content,)).start()
 
     def write_movement_data_batch(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
-        if not self.recording_enabled:
+        global recording_enabled
+        if not recording_enabled:
+        # if not self.recording_enabled:
             return
         # content = f"{time_value - self.time_truth_timestamp}  {stage_x}  {stage_y}  {stage_z} {pipette_x} {pipette_y} {pipette_z}\n"
         if time_value == self.last_movement_time:
@@ -144,7 +163,9 @@ class FileLogger(threading.Thread):
         self.write_frame.set()  # Signal that image saving is done
 
     def write_camera_frames(self, time_value, frame, frameno):
-        if not self.recording_enabled:
+        global recording_enabled
+        if not recording_enabled:
+        # if not self.recording_enabled:
             return
         if frameno is None:
             logging.info("No frame number detected. Closing the camera recorder")

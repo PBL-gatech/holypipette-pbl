@@ -15,7 +15,7 @@ from ..interface.patch import AutoPatchInterface
 from ..interface.pipettes import PipetteInterface
 from ..interface.base import command
 
-from holypipette.utils import FileLogger
+from holypipette.utils.FileLogger import setRecording, FileLogger
 from datetime import datetime
 
 class PatchGui(ManipulatorGui):
@@ -223,8 +223,10 @@ class PatchButtons(ButtonTabWidget):
         # self.addButtonList('Lumencor LED', layout, buttonList, cmds)
 
         #add a box for Rig Recorder
-        buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
-        cmds = [[self.do_nothing, self.do_nothing], [self.do_nothing, self.do_nothing]]
+        buttonList = [['Start Recording', 'Stop Recording']]
+        cmds = [[setRecording, setRecording]]
+        # buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
+        # cmds = [[setRecording(True), setRecording(False)], [self.do_nothing, self.do_nothing]]
         self.addButtonList('Rig Recorder', layout, buttonList, cmds)
         
         self.setLayout(layout)
