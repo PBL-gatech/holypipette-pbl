@@ -7,6 +7,8 @@ import os
 
 recording_enabled = False
 
+# * Global state can be messy, but it's a quick way to enable/disable recording
+# ? is there a better way to achieve this, as we have multple instances of the file recorder across the project?
 def setRecording():
     global recording_enabled 
     recording_enabled = not recording_enabled
