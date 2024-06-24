@@ -262,8 +262,8 @@
 
 
 # # Example usage:
-# input_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\camera_frames"
-# output_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_videos"
+# input_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\camera_frames"
+# output_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_videos"
 # output_filename = 'framerate_plot.png'
 # process_images_and_plot(input_directory, output_directory, output_filename)
 
@@ -275,10 +275,10 @@
 # import os
 
 # # Directory containing the .webp images
-# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\camera_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\camera_frames"
 
 # # Output video file
-# output_video = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_videos\output_video_constant_frame_rate_1.mp4"
+# output_video = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_videos\output_video_constant_frame_rate_1.mp4"
 
 # # Frame rate for the video
 # frame_rate = 30
@@ -314,10 +314,10 @@
 # import subprocess
 
 # # # Directory containing the .webp images
-# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\camera_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\camera_frames"
 
 # # # Output video file
-# output_video = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_videos\output_video_variable_frame_rate.mp4"
+# output_video = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_videos\output_video_variable_frame_rate.mp4"
 
 # # Function to extract the order number and timestamp from the filename
 # def get_order_and_timestamp(filename):
@@ -372,10 +372,10 @@
 
 
 # # # # Directory containing the .webp images
-# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\camera_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\camera_frames"
 
 # # # # Output video file
-# output_video = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_videos\output_video_variable_frame_rate.mp4"
+# output_video = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_videos\output_video_variable_frame_rate.mp4"
 
 
 # # Frame rate for the video (used for the maximum frame rate)
@@ -438,23 +438,23 @@ import pandas as pd
 import subprocess
 
 # # # # Directory containing the .webp images
-# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\movement_frames"
-image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\camera_frames"
-# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\current_frames"
-# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\resistance_frames"
-# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\pressure_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\movement_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\camera_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\current_frames"
+image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\resistance_frames"
+# image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\pressure_frames"
 
 
 # Output video file directory
-output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_videos"
-# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_movement_videos"
-# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_current_videos"
-# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_resistance_videos"
-# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_pressure_videos"
+# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_videos"
+# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_movement_videos"
+# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_current_videos"
+output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_resistance_videos"
+# output_video_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_pressure_videos"
 os.makedirs(output_video_directory, exist_ok=True)
 
 # # # # # Output video file
-# output_video = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-19_31\output_videos\output_video_variable_frame_rate.mp4"
+# output_video = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\output_videos\output_video_variable_frame_rate.mp4"
 
 # Extract order numbers and timestamps from filenames, including the fractional part of the timestamp
 def get_order_number(filename):
@@ -477,7 +477,7 @@ num_frames = len(df_files)
 total_duration = df_files['interval'].sum()
 
 # Create the output filename with the number of frames and total duration
-output_filename = f"output_{num_frames}frames_{total_duration:.2f}seconds.mp4"
+output_filename = f"output_resistance_{num_frames}frames_{total_duration:.2f}seconds.mp4"
 output_video = os.path.join(output_video_directory, output_filename)
 
 # Define a minimum duration in seconds

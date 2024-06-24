@@ -118,14 +118,11 @@
 # extract_data_and_plot(file_path, output_path)
 
 
-
-
 import csv
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-import os
 
-def extract_data_and_plot(file_path, output_path, batch_size=10):
+def extract_data_and_plot(file_path, output_path):
     print("writing to:", output_path)
 
     timestamps = []
@@ -133,31 +130,29 @@ def extract_data_and_plot(file_path, output_path, batch_size=10):
     pi_xs, pi_ys, pi_zs = [], [], []
 
     # First pass to gather all data and determine axis limits
-    print("First pass to gather all data and determine axis limits")
-    previous_timestamp = None
+    print("First pass to gather all data and determine axis limits")   
     with open(file_path, newline='') as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
             joined_row = ''.join(row)
-            timestamp = float(joined_row.split("st_x:")[0].replace("timestamp:", "").strip())
-            if previous_timestamp is not None and (timestamp - previous_timestamp) < 0.032:
-                continue
-            previous_timestamp = timestamp
-            
-            st_x = float(joined_row.split("st_x:")[1].split()[0])
-            st_y = float(joined_row.split("st_y:")[1].split()[0])
-            st_z = float(joined_row.split("st_z:")[1].split()[0])
-            pi_x = float(joined_row.split("pi_x:")[1].split()[0])
-            pi_y = float(joined_row.split("pi_y:")[1].split()[0])
-            pi_z = float(joined_row.split("pi_z:")[1].split()[0])
-            
-            timestamps.append(timestamp)
-            st_xs.append(st_x)
-            st_ys.append(st_y)
-            st_zs.append(st_z)
-            pi_xs.append(pi_x)
-            pi_ys.append(pi_y)
-            pi_zs.append(pi_z)  # Corrected this line
+            try:
+                timestamp = float(joined_row.split("st_x:")[0].replace("timestamp:", "").strip())
+                st_x = float(joined_row.split("st_x:")[1].split()[0])
+                st_y = float(joined_row.split("st_y:")[1].split()[0])
+                st_z = float(joined_row.split("st_z:")[1].split()[0])
+                pi_x = float(joined_row.split("pi_x:")[1].split()[0])
+                pi_y = float(joined_row.split("pi_y:")[1].split()[0])
+                pi_z = float(joined_row.split("pi_z:")[1].split()[0])
+                
+                timestamps.append(timestamp)
+                st_xs.append(st_x)
+                st_ys.append(st_y)
+                st_zs.append(st_z)
+                pi_xs.append(pi_x)
+                pi_ys.append(pi_y)
+                pi_zs.append(pi_z)
+            except (ValueError, IndexError) as e:
+                print(f"Error parsing row: {row} - {e}")
 
     # Determine axis limits and ensure they are not identical
     def adjust_limits(min_val, max_val, epsilon=1e-6):
@@ -170,44 +165,43 @@ def extract_data_and_plot(file_path, output_path, batch_size=10):
     y_min, y_max = adjust_limits(min(min(st_ys), min(pi_ys)), max(max(st_ys), max(pi_ys)))
     z_min, z_max = adjust_limits(min(min(st_zs), min(pi_zs)), max(max(st_zs), max(pi_zs)))
 
-    # Ensure output directory exists
-    os.makedirs(output_path, exist_ok=True)
-    #  print number of plots to make
-    print(f"Number of plots to make: {len(timestamps)}")
     # Prepare plots in batches
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+    ax.set_zlim(z_min, z_max)
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+
     print("Second pass to plot data")
-    num_plots = len(timestamps)
-    for batch_start in range(0, num_plots, batch_size):
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
+    prev_timestamp = None
+
+    for i, timestamp in enumerate(timestamps):
+        if prev_timestamp and (timestamp - prev_timestamp) < 0.032:
+            continue
+        
+        ax.cla()  # Clear the previous scatter points but keep axis limits and labels
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
         ax.set_zlim(z_min, z_max)
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
+        
+        ax.scatter([st_xs[i]], [st_ys[i]], [st_zs[i]], c='r', label='ST')  # Red for ST
+        ax.scatter([pi_xs[i]], [pi_ys[i]], [pi_zs[i]], c='b', label='PI')  # Blue for PI
+        
+        ax.set_title(f'Position Plot at {timestamp}')
+        ax.legend()
+        
+        filename = f'{i}_{timestamp}.webp'
+        plt.savefig(f'{output_path}/{filename}')
+        
+        prev_timestamp = timestamp
 
-        for i in range(batch_start, min(batch_start + batch_size, num_plots)):
-            timestamp = timestamps[i]
-            ax.cla()  # Clear the previous scatter points but keep axis limits and labels
-            ax.set_xlim(x_min, x_max)
-            ax.set_ylim(y_min, y_max)
-            ax.set_zlim(z_min, z_max)
-            
-            ax.scatter([st_xs[i]], [st_ys[i]], [st_zs[i]], c='r', label='ST')  # Red for ST
-            ax.scatter([pi_xs[i]], [pi_ys[i]], [pi_zs[i]], c='b', label='PI')  # Blue for PI
-            
-            ax.set_title(f'Position Plot at {timestamp}')
-            ax.legend()
-            
-            filename = f'{i}_{timestamp}.webp'
-            plt.savefig(f'{output_path}/{filename}')
-
-        plt.close(fig)
+    plt.close(fig)
     print("Done writing to:", output_path)
 
 # Example usage:
 file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\movement_recording.csv"
 output_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\movement_frames"
 extract_data_and_plot(file_path, output_path)
-
