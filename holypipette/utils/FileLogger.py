@@ -32,18 +32,20 @@ class FileLogger(threading.Thread):
         self.last_graph_time = None
         self.recording = False
 
-        self.is_recording = False
+        self.enable_recording = False
 
         logging.info("FileLogger created at: %s", self.time_truth_timestamp)
 
         self.create_folder()
+
     def toggle_recording(self):
-        if self.is_recording:
-            self.is_recording = False
+        if self.enable_recording:
+            self.enable_recording = False
             print("Recording stopped")
         else:
-            self.is_recording = True
+            self.enable_recording = True
             print("Recording started")
+
     def create_folder(self):
         if not os.path.exists(self.folder_path):
             try:
