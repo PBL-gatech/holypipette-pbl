@@ -163,35 +163,17 @@ class PcoCamera(Camera):
         '''
         img = self.get_16bit_image()
 
+        if img is None:
+            return None
+
         # if img is not None:
         #     focusLvl = self.pipetteFocuser.get_pipette_focus(img)
         #     print(focusLvl)
 
         # apply upper / lower bounds (normalization)
-        span = self.upperBound - self.lowerBound
+        span = np.maximum(self.upperBound - self.lowerBound, 1)  # Avoid division by zero
 
-        if span == 0:
-            span = 1 #prevent divide by 0 for blank images
-
-        
         img = np.clip((img.astype(np.float32) - self.lowerBound) / span * 255, 0, 255).astype(np.uint8)
-
-        # img = img.astype(np.float32)
-        # img = img - self.lowerBound
-        # img = img / span
-
-        # #convert to 8 bit color
-        # img = img * 255
-        # img[np.where(img < 0)] = 0
-        # img[np.where(img > 255)] = 255
-        # img = img.astype(np.uint8)
-
-        # if not np.array_equal(img_test, img):
-        #     print("ERROR: NORMALIZATION FAILED")
-        #     print(f"IMG: {img}")
-        #     print(f"IMG_TEST: {img_test}")
-        # else:
-        #     print("NORMALIZATION PASSED")
 
         # resize if needed
         if self.width != None and self.height != None:

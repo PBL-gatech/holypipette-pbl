@@ -336,7 +336,7 @@ class EPhysGraph(QWidget):
         # self.pressureUpdateThread = threading.Thread(target=self.updatePressureAsync, daemon=True)
         # self.pressureUpdateThread.start()
 
-        self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", recorder_filename = "graph_recording.csv")
+        self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", recorder_filename = "graph_recording")
         self.lastDaqData = []
 
 

@@ -475,8 +475,7 @@ class CameraGui(QtWidgets.QMainWindow):
         self.record_button.setIcon(qta.icon('fa.video-camera'))
         self.record_button.setCheckable(True)
         self.record_button.setToolTip('Toggle video recording')
-        self.record_button.setStyleSheet('QToolButton:checked {background-color: red;}'
-        )
+        self.record_button.setStyleSheet('QToolButton:checked {background-color: red;}')
         self.autoexposure_button = QtWidgets.QToolButton(clicked=self.camera_interface.normalize)
         self.autoexposure_button.setIcon(qta.icon('fa.camera'))
         self.autoexposure_button.setToolTip('Normalize the image')

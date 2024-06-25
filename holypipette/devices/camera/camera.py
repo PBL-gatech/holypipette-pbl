@@ -192,8 +192,6 @@ class Camera(object):
                                                      raw_queues=[self.raw_frame_queue])
         self._acquisition_thread.start()
 
-        # frameno, frame_time, frame = self.last_frame_data()
-
     def stop_acquisition(self):
         self._acquisition_thread.running = False
 

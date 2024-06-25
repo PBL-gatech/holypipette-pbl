@@ -4,6 +4,9 @@ import threading
 from collections import deque
 import imageio
 import os
+import logging
+from PIL import Image
+from multiprocessing import Pool
 
 recording_enabled = False
 
@@ -16,13 +19,13 @@ def setRecording():
 
 
 class FileLogger(threading.Thread):
-    def __init__(self, folder_path="experiments/Data/", recorder_filename="recording.csv", isVideo=False, batch_size=500):
+    def __init__(self, folder_path="experiments/Data/TEST_", recorder_filename="recording", filetype="csv", isVideo=False, batch_size=500):
         super().__init__()
         self.time_truth = datetime.now()
         self.time_truth_timestamp = self.time_truth.timestamp()
         self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
         self.camera_folder_path = self.folder_path + "camera_frames/"
-        self.filename = self.folder_path + recorder_filename
+        self.filename = self.folder_path + recorder_filename + "." + filetype
         self.file = None
         self.last_frame = 0
         self.batch_size = batch_size
@@ -40,27 +43,26 @@ class FileLogger(threading.Thread):
 
         self.last_movement_time = None
         self.last_graph_time = None
-        self.recording = False
 
         logging.info("FileLogger created at: %s", self.time_truth_timestamp)
         self.create_folder()
 
     def create_folder(self):
-        if not os.path.exists(self.folder_path):
-            try:
-                os.makedirs(self.camera_folder_path)
-                print(f"Created folder at: {self.folder_path}")
-            except OSError as exc:
-                logging.error("Error creating folder for recording: %s", exc)
+        try:
+            os.makedirs(self.camera_folder_path, exist_ok=True)
+            print(f"Created folder at: {self.folder_path}")
+        except OSError as exc:
+            logging.error("Error creating folder for recording: %s", exc)
 
     def open(self):
-        self.file = open(self.filename, 'w')
+        self.file = open(self.filename, 'a+')
         print(f"Opened file at: {self.filename}")
 
     def _write_to_file(self, contents):
         if self.file is None:
             self.open()
         self.file.write(contents)
+        self.file.flush()
         self.write_event.set()  # Signal that writing is done
         # print("Wrote file contents at path: ", self.filename)
 
@@ -132,8 +134,8 @@ class FileLogger(threading.Thread):
             self.write_event.clear()
             threading.Thread(target=self._write_to_file_batch, args=(contents,)).start()
 
-    def _save_image(self, frame, frameno, time_value, path):
-        self.batch_frames.append((frameno, frame, time_value, path))
+    def _save_image(self, frame, path):
+        self.batch_frames.append((frame, path))
         if len(self.batch_frames) >= self.batch_size - 20:
             self.write_frame.clear()
             threading.Thread(target=self._write_batch_to_disk).start()
@@ -142,14 +144,17 @@ class FileLogger(threading.Thread):
         # data = self.batch_frames.copy()
         # self.batch_frames.clear()
         while self.batch_frames:
-            frameno, frame, time_value, path = self.batch_frames.popleft()
-            imageio.imwrite(path, frame)
+            frame, path = self.batch_frames.popleft()
+            # imwrite(path, frame)
+            imageio.imwrite(path, frame, format="tiff")
         self.write_frame.set()  # Signal that image saving is done
 
     def write_camera_frames(self, time_value, frame, frameno):
         global recording_enabled
         if not recording_enabled:
-        # if not self.recording_enabled:
+            if len(self.frame_convert_queue):
+                logging.info("Done converting frames to webp")
+                self.start_conversion()
             return
         if frameno is None:
             logging.info("No frame number detected. Closing the camera recorder")
@@ -159,9 +164,10 @@ class FileLogger(threading.Thread):
         if frameno <= self.last_frame:
             return
 
-        image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".webp"
+        image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".tiff"
+        # image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".tiff"
         # image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value - self.time_truth_timestamp) + ".webp"
-        self._save_image(frame, frameno, time_value, image_path)
+        self._save_image(frame, image_path)
         self.last_frame = frameno
 
     def setBatchGraph(self, value=True):
@@ -170,6 +176,8 @@ class FileLogger(threading.Thread):
         self.batch_mode_movements = value
 
     def close(self):
+        if self.frame_convert_queue:
+            self.start_conversion()
         if self.file is not None:
             logging.info("Closing file: %s", self.filename)
             if self.batch_mode_graph and self.graph_contents:
@@ -177,8 +185,10 @@ class FileLogger(threading.Thread):
             if self.batch_mode_movements and self.movement_contents:
                 self._flush_contents(self.movement_contents)
             self.write_event.wait()  # Wait for the last task to complete
+
             self.file.close()
             self.file = None
+
         logging.info("Closing CSV recorder writing thread")
         if self.batch_frames:
             self._write_batch_to_disk()
