@@ -432,7 +432,7 @@ class CameraGui(QtWidgets.QMainWindow):
         painter.drawLine(c_x, c_y - 15, c_x, c_y + 15)
         painter.end()
 
-    def __init__(self, camera, image_edit=None, display_edit=None,
+    def __init__(self, camera, recording_state_manager, image_edit=None, display_edit=None,
                  with_tracking=False, base_directory='.'):
         super(CameraGui, self).__init__()
         self.camera = camera
@@ -518,11 +518,13 @@ class CameraGui(QtWidgets.QMainWindow):
             self.image_edit_funcs.extend(image_edit)
         elif image_edit is not None:
             self.image_edit_funcs.append(image_edit)
+        self.recording_state_manager = recording_state_manager
 
         self.video = LiveFeedQt(self.camera,
                                 image_edit=self.image_edit,
                                 display_edit=self.display_edit,
-                                mouse_handler=self.video_mouse_press)
+                                mouse_handler=self.video_mouse_press,
+                                recording_state_manager=self.recording_state_manager)
         self.recording_settings = {}
         self.setFocus()  # Need this to handle arrow keys, etc.
         self.interface_signals = {self.camera_interface: (self.camera_signal,

@@ -13,16 +13,17 @@ from collections import deque
 from holypipette.devices.amplifier import DAQ
 from holypipette.devices.pressurecontroller import PressureController
 
-from holypipette.utils import FileLogger, EPhysLogger
+from holypipette.utils import FileLogger
+from holypipette.utils import EPhysLogger
 
 from datetime import datetime
 
 __all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "HoldingProtocolGraph"]
 
 class CurrentProtocolGraph(QWidget):
-    def __init__(self, daq : DAQ):
+    def __init__(self, daq : DAQ, rescording_state_manager):
         super().__init__()
-
+        self.recording_state_manager = rescording_state_manager
         layout = QVBoxLayout()
         self.setWindowTitle("Current Protocol")
         logging.getLogger('matplotlib.font_manager').disabled = True
@@ -53,7 +54,7 @@ class CurrentProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        self.ephys_logger = EPhysLogger(ephys_filename="CurrentProtocol")
+        self.ephys_logger = EPhysLogger(ephys_filename="CurrentProtocol",recording_state_manager=self.recording_state_manager)
 
     def update_plot(self):
         #is what we displayed the exact same?
@@ -95,9 +96,9 @@ class CurrentProtocolGraph(QWidget):
 
 
 class VoltageProtocolGraph(QWidget):
-    def __init__(self, daq : DAQ):
+    def __init__(self, daq : DAQ, recording_state_manager):
         super().__init__()
-
+        self.recording_state_manager = recording_state_manager
         layout = QVBoxLayout()
         self.setWindowTitle("Voltage Protocol (Membrane Test)")
         logging.getLogger('matplotlib.font_manager').disabled = True
@@ -127,7 +128,7 @@ class VoltageProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        self.ephys_logger = EPhysLogger(ephys_filename = "VoltageProtocol")
+        self.ephys_logger = EPhysLogger(ephys_filename = "VoltageProtocol",recording_state_manager=self.recording_state_manager)
 
     def update_plot(self):
         #is what we displayed the exact same?
@@ -156,9 +157,9 @@ class VoltageProtocolGraph(QWidget):
 
 
 class HoldingProtocolGraph(QWidget):
-    def __init__(self, daq : DAQ):
+    def __init__(self, daq : DAQ, recording_state_manager):
         super().__init__()
-
+        self.recording_state_manager = recording_state_manager
         layout = QVBoxLayout()
         self.setWindowTitle("Holding Protocol (E/I PSC Test")
         logging.getLogger('matplotlib.font_manager').disabled = True
@@ -188,7 +189,7 @@ class HoldingProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        self.ephys_logger = EPhysLogger(ephys_filename = "HoldingProtocol")
+        self.ephys_logger = EPhysLogger(ephys_filename = "HoldingProtocol",recording_state_manager=self.recording_state_manager)
 
     def update_plot(self):
 
@@ -221,7 +222,9 @@ class EPhysGraph(QWidget):
     """A window that plots electrophysiology data from the DAQ
     """
     
-    def __init__(self, daq : DAQ, pressureController : PressureController, parent=None):
+    # def __init__(self, daq : DAQ, pressureController : PressureController, parent=None):
+    def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager, parent=None):
+    
         super().__init__()
 
         #stop matplotlib font warnings
@@ -229,6 +232,7 @@ class EPhysGraph(QWidget):
 
         self.daq = daq
         self.pressureController = pressureController
+        # self.recording_state_manager = recording_state_manager  # Include the state manager in the graph
 
         #constants for Multi Clamp
         self.externalCommandSensitivity = 20 #mv/V
@@ -333,10 +337,9 @@ class EPhysGraph(QWidget):
         self.daqUpdateThread = threading.Thread(target=self.updateDAQDataAsync, daemon=True)
         self.daqUpdateThread.start()
     
-        # self.pressureUpdateThread = threading.Thread(target=self.updatePressureAsync, daemon=True)
-        # self.pressureUpdateThread.start()
 
-        self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", recorder_filename = "graph_recording")
+        # self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", recorder_filename = "graph_recording")
+        self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="graph_recording")
         self.lastDaqData = []
 
 

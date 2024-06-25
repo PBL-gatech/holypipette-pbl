@@ -12,12 +12,13 @@ import time
 from holypipette.utils.FileLogger import FileLogger
 
 
+
 __all__ = ['LiveFeedQt']
 
 
 class LiveFeedQt(QtWidgets.QLabel):
-    def __init__(self, camera, image_edit=None, display_edit=None,
-                 mouse_handler=None, parent=None):
+    def __init__(self, camera, recording_state_manager, image_edit=None, display_edit=None, mouse_handler=None, parent=None):
+
         super(LiveFeedQt, self).__init__(parent=parent)
         # The image_edit function (does nothing by default) gets the raw
         # unscaled image (i.e. a numpy array), while the display_edit
@@ -39,7 +40,8 @@ class LiveFeedQt(QtWidgets.QLabel):
         self.setMinimumSize(640, 480)
         self.setAlignment(Qt.AlignCenter)
 
-        self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", isVideo=True)
+        self.recording_state_manager = recording_state_manager
+        self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", isVideo=True)
 
         # Remember the last frame that we displayed, to not unnecessarily
         # process/show the same frame for slow input sources
