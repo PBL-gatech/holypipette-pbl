@@ -328,7 +328,7 @@ class EPhysGraph(QWidget):
         
         self.updateTimer = QtCore.QTimer()
         # this has to match the arduino sensor delay
-        self.updateDt = 16 # ms
+        self.updateDt =33 # ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 

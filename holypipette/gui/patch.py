@@ -52,7 +52,7 @@ class PatchGui(ManipulatorGui):
         # Update the pressure and information in the status bar every 16ms
         self.pressure_timer = QtCore.QTimer()
         self.pressure_timer.timeout.connect(self.display_pressure)
-        self.pressure_timer.start(16)
+        self.pressure_timer.start(33)
         self.patch_interface.set_pressure_near()
 
     # this is heavily affecting performance. If we use lastVal it introduces a delay of of a few seconds
@@ -145,7 +145,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         #periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
-        pos_timer.start(16)
+        pos_timer.start(33)
         self.pos_update_timers.append(pos_timer)
     
     def addButtonList(self, box_name: str, layout, buttonNames, cmds):

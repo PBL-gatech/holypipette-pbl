@@ -55,7 +55,7 @@ class LiveFeedQt(QtWidgets.QLabel):
 
         timer = QtCore.QTimer(self)
         timer.timeout.connect(self.update_image)
-        timer.start(16) #30fps
+        timer.start(33) #30fps
 
     def mousePressEvent(self, event):
         # Ignore clicks that are not on the image

@@ -123,7 +123,7 @@ def create_videos_from_directory(parent_directory):
     print(final_video_name_variable_fps)
     print(final_video_name_constant_fps)
 
-def process_images_and_plot(parent_directory, output_filename='framerate_plot.png'):
+def process_images_and_plot(parent_directory, output_filename='framerate_plot_1.png'):
     input_dir, output_dir = find_latest_camera_frames_dir(parent_directory)
     os.makedirs(output_dir, exist_ok=True)
     # Use a generator to avoid loading all filenames into memory at once

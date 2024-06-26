@@ -139,7 +139,7 @@ class FileLogger(threading.Thread):
         while self.batch_frames:
             frame, path = self.batch_frames.popleft()
             # imwrite(path, frame)
-            imageio.imwrite(path, frame, format="WEBP")
+            imageio.imwrite(path, frame, format="webp")
         self.write_frame.set()  # Signal that image saving is done
 
     def write_camera_frames(self, time_value, frame, frameno):
@@ -156,7 +156,7 @@ class FileLogger(threading.Thread):
             return
 
         image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".webp"
-        # image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".tiff"
+        # image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".webp"
         # image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value - self.time_truth_timestamp) + ".webp"
         self._save_image(frame, image_path)
         self.last_frame = frameno
