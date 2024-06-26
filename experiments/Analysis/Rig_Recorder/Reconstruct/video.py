@@ -39,7 +39,7 @@ def create_videos_from_directory(parent_directory):
     os.makedirs(output_dir, exist_ok=True)
 
     # Define the pattern to extract frame index and timestamp from file names
-    pattern = re.compile(r'(\d+)_(\d+\.\d+)\.tiff')
+    pattern = re.compile(r'(\d+)_(\d+\.\d+)\.webp')
 
     # Find all webp files in the directory and extract frame info
     frames = []
@@ -129,12 +129,12 @@ def process_images_and_plot(parent_directory, output_filename='framerate_plot.pn
     # Use a generator to avoid loading all filenames into memory at once
     def get_file_names(directory):
         for filename in os.listdir(directory):
-            if filename.endswith('.tiff'):
+            if filename.endswith('.webp'):
                 yield filename
     
     # Extract frame numbers and timestamps from filenames using the generator
     frames_timestamps = [
-        (int(name.split('_')[0]), float(name.split('_')[1].split('.tiff')[0]))
+        (int(name.split('_')[0]), float(name.split('_')[1].split('.webp')[0]))
         for name in get_file_names(input_dir)
     ]
     
@@ -187,7 +187,7 @@ def process_images_and_plot(parent_directory, output_filename='framerate_plot.pn
 
 
 # Example usage
-input_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data'
+input_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data'
 # create_videos_from_directory(input_directory)
 process_images_and_plot(input_directory)
 
