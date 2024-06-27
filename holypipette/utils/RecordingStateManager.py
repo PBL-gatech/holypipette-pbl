@@ -11,11 +11,11 @@ class RecordingStateManager:
             print("Recording state toggled to:", self._recording_enabled)
             return self._recording_enabled
 
-    def set_recording(self, state: bool):
+    def set_recording(self, state: bool) -> None:
         with self._lock:
             self._recording_enabled = state
             print("Recording state set to:", self._recording_enabled)
 
-    def is_recording_enabled(self):
+    def is_recording_enabled(self) -> bool:
         with self._lock:
             return self._recording_enabled
