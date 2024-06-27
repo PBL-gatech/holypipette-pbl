@@ -8,7 +8,7 @@ import logging
 
 
 class FileLogger(threading.Thread):
-    def __init__(self, recording_state_manager, folder_path="experiments/Data/", recorder_filename="recording", filetype="csv", isVideo=False, batch_size=500):
+    def __init__(self, recording_state_manager, folder_path="experiments/Data/", recorder_filename="recording", filetype="csv", isVideo=False, frame_batch_size=500):
         super().__init__()
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
@@ -22,7 +22,8 @@ class FileLogger(threading.Thread):
         self.filename = self.folder_path + recorder_filename + "." + filetype
         self.file = None
         self.last_frame = 0
-        self.batch_size = batch_size
+        self.frame_batch_size = frame_batch_size
+        self.frame_batch_limit = int(frame_batch_size - 50)
 
         self.batch_mode_movements = False
         self.batch_mode_graph = False
@@ -31,9 +32,9 @@ class FileLogger(threading.Thread):
         self.is_video = isVideo
         self.write_frame = threading.Event() if isVideo else None
 
-        self.batch_frames = deque(maxlen=batch_size)
-        self.graph_contents = deque(maxlen=batch_size)
-        self.movement_contents = deque(maxlen=batch_size)
+        self.batch_frames = deque(maxlen=frame_batch_size)
+        self.graph_contents = deque(maxlen=frame_batch_size)
+        self.movement_contents = deque(maxlen=frame_batch_size)
 
         self.last_movement_time = None
         self.last_graph_time = None
@@ -77,10 +78,10 @@ class FileLogger(threading.Thread):
 
     #     content = f"{time_value}  {pressure}  {resistance}  {time_current}  {current}\n"
     #     self.graph_contents.append(content)
-    #     if len(self.graph_contents) >= self.batch_size - 50:
+    #     if len(self.graph_contents) >= self.frame_batch_size - 50:
     #         self._flush_contents(self.graph_contents)
 
-    def write_graph_data(self, time_value, pressure, resistance, time_current, current):
+    def write_graph_data(self, time_value, pressure: float, resistance, time_current, current):
         if not self.recording_state_manager.is_recording_enabled():
             return
         if time_value == self.last_graph_time:
@@ -110,8 +111,8 @@ class FileLogger(threading.Thread):
         content = f"timestamp:{time_value}  st_x:{stage_x}  st_y:{stage_y}  st_z:{stage_z}  pi_x:{pipette_x} pi_y:{pipette_y} pi_z:{pipette_z}\n"
 
         self.movement_contents.append(content)
-        if len(self.movement_contents) >= self.batch_size - 50:
-            logging.info(f"Batch size reached for MOVEMENT. Writing to disk at {datetime.now() - self.time_truth} seconds after start")
+        if len(self.movement_contents) >= self.frame_batch_size - 50:
+            # logging.info(f"Batch size reached for MOVEMENT. Writing to disk at {datetime.now() - self.time_truth} seconds after start")
             self._flush_contents(self.movement_contents)
 
     def _flush_contents(self, data):
@@ -123,12 +124,12 @@ class FileLogger(threading.Thread):
 
     def _save_image(self, frame, path):
         self.batch_frames.append((frame, path))
-        if len(self.batch_frames) >= self.batch_size - 20:
-            logging.info(f"Batch size reached for FRAMES. Writing to disk at {datetime.now() - self.time_truth} seconds after start")
+        if len(self.batch_frames) >= self.frame_batch_limit:
+            # logging.info(f"Batch size reached for FRAMES. Writing to disk at {datetime.now() - self.time_truth} seconds after start")
             self.write_frame.clear()
             threading.Thread(target=self._write_batch_to_disk).start()
     
-    def _save_image_sleep(self, frame, path):
+    def _save_image_sleep(self):
         if self.batch_frames:
             self.write_frame.clear()
             threading.Thread(target=self._write_batch_to_disk).start()
@@ -140,11 +141,12 @@ class FileLogger(threading.Thread):
             frame, path = self.batch_frames.popleft()
             # imwrite(path, frame)
             imageio.imwrite(path, frame, format="tiff")
+            # qoi.write(path, frame)
         self.write_frame.set()  # Signal that image saving is done
 
     def write_camera_frames(self, time_value, frame, frameno):
         if not self.recording_state_manager.is_recording_enabled():
-            # self._save_image_sleep()
+            self._save_image_sleep()
             return
 
         if frameno is None:
@@ -156,8 +158,6 @@ class FileLogger(threading.Thread):
             return
 
         image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".tiff"
-        # image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".tiff"
-        # image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value - self.time_truth_timestamp) + ".tiff"
         self._save_image(frame, image_path)
         self.last_frame = frameno
 

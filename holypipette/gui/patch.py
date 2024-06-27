@@ -52,7 +52,7 @@ class PatchGui(ManipulatorGui):
         # Update the pressure and information in the status bar every 16ms
         self.pressure_timer = QtCore.QTimer()
         self.pressure_timer.timeout.connect(self.display_pressure)
-        self.pressure_timer.start(33)
+        self.pressure_timer.start(16)
         self.patch_interface.set_pressure_near()
 
     # this is heavily affecting performance. If we use lastVal it introduces a delay of of a few seconds
@@ -145,10 +145,10 @@ class ButtonTabWidget(QtWidgets.QWidget):
         #periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
-        pos_timer.start(33)
+        pos_timer.start(16)
         self.pos_update_timers.append(pos_timer)
     
-    def addButtonList(self, box_name: str, layout, buttonNames, cmds):
+    def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds):
         box = QtWidgets.QGroupBox(box_name)
         rows = QtWidgets.QVBoxLayout()
         # create a new row for each button
@@ -226,26 +226,44 @@ class PatchButtons(ButtonTabWidget):
         # self.addButtonList('Lumencor LED', layout, buttonList, cmds)
 
         #add a box for Rig Recorder
-        buttonList = [['Start Recording', 'Stop Recording']]
-        cmds = [[self.start_recording, self.stop_recording]]
+        self.record_button = QtWidgets.QPushButton("Start Recording")
+        self.record_button.clicked.connect(self.toggle_recording)
+        self.record_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.record_button.setMinimumWidth(50)
+        self.record_button.setMinimumHeight(50)
+        layout.addWidget(self.record_button)
         # buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
-        self.addButtonList('Rig Recorder', layout, buttonList, cmds)
+        # self.addButtonList('Rig Recorder', layout, buttonList, cmds)
+        # buttonList = [['Start Recording', 'Stop Recording']]
+        # cmds = [[self.start_recording, self.stop_recording]]
+        # # buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
+        # self.addButtonList('Rig Recorder', layout, buttonList, cmds)
         
         self.setLayout(layout)
 
+    def toggle_recording(self):
+        if self.recording_state_manager.is_recording_enabled():
+            self.stop_recording()
+        else:
+            self.start_recording()
+
     def start_recording(self):
         self.recording_state_manager.set_recording(True)
+        self.record_button.setText("Stop Recording")
+        self.record_button.setStyleSheet("background-color: red; color: white;")
         print("Recording started")
 
     def stop_recording(self):
         self.recording_state_manager.set_recording(False)
+        self.record_button.setText("Start Recording")
+        self.record_button.setStyleSheet("")
         print("Recording stopped")
-
 
 
     def close(self):
         self.recorder.close()
         super(PatchButtons, self).close()
+
     def closeEvent(self):
         self.recorder.close()
         super(PatchButtons, self).closeEvent()

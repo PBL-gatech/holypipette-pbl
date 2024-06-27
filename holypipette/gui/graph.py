@@ -328,7 +328,7 @@ class EPhysGraph(QWidget):
         
         self.updateTimer = QtCore.QTimer()
         # this has to match the arduino sensor delay
-        self.updateDt =33 # ms
+        self.updateDt =16 # ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
@@ -395,19 +395,20 @@ class EPhysGraph(QWidget):
 
         # update resistance graph
         self.resistancePlot.clear()
-        resistanceDeque = [i for i in range(len(self.resistanceDeque))]
-        self.resistancePlot.plot(resistanceDeque, self.resistanceDeque, pen='k')
+        displayDequeY = self.resistanceDeque.copy()
+        displayDequeX = [i for i in range(len(displayDequeY))]
+        # resistanceDeque = [i for i in range(len(self.resistanceDeque))]
+        self.resistancePlot.plot(displayDequeX, displayDequeY, pen='k')
 
         # self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(currentPressureReading))
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
         # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
         try:
-            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, list(self.resistanceDeque), list(self.lastDaqData[0, :]), list(self.lastDaqData[1, :]))
+            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, list(displayDequeY), list(self.lastDaqData[0, :]), list(self.lastDaqData[1, :]))
         except Exception as e:
-            logging.error(f"lastDaqData[1, :] is a tuple - {e}")
-            logging.error(self.lastDaqData[1, :])
-            logging.error(list(self.lastDaqData[1, :]))
+            logging.error(f"Error in writing graph data to file: {e}")
+            logging.error(self.lastDaqData)
 
         self.lastestDaqData = None
 

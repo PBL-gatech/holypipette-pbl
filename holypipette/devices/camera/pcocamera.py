@@ -29,7 +29,7 @@ class PcoCamera(Camera):
 
     PCO_RECORDER_LATEST_IMAGE = 0xFFFFFFFF
 
-    def __init__(self, width : int = 1280, height : int = 1280):
+    def __init__(self, width: int = 1280, height: int = 1280):
         super(PcoCamera, self).__init__()
 
         self.width = width #update superclass img width / height vars
@@ -41,7 +41,7 @@ class PcoCamera(Camera):
         print(f"CAMERA {self.cam}")
 
         # self.ca .sdk.set_timestamp_mode('binary & ascii')
-        config = {'exposure time': 10e-3,
+        config = {'exposure time': 5e-3,
                     'roi': (385, 385, 1664, 1664),
                     'timestamp': 'off',
                     'trigger': 'auto sequence',
@@ -81,18 +81,15 @@ class PcoCamera(Camera):
         return exposure * 1000 #convert to ms
 
     def close(self):
-        if hasattr(self, 'cam'):
+        if self.cam:
             self.cam.stop()
             self.cam.close()
 
     def get_frame_rate(self):
-        # TODO: this is ideal, can we get actual fps?
-        # return 1 / self.cam.get_exposure_time()
         # * A way to calculate FPS
         current_time = time.time()
-        if self.last_frame_time is not None:
-            time_diff = current_time - self.last_frame_time
-            self.fps = 1.0 / time_diff
+        if self.last_frame_time:
+            self.fps = 1.0 / current_time - self.last_frame_time
         self.last_frame_time = current_time
 
         return self.fps
@@ -177,7 +174,7 @@ class PcoCamera(Camera):
 
         # resize if needed
         if self.width != None and self.height != None:
-            img = cv2.resize(img, (self.width, self.height), interpolation= cv2.INTER_LINEAR)
+            img = cv2.resize(img, (self.width, self.height), interpolation = cv2.INTER_LINEAR)
 
         # if img is not None:
         #     out = self.pipetteFinder.find_pipette(img)
@@ -194,6 +191,5 @@ class PcoCamera(Camera):
 
         # if self.lastFrame is not None:
         #     flow = cv2.calcOpticalFlowFarneback(self.lastFrame, img, None, 0.5, 3, 15, 3, 5, 1.2, 0)
-
 
         return img

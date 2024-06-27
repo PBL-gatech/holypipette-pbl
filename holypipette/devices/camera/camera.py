@@ -115,8 +115,7 @@ class AcquisitionThread(threading.Thread):
         # * A way to calculate FPS
         current_time = time.time()
         if self.last_frame_time is not None:
-            time_diff = current_time - self.last_frame_time
-            self.fps = 1.0 / time_diff
+            self.fps = 1.0 / (current_time - self.last_frame_time)
         self.last_frame_time = current_time
 
         return self.fps
@@ -181,7 +180,7 @@ class Camera(object):
         self.stop_show_time = 0
         self.point_to_show = None
         self.cell_list = []
-    
+
     def show_point(self, point, color=(255, 0, 0), radius=10, duration=1.5, show_center=False):
         self.point_to_show = [point, radius, color, show_center]
         self.stop_show_time = time.time() + duration
@@ -214,33 +213,25 @@ class Camera(object):
     def flip(self):
         self.flipped = not self.flipped
 
-    def preprocess(self, img):
-        #convert to rgb
-        if len(img.shape)==2:
-            img = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
-        else:
-            img = img.copy()
+    def preprocess(self, input_img):
+        # img = cv2.cvtColor(input_img.copy(), cv2.COLOR_GRAY2RGB) if len(input_img.shape) == 2 else input_img.copy()
+        img = input_img.copy()
 
-        #draw a temporary point if needed (used to show pipette tip during cal)
-        if time.time() - self.stop_show_time < 0:
-            if self.point_to_show is not None:
-                img = cv2.circle(img, self.point_to_show[0], self.point_to_show[1], self.point_to_show[2], 3)
-                showCenter = self.point_to_show[3]
-                if showCenter:
-                    img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
+        if self.point_to_show and time.time() - self.stop_show_time < 0:
+            img = cv2.circle(img, self.point_to_show[0], self.point_to_show[1], self.point_to_show[2], 3)
+            if self.point_to_show[3]:
+                img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
 
 
-        #draw cell outlines
+        # draw cell outlines
         for cell in self.cell_list:
             img = cv2.circle(img, cell, 10, (0, 255, 0), 3)
-        
+
         if self.flipped:
-            if len(img.shape)==2:
-                return np.array(img[:,::-1])
-            else:
-                return np.array(img[:,::-1,:])
-        else:
-            return img
+            img = img[:, ::-1] 
+            # img = img[:, ::-1] if len(img.shape) == 2 else img[:, ::-1, :]
+
+        return img
 
     def new_frame(self):
         '''
@@ -292,7 +283,6 @@ class Camera(object):
         '''
         try:
             last_entry = self._last_frame_queue[0]
-            # print('last_entry:', last_entry)
             return last_entry[0], last_entry[1], last_entry[-1]
         except IndexError:  # no frame (yet)
             return None
@@ -347,7 +337,7 @@ class FakeCamera(Camera):
         self.image_z = image_z
         self.scale_factor = .5  # micrometers in pixels
         self.depth_of_field = 2.
-        self.frame = np.array(np.clip(gaussian_filter(np.random.randn(self.width * 2, self.height * 2)*0.5, 10)*50 + 128, 0, 255), dtype=np.uint8)
+        self.frame = np.array(np.clip(gaussian_filter(np.random.randn(self.width * 2, self.height * 2) * 0.5, 10) * 50 + 128, 0, 255), dtype=np.uint8)
         
         self.start_acquisition()
 
@@ -361,8 +351,8 @@ class FakeCamera(Camera):
     def get_microscope_image(self, x, y, z):
         frame = np.roll(self.frame, int(y), axis=0)
         frame = np.roll(frame, int(x), axis=1)
-        frame = frame[self.height//2:self.height//2+self.height,
-                      self.width//2:self.width//2+self.width]
+        frame = frame[self.height // 2:self.height // 2 + self.height,
+                      self.width // 2:self.width // 2 + self.width]
         return np.array(frame, copy=True)
 
     def raw_snap(self):
@@ -382,26 +372,23 @@ class FakeCamera(Camera):
             if self.paramecium is not None:
                 self.paramecium.update_position()
                 p_x, p_y, p_z = self.paramecium.position
-                p_angle = self.paramecium.angle + np.pi/2
+                p_angle = self.paramecium.angle + np.pi / 2
                 p_x *= self.scale_factor
                 p_y *= self.scale_factor
                 p_z *= self.scale_factor
-                # FIXME: do not ignore Z
-                p_width = 30*self.scale_factor
-                p_height = 100*self.scale_factor
-                xx, yy = np.meshgrid(np.arange(-self.width//2, self.width//2), np.arange(-self.height//2, self.height//2))
-                frame[((xx - (p_x - stage_x))*np.cos(p_angle) + (yy - (p_y - stage_y))*np.sin(p_angle))**2 / (p_width/2)**2 +
-                      ((xx - (p_x - stage_x))*np.sin(p_angle) - (yy - (p_y - stage_y))*np.cos(p_angle))**2 / (p_height/2)**2 < 1] = 50
-                frame[((xx - (p_x - stage_x))*np.cos(p_angle) + (yy - (p_y - stage_y))*np.sin(p_angle))**2 / (p_width/2)**2 +
-                      ((xx - (p_x - stage_x))*np.sin(p_angle) - (yy - (p_y - stage_y))*np.cos(p_angle))**2 / (p_height/2)**2 < 0.8] = 100
+                p_width = 30 * self.scale_factor
+                p_height = 100 * self.scale_factor
+                xx, yy = np.meshgrid(np.arange(-self.width // 2, self.width // 2), np.arange(-self.height // 2, self.height // 2))
+                frame[((xx - (p_x - stage_x)) * np.cos(p_angle) + (yy - (p_y - stage_y)) * np.sin(p_angle)) ** 2 / (p_width / 2) ** 2 +
+                      ((xx - (p_x - stage_x)) * np.sin(p_angle) - (yy - (p_y - stage_y)) * np.cos(p_angle)) ** 2 / (p_height / 2) ** 2 < 1] = 50
+                frame[((xx - (p_x - stage_x)) * np.cos(p_angle) + (yy - (p_y - stage_y)) * np.sin(p_angle)) ** 2 / (p_width / 2) ** 2 +
+                      ((xx - (p_x - stage_x)) * np.sin(p_angle) - (yy - (p_y - stage_y)) * np.cos(p_angle)) ** 2 / (p_height / 2) ** 2 < 0.8] = 100
 
-            for direction, axes in [(-np.pi/2, [1, 2, 3])]:
+            for direction, axes in [(-np.pi / 2, [1, 2, 3])]:
                 manipulators = np.zeros((self.height, self.width), dtype=np.int16)
                 x, y, z = self.manipulator.position_group(axes)
-                # Quick&dirty 3D transformation
-                x = np.cos(self.manipulator.angle)*(x + 50/self.scale_factor)
-                z = np.sin(self.manipulator.angle)*(x + 50/self.scale_factor) + z
-                # scale
+                x = np.cos(self.manipulator.angle) * (x + 50 / self.scale_factor)
+                z = np.sin(self.manipulator.angle) * (x + 50 / self.scale_factor) + z
                 x *= self.scale_factor
                 y *= self.scale_factor
                 z *= self.scale_factor
@@ -410,10 +397,10 @@ class FakeCamera(Camera):
                 x -= stage_x
                 y -= stage_y
                 z -= stage_z
-                X, Y = np.meshgrid(np.arange(self.width) - self.width/2 + x,
-                                   np.arange(self.height) - self.height/2 + y)
+                X, Y = np.meshgrid(np.arange(self.width) - self.width // 2 + x,
+                                   np.arange(self.height) - self.height // 2 + y)
                 angle = np.arctan2(X, Y)
-                dist = np.sqrt(X**2 + Y**2)
+                dist = np.sqrt(X ** 2 + Y ** 2)
                 border = (0.075 + 0.0025 * abs(z) / self.depth_of_field)
                 manipulators[(np.abs(angle - direction) < border) & (dist > 50)] = 5
                 edge_width = 0.02 if z > 0 else 0.04  # Make a distinction between below and above
@@ -422,10 +409,10 @@ class FakeCamera(Camera):
         else:
             img = Image.fromarray(self.frame)
             frame = np.array(img.resize((self.width, self.height)))
-        exposure_factor = self.exposure_time/30.
-        frame = frame + np.random.randn(self.height, self.width)*5
+        exposure_factor = self.exposure_time / 30.
+        frame = frame + np.random.randn(self.height, self.width) * 5
 
-        return np.array(np.clip(frame*exposure_factor, 0, 255),
+        return np.array(np.clip(frame * exposure_factor, 0, 255),
                         dtype=np.uint8)
 
 
@@ -461,12 +448,12 @@ class DebugCamera(Camera):
         self.height = 768
         self.frameno = 0
         self.last_frame_time = None
-        self.delay = 1/frames_per_s
-        self._debug_write_delay=write_delay
+        self.delay = 1 / frames_per_s
+        self._debug_write_delay = write_delay
         self.start_acquisition()
 
     def get_frame_rate(self):
-        return 1/self.delay
+        return 1 / self.delay
 
     def raw_snap(self):
         '''
@@ -480,7 +467,7 @@ class DebugCamera(Camera):
                 time.sleep(self.delay - (time.time() - self.last_frame_time))
         self.last_frame_time = time.time()
         return frame
-        
+
 
 class RecordedVideoCamera(Camera):
     def __init__(self, file_name, pixel_per_um, slowdown=1):
@@ -492,7 +479,7 @@ class RecordedVideoCamera(Camera):
         self.height = int(self.video.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.pixel_per_um = pixel_per_um
         self.frame_rate = self.video.get(cv2.CAP_PROP_FPS)
-        self.time_between_frames = 1/self.frame_rate * slowdown
+        self.time_between_frames = 1 / self.frame_rate * slowdown
         self._last_frame_time = None
         self.start_acquisition()
 
@@ -506,11 +493,11 @@ class RecordedVideoCamera(Camera):
                 sleep_time = self.time_between_frames - (time.time() - self._last_frame_time)
                 time.sleep(sleep_time)
         success, frame = self.video.read()
-        self._last_frame_time = time.time()        
-        
+        self._last_frame_time = time.time()
+
         if not success and self._acquisition_thread.running:
-            raise ValueError('Cannot read from file %s.' % self.file_name)
-        
+            raise ValueError(f'Cannot read from file {self.file_name}.')
+
         return frame
 
     def close(self):

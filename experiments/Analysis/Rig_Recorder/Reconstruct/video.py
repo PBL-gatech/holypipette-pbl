@@ -6,6 +6,8 @@ from datetime import datetime
 import re
 import concurrent.futures
 
+image_format = 'webp'
+
 def find_latest_camera_frames_dir(parent_dir):
     latest_time = None
     latest_dir = None
@@ -39,9 +41,9 @@ def create_videos_from_directory(parent_directory):
     os.makedirs(output_dir, exist_ok=True)
 
     # Define the pattern to extract frame index and timestamp from file names
-    pattern = re.compile(r'(\d+)_(\d+\.\d+)\.webp')
+    pattern = re.compile(r'(\d+)_(\d+\.\d+)\.' + re.escape(image_format))
 
-    # Find all webp files in the directory and extract frame info
+    # Find all tiff files in the directory and extract frame info
     frames = []
     image_files = []
     for filename in os.listdir(input_dir):
@@ -129,12 +131,12 @@ def process_images_and_plot(parent_directory, output_filename='framerate_plot_1.
     # Use a generator to avoid loading all filenames into memory at once
     def get_file_names(directory):
         for filename in os.listdir(directory):
-            if filename.endswith('.webp'):
+            if filename.endswith(f'.{image_format}'):
                 yield filename
     
     # Extract frame numbers and timestamps from filenames using the generator
     frames_timestamps = [
-        (int(name.split('_')[0]), float(name.split('_')[1].split('.webp')[0]))
+        (int(name.split('_')[0]), float(name.split('_')[1].split(f'.{image_format}')[0]))
         for name in get_file_names(input_dir)
     ]
     
@@ -192,12 +194,11 @@ input_directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experime
 process_images_and_plot(input_directory)
 
 
-
 # import os
 # import pandas as pd
 # import subprocess
 
-# # # # # Directory containing the .webp images
+# # # # # Directory containing the .tiff images
 # # image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\movement_frames"
 # # image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\camera_frames"
 # # image_directory = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\current_frames"
@@ -220,11 +221,11 @@ process_images_and_plot(input_directory)
 # def get_order_number(filename):
 #     return int(filename.split('_')[0])
 
-# # Get all .webp files in the directory and sort them by the order number
-# uploaded_files = sorted([f for f in os.listdir(image_directory) if f.endswith('.webp')],
+# # Get all .tiff files in the directory and sort them by the order number
+# uploaded_files = sorted([f for f in os.listdir(image_directory) if f.endswith('.tiff')],
 #                         key=get_order_number)
 
-# file_info = [{'filename': f, 'timestamp': float(f.split('_')[1].replace('.webp', ''))} for f in uploaded_files]
+# file_info = [{'filename': f, 'timestamp': float(f.split('_')[1].replace('.tiff', ''))} for f in uploaded_files]
 
 # # Convert to DataFrame for easier manipulation
 # df_files = pd.DataFrame(file_info)
