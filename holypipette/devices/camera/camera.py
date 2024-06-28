@@ -16,7 +16,7 @@ import logging
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from scipy.ndimage.filters import gaussian_filter
-from scipy.ndimage import fourier_gaussian
+# from scipy.ndimage import fourier_gaussian
 import warnings
 import traceback
 from scipy.optimize import brentq
@@ -109,8 +109,6 @@ class AcquisitionThread(threading.Thread):
 
         threading.Thread.__init__(self, name='image_acquire_thread')
 
-        # self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", isVideo=True)
-        
     def get_frame_rate(self):
         # * A way to calculate FPS
         current_time = time.time()
@@ -144,12 +142,12 @@ class AcquisitionThread(threading.Thread):
             for queue in self.raw_queues:
                 queue.append((last_frame, datetime.datetime.now(), snap_time - start_time, raw))
 
-            # logging.info(f"FPS in camera: {self.get_frame_rate():.2f}")
+            logging.debug(f"FPS in Acquisition Thread: {self.get_frame_rate():.2f}")
 
             last_frame += 1
             acquired_frames += 1
             if snap_time - last_report > 1:
-                frame_rate = acquired_frames / (snap_time - last_report)
+                # frame_rate = acquired_frames / (snap_time - last_report)
                 # logging.warning('Acquiring {:.1f} fps'.format(frame_rate))
                 last_report = snap_time
                 acquired_frames = 0
@@ -180,6 +178,9 @@ class Camera(object):
         self.stop_show_time = 0
         self.point_to_show = None
         self.cell_list = []
+        
+        self.last_frame_time = None
+        self.fps = 0
 
     def show_point(self, point, color=(255, 0, 0), radius=10, duration=1.5, show_center=False):
         self.point_to_show = [point, radius, color, show_center]
@@ -214,7 +215,9 @@ class Camera(object):
         self.flipped = not self.flipped
 
     def preprocess(self, input_img):
-        # img = cv2.cvtColor(input_img.copy(), cv2.COLOR_GRAY2RGB) if len(input_img.shape) == 2 else input_img.copy()
+        # isGreyscale = len(input_img.shape) == 2
+        # ? why? because our images are grayscale. the line below makes images ~3x larger
+        # img = cv2.cvtColor(input_img.copy(), cv2.COLOR_GRAY2RGB) if isGreyscale else input_img.copy()
         img = input_img.copy()
 
         if self.point_to_show and time.time() - self.stop_show_time < 0:
@@ -228,8 +231,9 @@ class Camera(object):
             img = cv2.circle(img, cell, 10, (0, 255, 0), 3)
 
         if self.flipped:
-            img = img[:, ::-1] 
-            # img = img[:, ::-1] if len(img.shape) == 2 else img[:, ::-1, :]
+            img = img[:, ::-1]
+            # ? uncomment below for rgb images
+            # img = img[:, ::-1] if isGreyscale else img[:, ::-1, :]
 
         return img
 
@@ -267,8 +271,8 @@ class Camera(object):
             # * the deque has a maxsize of 1, so we can do this
             # maybe we should use a list instead of a deque?
             # ? should we change this to grab the last element instead, as it is more intuitive?
-            # last_entry = self._last_frame_queue[0]
-            last_entry = self._last_frame_queue[-1]
+            last_entry = self._last_frame_queue[0]
+            # last_entry = self._last_frame_queue[-1]
             return last_entry[0], last_entry[-1]
         except IndexError:  # no frame (yet)
             return None
@@ -318,8 +322,15 @@ class Camera(object):
         exposure = brentq(f, 0.1,100., rtol=0.1)
         self.set_exposure(exposure)
 
-    def get_frame_rate(self):
-        return -1
+    def get_frame_rate(self) -> None:
+        # return super().get_frame_rate()
+        # * A way to calculate FPS
+        current_time = time.time()
+        if self.last_frame_time:
+            self.fps = 1.0 / (current_time - self.last_frame_time)
+        self.last_frame_time = current_time
+
+        logging.debug(f"FPS in Camera: {self.fps:.2f}")
 
     def reset(self):
         pass

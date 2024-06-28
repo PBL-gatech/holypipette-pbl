@@ -1008,6 +1008,9 @@ class ConfigGui(QtWidgets.QWidget):
             layout.addWidget(box)
         self.setLayout(layout)
 
+    def run(self):
+        print('running')
+
     def value_changed(self, key, value):
         if key not in self.value_widgets:
             return

@@ -54,29 +54,29 @@ class LiveFeedQt(QtWidgets.QLabel):
 
         timer = QtCore.QTimer(self)
         timer.timeout.connect(self.update_image)
-        timer.start(16) #30fps
+        timer.start(28) # 30 fps -> 31.5fps
+        # timer.start(16) # 60 fps --> but actually 64 fps
+        # timer.start(33) # 30 fps --> but avctually 21.5 fps
 
     def mousePressEvent(self, event):
         # Ignore clicks that are not on the image
-        xs = event.x() - self.size().width()/2.0
-        ys = event.y() - self.size().height()/2.0
+        xs = event.x() - self.size().width() * 0.5
+        ys = event.y() - self.size().height() * 0.5
         pixmap = self.pixmap()
-        if abs(xs) > pixmap.width()/2.0 or abs(ys) > pixmap.height()/2.0:
+        if abs(xs) > pixmap.width() * 0.5 or abs(ys) > pixmap.height() * 0.5:
             self.setFocus()
             return
 
         if self.mouse_handler is not None:
             self.mouse_handler(event)
 
-    
     def log_frame_rate(self):
     # Calculate and log the frame rate at which images are processed
         current_time = time.time()
         if self.last_frame_time is not None:
             time_diff = current_time - self.last_frame_time
-            if time_diff > 0:
-                self.fps = 1.0 / time_diff
-                logging.info(f"LiveFeed FPS: {self.fps:.2f}")
+            self.fps = 1.0 / time_diff
+            logging.info(f"FPS in LIVEFEED: {self.fps:.2f}")
         self.last_frame_time = current_time
 
     @QtCore.pyqtSlot()
@@ -87,9 +87,6 @@ class LiveFeedQt(QtWidgets.QLabel):
 
             if frame is None:
                 return  # Frame acquisition thread has stopped
-
-            self.recorder.write_camera_frames(frame_time.timestamp(), frame, frameno)
-            # self.log_frame_rate()
             
             if self._last_frameno is None or self._last_frameno != frameno:
                 frame = self.image_edit(frame)
@@ -100,6 +97,10 @@ class LiveFeedQt(QtWidgets.QLabel):
                 # No need to preprocess a frame again if it has not changed
                 frame = self._last_edited_frame
 
+            # * Where you place tihs function is important, relative to repeated frames and such. Either you check in this file 
+            # * or in the FileLogger file
+            self.recorder.write_camera_frames(frame_time.timestamp(), frame, frameno)
+            self.log_frame_rate()
             # print(f"FRAME SHAPE: {frame.shape}")
 
             if len(frame.shape) == 2:

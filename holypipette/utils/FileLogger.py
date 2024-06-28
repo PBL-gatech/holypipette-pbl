@@ -13,6 +13,8 @@ class FileLogger(threading.Thread):
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
 
+        self.image_type  = "webp"
+
         testMode = True
         if testMode:
             folder_path = folder_path.replace("Data/", "Data/TEST_")
@@ -23,7 +25,7 @@ class FileLogger(threading.Thread):
         self.file = None
         self.last_frame = 0
         self.frame_batch_size = frame_batch_size
-        self.frame_batch_limit = int(frame_batch_size - 50)
+        self.frame_batch_limit = int(frame_batch_size * 0.8)
 
         self.batch_mode_movements = False
         self.batch_mode_graph = False
@@ -135,12 +137,10 @@ class FileLogger(threading.Thread):
             threading.Thread(target=self._write_batch_to_disk).start()
 
     def _write_batch_to_disk(self):
-        # data = self.batch_frames.copy()
-        # self.batch_frames.clear()
         while self.batch_frames:
             frame, path = self.batch_frames.popleft()
             # imwrite(path, frame)
-            imageio.imwrite(path, frame, format="tiff")
+            imageio.imwrite(path, frame, format=self.image_type)
             # qoi.write(path, frame)
         self.write_frame.set()  # Signal that image saving is done
 
@@ -149,15 +149,16 @@ class FileLogger(threading.Thread):
             self._save_image_sleep()
             return
 
-        if frameno is None:
-            logging.info("No frame number detected. Closing the camera recorder")
-            self.close()
-            return
+        # * Add this back in if you change where this function is called within the update_image function in the LiveFeedQT class. 
+        # if frameno is None:
+        #     logging.info("No frame number detected. Closing the camera recorder")
+        #     self.close()
+        #     return
 
         if frameno <= self.last_frame:
             return
 
-        image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + ".tiff"
+        image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + "." + self.image_type
         self._save_image(frame, image_path)
         self.last_frame = frameno
 

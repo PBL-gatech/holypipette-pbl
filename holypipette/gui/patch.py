@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt
 import pyqtgraph as pg
 import PyQt5.QtGui as QtGui
 import numpy as np
+import logging
 
 
 from ..controller import TaskController
@@ -251,13 +252,13 @@ class PatchButtons(ButtonTabWidget):
         self.recording_state_manager.set_recording(True)
         self.record_button.setText("Stop Recording")
         self.record_button.setStyleSheet("background-color: red; color: white;")
-        print("Recording started")
+        logging.info("Recording started")
 
     def stop_recording(self):
         self.recording_state_manager.set_recording(False)
         self.record_button.setText("Start Recording")
         self.record_button.setStyleSheet("")
-        print("Recording stopped")
+        logging.info("Recording stopped")
 
 
     def close(self):

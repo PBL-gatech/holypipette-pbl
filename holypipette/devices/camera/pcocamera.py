@@ -70,13 +70,13 @@ class PcoCamera(Camera):
 
         self.start_acquisition() #start thread that updates camera gui
 
-    def set_exposure(self, value):
+    def set_exposure(self, value) -> None:
         self.cam.set_exposure_time(value / 1000)
 
     def get_exposure(self):
         '''return the exposure time of the camera in ms
         '''
-        exposure = self.cam.get_exposure_time() #this is in seconds
+        exposure = self.cam.get_exposure_time() # this is in seconds
         self.currExposure = exposure
         return exposure * 1000 #convert to ms
 
@@ -85,16 +85,7 @@ class PcoCamera(Camera):
             self.cam.stop()
             self.cam.close()
 
-    def get_frame_rate(self):
-        # * A way to calculate FPS
-        current_time = time.time()
-        if self.last_frame_time:
-            self.fps = 1.0 / current_time - self.last_frame_time
-        self.last_frame_time = current_time
-
-        return self.fps
-
-    def reset(self):
+    def reset(self) -> None:
         self.cam.close()
         self.cam = pco.Camera()
         
@@ -124,10 +115,10 @@ class PcoCamera(Camera):
         self.lowerBound = img.min()
         self.upperBound = img.max()
 
-    def get_frame_no(self):
+    def get_frame_no(self) -> int:
         return self.frameno
         
-    def get_16bit_image(self):
+    def get_16bit_image(self) -> np.ndarray:
         '''get a 16 bit color image from the camera (no normalization)
            this compares to raw_snap which returns a 8 bit image with normalization
         '''
@@ -149,7 +140,7 @@ class PcoCamera(Camera):
             print(f"ERROR in get_16bit_image: {e}")
             return self.last_frame # there was an error grabbing the most recent frame
 
-        # logging.info(f"FPS in pcocamera: {self.get_frame_rate():.2f}")
+        self.get_frame_rate()
 
         return img
 
