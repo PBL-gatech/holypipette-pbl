@@ -142,7 +142,7 @@ class AcquisitionThread(threading.Thread):
             for queue in self.raw_queues:
                 queue.append((last_frame, datetime.datetime.now(), snap_time - start_time, raw))
 
-            logging.debug(f"FPS in Acquisition Thread: {self.get_frame_rate():.2f}")
+            # logging.debug(f"FPS in Acquisition Thread: {self.get_frame_rate():.2f}")
 
             last_frame += 1
             acquired_frames += 1

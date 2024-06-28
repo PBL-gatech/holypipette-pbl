@@ -93,13 +93,13 @@ def _identify_amplifier(model, serial, port, device, channel):
     `700A` or `700B` as a value.
     """
     if model.value == 0:  # 700A
-        logging.info(('Found a MultiClamp 700A (Port: {}, Device: {}, '
+        logging.info(('Found a MultiClamp 700A (Port: {}  Device: {}  '
                       'Channel: {})').format(port.value, device.value,
                                              channel.value))
         return {'model': '700A', 'port': port.value, 'device': device.value,
                 'channel': channel.value}
     elif model.value == 1:  # 700B
-        logging.info(('Found a MultiClamp 700B (Serial number: {}, '
+        logging.info(('Found a MultiClamp 700B (Serial number: {}  '
                       'Channel: {})').format(serial.value, channel.value))
         return {'model': '700B', 'serial': serial.value,
                 'channel': channel.value}

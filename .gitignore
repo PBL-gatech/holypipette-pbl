@@ -17,4 +17,6 @@ experiments/Analysis/*/*.png
 experiments/Analysis/*/*.mp4
 experiments/Analysis/*/*.webp
 .DS_Store
-/experiments/Analysis/Rig_Recorder/
+/experiments/Analysis/Rig_Recorder/reconstruct/image_saver_test/
+/experiments/Analysis/Rig_Recorder/*.csv
+/experiments/Analysis/Rig_Recorder/reconstruct/*.csv
