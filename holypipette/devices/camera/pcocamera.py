@@ -29,7 +29,7 @@ class PcoCamera(Camera):
 
     PCO_RECORDER_LATEST_IMAGE = 0xFFFFFFFF
 
-    def __init__(self, width : int = 1280, height : int = 1280):
+    def __init__(self, width: int = 1280, height: int = 1280):
         super(PcoCamera, self).__init__()
 
         self.width = width #update superclass img width / height vars
@@ -41,7 +41,7 @@ class PcoCamera(Camera):
         print(f"CAMERA {self.cam}")
 
         # self.ca .sdk.set_timestamp_mode('binary & ascii')
-        config = {'exposure time': 10e-3,
+        config = {'exposure time': 5e-3,
                     'roi': (385, 385, 1664, 1664),
                     'timestamp': 'off',
                     'trigger': 'auto sequence',
@@ -70,34 +70,22 @@ class PcoCamera(Camera):
 
         self.start_acquisition() #start thread that updates camera gui
 
-    def set_exposure(self, value):
+    def set_exposure(self, value) -> None:
         self.cam.set_exposure_time(value / 1000)
 
     def get_exposure(self):
         '''return the exposure time of the camera in ms
         '''
-        exposure = self.cam.get_exposure_time() #this is in seconds
+        exposure = self.cam.get_exposure_time() # this is in seconds
         self.currExposure = exposure
         return exposure * 1000 #convert to ms
 
     def close(self):
-        if hasattr(self, 'cam'):
+        if self.cam:
             self.cam.stop()
             self.cam.close()
 
-    def get_frame_rate(self):
-        # TODO: this is ideal, can we get actual fps?
-        # return 1 / self.cam.get_exposure_time()
-        # * A way to calculate FPS
-        current_time = time.time()
-        if self.last_frame_time is not None:
-            time_diff = current_time - self.last_frame_time
-            self.fps = 1.0 / time_diff
-        self.last_frame_time = current_time
-
-        return self.fps
-
-    def reset(self):
+    def reset(self) -> None:
         self.cam.close()
         self.cam = pco.Camera()
         
@@ -127,10 +115,10 @@ class PcoCamera(Camera):
         self.lowerBound = img.min()
         self.upperBound = img.max()
 
-    def get_frame_no(self):
+    def get_frame_no(self) -> int:
         return self.frameno
         
-    def get_16bit_image(self):
+    def get_16bit_image(self) -> np.ndarray:
         '''get a 16 bit color image from the camera (no normalization)
            this compares to raw_snap which returns a 8 bit image with normalization
         '''
@@ -139,6 +127,7 @@ class PcoCamera(Camera):
         # else:
         # print('-----get 16 bit image----- PcoCamera.py')
         self.frameno = self.cam.rec.get_status()['dwProcImgCount']
+        self.get_frame_rate()
         
         try:
             # print(f"IMAGE NUMBER: {PcoCamera.PCO_RECORDER_LATEST_IMAGE}")
@@ -152,8 +141,6 @@ class PcoCamera(Camera):
             print(f"ERROR in get_16bit_image: {e}")
             return self.last_frame # there was an error grabbing the most recent frame
 
-        # logging.info(f"FPS in pcocamera: {self.get_frame_rate():.2f}")
-
         return img
 
     def raw_snap(self):
@@ -163,39 +150,21 @@ class PcoCamera(Camera):
         '''
         img = self.get_16bit_image()
 
+        if img is None:
+            return None
+
         # if img is not None:
         #     focusLvl = self.pipetteFocuser.get_pipette_focus(img)
         #     print(focusLvl)
 
         # apply upper / lower bounds (normalization)
-        span = self.upperBound - self.lowerBound
+        span = np.maximum(self.upperBound - self.lowerBound, 1)  # Avoid division by zero
 
-        if span == 0:
-            span = 1 #prevent divide by 0 for blank images
-
-        
         img = np.clip((img.astype(np.float32) - self.lowerBound) / span * 255, 0, 255).astype(np.uint8)
-
-        # img = img.astype(np.float32)
-        # img = img - self.lowerBound
-        # img = img / span
-
-        # #convert to 8 bit color
-        # img = img * 255
-        # img[np.where(img < 0)] = 0
-        # img[np.where(img > 255)] = 255
-        # img = img.astype(np.uint8)
-
-        # if not np.array_equal(img_test, img):
-        #     print("ERROR: NORMALIZATION FAILED")
-        #     print(f"IMG: {img}")
-        #     print(f"IMG_TEST: {img_test}")
-        # else:
-        #     print("NORMALIZATION PASSED")
 
         # resize if needed
         if self.width != None and self.height != None:
-            img = cv2.resize(img, (self.width, self.height), interpolation= cv2.INTER_LINEAR)
+            img = cv2.resize(img, (self.width, self.height), interpolation = cv2.INTER_LINEAR)
 
         # if img is not None:
         #     out = self.pipetteFinder.find_pipette(img)
@@ -212,6 +181,5 @@ class PcoCamera(Camera):
 
         # if self.lastFrame is not None:
         #     flow = cv2.calcOpticalFlowFarneback(self.lastFrame, img, None, 0.5, 3, 15, 3, 5, 1.2, 0)
-
 
         return img

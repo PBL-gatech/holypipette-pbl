@@ -104,7 +104,6 @@ class AutoPatchInterface(TaskInterface):
     @blocking_command(category='DAQ',
             description='Run Protocols on the Cell',
             task_description='Run Protocols on the Cell')
-    
     def run_protocols(self):
         self.execute(self.current_autopatcher.run_protocols)
     

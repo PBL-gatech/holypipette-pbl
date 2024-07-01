@@ -10,9 +10,13 @@ CellSorterSerial.py
 __pycache__/
 
 *.webp
+experiments/Data/TEST_rig_recorder_data/
 experiments/Data/rig_recorder_data/
 experiments/Data/patch_clamp_data/
 experiments/Analysis/*/*.png
 experiments/Analysis/*/*.mp4
 experiments/Analysis/*/*.webp
 .DS_Store
+/experiments/Analysis/Rig_Recorder/reconstruct/image_saver_test/
+/experiments/Analysis/Rig_Recorder/*.csv
+/experiments/Analysis/Rig_Recorder/reconstruct/*.csv
