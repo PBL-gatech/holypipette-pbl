@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt
 import pyqtgraph as pg
 import PyQt5.QtGui as QtGui
 import numpy as np
+import logging
 
 
 from ..controller import TaskController
@@ -15,7 +16,7 @@ from ..interface.patch import AutoPatchInterface
 from ..interface.pipettes import PipetteInterface
 from ..interface.base import command
 
-from holypipette.utils import FileLogger
+from holypipette.utils.FileLogger import FileLogger
 from datetime import datetime
 
 class PatchGui(ManipulatorGui):
@@ -23,23 +24,25 @@ class PatchGui(ManipulatorGui):
     patch_command_signal = QtCore.pyqtSignal(MethodType, object)
     patch_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera, pipette_interface : PipetteInterface, patch_interface : AutoPatchInterface,
-                 with_tracking=False):
-        super(PatchGui, self).__init__(camera, pipette_interface,
-                                       with_tracking=with_tracking)
+    def __init__(self, camera, pipette_interface : PipetteInterface, patch_interface : AutoPatchInterface, recording_state_manager, with_tracking=False):
+        super(PatchGui, self).__init__(camera, pipette_interface,with_tracking=with_tracking,recording_state_manager=recording_state_manager)
+        
+
+
         self.setWindowTitle("Patch GUI")
         # Note that pipette interface already runs in a thread, we need to use
         # the same for the patch interface
 
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
+        self.recording_state_manager = recording_state_manager
 
         self.patch_interface.moveToThread(pipette_interface.thread())
         self.interface_signals[self.patch_interface] = (self.patch_command_signal,
                                                         self.patch_reset_signal)
         
         #add patching button tab
-        button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals)
+        button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
         self.add_config_gui(self.patch_interface.config)
         self.add_tab(button_tab, 'Commands', index = 0)
 
@@ -146,7 +149,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         pos_timer.start(16)
         self.pos_update_timers.append(pos_timer)
     
-    def addButtonList(self, box_name: str, layout, buttonNames, cmds):
+    def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds):
         box = QtWidgets.QGroupBox(box_name)
         rows = QtWidgets.QVBoxLayout()
         # create a new row for each button
@@ -176,7 +179,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
 
     
 class PatchButtons(ButtonTabWidget):
-    def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals):
+    def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals, recording_state_manager):
         super(PatchButtons, self).__init__()
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
@@ -186,6 +189,7 @@ class PatchButtons(ButtonTabWidget):
 
         self.pos_update_timers = []
         self.pos_labels = []
+        self.recording_state_manager = recording_state_manager
 
         layout = QtWidgets.QVBoxLayout()
         layout.setAlignment(Qt.AlignTop)
@@ -194,7 +198,7 @@ class PatchButtons(ButtonTabWidget):
         self.stage_z = 0
         self.pipette_xyz = [0,0,0]
         
-        self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", recorder_filename = "movement_recording.csv")
+        self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
         self.addPositionBox('stage position (um)', layout, self.update_stage_pos_labels, tare_func=self.tare_stage)
         self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
@@ -223,15 +227,44 @@ class PatchButtons(ButtonTabWidget):
         # self.addButtonList('Lumencor LED', layout, buttonList, cmds)
 
         #add a box for Rig Recorder
-        buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
-        cmds = [[self.do_nothing, self.do_nothing], [self.do_nothing, self.do_nothing]]
-        self.addButtonList('Rig Recorder', layout, buttonList, cmds)
+        self.record_button = QtWidgets.QPushButton("Start Recording")
+        self.record_button.clicked.connect(self.toggle_recording)
+        self.record_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.record_button.setMinimumWidth(50)
+        self.record_button.setMinimumHeight(50)
+        layout.addWidget(self.record_button)
+        # buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
+        # self.addButtonList('Rig Recorder', layout, buttonList, cmds)
+        # buttonList = [['Start Recording', 'Stop Recording']]
+        # cmds = [[self.start_recording, self.stop_recording]]
+        # # buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
+        # self.addButtonList('Rig Recorder', layout, buttonList, cmds)
         
         self.setLayout(layout)
+
+    def toggle_recording(self):
+        if self.recording_state_manager.is_recording_enabled():
+            self.stop_recording()
+        else:
+            self.start_recording()
+
+    def start_recording(self):
+        self.recording_state_manager.set_recording(True)
+        self.record_button.setText("Stop Recording")
+        self.record_button.setStyleSheet("background-color: red; color: white;")
+        logging.info("Recording started")
+
+    def stop_recording(self):
+        self.recording_state_manager.set_recording(False)
+        self.record_button.setText("Start Recording")
+        self.record_button.setStyleSheet("")
+        logging.info("Recording stopped")
+
 
     def close(self):
         self.recorder.close()
         super(PatchButtons, self).close()
+
     def closeEvent(self):
         self.recorder.close()
         super(PatchButtons, self).closeEvent()
