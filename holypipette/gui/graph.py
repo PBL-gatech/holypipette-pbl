@@ -72,7 +72,7 @@ class CurrentProtocolGraph(QWidget):
 
         save_data = None
         temp_data = deque(self.daq.current_protocol_data.copy())
-
+        timestamp = datetime.now().timestamp()
         for i, graph in enumerate(self.daq.current_protocol_data):
         #     #logging the data type of self.daq.latest_protocol_data
         #     # logging.info(f"data type: {type(self.daq.current_protocol_data)}")
@@ -85,7 +85,6 @@ class CurrentProtocolGraph(QWidget):
             # print(len(xData), len(yData))
             self.cprotocolPlot.plot(xData, yData, pen=colors[i])
             save_data = np.array([xData, yData])
-            timestamp = datetime.now().timestamp()
             logging.info("writing current ephys data to file")
             self.ephys_logger.write_ephys_data(timestamp, save_data, colors[i])
             if i == 6:

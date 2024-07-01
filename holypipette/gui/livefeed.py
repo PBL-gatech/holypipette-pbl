@@ -100,7 +100,7 @@ class LiveFeedQt(QtWidgets.QLabel):
             # * Where you place tihs function is important, relative to repeated frames and such. Either you check in this file 
             # * or in the FileLogger file
             self.recorder.write_camera_frames(frame_time.timestamp(), frame, frameno)
-            self.log_frame_rate()
+            # self.log_frame_rate()
             # print(f"FRAME SHAPE: {frame.shape}")
 
             if len(frame.shape) == 2:

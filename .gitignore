@@ -20,3 +20,4 @@ experiments/Analysis/*/*.webp
 /experiments/Analysis/Rig_Recorder/reconstruct/image_saver_test/
 /experiments/Analysis/Rig_Recorder/*.csv
 /experiments/Analysis/Rig_Recorder/reconstruct/*.csv
+/experiments/Data/TEST_patch_clamp_data

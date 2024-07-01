@@ -127,7 +127,7 @@ class PcoCamera(Camera):
         # else:
         # print('-----get 16 bit image----- PcoCamera.py')
         self.frameno = self.cam.rec.get_status()['dwProcImgCount']
-        self.get_frame_rate()
+        # self.get_frame_rate()
         
         try:
             # print(f"IMAGE NUMBER: {PcoCamera.PCO_RECORDER_LATEST_IMAGE}")
