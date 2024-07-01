@@ -140,7 +140,7 @@ class PcoCamera(Camera):
             print(f"ERROR in get_16bit_image: {e}")
             return self.last_frame # there was an error grabbing the most recent frame
 
-        self.get_frame_rate()
+        # self.get_frame_rate()
 
         return img
 

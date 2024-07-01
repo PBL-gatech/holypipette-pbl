@@ -23,7 +23,7 @@ class FileLogger(threading.Thread):
         self.camera_folder_path = self.folder_path + "camera_frames/"
         self.filename = self.folder_path + recorder_filename + "." + filetype
         self.file = None
-        self.last_frame = 0
+        self.last_frameno = 0
         self.frame_batch_size = frame_batch_size
         self.frame_batch_limit = int(frame_batch_size * 0.8)
 
@@ -35,7 +35,7 @@ class FileLogger(threading.Thread):
         self.write_frame = threading.Event() if isVideo else None
 
         self.batch_frames = deque(maxlen=frame_batch_size)
-        self.graph_contents = deque(maxlen=frame_batch_size)
+        # self.graph_contents = deque(maxlen=frame_batch_size)
         self.movement_contents = deque(maxlen=frame_batch_size)
 
         self.last_movement_time = None
@@ -83,7 +83,7 @@ class FileLogger(threading.Thread):
     #     if len(self.graph_contents) >= self.frame_batch_size - 50:
     #         self._flush_contents(self.graph_contents)
 
-    def write_graph_data(self, time_value, pressure: float, resistance, time_current, current):
+    def write_graph_data(self, time_value, pressure: float, resistance: float, time_current, current):
         if not self.recording_state_manager.is_recording_enabled():
             return
         if time_value == self.last_graph_time:
@@ -155,12 +155,12 @@ class FileLogger(threading.Thread):
         #     self.close()
         #     return
 
-        if frameno <= self.last_frame:
+        if frameno <= self.last_frameno:
             return
 
         image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + "." + self.image_type
         self._save_image(frame, image_path)
-        self.last_frame = frameno
+        self.last_frameno = frameno
 
     def setBatchGraph(self, value=True):
         self.batch_mode_graph = value
@@ -170,8 +170,8 @@ class FileLogger(threading.Thread):
     def close(self):
         if self.file is not None:
             logging.info("Closing file: %s", self.filename)
-            if self.batch_mode_graph and self.graph_contents:
-                self._flush_contents(self.graph_contents)
+            # if self.batch_mode_graph and self.graph_contents:
+            #     self._flush_contents(self.graph_contents)
             if self.batch_mode_movements and self.movement_contents:
                 self._flush_contents(self.movement_contents)
             self.write_event.wait()  # Wait for the last task to complete
