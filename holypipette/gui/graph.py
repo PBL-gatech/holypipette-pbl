@@ -405,7 +405,7 @@ class EPhysGraph(QWidget):
         # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
         try:
-            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastDaqData[0, :]), list(self.lastDaqData[1, :]))
+            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastDaqData[1, :]))
         except Exception as e:
             logging.error(f"Error in writing graph data to file: {e}")
             logging.error(self.lastDaqData)

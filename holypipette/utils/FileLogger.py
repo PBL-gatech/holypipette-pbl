@@ -83,13 +83,17 @@ class FileLogger(threading.Thread):
     #     if len(self.graph_contents) >= self.frame_batch_size - 50:
     #         self._flush_contents(self.graph_contents)
 
-    def write_graph_data(self, time_value, pressure: float, resistance: float, time_current, current):
+    def write_graph_data(self, time_value, pressure: float, resistance: float, current):
+    # ? time_current is probably not necessary, will remove in a future commit when confirmed.
+    # def write_graph_data(self, time_value, pressure: float, resistance: float, time_current, current):
         if not self.recording_state_manager.is_recording_enabled():
             return
         if time_value == self.last_graph_time:
             return
         self.last_graph_time = time_value
-        content = f"timestamp:{time_value}  pressure:{pressure}  resistance:{resistance}  time:{time_current}  current:{current}\n"
+
+        # content = f"timestamp:{time_value}  pressure:{pressure}  resistance:{resistance}  / current:{current}\n"
+        content = f"timestamp:{time_value}  pressure:{pressure}  resistance:{resistance}  current:{current}\n"
         self.write_event.clear()
         threading.Thread(target=self._write_to_file, args=(content,)).start()
 
