@@ -14,7 +14,7 @@ class SensapexManip(Manipulator):
         Manipulator.__init__(self)
         self.ump = UMP.get_ump()
 
-        #setup device ID
+        # setup device ID
         if deviceID == None:
             umpList = self.ump.list_devices()
             assert(len(umpList) == 1, "must specify sensapex ump device id if there is more than 1 connected!")

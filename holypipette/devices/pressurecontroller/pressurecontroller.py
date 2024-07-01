@@ -56,6 +56,9 @@ class FakePressureController(PressureController):
         Measures the instantaneous pressure, on designated port.
         '''
         return self.pressure
+    
+    def getLastVal(self):
+        return self.pressure
 
     def set_pressure(self, pressure, port=0):
         '''

@@ -432,7 +432,7 @@ class CameraGui(QtWidgets.QMainWindow):
         painter.drawLine(c_x, c_y - 15, c_x, c_y + 15)
         painter.end()
 
-    def __init__(self, camera, image_edit=None, display_edit=None,
+    def __init__(self, camera, recording_state_manager, image_edit=None, display_edit=None,
                  with_tracking=False, base_directory='.'):
         super(CameraGui, self).__init__()
         self.camera = camera
@@ -475,8 +475,7 @@ class CameraGui(QtWidgets.QMainWindow):
         self.record_button.setIcon(qta.icon('fa.video-camera'))
         self.record_button.setCheckable(True)
         self.record_button.setToolTip('Toggle video recording')
-        self.record_button.setStyleSheet('QToolButton:checked {background-color: red;}'
-        )
+        self.record_button.setStyleSheet('QToolButton:checked {background-color: red;}')
         self.autoexposure_button = QtWidgets.QToolButton(clicked=self.camera_interface.normalize)
         self.autoexposure_button.setIcon(qta.icon('fa.camera'))
         self.autoexposure_button.setToolTip('Normalize the image')
@@ -519,11 +518,13 @@ class CameraGui(QtWidgets.QMainWindow):
             self.image_edit_funcs.extend(image_edit)
         elif image_edit is not None:
             self.image_edit_funcs.append(image_edit)
+        self.recording_state_manager = recording_state_manager
 
         self.video = LiveFeedQt(self.camera,
                                 image_edit=self.image_edit,
                                 display_edit=self.display_edit,
-                                mouse_handler=self.video_mouse_press)
+                                mouse_handler=self.video_mouse_press,
+                                recording_state_manager=self.recording_state_manager)
         self.recording_settings = {}
         self.setFocus()  # Need this to handle arrow keys, etc.
         self.interface_signals = {self.camera_interface: (self.camera_signal,
@@ -630,8 +631,8 @@ class CameraGui(QtWidgets.QMainWindow):
                                  default_doc=False)
         self.help_window.register_custom_action('Camera', '+/-',
                                                 'Increase/decrease exposure by 2.5ms')
-        self.register_key_action(Qt.Key_I, None,
-                                 self.camera_interface.save_image)
+        # self.register_key_action(Qt.Key_I, None,
+        #                          self.camera_interface.save_image)
         self.register_key_action(Qt.Key_I, Qt.SHIFT,
                                  self.toggle_recording)
 
@@ -1006,6 +1007,9 @@ class ConfigGui(QtWidgets.QWidget):
             box.setLayout(rows)
             layout.addWidget(box)
         self.setLayout(layout)
+
+    def run(self):
+        print('running')
 
     def value_changed(self, key, value):
         if key not in self.value_widgets:

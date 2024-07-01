@@ -176,8 +176,8 @@ class ScientificaSerialNoEncoder(Manipulator):
         self._lock = threading.Lock()
         self.current_pos = [0, 0, 0]
 
-        self.set_max_accel(100)
-        self.set_max_speed(10000)
+        self.set_max_accel(1000)
+        self.set_max_speed(50000)
 
         #start constantly polling position in a new thread
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)

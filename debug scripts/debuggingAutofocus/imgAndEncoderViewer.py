@@ -5,7 +5,7 @@ import pco
 import cv2
 import numpy as np
 
-#start camera recording
+# start camera recording
 PCO_RECORDER_LATEST_IMAGE = 0xFFFFFFFF
 
 cam = pco.Camera()

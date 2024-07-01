@@ -6,6 +6,7 @@ import cv2
 from numpy import *
 from holypipette.interface import TaskInterface, command, blocking_command
 
+
 class CameraInterface(TaskInterface):
     updated_exposure = QtCore.pyqtSignal('QString', 'QString')
 
@@ -55,21 +56,21 @@ class CameraInterface(TaskInterface):
         self.camera.change_exposure(-decrease)
         self.signal_updated_exposure()
 
-    @command(category='Camera',
-             description='Save the current image to a file')
-    def save_image(self):
-        try:
-            from PIL import Image
-        except ImportError:
-            self.error('Saving images needs the PIL or Pillow module')
-            return
-        frame, _ = self.camera.snap()
-        fname, _ = QtWidgets.QFileDialog.getSaveFileName(caption='Save image',
-                                                         filter='Images (*.png, *.tiff)',
-                                                         options=QtWidgets.QFileDialog.DontUseNativeDialog)
-        if len(fname):
-            img = Image.fromarray(frame)
-            try:
-                img.save(fname)
-            except (KeyError, IOError):
-                self.exception('Saving image as "%s" failed.' % fname)
+    # @command(category='Camera',
+    #          description='Save the current image to a file')
+    # def save_image(self):
+    #     # try:
+    #     #     from PIL import Image
+    #     # except ImportError:
+    #     #     self.error('Saving images needs the PIL or Pillow module')
+    #     #     return
+    #     frame, _ = self.camera.snap()
+    #     fname, _ = QtWidgets.QFileDialog.getSaveFileName(caption='Save image',
+    #                                                      filter='Images (*.png, *.tiff)',
+    #                                                      options=QtWidgets.QFileDialog.DontUseNativeDialog)
+    #     if len(fname):
+    #         img = Image.fromarray(frame)
+    #         try:
+    #             img.save(fname)
+    #         except (KeyError, IOError):
+    #             self.exception('Saving image as "%s" failed.' % fname)

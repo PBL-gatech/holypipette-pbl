@@ -7,6 +7,8 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 import numpy as np
 
+
+from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.controller import TaskController
 from holypipette.gui import CameraGui
 from holypipette.interface import command, blocking_command
@@ -14,13 +16,14 @@ from holypipette.devices.manipulator.calibratedunit import CalibrationError
 import datetime
 import cv2
 
+
 class ManipulatorGui(CameraGui):
 
     pipette_command_signal = QtCore.pyqtSignal(MethodType, object)
     pipette_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera, pipette_interface, with_tracking=False):
-        super(ManipulatorGui, self).__init__(camera, with_tracking=with_tracking)
+    def __init__(self, camera, pipette_interface, with_tracking=False, recording_state_manager=None):
+        super(ManipulatorGui, self).__init__(camera, with_tracking=with_tracking,recording_state_manager=recording_state_manager)
         self.setWindowTitle("Pipette GUI")
         self.interface = pipette_interface
         self.control_thread = QtCore.QThread()
@@ -44,6 +47,10 @@ class ManipulatorGui(CameraGui):
 
         #number of images we've saved so far.  Allows images to have different names
         self.image_save_number = 0
+        self.recording_state_manager = recording_state_manager
+        if recording_state_manager is None:
+            raise ValueError("RecordingStateManager must be provided")
+
 
     def display_manipulator(self, pixmap):
         '''
@@ -156,9 +163,9 @@ class ManipulatorGui(CameraGui):
                                          self.interface.move_pipette_z,
                                          argument=-distance, default_doc=False)
 
-        #save image command
-        self.register_key_action(Qt.Key_I, Qt.NoModifier,
-                                 self.save_image)
+        # #save image command
+        # self.register_key_action(Qt.Key_I, Qt.NoModifier,
+        #                          self.save_image)
 
         # Show the tip
         self.register_key_action(Qt.Key_T, Qt.NoModifier,

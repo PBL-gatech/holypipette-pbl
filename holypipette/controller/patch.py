@@ -37,29 +37,45 @@ class AutoPatcher(TaskController):
         self.initial_resistance = None
 
         self.current_protocol_graph = None
+
+    def run_protocols(self):
+        self.run_voltage_protocol()
+        self.sleep(0.25)
+        self.run_current_protocol()
+        self.sleep(0.25)
+        self.run_holding_protocol()
+
     def run_voltage_protocol(self):
-        self.info('Running voltage protocol')
+        self.info('Running voltage protocol (membrane test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        self.amplifier.set_holding(-0.070)
+        self.daq.getDataFromVoltageProtocol()
         self.sleep(0.25)
-        # self.daq.getDataFromVoltageProtocol()
-        self.sleep(0.25)
-        self.info('finished running voltage protocol')
-        self.amplifier.set_holding(0)
-        self.run_current_protocol()
+        self.info('finished running voltage protocol (membrane test)')
 
     def run_current_protocol(self):
-        self.info('Running current protocol')
+        self.info('Running current protocol (current clamp)')
         self.amplifier.current_clamp()
         self.sleep(0.25)
         self.daq.getDataFromCurrentProtocol()
         self.sleep(0.25)
         self.amplifier.voltage_clamp()
-        self.info('finished running current protocol')
+        self.info('finished running current protocol(current clamp)')
 
-    def run_protocols(self):
-        self.run_current_protocol()
+    def run_holding_protocol(self):
+        self.info('Running holding protocol (E/I PSC test)')
+        self.amplifier.voltage_clamp()
+        self.sleep(0.25)
+        self.amplifier.set_holding(-0.070)
+        self.sleep(0.25)
+        self.daq.getDataFromHoldingProtocol()
+        self.sleep(0.25)
+        # self.amplifier.set_holding(0)
+        self.sleep(0.25)
+        self.amplifier.voltage_clamp()
+        self.info('finished running holding protocol (E/I PSC test)')
+
+
         
     def break_in(self):
         '''
@@ -143,7 +159,7 @@ class AutoPatcher(TaskController):
 
         # Check initial resistance
         self.amplifier.auto_pipette_offset()
-        self.sleep(1) #TODO is this needed?
+        self.sleep(1) # TODO is this needed?
         self.amplifier.voltage_clamp()
 
         # set amplifier to resistance mode
