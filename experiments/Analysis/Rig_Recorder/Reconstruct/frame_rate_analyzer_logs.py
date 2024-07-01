@@ -69,6 +69,8 @@ def plot_fps_data_with_markers(data, title, program_start_time, recording_starts
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
+    # save fiel
+    # plt.savefig('fps_over_time.png')
     plt.show()
 
 def main():
@@ -80,16 +82,27 @@ def main():
     recording_starts = data[data['Message'].str.contains("recording started", case=False, na=False)]
     recording_stops = data[data['Message'].str.contains("recording stopped", case=False, na=False)]
 
-    # Process each program start segment
+    # # Process each program start segment
+    # if not program_starts.empty:
+    #     for i in range(len(program_starts)):
+    #         start_time = program_starts.iloc[i]['Time']
+    #         if i < len(program_starts) - 1:
+    #             end_time = program_starts.iloc[i + 1]['Time']
+    #         else:
+    #             end_time = data['Time'].max()
+    #         segment_data = data[(data['Time'] >= start_time) & (data['Time'] <= end_time)]
+    #         plot_fps_data_with_markers(segment_data, f'FPS Over Time After Program Start {i + 1}', start_time, recording_starts, recording_stops)
+
+    # Process only the last program start segment
     if not program_starts.empty:
-        for i in range(len(program_starts)):
-            start_time = program_starts.iloc[i]['Time']
-            if i < len(program_starts) - 1:
-                end_time = program_starts.iloc[i + 1]['Time']
-            else:
-                end_time = data['Time'].max()
-            segment_data = data[(data['Time'] >= start_time) & (data['Time'] <= end_time)]
-            plot_fps_data_with_markers(segment_data, f'FPS Over Time After Program Start {i + 1}', start_time, recording_starts, recording_stops)
+        # Access the last program start
+        i = len(program_starts) - 1
+        start_time = program_starts.iloc[i]['Time']
+        end_time = data['Time'].max()  # Assuming the last segment goes until the end of the data
+        segment_data = data[(data['Time'] >= start_time) & (data['Time'] <= end_time)]
+        plot_fps_data_with_markers(segment_data, f'FPS Over Time After Program Start', start_time, recording_starts, recording_stops)
+
+
 
 if __name__ == "__main__":
     main()
