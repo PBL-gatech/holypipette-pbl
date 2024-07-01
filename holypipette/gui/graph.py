@@ -35,6 +35,7 @@ class CurrentProtocolGraph(QWidget):
         self.cprotocolPlot.setLabel('left', "Voltage", units='V')
         self.cprotocolPlot.setLabel('bottom', "Samples", units='')
         layout.addWidget(self.cprotocolPlot)
+        self.c_instance_counter = 0
 
         self.latestDisplayedData = None
 
@@ -60,7 +61,7 @@ class CurrentProtocolGraph(QWidget):
         #is what we displayed the exact same?
         if self.latestDisplayedData == self.daq.current_protocol_data or self.daq.current_protocol_data is None:
             return
-        
+        index = self.c_instance_counter
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
             self.setHidden(False)
@@ -74,6 +75,7 @@ class CurrentProtocolGraph(QWidget):
         temp_data = deque(self.daq.current_protocol_data.copy())
         timestamp = datetime.now().timestamp()
         for i, graph in enumerate(self.daq.current_protocol_data):
+            # logging.info(f"enumerating graph: {i}")
         #     #logging the data type of self.daq.latest_protocol_data
         #     # logging.info(f"data type: {type(self.daq.current_protocol_data)}")
         
@@ -85,10 +87,11 @@ class CurrentProtocolGraph(QWidget):
             # print(len(xData), len(yData))
             self.cprotocolPlot.plot(xData, yData, pen=colors[i])
             save_data = np.array([xData, yData])
-            logging.info("writing current ephys data to file")
-            self.ephys_logger.write_ephys_data(timestamp, save_data, colors[i])
-            if i == 6:
+            # logging.info("writing current ephys data to file")
+            self.ephys_logger.write_ephys_data(timestamp,index, save_data, colors[i])
+            if i == 5:
                 self.daq.current_protocol_data = None
+                self.c_instance_counter += 1
 
         self.latestDisplayedData = self.daq.current_protocol_data.copy()
         
@@ -109,6 +112,7 @@ class VoltageProtocolGraph(QWidget):
         self.vprotocolPlot.setLabel('left', "PicoAmps", units='pA')
         self.vprotocolPlot.setLabel('bottom', "Samples", units='')
         layout.addWidget(self.vprotocolPlot)
+        self.v_instance_counter = 0
 
         self.latestDisplayedData = None
 
@@ -136,6 +140,7 @@ class VoltageProtocolGraph(QWidget):
         if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.voltage_protocol_data)) or self.daq.voltage_protocol_data is None:
             return
         
+        index = self.v_instance_counter
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
             self.setHidden(False)
@@ -148,10 +153,12 @@ class VoltageProtocolGraph(QWidget):
             colors = ['k']
             self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :], pen=colors[0])
             timestamp = datetime.now().timestamp()
-            logging.info("writing Voltage ephys data to file")
-            self.ephys_logger.write_ephys_data(timestamp, self.daq.voltage_protocol_data, colors[0])
+            
+            # logging.info("writing Voltage ephys data to file")
+            self.ephys_logger.write_ephys_data(timestamp,index, self.daq.voltage_protocol_data, colors[0])
             self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
             self.daq.voltage_protocol_data = None
+            self.v_instance_counter += 1
         
 
 
@@ -170,6 +177,7 @@ class HoldingProtocolGraph(QWidget):
         self.hprotocolPlot.setLabel('left', "PicoAmps", units='pA')
         self.hprotocolPlot.setLabel('bottom', "Samples", units='')
         layout.addWidget(self.hprotocolPlot)
+        self.h_instance_counter = 0
 
         self.latestDisplayedData = None
 
@@ -197,8 +205,10 @@ class HoldingProtocolGraph(QWidget):
         if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.holding_protocol_data)) or self.daq.holding_protocol_data is None:
             # logging.warning("no new data, skipping plot update")
             return
+        
+        index = self.h_instance_counter
 
-        logging.warning("new data, updating plot")
+        # logging.warning("new data, updating plot")
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
             self.setHidden(False)
@@ -210,9 +220,10 @@ class HoldingProtocolGraph(QWidget):
             colors = ['k']
             self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :], pen=colors[0])
             timestamp = datetime.now().timestamp()
-            self.ephys_logger.write_ephys_data(timestamp, self.daq.holding_protocol_data, colors[0])
+            self.ephys_logger.write_ephys_data(timestamp, index, self.daq.holding_protocol_data, colors[0])
             self.latestDisplayedData = self.daq.holding_protocol_data.copy()
             self.daq.holding_protocol_data = None
+            self.h_instance_counter += 1
 
         # self.latestDisplayedData = self.daq.holding_protocol_data.copy()
 

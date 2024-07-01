@@ -30,24 +30,24 @@ class EPhysLogger(threading.Thread):
             except OSError as exc:
                 logging.error("Error creating folder for recording: %s", exc)
     
-    def _write_to_file(self, data, time_value,color):
+    def _write_to_file(self, data, index, time_value,color):
         # Create a string for each pair of values in the desired format
         lines = [f"{color} {data[0][i]} {data[1][i]}\n" for i in range(data.shape[1])]
         # Open the file in append mode and write the formatted strings
-        logging.debug("Writing to file %s", self.filename)
-        with open(f"{self.filename}_{time_value}.csv", 'a+') as file:
+        # logging.debug("Writing to file %s", self.filename)
+        with open(f"{self.filename}_{time_value}_{index}.csv", 'a+') as file:
             file.writelines(lines)
         self.write_event.set()  # Signal that writing is done
     
-    def write_ephys_data(self, time_value, data, color):
-        logging.info("Writing ephys data")
+    def write_ephys_data(self, index, time_value, data, color):
+        # logging.info("Writing ephys data")
         self.write_event.clear()
         # ("len of data: ", len(data[0]))
         # print("len of data: ", len(data[1]))
         # content = f"{time_value}    {data}\n"
         # content = f"{time_value}    {data[0, :]}    {data[1, :]}\n"
         # content = f"{time_value}    {' '.join(map(str, data))}\n"
-        threading.Thread(target=self._write_to_file, args=(data,time_value,color)).start()
+        threading.Thread(target=self._write_to_file, args=(data,index,time_value,color)).start()
         
     def close(self):
         if self.file is not None:
