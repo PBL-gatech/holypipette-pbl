@@ -117,7 +117,7 @@ class FileLogger(threading.Thread):
         content = f"timestamp:{time_value}  st_x:{stage_x}  st_y:{stage_y}  st_z:{stage_z}  pi_x:{pipette_x} pi_y:{pipette_y} pi_z:{pipette_z}\n"
 
         self.movement_contents.append(content)
-        if len(self.movement_contents) >= self.frame_batch_size:
+        if len(self.movement_contents) >= self.frame_batch_limit:
             # logging.info(f"Batch size reached for MOVEMENT. Writing to disk at {datetime.now() - self.time_truth} seconds after start")
             self._flush_contents(self.movement_contents)
 
