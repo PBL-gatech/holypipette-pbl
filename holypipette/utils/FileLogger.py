@@ -13,7 +13,7 @@ class FileLogger(threading.Thread):
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
 
-        self.image_type  = "tiff"
+        self.image_type  = "webp"
 
         testMode = True
         if testMode:
