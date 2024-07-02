@@ -24,7 +24,7 @@ class PatchGui(ManipulatorGui):
     patch_command_signal = QtCore.pyqtSignal(MethodType, object)
     patch_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera, pipette_interface : PipetteInterface, patch_interface : AutoPatchInterface, recording_state_manager, with_tracking=False):
+    def __init__(self, camera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager, with_tracking=False):
         super(PatchGui, self).__init__(camera, pipette_interface,with_tracking=with_tracking,recording_state_manager=recording_state_manager)
         
 

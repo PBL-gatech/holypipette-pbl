@@ -1,7 +1,6 @@
 import sys
 from PyQt5.QtWidgets import QApplication
 import traceback
-from PyQt5 import QtWidgets
 
 from holypipette.log_utils import setup_logging
 from holypipette.utils.RecordingStateManager import RecordingStateManager

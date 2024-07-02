@@ -20,13 +20,13 @@ class PressureController(TaskController):
         '''
         pass
 
-    def set_pressure(self, pressure, port = 0):
+    def set_pressure(self, pressure: int, port = 0):
         '''
         Sets the pressure, on designated port.
         '''
         self._pressure[port] = pressure
 
-    def get_pressure(self, port=0):
+    def get_pressure(self, port=0) -> float | int | None:
         '''
         Gets the pressure on the designated port. Note that this does not refer
         to any measurement, but simply to the pressure as set via
