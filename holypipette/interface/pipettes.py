@@ -3,7 +3,6 @@ import pickle
 import os
 
 import numpy as np
-from PyQt5 import QtCore
 
 from holypipette.interface import TaskInterface, command, blocking_command
 from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage, CalibrationConfig
@@ -17,7 +16,7 @@ class PipetteInterface(TaskInterface):
 
     def __init__(self, stage, microscope, camera, unit, cellsorterManip, cellsorterController,
                  config_filename='calibration.pickle'):
-        super(PipetteInterface, self).__init__()
+        super().__init__()
         self.microscope = microscope
         self.camera = camera
         # Create a common calibration configuration for all stages/manipulators

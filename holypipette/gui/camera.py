@@ -412,29 +412,9 @@ class CameraGui(QtWidgets.QMainWindow):
     camera_signal = QtCore.pyqtSignal(MethodType, object)
     camera_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    # Add a cross to the display
-    def draw_cross(self, pixmap):
-        '''
-        Draws a cross at the center. Meant to be used as a ``display_edit``
-        function.
-
-        Parameters
-        ----------
-        pixmap : `QPixmap`
-            The pixmap to draw on.
-        '''
-        painter = QtGui.QPainter(pixmap)
-        pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 125))
-        pen.setWidth(4)
-        painter.setPen(pen)
-        c_x, c_y = pixmap.width() // 2, pixmap.height() // 2
-        painter.drawLine(c_x - 15, c_y, c_x + 15, c_y)
-        painter.drawLine(c_x, c_y - 15, c_x, c_y + 15)
-        painter.end()
-
-    def __init__(self, camera, recording_state_manager, image_edit=None, display_edit=None,
+    def __init__(self, camera, recording_state_manager, image_edit = None, display_edit = None,
                  with_tracking=False, base_directory='.'):
-        super(CameraGui, self).__init__()
+        super().__init__()
         self.camera = camera
         self.is_recording = False
         self.camera_interface = CameraInterface(camera,
@@ -543,6 +523,26 @@ class CameraGui(QtWidgets.QMainWindow):
         handler.setLevel(logging.ERROR)
         logging.getLogger('holypipette').addHandler(handler)
         self.log_signal.connect(self.error_status)
+
+    # Add a cross to the display
+    def draw_cross(self, pixmap):
+        '''
+        Draws a cross at the center. Meant to be used as a ``display_edit``
+        function.
+
+        Parameters
+        ----------
+        pixmap : `QPixmap`
+            The pixmap to draw on.
+        '''
+        painter = QtGui.QPainter(pixmap)
+        pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 125))
+        pen.setWidth(4)
+        painter.setPen(pen)
+        c_x, c_y = pixmap.width() // 2, pixmap.height() // 2
+        painter.drawLine(c_x - 15, c_y, c_x + 15, c_y)
+        painter.drawLine(c_x, c_y - 15, c_x, c_y + 15)
+        painter.end()
 
     def display_edit(self, pixmap):
         '''

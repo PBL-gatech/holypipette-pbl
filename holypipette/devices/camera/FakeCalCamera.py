@@ -5,7 +5,6 @@ import numpy as np
 import cv2
 from pathlib import Path
 import time
-import math
 
 from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 

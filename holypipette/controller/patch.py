@@ -255,7 +255,7 @@ class AutoPatcher(TaskController):
         success = False
 
 
-        #phase 1: hunt for the cell
+        # phase 1: hunt for the cell
         cellFound = False
         for _ in range(int(self.config.max_distance)):  # move 15 um down
             # move by 1 um down
@@ -277,11 +277,11 @@ class AutoPatcher(TaskController):
             self.pressure.set_pressure(20)
             raise AutopatchError("Couldn't detect a cell")
         
-        #move a bit further down to make sure we're at the cell
+        # move a bit further down to make sure we're at the cell
         self.calibrated_unit.relative_move(1, axis=2)
 
 
-        #phase 2: attempt to form a gigaseal
+        # phase 2: attempt to form a gigaseal
         lastResDeque = collections.deque(maxlen=3)
         # Release pressure
         self.info("Cell Detected, Lowering pressure")
@@ -303,14 +303,14 @@ class AutoPatcher(TaskController):
                 self.pressure.set_pressure(20)
                 raise AutopatchError("Seal unsuccessful")
             
-            #did we reach gigaseal?
+            # did we reach gigaseal?
             daqResistance = self.daq.resistance()
             lastResDeque.append(daqResistance)
             if daqResistance > self.config.gigaseal_R or len(lastResDeque) == 3 and all([lastResDeque == None for x in lastResDeque]):
                 success = True
                 break
             
-            #else, wait a bit and lower pressure
+            # else, wait a bit and lower pressure
             self.sleep(5)
             currPressure -= 10
 
