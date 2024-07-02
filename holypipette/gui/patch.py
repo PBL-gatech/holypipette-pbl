@@ -9,11 +9,11 @@ import numpy as np
 import logging
 
 
-from ..controller import TaskController
-from ..gui.manipulator import ManipulatorGui
-from ..interface.patch import AutoPatchInterface
-from ..interface.pipettes import PipetteInterface
-from ..interface.base import command
+from holypipette.controller import TaskController
+from holypipette.gui.manipulator import ManipulatorGui
+from holypipette.interface.patch import AutoPatchInterface
+from holypipette.interface.pipettes import PipetteInterface
+from holypipette.interface.base import command
 
 from holypipette.utils.FileLogger import FileLogger
 from datetime import datetime
@@ -80,7 +80,6 @@ class PatchGui(ManipulatorGui):
 
 
 class TrackingPatchGui(PatchGui):
-
     def __init__(self, camera, pipette_interface, patch_interface,
                  with_tracking=False):
         super(TrackingPatchGui, self).__init__(camera, pipette_interface,
