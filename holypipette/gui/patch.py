@@ -11,12 +11,10 @@ import logging
 
 
 from ..controller import TaskController
-from holypipette.gui.manipulator import ManipulatorGui
-from holypipette.interface.patch import AutoPatchInterface
-from holypipette.utils.RecordingStateManager import RecordingStateManager
-from holypipette.interface.pipettes import PipetteInterface
-from holypipette.devices.camera.pcocamera import PcoCamera
-from holypipette.interface.base import command
+from ..gui.manipulator import ManipulatorGui
+from ..interface.patch import AutoPatchInterface
+from ..interface.pipettes import PipetteInterface
+from ..interface.base import command
 
 from holypipette.utils.FileLogger import FileLogger
 from datetime import datetime
@@ -26,8 +24,10 @@ class PatchGui(ManipulatorGui):
     patch_command_signal = QtCore.pyqtSignal(MethodType, object)
     patch_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera: PcoCamera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager:RecordingStateManager, with_tracking=False):
+    def __init__(self, camera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager, with_tracking=False):
         super(PatchGui, self).__init__(camera, pipette_interface,with_tracking=with_tracking,recording_state_manager=recording_state_manager)
+        
+
 
         self.setWindowTitle("Patch GUI")
         # Note that pipette interface already runs in a thread, we need to use
@@ -81,6 +81,7 @@ class PatchGui(ManipulatorGui):
 
 
 class TrackingPatchGui(PatchGui):
+
     def __init__(self, camera, pipette_interface, patch_interface,
                  with_tracking=False):
         super(TrackingPatchGui, self).__init__(camera, pipette_interface,

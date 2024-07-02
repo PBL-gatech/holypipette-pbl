@@ -9,6 +9,8 @@ import warnings
 import pco
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
 from holypipette.deepLearning.pipetteFocuser import PipetteFocuser, FocusLevels
+from collections import deque
+from datetime import datetime
 import logging
 
 
@@ -100,7 +102,7 @@ class PcoCamera(Camera):
         self.cam.record(number_of_images=10, mode='ring buffer')
         self.cam.wait_for_first_image()
 
-    def normalize(self, img = None) -> None:
+    def normalize(self, img = None):
         print("NORMALIZING")
         # print(f"BEFORE IMAGE: {img}")
         if img is None:

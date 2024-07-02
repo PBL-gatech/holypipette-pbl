@@ -17,7 +17,7 @@ class DAQ:
     V_CLAMP_VOLT_PER_VOLT = (20 * 1e-3) #20 mV (supplied cell) / V (DAQ out)
     V_CLAMP_VOLT_PER_AMP = 0.5 / 1e-9 #0.5V DAQ out (DAQ input) / nA (cell out)
 
-    def __init__(self, readDev: str, readChannel: str, cmdDev: str, cmdChannel: str):
+    def __init__(self, readDev, readChannel, cmdDev, cmdChannel):
         self.readDev = readDev
         self.cmdDev = cmdDev
 
@@ -41,7 +41,7 @@ class DAQ:
         numSamples = int(samplesPerSec * recordingTime)
         # print("Num Samples", numSamples)
         with nidaqmx.Task() as task:
-            task.ai_channels.add_ai_voltage_chan(f"{self.readDev}/{self.readChannel}", max_val=10, min_val=0, terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF)
+            task.ai_channels.add_ai_voltage_chan(f'{self.readDev}/{self.readChannel}', max_val=10, min_val=0, terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF)
             task.timing.cfg_samp_clk_timing(samplesPerSec, sample_mode=nidaqmx.constants.AcquisitionType.FINITE, samps_per_chan=numSamples)
             # task.triggers.reference_trigger.cfg_anlg_edge_ref_trig(f'{self.readDev}/{self.readChannel}', pretrigger_samples = 10, trigger_slope=nidaqmx.constants.Slope.RISING, trigger_level=0.2)
             data = task.read(number_of_samples_per_channel=numSamples, timeout=10)
@@ -65,7 +65,7 @@ class DAQ:
         data = np.zeros(int(samplesPerSec * recordingTime))
         # print("data len", data.shape)
         
-        period = int(samplesPerSec / wave_freq)
+        period = int(1 / wave_freq * samplesPerSec)
         onTime = int(period * dutyCycle)
 
         wavesPerSec = samplesPerSec // period
@@ -153,6 +153,7 @@ class DAQ:
         # print("Holding Protocol Data", self.holding_protocol_data)
 
         return self.holding_protocol_data
+
 
 
     def getDataFromVoltageProtocol(self):
@@ -313,8 +314,7 @@ class DAQ:
             if calcResistance:
                 return data, None
             return data
-
-
+    
 class FakeDAQ:
     def __init__(self):
         self.latestResistance = 6 * 10 ** 6
@@ -341,16 +341,17 @@ class FakeDAQ:
         return self.voltage_protocol_data
 
     def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
-        # TODO: make this better
-        # create a wave_freq Hz square wave
+        #create a wave_freq Hz square wave
         data = np.zeros(int(samplesPerSec / recordingTime))
         onTime = 1 / wave_freq * dutyCycle * samplesPerSec
+        offTime = 1 / wave_freq * (1-dutyCycle) * samplesPerSec
 
         #calc period
-        period = samplesPerSec / wave_freq
+        period = onTime + offTime
 
         #convert to int
         onTime = int(onTime)
+        offTime = int(offTime)
         period = int(period)
 
         wavesPerSec = samplesPerSec // period
@@ -358,6 +359,8 @@ class FakeDAQ:
         for i in range(wavesPerSec):
             data[i * period : i * period + onTime] = amplitude
 
+
         xdata = np.linspace(0, recordingTime, len(data), dtype=float)
 
-        return np.array([xdata, data]), self.resistance()
+        data = np.array([xdata, data]), self.resistance()
+        return data
