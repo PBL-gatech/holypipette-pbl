@@ -9,7 +9,9 @@ import numpy as np
 
 
 from holypipette.utils.RecordingStateManager import RecordingStateManager
+from holypipette.interface.pipettes import PipetteInterface
 from holypipette.controller import TaskController
+from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.gui import CameraGui
 from holypipette.interface import command, blocking_command
 from holypipette.devices.manipulator.calibratedunit import CalibrationError
@@ -22,8 +24,8 @@ class ManipulatorGui(CameraGui):
     pipette_command_signal = QtCore.pyqtSignal(MethodType, object)
     pipette_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera, pipette_interface, with_tracking=False, recording_state_manager=None):
-        super(ManipulatorGui, self).__init__(camera, with_tracking=with_tracking,recording_state_manager=recording_state_manager)
+    def __init__(self, camera: PcoCamera, pipette_interface: PipetteInterface, with_tracking = False, recording_state_manager: RecordingStateManager = None):
+        super(ManipulatorGui, self).__init__(camera, with_tracking = with_tracking, recording_state_manager = recording_state_manager)
         self.setWindowTitle("Pipette GUI")
         self.interface = pipette_interface
         self.control_thread = QtCore.QThread()

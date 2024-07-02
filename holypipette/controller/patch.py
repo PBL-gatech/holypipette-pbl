@@ -277,11 +277,11 @@ class AutoPatcher(TaskController):
             self.pressure.set_pressure(20)
             raise AutopatchError("Couldn't detect a cell")
         
-        #move a bit further down to make sure we're at the cell
+        # move a bit further down to make sure we're at the cell
         self.calibrated_unit.relative_move(1, axis=2)
 
 
-        #phase 2: attempt to form a gigaseal
+        # phase 2: attempt to form a gigaseal
         lastResDeque = collections.deque(maxlen=3)
         # Release pressure
         self.info("Cell Detected, Lowering pressure")
