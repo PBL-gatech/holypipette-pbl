@@ -51,13 +51,13 @@ class FakePressureController(PressureController):
         super(FakePressureController, self).__init__()
         self.pressure = 0
 
-    def measure(self, port=0):
+    def measure(self, port=0) -> int:
         '''
         Measures the instantaneous pressure, on designated port.
         '''
         return self.pressure
     
-    def getLastVal(self):
+    def getLastVal(self) -> int:
         return self.pressure
 
     def set_pressure(self, pressure, port=0):
@@ -67,5 +67,5 @@ class FakePressureController(PressureController):
         self.debug('Pressure set to: {}'.format(pressure))
         self.pressure = pressure
 
-    def get_pressure(self, port=0):
+    def get_pressure(self, port=0) -> int:
         return self.pressure

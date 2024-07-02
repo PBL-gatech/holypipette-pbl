@@ -23,11 +23,11 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier : Amplifier, daq: DAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope : Microscope, calibrated_stage: CalibratedStage, config : PatchConfig):
+    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope : Microscope, calibrated_stage: CalibratedStage, config : PatchConfig):
         super(AutoPatcher, self).__init__()
         self.config = config
         self.amplifier = amplifier
-        self.daq : DAQ = daq
+        self.daq = daq
         self.pressure = pressure
         self.calibrated_unit = calibrated_unit
         self.calibrated_stage = calibrated_stage
@@ -265,7 +265,7 @@ class AutoPatcher(TaskController):
             self.sleep(1)
             self.amplifier.voltage_clamp()
             daqResistance = self.daq.resistance()
-            lastResDeque.append(R)
+            lastResDeque.append(daqResistance)
 
             self.info("R = " + str(self.daq.resistance() / 1e6))
             if self._isCellDetected(lastResDeque):
@@ -305,7 +305,7 @@ class AutoPatcher(TaskController):
             
             #did we reach gigaseal?
             daqResistance = self.daq.resistance()
-            lastResDeque.append(R)
+            lastResDeque.append(daqResistance)
             if daqResistance > self.config.gigaseal_R or len(lastResDeque) == 3 and all([lastResDeque == None for x in lastResDeque]):
                 success = True
                 break
