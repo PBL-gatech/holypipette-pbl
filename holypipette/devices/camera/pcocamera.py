@@ -3,7 +3,7 @@ Camera for a PCO Panda Camera
 '''
 import numpy as np
 
-from . import *
+from holypipette.devices.camera.camera import Camera
 import warnings
 import pco
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
