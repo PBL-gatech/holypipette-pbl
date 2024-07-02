@@ -2,14 +2,14 @@ import time
 
 import numpy as np
 import cv2
-from ..devices.amplifier.amplifier import Amplifier
-from ..devices.amplifier.DAQ import DAQ
-from ..devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
-from ..devices.manipulator.microscope import Microscope
-from ..devices.pressurecontroller import PressureController
+from holypipette.devices.amplifier.amplifier import Amplifier
+from holypipette.devices.amplifier.DAQ import DAQ
+from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
+from holypipette.devices.manipulator.microscope import Microscope
+from holypipette.devices.pressurecontroller import PressureController
 import collections
 
-from ..interface.patchConfig import PatchConfig
+from holypipette.interface.patchConfig import PatchConfig
 
 from .base import TaskController
 
@@ -24,7 +24,7 @@ class AutopatchError(Exception):
 
 class AutoPatcher(TaskController):
     def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope : Microscope, calibrated_stage: CalibratedStage, config : PatchConfig):
-        super(AutoPatcher, self).__init__()
+        super().__init__()
         self.config = config
         self.amplifier = amplifier
         self.daq = daq
@@ -233,7 +233,7 @@ class AutoPatcher(TaskController):
 
         self.sleep(1) #just for testing
 
-        # #create a pipette setpoint in stage coordinates
+        # create a pipette setpoint in stage coordinates
         # cell_distance = self.calibrated_unit.um_to_pixels_relative(np.array([0, 0, -self.config.cell_distance]))
         # cell_distance = cell_distance[2]
         # pipette_setpoint = np.array([0, 0, self.microscope.position() + cell_distance])
