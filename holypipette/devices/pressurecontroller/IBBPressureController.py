@@ -24,7 +24,7 @@ class IBBPressureController(PressureController):
 
 
     def __init__(self, channel, arduinoSerial=None):
-        super(IBBPressureController, self).__init__()
+        super().__init__()
 
         self.serial = arduinoSerial
 

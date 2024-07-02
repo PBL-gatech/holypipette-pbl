@@ -4,17 +4,16 @@ from types import MethodType
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import Qt
-import pyqtgraph as pg
 import PyQt5.QtGui as QtGui
 import numpy as np
 import logging
 
 
-from ..controller import TaskController
-from ..gui.manipulator import ManipulatorGui
-from ..interface.patch import AutoPatchInterface
-from ..interface.pipettes import PipetteInterface
-from ..interface.base import command
+from holypipette.controller import TaskController
+from holypipette.gui.manipulator import ManipulatorGui
+from holypipette.interface.patch import AutoPatchInterface
+from holypipette.interface.pipettes import PipetteInterface
+from holypipette.interface.base import command
 
 from holypipette.utils.FileLogger import FileLogger
 from datetime import datetime
@@ -24,7 +23,7 @@ class PatchGui(ManipulatorGui):
     patch_command_signal = QtCore.pyqtSignal(MethodType, object)
     patch_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera, pipette_interface : PipetteInterface, patch_interface : AutoPatchInterface, recording_state_manager, with_tracking=False):
+    def __init__(self, camera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager, with_tracking=False):
         super(PatchGui, self).__init__(camera, pipette_interface,with_tracking=with_tracking,recording_state_manager=recording_state_manager)
         
 
@@ -81,7 +80,6 @@ class PatchGui(ManipulatorGui):
 
 
 class TrackingPatchGui(PatchGui):
-
     def __init__(self, camera, pipette_interface, patch_interface,
                  with_tracking=False):
         super(TrackingPatchGui, self).__init__(camera, pipette_interface,
@@ -97,11 +95,8 @@ class TrackingPatchGui(PatchGui):
                                  self.patch_interface.contact_detection)
 
 class ButtonTabWidget(QtWidgets.QWidget):
-    def nothing(self):
-        pass
-
     def __init__(self):
-        super(ButtonTabWidget, self).__init__()
+        super().__init__()
 
     def do_nothing(self):
         pass # a dummy function for buttons that aren't implemented yet
@@ -180,7 +175,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
     
 class PatchButtons(ButtonTabWidget):
     def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals, recording_state_manager):
-        super(PatchButtons, self).__init__()
+        super().__init__()
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
 
@@ -323,7 +318,7 @@ class PatchButtons(ButtonTabWidget):
 
 class CellSorterButtons(ButtonTabWidget):
     def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals):
-        super(CellSorterButtons, self).__init__()
+        super().__init__()
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
 

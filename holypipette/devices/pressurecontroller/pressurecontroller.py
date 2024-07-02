@@ -20,13 +20,13 @@ class PressureController(TaskController):
         '''
         pass
 
-    def set_pressure(self, pressure, port = 0):
+    def set_pressure(self, pressure: int, port = 0):
         '''
         Sets the pressure, on designated port.
         '''
         self._pressure[port] = pressure
 
-    def get_pressure(self, port=0):
+    def get_pressure(self, port=0) -> float | int | None:
         '''
         Gets the pressure on the designated port. Note that this does not refer
         to any measurement, but simply to the pressure as set via
@@ -51,13 +51,13 @@ class FakePressureController(PressureController):
         super(FakePressureController, self).__init__()
         self.pressure = 0
 
-    def measure(self, port=0):
+    def measure(self, port=0) -> int:
         '''
         Measures the instantaneous pressure, on designated port.
         '''
         return self.pressure
     
-    def getLastVal(self):
+    def getLastVal(self) -> int:
         return self.pressure
 
     def set_pressure(self, pressure, port=0):
@@ -67,5 +67,5 @@ class FakePressureController(PressureController):
         self.debug('Pressure set to: {}'.format(pressure))
         self.pressure = pressure
 
-    def get_pressure(self, port=0):
+    def get_pressure(self, port=0) -> int:
         return self.pressure

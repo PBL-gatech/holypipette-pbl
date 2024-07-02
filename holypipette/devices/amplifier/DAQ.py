@@ -4,8 +4,6 @@ import nidaqmx.constants
 
 import numpy as np
 import scipy.signal as signal
-import math
-# import sys, os
 import time
 import threading
 import logging
@@ -141,7 +139,7 @@ class DAQ:
         return self.current_protocol_data
     
     def getDataFromHoldingProtocol(self):
-        ''' measures data from Post synaptic currents to determine spontaneous activity from other connected neurons'''
+        '''measures data from Post synaptic currents to determine spontaneous activity from other connected neurons'''
         self.isRunningProtocol = True
         self.holding_protocol_data = None # clear data
         self._deviceLock.acquire()

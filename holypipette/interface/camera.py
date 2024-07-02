@@ -11,7 +11,7 @@ class CameraInterface(TaskInterface):
     updated_exposure = QtCore.pyqtSignal('QString', 'QString')
 
     def __init__(self, camera, with_tracking=False):
-        super(CameraInterface, self).__init__()
+        super().__init__()
         self.camera = camera
         self.with_tracking = with_tracking
 

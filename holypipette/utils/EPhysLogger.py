@@ -1,11 +1,8 @@
 import logging
 from datetime import datetime
 import threading
-from collections import deque
-import imageio
 import os
 import logging
-from PIL import Image
 
 class EPhysLogger(threading.Thread):
     def __init__(self, recording_state_manager, folder_path="experiments/Data/TEST_patch_clamp_data/", ephys_filename="ephys"):

@@ -7,7 +7,7 @@ from holypipette.devices.amplifier.amplifier import FakeAmplifier
 from holypipette.devices.amplifier.DAQ import FakeDAQ, DAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
 # from holypipette.devices.camera.qimagingcam import QImagingCam
-from holypipette.devices.pressurecontroller import IBBPressureController, FakePressureController, TestPressureController,MoscowPressureController
+from holypipette.devices.pressurecontroller import IBBPressureController, FakePressureController, TestPressureController, MoscowPressureController
 from holypipette.devices.camera.camera import FakeCamera
 from holypipette.devices.camera import FakeCalCamera, FakePipetteManipulator
 from holypipette.devices.manipulator import *
