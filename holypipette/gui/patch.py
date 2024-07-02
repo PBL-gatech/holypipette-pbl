@@ -4,6 +4,7 @@ from types import MethodType
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import Qt
+import pyqtgraph as pg
 import PyQt5.QtGui as QtGui
 import numpy as np
 import logging

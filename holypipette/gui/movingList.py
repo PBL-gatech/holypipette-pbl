@@ -1,6 +1,4 @@
-
-# TODO: delete or move this.
-# ! What is this doing here?
+# What is this doing here?
 import collections
 
 moveList = []
