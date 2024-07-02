@@ -62,7 +62,7 @@ class ManipulatorGui(CameraGui):
         pen = QtGui.QPen(QtGui.QColor(200, 0, 0, 125))
         painter.setPen(pen)
         painter.setFont(QFont("Arial", int(pixmap.height()/20)))
-        c_x, c_y = pixmap.width() *19.0 / 20, pixmap.height() * 19.0 / 20
+        c_x, c_y = pixmap.width() * 19.0 / 20, pixmap.height() * 19.0 / 20
 
     def draw_scale_bar(self, pixmap, text=True, autoscale=True,
                        position=True):
@@ -165,7 +165,7 @@ class ManipulatorGui(CameraGui):
                                          self.interface.move_pipette_z,
                                          argument=-distance, default_doc=False)
 
-        # #save image command
+        # save image command
         # self.register_key_action(Qt.Key_I, Qt.NoModifier,
         #                          self.save_image)
 
@@ -267,8 +267,8 @@ class ManipulatorGui(CameraGui):
         painter.setPen(pen)
         c_x, c_y = pixmap.width() / 20, pixmap.height() / 20
         t = int(time.time() - interface.timer_t0)
-        hours = t//3600
-        minutes = (t-hours*3600)//60
-        seconds = t-hours*3600-minutes*60
+        hours = t // 3600
+        minutes = (t-hours * 3600) // 60
+        seconds = t-hours * 3600 - minutes * 60
         painter.drawText(c_x, c_y, '{}'.format(datetime.time(hours,minutes,seconds)))
         painter.end()

@@ -3,7 +3,7 @@
 Control of automatic patch clamp algorithm
 '''
 
-from ..config import Config, NumberWithUnit, Number, Boolean
+from holypipette.config import Config, NumberWithUnit, Number, Boolean
 
 __all__ = ['PatchConfig']
 
