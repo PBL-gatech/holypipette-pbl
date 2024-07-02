@@ -3,10 +3,7 @@
 Control of automatic patch clamp algorithm
 '''
 
-from ..config import Config, NumberWithUnit, Number, Boolean
-
-__all__ = ['PatchConfig']
-
+from holypipette.config import Config, NumberWithUnit, Number, Boolean
 
 class PatchConfig(Config):
     # Note that the hardware uses mbar and um to measure pressure/distances,

@@ -25,7 +25,7 @@ import qtawesome as qta
 
 from holypipette.interface.camera import CameraInterface
 from holypipette.controller import TaskController
-from ..config import NumberWithUnit
+from holypipette.config import NumberWithUnit
 from holypipette.interface.base import command
 from .livefeed import LiveFeedQt
 

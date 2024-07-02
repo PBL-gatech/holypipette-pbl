@@ -21,7 +21,7 @@ class AutoPatchInterface(TaskInterface):
     A class to run automatic patch-clamp
     '''
     def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, pipette_interface: PipetteInterface):
-        super(AutoPatchInterface, self).__init__()
+        super().__init__()
         self.config = PatchConfig(name='Patch')
         self.amplifier = amplifier
         self.daq = daq

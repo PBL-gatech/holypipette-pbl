@@ -4,7 +4,6 @@ from types import MethodType
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import Qt
-import pyqtgraph as pg
 import PyQt5.QtGui as QtGui
 import numpy as np
 import logging
@@ -97,11 +96,8 @@ class TrackingPatchGui(PatchGui):
                                  self.patch_interface.contact_detection)
 
 class ButtonTabWidget(QtWidgets.QWidget):
-    def nothing(self):
-        pass
-
     def __init__(self):
-        super(ButtonTabWidget, self).__init__()
+        super().__init__()
 
     def do_nothing(self):
         pass # a dummy function for buttons that aren't implemented yet
@@ -180,7 +176,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
     
 class PatchButtons(ButtonTabWidget):
     def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals, recording_state_manager):
-        super(PatchButtons, self).__init__()
+        super().__init__()
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
 
@@ -323,7 +319,7 @@ class PatchButtons(ButtonTabWidget):
 
 class CellSorterButtons(ButtonTabWidget):
     def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals):
-        super(CellSorterButtons, self).__init__()
+        super().__init__()
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
 
