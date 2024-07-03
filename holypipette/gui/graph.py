@@ -1,6 +1,6 @@
 import logging
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider , QPushButton
 from PyQt5 import QtCore, QtGui
 
 
@@ -243,6 +243,7 @@ class EPhysGraph(QWidget):
         self.daq = daq
         self.pressureController = pressureController
         # self.recording_state_manager = recording_state_manager  # Include the state manager in the graph
+        self.setpoint = 0
 
         #constants for Multi Clamp
         self.externalCommandSensitivity = 20 #mv/V
@@ -320,6 +321,10 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox.setFixedWidth(100)
         self.pressureCommandBox.setValidator(QtGui.QIntValidator(-1000, 1000))
 
+        # add an Atmospheric Pressure toggle button
+        self.atmosphericPressureButton = QPushButton("Atmospheric Pressure")
+        self.bottomBarLayout.addWidget(self.togglePressureButton)
+
 
         # self.pressureCommandSlider = QSlider(Qt.Horizontal)
         # self.pressureCommandSlider.setMinimum(-500)
@@ -338,7 +343,7 @@ class EPhysGraph(QWidget):
         
         self.updateTimer = QtCore.QTimer()
         # this has to match the arduino sensor delay
-        self.updateDt =16 # ms
+        self.updateDt = 20 # ms roughly 33 Hz with lag added
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
@@ -414,6 +419,8 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
         # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
+        # logging.debug("graph updated") # uncomment for debugging in log.csv file
+
         try:
             self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastDaqData[1, :]))
         except Exception as e:
@@ -421,6 +428,30 @@ class EPhysGraph(QWidget):
 
         self.lastestDaqData = None
 
+
+    def togglePressure(self,setpoint):
+        setpoint = self.setpoint
+        self.pressureController.set_Atm()
+        pass
+
+
+    #     def toggle_recording(self):
+    #     if self.recording_state_manager.is_recording_enabled():
+    #         self.stop_recording()
+    #     else:
+    #         self.start_recording()
+
+    # def start_recording(self):
+    #     self.recording_state_manager.set_recording(True)
+    #     self.record_button.setText("Stop Recording")
+    #     self.record_button.setStyleSheet("background-color: red; color: white;")
+    #     logging.info("Recording started")
+
+    # def stop_recording(self):
+    #     self.recording_state_manager.set_recording(False)
+    #     self.record_button.setText("Start Recording")
+    #     self.record_button.setStyleSheet("")
+    #     logging.info("Recording stopped")
 
     def pressureCommandSliderChanged(self):
         '''
@@ -449,21 +480,7 @@ class EPhysGraph(QWidget):
             pressure = float(text)
             # set pressure
             self.pressureController.set_pressure(pressure)
+            self.setpoint = pressure
         except ValueError:
             return
-    def pressureATMCommandBoxReturnPressed(self):
-        '''
-       Toggle pressure controller between ATM and last command pressure
-        '''
-
-        # get text from box
-        text = self.pressureCommandBox.text()
-        self.pressureCommandBox.clear()
-
-        #try to convert to float
-        try:
-            pressure = float(text)
-            # toggle  between ATM and last command pressure
-            self.pressureController.set_pressure(pressure * 1013.25)
-        except ValueError:
-            return
+        
