@@ -17,7 +17,7 @@ void loop() {
     char command = Serial.read();  // read the incoming command
     if (command == 'R') {  // if the command is 'R'
       // read the input on analog pin 0:
-      int sensorValue = analogRead(A0);
+      int sensorValue = analogRead(A9);
 
       // subtract the last reading:
       total = total - readings[readIndex];

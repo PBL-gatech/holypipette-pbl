@@ -417,8 +417,7 @@ class EPhysGraph(QWidget):
         try:
             self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastDaqData[1, :]))
         except Exception as e:
-            logging.error(f"Error in writing graph data to file: {e}")
-            logging.error(self.lastDaqData)
+            logging.error(f"Error in writing graph data to file: {e}, {self.lastDaqData}")
 
         self.lastestDaqData = None
 
@@ -427,11 +426,9 @@ class EPhysGraph(QWidget):
         '''
         Manually change pressure setpoint
         '''
-
         # get text from box
         text = self.pressureCommandSlider.value()
 
-        #try to convert to float
         try:
             pressure = float(text)
         except ValueError:
@@ -444,12 +441,10 @@ class EPhysGraph(QWidget):
         '''
         Manually change pressure setpoint
         '''
-
         # get text from box
         text = self.pressureCommandBox.text()
         self.pressureCommandBox.clear()
 
-        #try to convert to float
         try:
             pressure = float(text)
             # set pressure

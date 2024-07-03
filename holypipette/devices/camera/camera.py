@@ -259,7 +259,7 @@ class Camera(object):
         '''
         return None
 
-    def last_frame(self):
+    def last_frame(self) -> None | tuple[int, np.ndarray]:
         '''
         Get the last snapped frame and its number
 
@@ -277,7 +277,7 @@ class Camera(object):
         except IndexError:  # no frame (yet)
             return None
     
-    def last_frame_data(self):
+    def last_frame_data(self) -> None | tuple[int, datetime.datetime, np.ndarray]:
         '''
         Get the last snapped frame and its number
 
