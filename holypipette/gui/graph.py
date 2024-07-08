@@ -324,10 +324,9 @@ class EPhysGraph(QWidget):
         self.pressureCommandSlider = QSlider(Qt.Horizontal)
         self.pressureCommandSlider.setMinimum(-400)
         self.pressureCommandSlider.setMaximum(700)
-        self.pressureCommandSlider.setValue(20)
         self.pressureCommandSlider.setTickInterval(100)
         self.pressureCommandSlider.setTickPosition(QSlider.TicksBelow)
-        self.pressureCommandSlider.valueChanged.connect(self.updateLabel)
+        self.pressureCommandSlider.valueChanged.connect(self.updatePressureLabel)
         self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
         self.bottomBarLayout.addWidget(self.pressureCommandSlider)
@@ -439,7 +438,7 @@ class EPhysGraph(QWidget):
 
         # logging.info(f"toggle pressure called: {self.atmtogglecount} times")
 
-    def updateLabel(self, value):
+    def updatePressureLabel(self, value):
         self.pressureCommandBox.setPlaceholderText(f"Will set to: {value} mbar")
 
     def pressureCommandSliderChanged(self):
