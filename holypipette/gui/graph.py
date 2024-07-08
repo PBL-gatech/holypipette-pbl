@@ -291,10 +291,10 @@ class EPhysGraph(QWidget):
         self.bottomBarLayout = QHBoxLayout()
         self.bottomBar.setLayout(self.bottomBarLayout)
         
-        self.resistanceLabel = QLabel("Resistance: ")
+        self.resistanceLabel = QLabel("Resistance:")
         self.bottomBarLayout.addWidget(self.resistanceLabel)
 
-        self.capacitanceLabel = QLabel("Capacitance: ")
+        self.capacitanceLabel = QLabel("Capacitance:")
         self.bottomBarLayout.addWidget(self.capacitanceLabel)
 
         #make bottom bar height 20px
@@ -311,10 +311,11 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox = QLineEdit()
         self.pressureCommandBox.setMaxLength(5)
         self.pressureCommandBox.setFixedWidth(100)
-        self.pressureCommandBox.setPlaceholderText("ATM Pressure")
+        self.pressureCommandBox.setPlaceholderText(f"{self.pressureController.measure()} mbar")
         self.pressureCommandBox.setValidator(QtGui.QIntValidator(-1000, 1000))
 
         self.pressureCommandSlider = QSlider(Qt.Horizontal)
+        self.pressureCommandSlider.setValue(int(self.pressureController.measure()))
         self.pressureCommandSlider.setMinimum(-400)
         self.pressureCommandSlider.setMaximum(700)
         self.pressureCommandSlider.setTickInterval(100)
@@ -459,7 +460,7 @@ class EPhysGraph(QWidget):
         # logging.info(f"toggle pressure called: {self.atmtogglecount} times")
 
     def updatePressureLabel(self, value):
-        self.pressureCommandBox.setPlaceholderText(f"Will set to: {value} mbar")
+        self.pressureCommandBox.setPlaceholderText(f"Set to: {value} mbar")
 
     def pressureCommandSliderChanged(self):
         '''

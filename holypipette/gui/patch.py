@@ -366,12 +366,6 @@ class PatchButtons(ButtonTabWidget):
         self.record_button.setMinimumWidth(50)
         self.record_button.setMinimumHeight(50)
         layout.addWidget(self.record_button)
-        # buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
-        # self.addButtonList('Rig Recorder', layout, buttonList, cmds)
-        # buttonList = [['Start Recording', 'Stop Recording']]
-        # cmds = [[self.start_recording, self.stop_recording]]
-        # # buttonList = [['Start Recording', 'Stop Recording'], ['Save Recording', 'Load Recording']]
-        # self.addButtonList('Rig Recorder', layout, buttonList, cmds)
         
         self.setLayout(layout)
 
