@@ -1,6 +1,6 @@
 import logging
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider , QPushButton
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import Qt
 
@@ -329,10 +329,21 @@ class EPhysGraph(QWidget):
         self.pressureCommandSlider.valueChanged.connect(self.updatePressureLabel)
         self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
+        self.upButton = QToolButton()
+        self.upButton.setArrowType(Qt.UpArrow)
+        self.downButton = QToolButton()
+        self.downButton.setArrowType(Qt.DownArrow)
+        self.upButton.setFixedWidth(50)
+        self.downButton.setFixedWidth(50)
+        self.upButton.clicked.connect(self.incrementPressure)
+        self.downButton.clicked.connect(self.decrementPressure)
+
         self.bottomBarLayout.addWidget(self.pressureCommandSlider)
         self.bottomBarLayout.addWidget(self.pressureCommandBox)
+        self.bottomBarLayout.addWidget(self.upButton)
+        self.bottomBarLayout.addWidget(self.downButton)
         # add an Atmospheric Pressure toggle button
-        self.atmosphericPressureButton = QPushButton("ATM Pressure")
+        self.atmosphericPressureButton = QPushButton("ATM Pressure OFF")
         self.bottomBarLayout.addWidget(self.atmosphericPressureButton)
 
         #add spacer to push everything to the left
@@ -424,13 +435,29 @@ class EPhysGraph(QWidget):
 
         self.lastestDaqData = None
 
+    def incrementPressure(self):
+        current_value = self.pressureCommandSlider.value()
+        new_value = current_value + 5
+        if new_value <= 500:
+            self.pressureCommandSlider.setValue(new_value)
+            self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
+
+    def decrementPressure(self):
+        current_value = self.pressureCommandSlider.value()
+        new_value = current_value - 5
+        if new_value >= -500:
+            self.pressureCommandSlider.setValue(new_value)
+            self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
+
 
     def togglePressure(self):
         if self.atmtoggle:
             self.atmosphericPressureButton.setStyleSheet("background-color: green; color: white;border-radius: 5px; padding: 5px;")
+            self.atmosphericPressureButton.setText("ATM Pressure ON")
             self.pressureController.set_ATM(True)
         else:
             self.atmosphericPressureButton.setStyleSheet("")
+            self.atmosphericPressureButton.setText("ATM Pressure OFF")
             self.pressureController.set_ATM(False)
         self.atmtoggle = not self.atmtoggle
         # self.atmtogglecount += 1

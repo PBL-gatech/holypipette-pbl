@@ -155,6 +155,7 @@ class MoscowPressureController(PressureController):
             # pressureVal = None
             logging.warning("No data received from pressure sensor")
 
+        print(pressureVal)
         return pressureVal
 
     
