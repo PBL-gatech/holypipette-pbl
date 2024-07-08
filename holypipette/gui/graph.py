@@ -2,6 +2,7 @@ import logging
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider , QPushButton
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import Qt
 
 
 from pyqtgraph import PlotWidget
@@ -239,7 +240,8 @@ class EPhysGraph(QWidget):
 
         #stop matplotlib font warnings
         logging.getLogger('matplotlib.font_manager').disabled = True
-
+        self.atmtoggle = True
+        # self.atmtogglecount = 0
         self.daq = daq
         self.pressureController = pressureController
         # self.recording_state_manager = recording_state_manager  # Include the state manager in the graph
@@ -272,12 +274,12 @@ class EPhysGraph(QWidget):
         self.resistancePlot.getAxis('bottom').setPen('k')
 
         #set labels
-        self.squareWavePlot.setLabel('left', "Current", units='A')
-        self.squareWavePlot.setLabel('bottom', "Time", units='s')
-        self.pressurePlot.setLabel('left', "Pressure", units='mbar')
-        self.pressurePlot.setLabel('bottom', "Time", units='s')
-        self.resistancePlot.setLabel('left', "Resistance", units='Ohms')
-        self.resistancePlot.setLabel('bottom', "Samples", units='')
+        self.squareWavePlot.setLabel("left", "Current", units='A')
+        self.squareWavePlot.setLabel("bottom", "Time", units='s')
+        self.pressurePlot.setLabel("left", "Pressure", units='mbar')
+        self.pressurePlot.setLabel("bottom", "Time", units='s')
+        self.resistancePlot.setLabel("left", "Resistance", units='Ohms')
+        self.resistancePlot.setLabel("bottom", "Samples", units='')
 
 
         # self.pressureData = deque([0.0]*100, maxlen=100)
@@ -296,12 +298,10 @@ class EPhysGraph(QWidget):
         self.bottomBarLayout = QHBoxLayout()
         self.bottomBar.setLayout(self.bottomBarLayout)
         
-        self.resistanceLabel = QLabel()
-        self.resistanceLabel.setText("Resistance: ")
+        self.resistanceLabel = QLabel("Resistance: ")
         self.bottomBarLayout.addWidget(self.resistanceLabel)
 
-        self.capacitanceLabel = QLabel()
-        self.capacitanceLabel.setText("Capacitance: ")
+        self.capacitanceLabel = QLabel("Capacitance: ")
         self.bottomBarLayout.addWidget(self.capacitanceLabel)
 
         #make bottom bar height 20px
@@ -309,9 +309,8 @@ class EPhysGraph(QWidget):
         self.bottomBar.setMinimumHeight(20)
         self.bottomBarLayout.setContentsMargins(0, 0, 0, 0)
 
-        #add a pressure label
-        self.pressureLabel = QLabel()
-        self.pressureLabel.setText("Pressure: ")
+        # add a pressure label
+        self.pressureLabel = QLabel("Pressure:")
         self.bottomBarLayout.addWidget(self.pressureLabel)
         layout.addWidget(self.bottomBar)
 
@@ -321,20 +320,19 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox.setFixedWidth(100)
         self.pressureCommandBox.setValidator(QtGui.QIntValidator(-1000, 1000))
 
-        # add an Atmospheric Pressure toggle button
-        self.atmosphericPressureButton = QPushButton("Atmospheric Pressure")
-        self.bottomBarLayout.addWidget(self.togglePressureButton)
-
-
         # self.pressureCommandSlider = QSlider(Qt.Horizontal)
         # self.pressureCommandSlider.setMinimum(-500)
         # self.pressureCommandSlider.setMaximum(500)
         # self.pressureCommandSlider.setValue(20)
         # self.pressureCommandSlider.setTickInterval(100)
         # self.pressureCommandSlider.setTickPosition(QSlider.TicksBelow)
+        # self.pressureCommandSlider.valueChanged.connect(self.updateLabel)
 
         # self.bottomBarLayout.addWidget(self.pressureCommandSlider)
         self.bottomBarLayout.addWidget(self.pressureCommandBox)
+        # add an Atmospheric Pressure toggle button
+        self.atmosphericPressureButton = QPushButton("ATM Pressure")
+        self.bottomBarLayout.addWidget(self.atmosphericPressureButton)
 
         #add spacer to push everything to the left
         self.bottomBarLayout.addStretch(1)
@@ -353,11 +351,10 @@ class EPhysGraph(QWidget):
         self.daqUpdateThread.start()
     
 
-        # self.recorder = FileLogger(folder_path="experiments/Data/rig_recorder_data/", recorder_filename = "graph_recording")
         self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="graph_recording")
         self.lastDaqData = []
 
-
+        self.atmosphericPressureButton.clicked.connect(self.togglePressure)
         #show window and bring to front
         self.raise_()
         self.show()
@@ -417,6 +414,7 @@ class EPhysGraph(QWidget):
 
         # self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(currentPressureReading))
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
+        # self.atmosphericPressureButton.clicked.connect(self.togglePressure)
         # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
         # logging.debug("graph updated") # uncomment for debugging in log.csv file
@@ -429,29 +427,20 @@ class EPhysGraph(QWidget):
         self.lastestDaqData = None
 
 
-    def togglePressure(self,setpoint):
-        setpoint = self.setpoint
-        self.pressureController.set_Atm()
-        pass
+    def togglePressure(self):
+        if self.atmtoggle:
+            self.atmosphericPressureButton.setStyleSheet("background-color: green; color: white;border-radius: 5px; padding: 5px;")
+            self.pressureController.set_ATM(True)
+        else:
+            self.atmosphericPressureButton.setStyleSheet("")
+            self.pressureController.set_ATM(False)
+        self.atmtoggle = not self.atmtoggle
+        # self.atmtogglecount += 1
+        # logging.info(f"toggle pressure called: {self.atmtogglecount} times")
 
-
-    #     def toggle_recording(self):
-    #     if self.recording_state_manager.is_recording_enabled():
-    #         self.stop_recording()
-    #     else:
-    #         self.start_recording()
-
-    # def start_recording(self):
-    #     self.recording_state_manager.set_recording(True)
-    #     self.record_button.setText("Stop Recording")
-    #     self.record_button.setStyleSheet("background-color: red; color: white;")
-    #     logging.info("Recording started")
-
-    # def stop_recording(self):
-    #     self.recording_state_manager.set_recording(False)
-    #     self.record_button.setText("Start Recording")
-    #     self.record_button.setStyleSheet("")
-    #     logging.info("Recording stopped")
+    def updateLabel(self, value):
+        # Update the QLabel with the current value of the slider
+        self.pressureLabel.setText(f"Pressure: {value}")
 
     def pressureCommandSliderChanged(self):
         '''

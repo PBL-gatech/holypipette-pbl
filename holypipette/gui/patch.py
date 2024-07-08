@@ -237,7 +237,7 @@ class ManualPatchButtons(ButtonTabWidget):
     def start_recording(self):
         self.recording_state_manager.set_recording(True)
         self.record_button.setText("Stop Recording")
-        self.record_button.setStyleSheet("background-color: red; color: white;")
+        self.record_button.setStyleSheet("background-color: red; color: white;border-radius: 5px; padding: 5px;")
         logging.info("Recording started")
 
     def stop_recording(self):
