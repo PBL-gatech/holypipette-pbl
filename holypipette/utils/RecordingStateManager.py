@@ -4,7 +4,13 @@ class RecordingStateManager:
     def __init__(self):
         self._recording_enabled = False
         self._lock = threading.Lock()
+        self.sample_number = 0
     
+    def increment_sample_number(self):
+        with self._lock:
+            self.sample_number += 1
+            print("Sample number incremented to:", self.sample_number)
+
     def toggle_recording(self):
         with self._lock:
             self._recording_enabled = not self._recording_enabled

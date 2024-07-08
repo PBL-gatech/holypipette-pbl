@@ -17,7 +17,7 @@ class PipetteCalHelper():
 
     def __init__(self, pipette: Manipulator, microscope: Microscope, camera: Camera, calibrated_stage):
         self.pipette : Manipulator = pipette
-        self.microscope : Microscope = microscope
+        self.microscope: Microscope = microscope
         self.camera = camera
         self.pipetteFinder : PipetteFinder = PipetteFinder()
         self.calibrated_stage = calibrated_stage

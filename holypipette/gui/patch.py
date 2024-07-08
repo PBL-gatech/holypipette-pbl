@@ -13,6 +13,7 @@ from holypipette.controller import TaskController
 from holypipette.gui.manipulator import ManipulatorGui
 from holypipette.interface.patch import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
+from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.interface.base import command
 
 from holypipette.utils.FileLogger import FileLogger
@@ -23,7 +24,7 @@ class PatchGui(ManipulatorGui):
     patch_command_signal = QtCore.pyqtSignal(MethodType, object)
     patch_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager, with_tracking=False):
+    def __init__(self, camera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager: RecordingStateManager, with_tracking=False):
         super(PatchGui, self).__init__(camera, pipette_interface,with_tracking=with_tracking,recording_state_manager=recording_state_manager)
         
 
@@ -50,7 +51,7 @@ class PatchGui(ManipulatorGui):
         self.add_tab(cellsorter_tab, 'Cell Sorter', index = 0)
 
         # add manual patching button tab
-        manual_patching_tab = ManualPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals,self.recording_state_manager)
+        manual_patching_tab = ManualPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
         self.add_tab(manual_patching_tab, 'Manual Patching', index = 0)
 
         # Update the pressure and information in the status bar every 16ms
@@ -177,7 +178,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         layout.addWidget(box)
 
 class ManualPatchButtons(ButtonTabWidget):
-    def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals, recording_state_manager):
+    def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
         super().__init__()
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
@@ -209,8 +210,8 @@ class ManualPatchButtons(ButtonTabWidget):
         self.addButtonList('patching states', layout, buttonList, cmds)
     
         #add a box for patching cmds
-        buttonList = [ ['Run Protocols']]
-        cmds = [  [self.patch_interface.run_protocols]]
+        buttonList = [['Run Protocols']]
+        cmds = [[self.run_protocols]]
         self.addButtonList('patching', layout, buttonList, cmds)
 
 
@@ -223,6 +224,10 @@ class ManualPatchButtons(ButtonTabWidget):
         layout.addWidget(self.record_button)
         
         self.setLayout(layout)
+
+    def run_protocols(self):
+        self.patch_interface.run_protocols()
+        self.recording_state_manager.increment_sample_number()
 
     def state_emitter(self, state):
         logging.info(f"emitting state: {state}")

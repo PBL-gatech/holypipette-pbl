@@ -13,7 +13,7 @@ import numpy as np
 from collections import deque
 from holypipette.devices.amplifier import DAQ
 from holypipette.devices.pressurecontroller import PressureController
-
+from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.utils import FileLogger
 from holypipette.utils import EPhysLogger
 
@@ -21,22 +21,23 @@ from datetime import datetime
 
 __all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "HoldingProtocolGraph"]
 
+global_index = 0
+
 class CurrentProtocolGraph(QWidget):
-    def __init__(self, daq : DAQ, rescording_state_manager):
+    def __init__(self, daq: DAQ, rescording_state_manager: RecordingStateManager):
         super().__init__()
         self.recording_state_manager = rescording_state_manager
         layout = QVBoxLayout()
         self.setWindowTitle("Current Protocol")
-        logging.getLogger('matplotlib.font_manager').disabled = True
+        logging.getLogger("matplotlib.font_manager").disabled = True
         self.daq = daq
         self.cprotocolPlot = PlotWidget()
-        self.cprotocolPlot.setBackground('w')
-        self.cprotocolPlot.getAxis('left').setPen('k')
-        self.cprotocolPlot.getAxis('bottom').setPen('k')
-        self.cprotocolPlot.setLabel('left', "Voltage", units='V')
-        self.cprotocolPlot.setLabel('bottom', "Samples", units='')
+        self.cprotocolPlot.setBackground("w")
+        self.cprotocolPlot.getAxis("left").setPen("k")
+        self.cprotocolPlot.getAxis("bottom").setPen("k")
+        self.cprotocolPlot.setLabel("left", "Voltage", units = "V")
+        self.cprotocolPlot.setLabel("bottom", "Samples", units = "")
         layout.addWidget(self.cprotocolPlot)
-        self.c_instance_counter = 0
 
         self.latestDisplayedData = None
 
@@ -56,20 +57,21 @@ class CurrentProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        self.ephys_logger = EPhysLogger(ephys_filename="CurrentProtocol",recording_state_manager=self.recording_state_manager)
+        self.ephys_logger = EPhysLogger(ephys_filename = "CurrentProtocol", recording_state_manager = self.recording_state_manager)
 
     def update_plot(self):
-        #is what we displayed the exact same?
+        # is what we displayed the exact same?
         if self.latestDisplayedData == self.daq.current_protocol_data or self.daq.current_protocol_data is None:
             return
-        index = self.c_instance_counter
+        
+        index = self.recording_state_manager.sample_number
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
             self.setHidden(False)
             self.isShown = True
         # curr = self.daq.latest_protocol_data
         # logging.info('length of current protocol data: ' + str(len(curr[0])) + ' ' + str(len(curr[1])))
-        colors = ['k', 'r', 'g', 'b', 'y', 'm', 'c']
+        colors = ["k", 'r', 'g', 'b', 'y', 'm', 'c']
         self.cprotocolPlot.clear()
 
         save_data = None
@@ -89,17 +91,16 @@ class CurrentProtocolGraph(QWidget):
             self.cprotocolPlot.plot(xData, yData, pen=colors[i])
             save_data = np.array([xData, yData])
             # logging.info("writing current ephys data to file")
-            self.ephys_logger.write_ephys_data(timestamp,index, save_data, colors[i])
+            self.ephys_logger.write_ephys_data(timestamp, index, save_data, colors[i])
             if i == 5:
                 self.daq.current_protocol_data = None
-                self.c_instance_counter += 1
 
         self.latestDisplayedData = self.daq.current_protocol_data.copy()
         
 
 
 class VoltageProtocolGraph(QWidget):
-    def __init__(self, daq : DAQ, recording_state_manager):
+    def __init__(self, daq: DAQ, recording_state_manager: RecordingStateManager):
         super().__init__()
         self.recording_state_manager = recording_state_manager
         layout = QVBoxLayout()
@@ -108,12 +109,11 @@ class VoltageProtocolGraph(QWidget):
         self.daq = daq
         self.vprotocolPlot = PlotWidget()
         self.vprotocolPlot.setBackground('w')
-        self.vprotocolPlot.getAxis('left').setPen('k')
-        self.vprotocolPlot.getAxis('bottom').setPen('k')
+        self.vprotocolPlot.getAxis('left').setPen("k")
+        self.vprotocolPlot.getAxis('bottom').setPen("k")
         self.vprotocolPlot.setLabel('left', "PicoAmps", units='pA')
         self.vprotocolPlot.setLabel('bottom', "Samples", units='')
         layout.addWidget(self.vprotocolPlot)
-        self.v_instance_counter = 0
 
         self.latestDisplayedData = None
 
@@ -132,7 +132,7 @@ class VoltageProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        self.ephys_logger = EPhysLogger(ephys_filename = "VoltageProtocol",recording_state_manager=self.recording_state_manager)
+        self.ephys_logger = EPhysLogger(ephys_filename = "VoltageProtocol", recording_state_manager=self.recording_state_manager)
 
     def update_plot(self):
         #is what we displayed the exact same?
@@ -140,8 +140,8 @@ class VoltageProtocolGraph(QWidget):
         # logging.warning("window should be shown")
         if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.voltage_protocol_data)) or self.daq.voltage_protocol_data is None:
             return
-        
-        index = self.v_instance_counter
+
+        index = self.recording_state_manager.sample_number
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
             self.setHidden(False)
@@ -151,20 +151,19 @@ class VoltageProtocolGraph(QWidget):
             self.vprotocolPlot.clear()
             # print(self.daq.voltage_protocol_data[0, :])
             # print(self.daq.voltage_protocol_data[1, :])
-            colors = ['k']
+            colors = ["k"]
             self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :], pen=colors[0])
             timestamp = datetime.now().timestamp()
             
             # logging.info("writing Voltage ephys data to file")
-            self.ephys_logger.write_ephys_data(timestamp,index, self.daq.voltage_protocol_data, colors[0])
+            self.ephys_logger.write_ephys_data(timestamp, index, self.daq.voltage_protocol_data, colors[0])
             self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
             self.daq.voltage_protocol_data = None
-            self.v_instance_counter += 1
         
 
 
 class HoldingProtocolGraph(QWidget):
-    def __init__(self, daq : DAQ, recording_state_manager):
+    def __init__(self, daq : DAQ, recording_state_manager: RecordingStateManager):
         super().__init__()
         self.recording_state_manager = recording_state_manager
         layout = QVBoxLayout()
@@ -173,12 +172,11 @@ class HoldingProtocolGraph(QWidget):
         self.daq = daq
         self.hprotocolPlot = PlotWidget()
         self.hprotocolPlot.setBackground('w')
-        self.hprotocolPlot.getAxis('left').setPen('k')
-        self.hprotocolPlot.getAxis('bottom').setPen('k')
+        self.hprotocolPlot.getAxis('left').setPen("k")
+        self.hprotocolPlot.getAxis('bottom').setPen("k")
         self.hprotocolPlot.setLabel('left', "PicoAmps", units='pA')
         self.hprotocolPlot.setLabel('bottom', "Samples", units='')
         layout.addWidget(self.hprotocolPlot)
-        self.h_instance_counter = 0
 
         self.latestDisplayedData = None
 
@@ -197,17 +195,16 @@ class HoldingProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        self.ephys_logger = EPhysLogger(ephys_filename = "HoldingProtocol",recording_state_manager=self.recording_state_manager)
+        self.ephys_logger = EPhysLogger(ephys_filename = "HoldingProtocol", recording_state_manager = self.recording_state_manager)
 
     def update_plot(self):
-
         # logging.warning("window should be shown")
         # is what we displayed the exact same?
         if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.holding_protocol_data)) or self.daq.holding_protocol_data is None:
             # logging.warning("no new data, skipping plot update")
             return
         
-        index = self.h_instance_counter
+        index = self.recording_state_manager.sample_number
 
         # logging.warning("new data, updating plot")
         #if the window was closed or hidden, relaunch it
@@ -218,13 +215,12 @@ class HoldingProtocolGraph(QWidget):
         if self.daq.holding_protocol_data is not None:
             self.hprotocolPlot.clear()
 
-            colors = ['k']
+            colors = ["k"]
             self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :], pen=colors[0])
             timestamp = datetime.now().timestamp()
             self.ephys_logger.write_ephys_data(timestamp, index, self.daq.holding_protocol_data, colors[0])
             self.latestDisplayedData = self.daq.holding_protocol_data.copy()
             self.daq.holding_protocol_data = None
-            self.h_instance_counter += 1
 
         # self.latestDisplayedData = self.daq.holding_protocol_data.copy()
 
@@ -232,10 +228,7 @@ class HoldingProtocolGraph(QWidget):
 class EPhysGraph(QWidget):
     """A window that plots electrophysiology data from the DAQ
     """
-    
-    # def __init__(self, daq : DAQ, pressureController : PressureController, parent=None):
-    def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager, parent=None):
-    
+    def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager, parent = None):
         super().__init__()
 
         #stop matplotlib font warnings
@@ -261,25 +254,25 @@ class EPhysGraph(QWidget):
         self.resistancePlot = PlotWidget()
 
         #set background color of plots
-        self.squareWavePlot.setBackground('w')
-        self.pressurePlot.setBackground('w')
-        self.resistancePlot.setBackground('w')
+        self.squareWavePlot.setBackground("w")
+        self.pressurePlot.setBackground("w")
+        self.resistancePlot.setBackground("w")
 
         #set axis colors to black
-        self.squareWavePlot.getAxis('left').setPen('k')
-        self.squareWavePlot.getAxis('bottom').setPen('k')
-        self.pressurePlot.getAxis('left').setPen('k')
-        self.pressurePlot.getAxis('bottom').setPen('k')
-        self.resistancePlot.getAxis('left').setPen('k')
-        self.resistancePlot.getAxis('bottom').setPen('k')
+        self.squareWavePlot.getAxis("left").setPen("k")
+        self.squareWavePlot.getAxis("bottom").setPen("k")
+        self.pressurePlot.getAxis("left").setPen("k")
+        self.pressurePlot.getAxis("bottom").setPen("k")
+        self.resistancePlot.getAxis("left").setPen("k")
+        self.resistancePlot.getAxis("bottom").setPen("k")
 
         #set labels
-        self.squareWavePlot.setLabel("left", "Current", units='A')
-        self.squareWavePlot.setLabel("bottom", "Time", units='s')
-        self.pressurePlot.setLabel("left", "Pressure", units='mbar')
-        self.pressurePlot.setLabel("bottom", "Time", units='s')
-        self.resistancePlot.setLabel("left", "Resistance", units='Ohms')
-        self.resistancePlot.setLabel("bottom", "Samples", units='')
+        self.squareWavePlot.setLabel("left", "Current", units="A")
+        self.squareWavePlot.setLabel("bottom", "Time", units="s")
+        self.pressurePlot.setLabel("left", "Pressure", units="mbar")
+        self.pressurePlot.setLabel("bottom", "Time", units="s")
+        self.resistancePlot.setLabel("left", "Resistance", units="Ohms")
+        self.resistancePlot.setLabel("bottom", "Samples", units="")
 
 
         # self.pressureData = deque([0.0]*100, maxlen=100)
@@ -413,14 +406,14 @@ class EPhysGraph(QWidget):
         # print(len(pressureX))
         self.pressurePlot.clear()
         pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
-        self.pressurePlot.plot(pressureX, self.pressureData, pen='k')
+        self.pressurePlot.plot(pressureX, self.pressureData, pen="k")
 
         # update resistance graph
         self.resistancePlot.clear()
         displayDequeY = self.resistanceDeque.copy()
         displayDequeX = [i for i in range(len(displayDequeY))]
         # resistanceDeque = [i for i in range(len(self.resistanceDeque))]
-        self.resistancePlot.plot(displayDequeX, displayDequeY, pen='k')
+        self.resistancePlot.plot(displayDequeX, displayDequeY, pen="k")
 
         # self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(currentPressureReading))
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)

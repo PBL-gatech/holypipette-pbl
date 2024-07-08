@@ -23,7 +23,7 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope : Microscope, calibrated_stage: CalibratedStage, config : PatchConfig):
+    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, config : PatchConfig):
         super().__init__()
         self.config = config
         self.amplifier = amplifier
@@ -40,11 +40,14 @@ class AutoPatcher(TaskController):
         self.current_protocol_graph = None
 
     def run_protocols(self):
-        self.run_voltage_protocol()
-        self.sleep(0.25)
-        self.run_current_protocol()
-        self.sleep(0.25)
-        self.run_holding_protocol()
+        if self.config.voltage_protocol:
+            self.run_voltage_protocol()
+            self.sleep(0.25)
+        if self.config.current_protocol:
+            self.run_current_protocol()
+            self.sleep(0.25)
+        if self.config.holding_protocol:
+            self.run_holding_protocol()
 
     def run_voltage_protocol(self):
         self.info('Running voltage protocol (membrane test)')

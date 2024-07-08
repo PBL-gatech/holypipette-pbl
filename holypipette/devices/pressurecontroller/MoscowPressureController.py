@@ -9,7 +9,7 @@ import serial.tools.list_ports
 import serial
 import time
 import collections
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level = logging.INFO)
 
 all = ['MoscowPressureController']
 
@@ -155,7 +155,7 @@ class MoscowPressureController(PressureController):
             # pressureVal = None
             logging.warning("No data received from pressure sensor")
 
-        print(pressureVal)
+        # print(pressureVal)
         return pressureVal
 
     

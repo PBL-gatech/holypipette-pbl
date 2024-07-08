@@ -36,7 +36,13 @@ class PatchConfig(Config):
 
     zap = Boolean(False, doc='Zap the cell to break the seal')
 
+    voltage_protocol = Boolean(True, doc='Run the Voltage Protocol automatically')
+    current_protocol = Boolean(True, doc='Run the Current Protocol automatically')
+    holding_protocol = Boolean(True, doc='Run the Holding Protocol automatically')
+
     categories = [('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance', 'max_distance', 'cell_R_increase']),
                   ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_duration', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
-                  ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R'])]
+                  ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R']),
+                  ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol'])
+                  ]
 
