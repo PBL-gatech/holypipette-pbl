@@ -318,17 +318,19 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox = QLineEdit()
         self.pressureCommandBox.setMaxLength(5)
         self.pressureCommandBox.setFixedWidth(100)
+        self.pressureCommandBox.setPlaceholderText("ATM Pressure")
         self.pressureCommandBox.setValidator(QtGui.QIntValidator(-1000, 1000))
 
-        # self.pressureCommandSlider = QSlider(Qt.Horizontal)
-        # self.pressureCommandSlider.setMinimum(-500)
-        # self.pressureCommandSlider.setMaximum(500)
-        # self.pressureCommandSlider.setValue(20)
-        # self.pressureCommandSlider.setTickInterval(100)
-        # self.pressureCommandSlider.setTickPosition(QSlider.TicksBelow)
-        # self.pressureCommandSlider.valueChanged.connect(self.updateLabel)
+        self.pressureCommandSlider = QSlider(Qt.Horizontal)
+        self.pressureCommandSlider.setMinimum(-400)
+        self.pressureCommandSlider.setMaximum(700)
+        self.pressureCommandSlider.setValue(20)
+        self.pressureCommandSlider.setTickInterval(100)
+        self.pressureCommandSlider.setTickPosition(QSlider.TicksBelow)
+        self.pressureCommandSlider.valueChanged.connect(self.updateLabel)
+        self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
-        # self.bottomBarLayout.addWidget(self.pressureCommandSlider)
+        self.bottomBarLayout.addWidget(self.pressureCommandSlider)
         self.bottomBarLayout.addWidget(self.pressureCommandBox)
         # add an Atmospheric Pressure toggle button
         self.atmosphericPressureButton = QPushButton("ATM Pressure")
@@ -383,8 +385,6 @@ class EPhysGraph(QWidget):
                 self.resistanceDeque.append(resistance)
                 self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
                 self.capacitanceLabel.setText("Capacitance: {:.2f} pF\t".format(resistance / 1e-12))
-                
-
 
     def update_plot(self):
         # update current graph
@@ -415,7 +415,6 @@ class EPhysGraph(QWidget):
         # self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(currentPressureReading))
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
         # self.atmosphericPressureButton.clicked.connect(self.togglePressure)
-        # self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
         # logging.debug("graph updated") # uncomment for debugging in log.csv file
 
@@ -436,11 +435,12 @@ class EPhysGraph(QWidget):
             self.pressureController.set_ATM(False)
         self.atmtoggle = not self.atmtoggle
         # self.atmtogglecount += 1
+        # self.pressureCommandBox.setPlaceholderText(f"{pressure} mbar")
+
         # logging.info(f"toggle pressure called: {self.atmtogglecount} times")
 
     def updateLabel(self, value):
-        # Update the QLabel with the current value of the slider
-        self.pressureLabel.setText(f"Pressure: {value}")
+        self.pressureCommandBox.setPlaceholderText(f"Will set to: {value} mbar")
 
     def pressureCommandSliderChanged(self):
         '''
@@ -456,6 +456,7 @@ class EPhysGraph(QWidget):
 
         #set pressure
         self.pressureController.set_pressure(pressure)
+        self.pressureCommandBox.setPlaceholderText(f"{pressure} mbar")
 
     def pressureCommandBoxReturnPressed(self):
         '''
@@ -470,6 +471,7 @@ class EPhysGraph(QWidget):
             # set pressure
             self.pressureController.set_pressure(pressure)
             self.setpoint = pressure
+            self.pressureCommandSlider.setValue(int(pressure))
+            self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
         except ValueError:
             return
-        
