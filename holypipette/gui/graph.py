@@ -228,11 +228,15 @@ class HoldingProtocolGraph(QWidget):
 class EPhysGraph(QWidget):
     """A window that plots electrophysiology data from the DAQ
     """
+
+    pressureLowerBound = -400
+    pressureUpperBound = 700
+
     def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager, parent = None):
         super().__init__()
 
         #stop matplotlib font warnings
-        logging.getLogger('matplotlib.font_manager').disabled = True
+        logging.getLogger("matplotlib.font_manager").disabled = True
         self.atmtoggle = True
         # self.atmtogglecount = 0
         self.daq = daq
@@ -312,12 +316,12 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox.setMaxLength(5)
         self.pressureCommandBox.setFixedWidth(100)
         self.pressureCommandBox.setPlaceholderText(f"{self.pressureController.measure()} mbar")
-        self.pressureCommandBox.setValidator(QtGui.QIntValidator(-1000, 1000))
+        self.pressureCommandBox.setValidator(QtGui.QIntValidator(EPhysGraph.pressureLowerBound, EPhysGraph.pressureUpperBound))
 
         self.pressureCommandSlider = QSlider(Qt.Horizontal)
         self.pressureCommandSlider.setValue(int(self.pressureController.measure()))
-        self.pressureCommandSlider.setMinimum(-400)
-        self.pressureCommandSlider.setMaximum(700)
+        self.pressureCommandSlider.setMinimum(EPhysGraph.pressureLowerBound)
+        self.pressureCommandSlider.setMaximum(EPhysGraph.pressureUpperBound)
         self.pressureCommandSlider.setTickInterval(100)
         self.pressureCommandSlider.setTickPosition(QSlider.TicksBelow)
         self.pressureCommandSlider.valueChanged.connect(self.updatePressureLabel)
@@ -432,14 +436,14 @@ class EPhysGraph(QWidget):
     def incrementPressure(self):
         current_value = self.pressureCommandSlider.value()
         new_value = current_value + 5
-        if new_value <= 500:
+        if new_value <= EPhysGraph.pressureUpperBound:
             self.pressureCommandSlider.setValue(new_value)
             self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
 
     def decrementPressure(self):
         current_value = self.pressureCommandSlider.value()
         new_value = current_value - 5
-        if new_value >= -500:
+        if new_value >= EPhysGraph.pressureLowerBound:
             self.pressureCommandSlider.setValue(new_value)
             self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
 

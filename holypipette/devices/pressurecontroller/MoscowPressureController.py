@@ -17,16 +17,17 @@ class MoscowPressureController(PressureController):
     '''A PressureController child class that handles serial communication between the PC and
        the Arduino controlling the Moscow Pressure box
     '''
-    validProducts = ["USB Serial"] #TODO: move to a constants or json file?
+    validProducts = ["USB Serial"] # TODO: move to a constants or json file?
     validVIDs = [0x1a86, 0x403]
                     
-    nativePerMbar = float(4096/1380) # The number of native pressure transucer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
-    nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
-    conversionFactor = -29
+    # nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
+    # nativePerMbar = float(4096/1380) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
+    nativeZero = 1962 # The native units at a 0 pressure (y-intercept)
+    nativePerMbar = float(nativeZero*2/1178) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
 
     serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
-    def __init__(self, channel, controllerSerial=None,readerSerial=None):
+    def __init__(self, channel, controllerSerial = None, readerSerial = None):
         super().__init__()
         # time.sleep(2) # wait for arduino to boot up
 
@@ -53,13 +54,12 @@ class MoscowPressureController(PressureController):
 
         # set initial configuration of pressure controller
         self.set_ATM(False)
-        self.set_pressure(800) #set initial pressure to 800 mbar
+        self.set_pressure(400) #set initial pressure to 800 mbar
 
     def autodetectSerial(self):
         '''
         Use VID and name of serial devices to figure out which one is the Moscow Pressure box
         '''
-
         allPorts = [COMPort for COMPort in serial.tools.list_ports.comports()]
         logging.info(f"Attempting to find Moscow Pressure Box from: {[(p.product, hex(p.vid) if p.vid != None else None, p.name) for p in allPorts]}")
 
@@ -75,8 +75,9 @@ class MoscowPressureController(PressureController):
         '''
         Comvert from a pressure in mBar to native units
         '''
-        raw_pressure = int((pressure) * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero - MoscowPressureController.conversionFactor)
-        return min(max(raw_pressure, 0), 4095) #clamp native units to 0-4095
+        raw_pressure = int((pressure * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero))
+        return min(max(raw_pressure, 0), MoscowPressureController.nativeZero*2) # clamp native units to 0-3924
+        # return min(max(raw_pressure, 0), 4095) # clamp native units to 0-4095
 
     def nativeToMbar(self, raw_pressure) -> float:
         '''
@@ -122,7 +123,7 @@ class MoscowPressureController(PressureController):
         return self.setpoint_raw
     
 
-    def get_pressure(self)-> float:
+    def get_pressure(self) -> float:
         '''
         Read the pressure sensor value from the Arduino
         '''
@@ -143,6 +144,8 @@ class MoscowPressureController(PressureController):
                 try:
                     pressureVal = float(pressure_str)
                     # logging.info(f"Pressure: {pressureVal} mbar")
+                    # pressureVal = float((pressureVal/2.559) + 512) # conversion to raw because the seeed is not working
+                    pressureVal = float((pressureVal - 516.4) * 2.231645) # conversion to raw because the seeed is not working
                     self.lastVal = pressureVal
                 except ValueError:
                     # pressureVal = None
@@ -155,7 +158,7 @@ class MoscowPressureController(PressureController):
             # pressureVal = None
             logging.warning("No data received from pressure sensor")
 
-        # print(pressureVal)
+        print(pressureVal)
         return pressureVal
 
     
