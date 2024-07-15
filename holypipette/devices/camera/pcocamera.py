@@ -29,7 +29,7 @@ class PcoCamera(Camera):
     def __init__(self, width: int = 1280, height: int = 1280):
         super().__init__()
 
-        self.width = width #update superclass img width / height vars
+        self.width = width # update superclass img width / height vars
         self.height = height
 
         #setup the pco camera for continuous streaming
@@ -45,9 +45,10 @@ class PcoCamera(Camera):
                     'acquire': 'auto',
                     'metadata': 'on',
                     'binning': (1, 1)}
+
         self.cam.configuration = config
 
-        self.cam.record(number_of_images=10, mode='ring buffer') #use "ring buffer" mode for continuous streaming from camera
+        self.cam.record(number_of_images = 10, mode='ring buffer') #use "ring buffer" mode for continuous streaming from camera
         self.cam.wait_for_first_image()
 
         self.frameno = None
@@ -67,7 +68,7 @@ class PcoCamera(Camera):
 
         self.start_acquisition() #start thread that updates camera gui
 
-    def set_exposure(self, value) -> None:
+    def set_exposure(self, value: float) -> None:
         self.cam.set_exposure_time(value / 1000)
 
     def get_exposure(self):

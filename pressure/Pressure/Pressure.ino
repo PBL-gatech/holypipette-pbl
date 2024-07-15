@@ -10,6 +10,8 @@
   https://www.arduino.cc/en/Tutorial/BuiltInExamples/AnalogReadSerial
 */
 
+// USB3-7 port is COM 8 for arduino but 9 for seeed?
+
 // ! NOTE: Sending air to the BOTTON valve DECREASES analog pressure reading
 // ! NOTE: Sending air to the TOP valve INCREASES analog pressure reading
 

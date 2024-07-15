@@ -3,7 +3,15 @@ float readings[numReadings];   // the readings from the analog input
 int readIndex = 0;           // the index of the current reading
 float total = 0;               // the running total
 float average = 0;             // the average
-float M = 2.559;
+
+// So how do we calculate M and B? Victor plotted set values vs the truth (digital nanometer) vs the sensor value, and fit a line
+// Nanometer: 0.9559x + 38.237
+// Sensor: 0.3923x + 517
+// M = 1 / 0.3942 = 2.53678336
+
+// float M = 5.824;
+float M = 0.3923;
+// float M = 2.559;
 
 void setup() {
   Serial.begin(9600);  // initialize serial communication
@@ -17,7 +25,7 @@ void loop() {
     char command = Serial.read();  // read the incoming command
     if (command == 'R') {  // if the command is 'R'
       // read the input on analog pin 0:
-      int sensorValue = analogRead(A0);
+      int sensorValue = analogRead(A10);
 
       // subtract the last reading:
       total = total - readings[readIndex];
@@ -38,11 +46,12 @@ void loop() {
       average = total / numReadings;
       
       // compute the adjusted value
-      float Y = M * (average - 512);
+      // float Y = M * (average - 513.62);
+      float Y = (M*average)+516.72;
       
       // send the result
       Serial.print("S");
-      Serial.print(Y);
+      Serial.print(average);
       Serial.println("E");
     }
   }

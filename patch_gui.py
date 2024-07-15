@@ -24,6 +24,7 @@ def main():
     gui = PatchGui(camera, pipette_controller, patch_controller, recording_state_manager)
     graphs = EPhysGraph(daq, pressure, recording_state_manager)
     graphs.show()
+
     currentProtocolGraph = CurrentProtocolGraph(daq,recording_state_manager)
     voltageProtocolGraph = VoltageProtocolGraph(daq,recording_state_manager)
     holdingProtocolGraph = HoldingProtocolGraph(daq,recording_state_manager)

@@ -45,6 +45,10 @@ class PressureController(TaskController):
             t = time()
         self.set_pressure(0.)
 
+    def set_ATM(self, atm):
+        self.state = atm
+        pass
+
 
 class FakePressureController(PressureController):
     def __init__(self):

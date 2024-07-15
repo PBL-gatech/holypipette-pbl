@@ -15,7 +15,7 @@ class FocusHelper():
     NORMAL_MAX_SPEED = 10000
 
     def __init__(self, microscope: Microscope, camera: Camera):
-        self.microscope : Microscope = microscope
+        self.microscope: Microscope = microscope
         self.camera : Camera = camera
 
     def autofocusContinuous(self, distance):
@@ -84,7 +84,7 @@ class FocusHelper():
         self.microscope.wait_until_still()
 
 class FocusUpdater(Thread):
-    def __init__(self, microscope : Microscope, camera : Camera):
+    def __init__(self, microscope: Microscope, camera: Camera):
        Thread.__init__(self)
 
        self.isRunning : bool = True

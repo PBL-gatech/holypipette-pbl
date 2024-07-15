@@ -29,10 +29,10 @@ class EPhysLogger(threading.Thread):
     
     def _write_to_file(self, data, index, time_value,color):
         # Create a string for each pair of values in the desired format
-        lines = [f"{color} {data[0][i]} {data[1][i]}\n" for i in range(data.shape[1])]
+        lines = [f"{data[0][i]} {data[1][i]}\n" for i in range(data.shape[1])]
         # Open the file in append mode and write the formatted strings
         # logging.debug("Writing to file %s", self.filename)
-        with open(f"{self.filename}_{time_value}_{index}.csv", 'a+') as file:
+        with open(f"{self.filename}_{time_value}_{index}_{color}.csv", 'a+') as file:
             file.writelines(lines)
         self.write_event.set()  # Signal that writing is done
     

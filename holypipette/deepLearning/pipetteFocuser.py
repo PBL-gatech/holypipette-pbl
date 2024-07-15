@@ -99,8 +99,3 @@ if __name__ == '__main__':
 		#show img
 		# cv2.imshow("pipette finding test", img)
 		cv2.waitKey(0)
-
-
-		
-
-				
