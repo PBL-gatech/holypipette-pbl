@@ -4,12 +4,12 @@ Control of automatic patch clamp algorithm
 '''
 import numpy as np
 
-from ..interface import TaskInterface, command, blocking_command
-from ..controller import AutoPatcher
-from ..devices.pressurecontroller import PressureController
-from ..devices.amplifier.amplifier import Amplifier
-from ..interface.pipettes import PipetteInterface
-from ..devices.amplifier.DAQ import DAQ
+from holypipette.interface import TaskInterface, command, blocking_command
+from holypipette.controller import AutoPatcher
+from holypipette.devices.pressurecontroller.BasePressureController import PressureController
+from holypipette.devices.amplifier.amplifier import Amplifier
+from holypipette.interface.pipettes import PipetteInterface
+from holypipette.devices.amplifier.DAQ import DAQ
 from .patchConfig import PatchConfig
 from PyQt5 import QtCore
 import time

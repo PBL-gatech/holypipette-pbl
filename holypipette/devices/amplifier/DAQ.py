@@ -7,6 +7,7 @@ import scipy.signal as signal
 import time
 import threading
 import logging
+import matplotlib.pyplot as plt
 
 __all__ = ['DAQ', 'FakeDAQ']
 
@@ -154,8 +155,6 @@ class DAQ:
 
         return self.holding_protocol_data
 
-
-
     def getDataFromVoltageProtocol(self):
         '''Sends a square wave to determine membrane properties, returns time constant, resistance, and capacitance.'''
         self.isRunningProtocol = True
@@ -194,7 +193,7 @@ class DAQ:
 
 
         # Gradient
-        gradientData = np.gradient(data, xdata)        
+        gradientData = np.gradient(data, xdata)
         max_index = np.argmax(gradientData)
         # Find the index of the minimum value after the maximum value
         min_index = np.argmin(gradientData[max_index:]) + max_index
@@ -203,8 +202,8 @@ class DAQ:
         left_bound = 10
         right_bound = 100
         # * bound is arbitrary, just to make it look good on the graph
-        data = data[max_index-left_bound:min_index + right_bound]
-        xdata = xdata[max_index-left_bound:min_index + right_bound]
+        data = data[max_index - left_bound:min_index + right_bound]
+        xdata = xdata[max_index - left_bound:min_index + right_bound]
         # gradientData = gradientData[max_index-left_bound:min_index + right_bound]
 
         # convert from V to pA

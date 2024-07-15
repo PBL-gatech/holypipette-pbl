@@ -400,6 +400,20 @@ class EPhysGraph(QWidget):
         if self.lastestDaqData is not None:
             self.squareWavePlot.clear()
             self.squareWavePlot.plot(self.lastestDaqData[0, :], self.lastestDaqData[1, :])
+            maximumIdx = np.argmax(self.lastestDaqData[1, :])
+            # Get the average of the values after this maximum until the minimum is reached
+            minimumIdx = np.argmin(self.lastestDaqData[1, :])
+            print("Value at maximum: ", self.lastestDaqData[1, maximumIdx])
+            print("Value at minimum: ", self.lastestDaqData[1, minimumIdx])
+
+            initial_value = self.lastestDaqData[1, maximumIdx]
+            target_value = initial_value / np.exp(1)
+            # Search for the index where data drops below this value for the first time after max_index
+            tau_index = np.where(self.lastestDaqData[1, maximumIdx:] <= target_value)[0][0] + maximumIdx
+            time_constant = self.lastestDaqData[0, tau_index] - self.lastestDaqData[0, maximumIdx]
+
+            print("Time constant: ", time_constant)
+
             self.lastDaqData = self.lastestDaqData
             # self.lastestDaqData = None
         

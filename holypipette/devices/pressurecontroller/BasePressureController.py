@@ -11,7 +11,7 @@ all = ['PressureController',  'FakePressureController']
 
 class PressureController(TaskController):
     def __init__(self):
-        super(PressureController, self).__init__()
+        super().__init__()
         self._pressure = collections.defaultdict(int)
 
     def measure(self, port = 0):

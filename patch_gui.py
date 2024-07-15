@@ -6,7 +6,9 @@ from holypipette.log_utils import setup_logging
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
-from holypipette.gui import PatchGui, EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
+# from holypipette.gui import PatchGui, EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
+from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
+from holypipette.gui.patch import PatchGui
 
 # from setup_IBB_rig import *
 # from setup_fake_rig import *
@@ -25,9 +27,9 @@ def main():
     graphs = EPhysGraph(daq, pressure, recording_state_manager)
     graphs.show()
 
-    currentProtocolGraph = CurrentProtocolGraph(daq,recording_state_manager)
-    voltageProtocolGraph = VoltageProtocolGraph(daq,recording_state_manager)
-    holdingProtocolGraph = HoldingProtocolGraph(daq,recording_state_manager)
+    currentProtocolGraph = CurrentProtocolGraph(daq, recording_state_manager)
+    voltageProtocolGraph = VoltageProtocolGraph(daq, recording_state_manager)
+    holdingProtocolGraph = HoldingProtocolGraph(daq, recording_state_manager)
 
     gui.initialize()
     gui.show()

@@ -6,7 +6,7 @@ from holypipette.devices.amplifier.amplifier import FakeAmplifier
 from holypipette.devices.amplifier.DAQ import DAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.manipulator import SensapexManip, ScientificaSerialNoEncoder
-from holypipette.devices.pressurecontroller import IBBPressureController, FakePressureController
+from holypipette.devices.pressurecontroller.IBBPressureController import IBBPressureController
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import CellSorterController, CellSorterManip, FakeCellSorterManip
 import serial
