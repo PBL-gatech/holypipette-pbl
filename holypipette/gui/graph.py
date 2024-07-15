@@ -229,8 +229,8 @@ class EPhysGraph(QWidget):
     """A window that plots electrophysiology data from the DAQ
     """
 
-    pressureLowerBound = -400
-    pressureUpperBound = 700
+    pressureLowerBound = -500
+    pressureUpperBound = 800
 
     def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager, parent = None):
         super().__init__()

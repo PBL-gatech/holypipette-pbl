@@ -23,7 +23,7 @@ class MoscowPressureController(PressureController):
     # nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
     # nativePerMbar = float(4096/1380) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
     nativeZero = 1962 # The native units at a 0 pressure (y-intercept)
-    nativePerMbar = float(nativeZero*2/1178) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
+    nativePerMbar = float(3062/1100) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
 
     serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
@@ -54,7 +54,7 @@ class MoscowPressureController(PressureController):
 
         # set initial configuration of pressure controller
         self.set_ATM(False)
-        self.set_pressure(400) #set initial pressure to 800 mbar
+        self.set_pressure(20) #set initial pressure to 800 mbar
 
     def autodetectSerial(self):
         '''
@@ -143,9 +143,10 @@ class MoscowPressureController(PressureController):
                 # Try to convert the extracted pressure string to float
                 try:
                     pressureVal = float(pressure_str)
-                    # logging.info(f"Pressure: {pressureVal} mbar")
+                    # logging.info(f"Pressure: {pressureVal} units (raw)")
                     # pressureVal = float((pressureVal/2.559) + 512) # conversion to raw because the seeed is not working
-                    pressureVal = float((pressureVal - 516.4) * 2.231645) # conversion to raw because the seeed is not working
+                    # pressureVal = float((pressureVal*0.3923)+516.72)
+                    pressureVal = float((pressureVal - 516.72)/0.3923) # conversion to raw because the seeed is not working
                     self.lastVal = pressureVal
                 except ValueError:
                     # pressureVal = None
@@ -158,7 +159,7 @@ class MoscowPressureController(PressureController):
             # pressureVal = None
             logging.warning("No data received from pressure sensor")
 
-        print(pressureVal)
+        # print(pressureVal)
         return pressureVal
 
     
