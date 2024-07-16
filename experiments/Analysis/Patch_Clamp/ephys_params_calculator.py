@@ -90,6 +90,34 @@ def pre_peak_filter(data, peak_index, peak_time):
 
     return pre_peak_data, mean_filtered_pre_peak
 
+def post_peak_filter(input_data):
+    # get the std of the data
+    post_peak_data = input_data.copy()
+    # deriviate the data
+    post_peak_data['Y_derivative'] = post_peak_data['Y_pA'].diff() / post_peak_data['X_ms'].diff()
+    std = post_peak_data['Y_pA'].std()
+    print(f'Standard deviation of current AFTER peak: {std:.2f} pA')
+
+    # get the data under that standard deviation
+    # get the peak value
+    peak_value = post_peak_data.loc[peak_index, 'Y_pA']
+    post_peak_data = post_peak_data[post_peak_data['Y_pA'] < peak_value - 3 * std]
+    # plot it
+    plt.plot(post_peak_data['X_ms'], post_peak_data['Y_pA'], '.')
+    plt.title("Data AFTER Peak")
+    plt.xlabel('Time (ms)')
+    plt.ylabel('Current (pA)')
+    plt.show()
+
+    # Recompute the mean with filtered derivative values
+    mean_filtered_pre_peak = post_peak_data['Y_pA'].mean()
+    print(f'Filtered Average derivative AFTER peak: {mean_filtered_pre_peak:.2f} pA/ms')
+
+    # prepend a colu,mn with the values r
+    post_peak_data['Color'] = 'r'
+
+    return post_peak_data, mean_filtered_pre_peak
+
 
 def manual_exponential_fit(data):
     # calculate the log of the data
@@ -219,15 +247,19 @@ filtered_data, plot_params = decay_filter(data)
 
 peak_time = plot_params[0]
 peak_index = plot_params[1]
+min_time = plot_params[2]
 
 print(plot_params)
 
 # print(filtered_data)
 
 pre_filtered_data, I_prev = pre_peak_filter(data, peak_time = peak_time, peak_index = peak_index)
+print(f'Average current before peak: {I_prev:.2f} pA')
+
+post_filtered_data, I_post = post_peak_filter(filtered_data)
+print(f'Average current AFTER peak: {I_post:.2f} pA')
 
 # print(pre_filtered_data)
-print(f'Average current before peak: {I_prev:.2f} pA')
 
 # combine the pre_filtered_data and filtered_data
 
@@ -249,6 +281,9 @@ tau = 1 / t
 I_peak = data.loc[peak_index, 'Y_pA']
 # get the steady state current after the peak
 I_ss = data.loc[peak_index + 1, 'Y_pA']
+I_prev = pre_filtered_data['Y_pA'].mean()
+I_d = I_peak 
+
 
 
 
