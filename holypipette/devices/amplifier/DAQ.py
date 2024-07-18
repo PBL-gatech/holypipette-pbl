@@ -3,6 +3,8 @@ import nidaqmx.system
 import nidaqmx.constants
 
 import numpy as np
+import pandas as pd
+import scipy.optimize
 import scipy.signal as signal
 import time
 import threading
@@ -24,7 +26,11 @@ class DAQ:
 
         self.readChannel = readChannel
         self.cmdChannel = cmdChannel
+        self.latestaccessResistance = None
         self.latestResistance = None
+        self.latestmembraneResistance = None
+        self.latestmembraneCapacitance = None
+
         self.isRunningProtocol = False
         self.isRunningVoltageProtocol = False
         self._deviceLock = threading.Lock()
@@ -187,6 +193,7 @@ class DAQ:
         # print("Before Shape", data.shape)
         # ? Why 0.02?
         data, self.latestResistance = self._getResistancefromCurrent(data, amplitude * 0.02, samplesPerSec)
+        data, self.latestaccessResistance,self.latestmembraneResistance,self.latestmembraneCapacitance = self._getParamsfromCurrent(data, amplitude * 0.02, samplesPerSec, calcParams=False)
         triggeredSamples = data.shape[0]
         xdata = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
         # print(xdata)
@@ -246,50 +253,7 @@ class DAQ:
             # print("Shifted Data 1", shiftedData.shape)
             mean = np.mean(shiftedData)
             lowAvg = np.mean(shiftedData[shiftedData < mean])
-            highAvg = np.mean(shiftedData[shiftedData > mean])
-
-            # #split data into high and low wave
-            # triggerVal = np.mean(shiftedData)
-
-            # #is trigger value ever reached?
-            # # print("Trigger Value", triggerVal)
-            # if np.where(shiftedData < triggerVal)[0].size == 0 or np.where(shiftedData > triggerVal)[0].size == 0:
-            #     logging.warn("Trigger is reached!")
-            #     if calcResistance:
-            #         return shiftedData, None
-            #     return shiftedData
-
-            # # find the first index where the data is less than triggerVal
-            # fallingEdge = np.where(shiftedData < triggerVal)[0][0]
-            # shiftedData = shiftedData[fallingEdge:]
-            # # print("Shifted Data 2", shiftedData.shape)
-
-            # #find the first index where the data is greater than triggerVal
-            # risingEdge = np.where(shiftedData > triggerVal)[0][0]
-            # shiftedData = shiftedData[risingEdge:]
-            # # print("Shifted Data 3", shiftedData.shape)
-
-            # # find second rising edge location
-            # secondFallingEdge = np.where(shiftedData < triggerVal)[0][0]
-            
-            # # find peak to peak spread on high side
-            # # highSide = shiftedData[5:secondFallingEdge-5:]
-            # # if highSide.size > 0:
-            # #     highPeak = np.max(highSide)
-            # #     lowPeak = np.min(highSide)
-            # #     peakToPeak = highPeak - lowPeak
-            # #     logging.info(f'Peak to peak: {peakToPeak * 1e12} ({highPeak * 1e12} - {lowPeak * 1e12})')
-
-            # #find second rising edge after falling edge
-        
-            # ! resistance plot error comes from here
-            # secondRisingEdge = np.where(shiftedData[secondFallingEdge:] > triggerVal)[0][0] + secondFallingEdge
-            # print(secondFallingEdge, secondRisingEdge)
-            # shiftedData = shiftedData[:secondRisingEdge]
-            # print("Shifted Data 4", shiftedData.shape)
-            
-            # timestamps = np.linspace(0, data.shape[0] / samplesPerSec, data.shape[0], dtype=float)
-            # data = np.gradient(data, timestamps)        
+            highAvg = np.mean(shiftedData[shiftedData > mean])   
 
 
             if calcResistance:
@@ -313,7 +277,107 @@ class DAQ:
             if calcResistance:
                 return data, None
             return data
+        
+    def _getParamsfromCurrent(self,data,cmdVoltage,samplesPerSec,calcParams = True):
+           try:
+               print("calculating parameters...")
+                # calculate the capicitance and resistance of the membrane and the access resistance
+               if calcParams:
+                  triggeredSamples = data.shape[0]
+                  xdata = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
+                  # convert into pandas data frame
+                  df = pd.DataFrame({'X': xdata, 'Y': data})
+                  df['X_ms'] = df['X'] * 1000  # converting seconds to milliseconds
+                  df['Y_pA'] = df['Y'] * 1e12 # converting picoamps / amps
+                  # Decay filter part
+                  filtered_data, pre_filtered_data, post_filtered_data, plot_params, I_prev, I_post = self.filter_data(df)
+                  peak_time, peak_index, min_time, min_index = plot_params
+                  m, t, b = self.optimizer(filtered_data)
+                  if m is not None and t is not None and b is not None:
+                        tau = 1 / t
+
+                         # Get peak current using peak_index
+                        I_peak = df.loc[peak_index, 'Y_pA']
+                        # Calculate parameters
+                        R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, cmdVoltage, I_peak, I_prev, I_post)
+                  return R_a_MOhms, R_m_MOhms, C_m_pF
+           except Exception as e:
+                logging.error(f"Error in getParamsfromCurrent: {e}")
+                return None
+        #return data,tau,Ra,Rm,Cm
+
+    def filter_data(self,data):
+        # Decay filter part
+        peak_index = data['Y_pA'].idxmax()
+        peak_time = data.loc[peak_index, 'X_ms']
+
+        min_index = data['Y_pA'].idxmin()
+        min_time = data.loc[min_index, 'X_ms']
+
+        # Extract the data between peaks
+        sub_data = data[(data['X_ms'] >= peak_time) & (data['X_ms'] <= min_time)].copy()
+        # Calculate the first numerical derivative
+        sub_data['Y_derivative'] = sub_data['Y_pA'].diff() / sub_data['X_ms'].diff()
+        # Remove the section with sudden changes
+        change_threshold = sub_data['Y_derivative'].quantile(0.01)
+        drop_indices = sub_data[sub_data['Y_derivative'] < change_threshold].index
+        if not drop_indices.empty:
+            drop_index = drop_indices[0]
+            filtered_sub_data = sub_data.loc[:drop_index - 1]
+
+        # Pre-peak filter part
+        peak_value = data.loc[peak_index, 'Y_pA']
+        pre_peak_data = data[data['X_ms'] < peak_time].copy()
+        std = pre_peak_data['Y_pA'].std()
+        pre_peak_data = pre_peak_data[pre_peak_data['Y_pA'] < peak_value - 3 * std]
+        mean_filtered_pre_peak = pre_peak_data['Y_pA'].mean()
+
+        # Post-peak filter part
+        post_peak_data = filtered_sub_data.copy()
+        post_peak_data['Y_derivative'] = post_peak_data['Y_pA'].diff() / post_peak_data['X_ms'].diff()
+        std = post_peak_data['Y_pA'].std()
+        post_peak_data = post_peak_data[post_peak_data['Y_pA'] < peak_value - 3 * std]
+        mean_filtered_post_peak = post_peak_data['Y_pA'].mean()
+
+        return filtered_sub_data, pre_peak_data, post_peak_data, [peak_time, peak_index, min_time, min_index], mean_filtered_pre_peak, mean_filtered_post_peak
     
+    def monoExp(self,x, m, t, b):
+        return m * np.exp(-t * x) + b
+
+    def optimizer(self,filtered_data):
+        start = filtered_data['X_ms'].iloc[0]
+        # Shift the data to start at 0
+        filtered_data['X_ms'] = filtered_data['X_ms'] - start
+        p0 = (664, 0.24, 15)
+        try:
+            params, _ = scipy.optimize.curve_fit(self.monoExp, filtered_data['X_ms'], filtered_data['Y_pA'], maxfev=1000000, p0=p0)
+            m, t, b = params
+            return m, t, b
+        except Exception as e:
+            print("Error:", e)
+            return None, None, None
+        
+    def calc_param(self,tau, dV, I_peak, I_prev, I_ss):
+        tau_s = tau / 1000  # Convert ms to seconds
+        dV_V = dV * 1e-3  # Convert mV to V
+        I_d = I_peak - I_prev  # in pA
+        I_dss = I_ss - I_prev  # in pA
+        I_d_A = I_d * 1e-12
+        I_dss_A = I_dss * 1e-12
+
+        # Calculate Access Resistance (R_a) in ohms
+        R_a_Ohms = dV_V / I_d_A  # Ohms
+        R_a_MOhms = R_a_Ohms * 1e-6  # Convert to MOhms
+
+        # Calculate Membrane Resistance (R_m) in ohms
+        R_m_Ohms = (dV_V - (R_a_Ohms * I_dss_A)) / I_dss_A  # Ohms
+        R_m_MOhms = R_m_Ohms * 1e-6  # Convert to MOhms
+
+        # Calculate Membrane Capacitance (C_m) in farads
+        C_m_F = tau_s / (1/(1 / R_a_Ohms) + (1 / R_m_Ohms))  # Farads
+        C_m_pF = C_m_F * 1e12  # Convert to pF
+
+        return R_a_MOhms, R_m_MOhms, C_m_pF
 class FakeDAQ:
     def __init__(self):
         self.latestResistance = 6 * 10 ** 6
