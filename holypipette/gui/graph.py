@@ -232,14 +232,17 @@ class EPhysGraph(QWidget):
     pressureLowerBound = -500
     pressureUpperBound = 800
 
-    def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager, parent = None):
+    def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager: RecordingStateManager):
         super().__init__()
 
         #stop matplotlib font warnings
         logging.getLogger("matplotlib.font_manager").disabled = True
         self.atmtoggle = True
-        # self.atmtogglecount = 0
         self.daq = daq
+
+        # I'm scared of pointers and .copy() doesn't work on bools :/
+        self.cellMode = self.daq.cellMode
+
         self.pressureController = pressureController
         # self.recording_state_manager = recording_state_manager  # Include the state manager in the graph
         self.setpoint = 0
@@ -270,7 +273,10 @@ class EPhysGraph(QWidget):
         self.resistancePlot.getAxis("left").setPen("k")
         self.resistancePlot.getAxis("bottom").setPen("k")
 
-        #set labels
+        # set labels
+        # * This "A" makes things annoying for the recorder and Daq, but its serves as a base unit. If set to pA, then if the data is 3 orders of magnitude higher,
+        # * it will show the label as kpA instead of nA.
+        # * This means we have to keep doing some "conversions" to make the graph happy
         self.squareWavePlot.setLabel("left", "Current", units="A")
         self.squareWavePlot.setLabel("bottom", "Time", units="s")
         self.pressurePlot.setLabel("left", "Pressure", units="mbar")
@@ -298,8 +304,16 @@ class EPhysGraph(QWidget):
         self.resistanceLabel = QLabel("Resistance:")
         self.bottomBarLayout.addWidget(self.resistanceLabel)
 
-        self.capacitanceLabel = QLabel("Capacitance:")
-        self.bottomBarLayout.addWidget(self.capacitanceLabel)
+        self.modelType = QPushButton(f"{'Cell' if self.cellMode else 'Bath'} Mode")
+        self.modelType.setStyleSheet(f"background-color: {'green' if self.cellMode else 'blue'}; color: white; border-radius: 5px; padding: 5px;")
+
+        self.bottomBarLayout.addWidget(self.modelType)
+        self.accessResistanceLabel = QLabel("Access Resistance:")
+        self.bottomBarLayout.addWidget(self.accessResistanceLabel)
+        self.membraneResistanceLabel = QLabel("Membrane Resistance:")
+        self.bottomBarLayout.addWidget(self.membraneResistanceLabel)
+        self.membraneCapacitanceLabel = QLabel("Membrane Capacitance:")
+        self.bottomBarLayout.addWidget(self.membraneCapacitanceLabel)
 
         #make bottom bar height 20px
         self.bottomBar.setMaximumHeight(20)
@@ -365,6 +379,7 @@ class EPhysGraph(QWidget):
         self.lastDaqData = []
 
         self.atmosphericPressureButton.clicked.connect(self.togglePressure)
+        self.modelType.clicked.connect(self.toggleModelType)
         #show window and bring to front
         self.raise_()
         self.show()
@@ -384,15 +399,30 @@ class EPhysGraph(QWidget):
                 continue # don't run membrane test while running a current protocol
 
             # * setting frequency to 100Hz fixed the resistance chart on bath mode but isn't needed on cell mode (it can be 10Hz??)
-            # self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(100, 50000, 0.5, 0.5, 0.1)
-            # self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(100, 50000, 0.5, 0.5, 0.03)
             # * best option so far is below, should we make it more flexible? --> sometimes the min appears before the max, messing up the gradient calculation and
             # * subsequent shiftin in daq.getDataFromSquareWave
-            self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
-            if resistance is not None:
-                self.resistanceDeque.append(resistance)
-                self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
-                self.capacitanceLabel.setText("Capacitance: {:.2f} pF\t".format(resistance / 1e-12))
+            self.lastestDaqData, totalResistance, accessResistance, membraneResistance, membraneCapacitance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 5, 0.03)
+
+            print("Total Resistance: ", totalResistance)
+            print("Access Resistance: ", accessResistance)
+            print("Membrane Resistance: ", membraneResistance)
+            print("Membrane Capacitance: ", membraneCapacitance)
+            if accessResistance is not None:
+                self.accessResistanceLabel.setText("Access Resistance: {:.2f} GΩ\t".format(accessResistance))
+            if membraneResistance is not None:
+                self.membraneResistanceLabel.setText("Membrane Resistance: {:.2f} GΩ\t".format(membraneResistance))
+            if membraneCapacitance is not None:
+                self.membraneCapacitanceLabel.setText("Membrane Capacitance: {:.2f} pF\t".format(membraneCapacitance))
+            # self.resistanceDeque.append(accessResistance + membraneResistance)
+            # self.resistanceLabel.setText("Total Resistance: NA")
+            if totalResistance is not None:
+                self.resistanceDeque.append(totalResistance)
+            self.resistanceLabel.setText("Total Resistance: {:.2f} Ohms\t".format(totalResistance))
+            # if self.cellMode:
+            # else:
+            #     self.membraneCapacitanceLabel.setText("Membrane Capacitance: NA")
+            #     self.membraneResistanceLabel.setText("Membrane Resistance: NA")
+            #     self.accessResistanceLabel.setText("Access Resistance: NA")
 
     def update_plot(self):
         # update current graph
@@ -441,7 +471,7 @@ class EPhysGraph(QWidget):
         # logging.debug("graph updated") # uncomment for debugging in log.csv file
 
         try:
-            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastDaqData[1, :]))
+            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastDaqData[1, :] * 1e12))
         except Exception as e:
             logging.error(f"Error in writing graph data to file: {e}, {self.lastDaqData}")
 
@@ -476,6 +506,20 @@ class EPhysGraph(QWidget):
         # self.pressureCommandBox.setPlaceholderText(f"{pressure} mbar")
 
         # logging.info(f"toggle pressure called: {self.atmtogglecount} times")
+    
+    def toggleModelType(self):
+        if self.daq.cellMode:
+            self.modelType.setStyleSheet("background-color: blue; color: white;border-radius: 5px; padding: 5px;")
+            self.modelType.setText("Bath Mode")
+            self.daq.setCellMode(False)
+        else:
+            self.modelType.setStyleSheet("background-color: green; color: white; border-radius: 5px; padding: 5px;")
+            self.modelType.setText("Cell Mode")
+            self.daq.setCellMode(True)
+
+        print("Cell Mode: ", self.daq.cellMode)
+        self.cellMode = self.daq.cellMode
+        print("Graph Cell Mode: ", self.cellMode)
 
     def updatePressureLabel(self, value):
         self.pressureCommandBox.setPlaceholderText(f"Set to: {value} mbar")
