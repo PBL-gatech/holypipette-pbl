@@ -400,25 +400,28 @@ class EPhysGraph(QWidget):
 
             # * setting frequency to 100Hz fixed the resistance chart on bath mode but isn't needed on cell mode (it can be 10Hz??)
             # * best option so far is below, should we make it more flexible? --> sometimes the min appears before the max, messing up the gradient calculation and
-            # * subsequent shiftin in daq.getDataFromSquareWave
-            self.lastestDaqData, totalResistance, accessResistance, membraneResistance, membraneCapacitance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 5, 0.03)
+            # * subsequent shift in in daq.getDataFromSquareWave
+            # 1 = 10mV -> 10 M Ohms
+            # 0.5 = 5mV
+            self.lastestDaqData, totalResistance, accessResistance, membraneResistance, membraneCapacitance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
 
-            print("Total Resistance: ", totalResistance)
-            print("Access Resistance: ", accessResistance)
-            print("Membrane Resistance: ", membraneResistance)
-            print("Membrane Capacitance: ", membraneCapacitance)
+            # print("Total Resistance: ", totalResistance)
+            # print("Access Resistance: ", accessResistance)
+            # print("Membrane Resistance: ", membraneResistance)
+            # print("Membrane Capacitance: ", membraneCapacitance)
             if accessResistance is not None:
-                self.accessResistanceLabel.setText("Access Resistance: {:.2f} GΩ\t".format(accessResistance))
+                self.accessResistanceLabel.setText("Access Resistance: {:.2f} MΩ\t".format(accessResistance))
             if membraneResistance is not None:
-                self.membraneResistanceLabel.setText("Membrane Resistance: {:.2f} GΩ\t".format(membraneResistance))
+                self.membraneResistanceLabel.setText("Membrane Resistance: {:.2f} MΩ\t".format(membraneResistance))
             if membraneCapacitance is not None:
                 self.membraneCapacitanceLabel.setText("Membrane Capacitance: {:.2f} pF\t".format(membraneCapacitance))
             # self.resistanceDeque.append(accessResistance + membraneResistance)
             # self.resistanceLabel.setText("Total Resistance: NA")
             if totalResistance is not None:
                 self.resistanceDeque.append(totalResistance)
-            self.resistanceLabel.setText("Total Resistance: {:.2f} Ohms\t".format(totalResistance))
+                self.resistanceLabel.setText("Total Resistance: {:.2f} M Ohms\t".format(totalResistance * 1e-6))
             # if self.cellMode:
+
             # else:
             #     self.membraneCapacitanceLabel.setText("Membrane Capacitance: NA")
             #     self.membraneResistanceLabel.setText("Membrane Resistance: NA")
@@ -432,17 +435,17 @@ class EPhysGraph(QWidget):
             self.squareWavePlot.plot(self.lastestDaqData[0, :], self.lastestDaqData[1, :])
             maximumIdx = np.argmax(self.lastestDaqData[1, :])
             # Get the average of the values after this maximum until the minimum is reached
-            minimumIdx = np.argmin(self.lastestDaqData[1, :])
-            print("Value at maximum: ", self.lastestDaqData[1, maximumIdx])
-            print("Value at minimum: ", self.lastestDaqData[1, minimumIdx])
+            # minimumIdx = np.argmin(self.lastestDaqData[1, :])
+            # print("Value at maximum: ", self.lastestDaqData[1, maximumIdx])
+            # print("Value at minimum: ", self.lastestDaqData[1, minimumIdx])
 
             initial_value = self.lastestDaqData[1, maximumIdx]
             target_value = initial_value / np.exp(1)
             # Search for the index where data drops below this value for the first time after max_index
-            tau_index = np.where(self.lastestDaqData[1, maximumIdx:] <= target_value)[0][0] + maximumIdx
-            time_constant = self.lastestDaqData[0, tau_index] - self.lastestDaqData[0, maximumIdx]
+            tau_index = np.where(self.lastestDaqData[1, maximumIdx:] <= target_value)[0] + maximumIdx
+            # time_constant = self.lastestDaqData[0, tau_index] - self.lastestDaqData[0, maximumIdx]
 
-            print("Time constant: ", time_constant)
+            # print("Time constant: ", time_constant)
 
             self.lastDaqData = self.lastestDaqData
             # self.lastestDaqData = None

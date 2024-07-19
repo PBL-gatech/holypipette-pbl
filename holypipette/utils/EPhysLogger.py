@@ -5,7 +5,7 @@ import os
 import logging
 
 class EPhysLogger(threading.Thread):
-    def __init__(self, recording_state_manager, folder_path="experiments/Data/TEST_patch_clamp_data/", ephys_filename="ephys"):
+    def __init__(self, recording_state_manager, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
         self.time_truth_timestamp = self.time_truth.timestamp()

@@ -89,7 +89,7 @@ class DAQ:
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
 
-    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=-200, endCurrentPicoAmp=300, stepCurrentPicoAmp=100, highTimeMs=400):
+    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=-300, endCurrentPicoAmp=300, stepCurrentPicoAmp=20, highTimeMs=400):
         '''Sends a series of square waves from startCurrentPicoAmp to endCurrentPicoAmp (inclusive) with stepCurrentPicoAmp pA increments.
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
         '''
@@ -165,7 +165,6 @@ class DAQ:
         self.voltage_protocol_data = None # clear data
 
         self.voltage_protocol_data, _, _, _, _ = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
-        # self.lastest_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
 
         self.isRunningProtocol = False
 
@@ -176,6 +175,7 @@ class DAQ:
         # measure the time it took to acquire the data
         # start0 = time.time()
         self._deviceLock.acquire()
+        # ? What is the unit for amplitude here?
         sendTask = self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
         sendTask.start()
         # start2 = time.time()
@@ -207,15 +207,14 @@ class DAQ:
         # print("Data[0] ", data[0])
         # print("Max data", np.max(data))
         # print("Min data", np.min(data))
-        
-        if self.cellMode:
-            print("Cell Mode")
-            # self.totalResistance = None
-            # ? Why 0.02?
-        else:
-            print("Bath Mode")
-            # self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = None, None, None
-            # ? Why 0.02?
+
+        # convert from V to pA
+        # data *= 1000
+        # convert from pA to Amps
+        # data *= 1e-12
+        data *= 1e-9
+
+        amplitude *= 1e-2
 
         self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(data, xdata, amplitude)
         self.totalResistance = self._getResistancefromCurrent(data, amplitude)
@@ -224,7 +223,7 @@ class DAQ:
         # logging.info(f"Time to acquire & transform data: {time.time() - start0}")
         
         # convert from pA to Amps (for the graph to be fooled, we believe the data is already in pA)
-        return np.array([xdata, data * 1e-12]), self.totalResistance, self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance
+        return np.array([xdata, data]), self.totalResistance, self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance
     
     def resistance(self):
         # logging.warn("totalResistance", self.totalResistance)
@@ -254,13 +253,13 @@ class DAQ:
         try:
             mean = np.mean(data)
             lowAvg = np.mean(data[data < mean])
-            highAvg = np.mean(data[data > mean])  
+            highAvg = np.mean(data[data > mean])
 
-            print("Mean", mean)
-            print("Low Avg", lowAvg)
-            print("High Avg", highAvg) 
+            # print("Mean", mean)
+            # print("Low Avg", lowAvg)
+            # print("High Avg", highAvg) 
 
-            print("cmdVoltage: ", cmdVoltage)
+            # print("cmdVoltage: ", cmdVoltage)
             # calculate resistance
             resistance = cmdVoltage / (highAvg - lowAvg)
 
@@ -268,7 +267,7 @@ class DAQ:
             
         except Exception as e:
             # * we got an invalid square wave, or division by zero
-            logging.error(f"Error in getResistancefromCurrent: {e}")
+            # logging.error(f"Error in getResistancefromCurrent: {e}")
             return None
         
     def _getParamsfromCurrent(self, data, xdata, cmdVoltage) -> tuple:
@@ -276,7 +275,7 @@ class DAQ:
 
         try:
             # calculate the capicitance and resistance of the membrane and the access resistance
-            print("Calculating parameters")
+            # print("Calculating parameters")
             # convert into pandas data frame
             df = pd.DataFrame({'X': xdata, 'Y': data})
             df['X_ms'] = df['X'] * 1000  # converting seconds to milliseconds
@@ -285,20 +284,22 @@ class DAQ:
             filtered_data, pre_filtered_data, post_filtered_data, plot_params, I_prev, I_post = self.filter_data(df)
             peak_time, peak_index, min_time, min_index = plot_params
             m, t, b = self.optimizer(filtered_data)
-            print("Optimized")
-            print(m, t, b)
+            # print("Optimized")
+            # print(m, t, b)
             if m is not None and t is not None and b is not None:
                 tau = 1 / t
                     # Get peak current using peak_index
                 I_peak = df.loc[peak_index, 'Y_pA']
                 # Calculate parameters
                 R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, cmdVoltage, I_peak, I_prev, I_post)
-            print("Parameters calculated")
+            # print("Parameters calculated")
 
         except Exception as e:
-            logging.error(f"Error in getParamsfromCurrent: {e}")
+            return None, None, None
+            # print("Error in getParamsfromCurrent: ", e)
+            # logging.error(f"Error in getParamsfromCurrent: {e}")
 
-        print(R_a_MOhms, R_m_MOhms, C_m_pF)
+        # print(R_a_MOhms, R_m_MOhms, C_m_pF)
         return R_a_MOhms, R_m_MOhms, C_m_pF
 
     def filter_data(self, data):
@@ -351,24 +352,28 @@ class DAQ:
         try:
             params, _ = scipy.optimize.curve_fit(self.monoExp, filtered_data['X_ms'], filtered_data['Y_pA'], maxfev=10000, p0=p0)
             m, t, b = params
-            print("Params", m, t, b)
+            # print("Params", m, t, b)
             return m, t, b
         except Exception as e:
-            print("Error:", e)
+            # print("Error:", e)
             return None, None, None
 
         
-    def calc_param(self, tau, dV, I_peak, I_prev, I_ss, epsilon=1e-12):
+    def calc_param(self, tau, dV, I_peak, I_prev, I_ss, epsilon = 1e-12):
         tau_s = tau / 1000  # Convert ms to seconds
+
         dV_V = dV * 1e-3  # Convert mV to V
+        # print("tau_s, dV_V", tau_s, dV_V)
+        # print("I_peak, I_prev, I_ss", I_peak, I_prev, I_ss)
         I_d = I_peak - I_prev  # in pA
         I_dss = I_ss - I_prev  # in pA
-        I_d_A = I_d * 1e-12
-        I_dss_A = I_dss * 1e-12
+        I_d_A = I_d
+        I_dss_A = I_dss
+        # print("I_d_A, I_dss_A", I_d_A, I_dss_A)
 
         # Check for potential division by zero or very small values
         if abs(I_d_A) < epsilon or abs(I_dss_A) < epsilon:
-            print("Warning: Division by zero or near zero encountered in R_a or R_m calculation")
+            logging.warning("Warning: Division by zero or near zero encountered in R_a or R_m calculation")
             return float('nan'), float('nan'), float('nan')
 
         # Calculate Access Resistance (R_a) in ohms
@@ -381,14 +386,14 @@ class DAQ:
 
         # Check for potential invalid operations
         if abs(R_a_Ohms) < epsilon or abs(R_m_Ohms) < epsilon:
-            print("Warning: Invalid operation encountered in C_m calculation")
+            logging.warning("Warning: Invalid operation encountered in C_m calculation")
             return float('nan'), float('nan'), float('nan')
 
         # Calculate Membrane Capacitance (C_m) in farads
         C_m_F = tau_s / (1/(1 / R_a_Ohms) + (1 / R_m_Ohms))  # Farads
         C_m_pF = C_m_F * 1e12  # Convert to pF
 
-        print("R_a_MOhms, R_m_MOhms, C_m_pF", R_a_MOhms, R_m_MOhms, C_m_pF)
+        # print("R_a_MOhms, R_m_MOhms, C_m_pF", R_a_MOhms, R_m_MOhms, C_m_pF)
 
         return R_a_MOhms, R_m_MOhms, C_m_pF
 

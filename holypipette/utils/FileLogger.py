@@ -15,7 +15,7 @@ class FileLogger(threading.Thread):
 
         self.image_type  = "webp"
 
-        testMode = True
+        testMode = False
         if testMode:
             folder_path = folder_path.replace("Data/", "Data/TEST_")
 

@@ -114,8 +114,8 @@ if m is not None and t is not None and b is not None:
     R_a_MOhms, R_m_MOhms, C_m_pF = calc_param(tau, 5, I_peak, I_prev, I_post)
 
     # Print the results
-    print(f"Access Resistance (R_a): {R_a_MOhms:.2f} MOhms")
-    print(f"Membrane Resistance (R_m): {R_m_MOhms:.2f} MOhms")
-    print(f"Membrane Capacitance (C_m): {C_m_pF:.2f} pF")
+    # print(f"Access Resistance (R_a): {R_a_MOhms:.2f} MOhms")
+    # print(f"Membrane Resistance (R_m): {R_m_MOhms:.2f} MOhms")
+    # print(f"Membrane Capacitance (C_m): {C_m_pF:.2f} pF")
 else:
-    print("Failed to optimize parameters.")
+    # print("Failed to optimize parameters.")
