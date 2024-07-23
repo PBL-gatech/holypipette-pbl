@@ -104,6 +104,12 @@ class AutoPatchInterface(TaskInterface):
             self.current_autopatcher.calibrated_unit.camera.cell_list.append(camera_pos[0:2].astype(int))
             
 
+    @command(category='Patch',
+                description='emit the states to logger that are being attempted in manual mode',
+                success_message='state emitted')
+    def state_emitter(self,state):
+        self.execute(self.current_autopatcher.state_emitter, argument=state)
+                
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
     def patch(self) -> None:
@@ -144,7 +150,6 @@ class AutoPatchInterface(TaskInterface):
         # TODO: Figure out what this should link to
         self.execute(self.current_autopatcher.contact_detection)
 
-    
     def set_pressure_near(self) -> None:
         '''puts the pipette under positive pressure to prevent blockages
         '''

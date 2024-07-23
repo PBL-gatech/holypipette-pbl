@@ -8,6 +8,7 @@ import PyQt5.QtGui as QtGui
 import numpy as np
 import logging
 
+from PyQt5.QtWidgets import QDesktopWidget
 
 from holypipette.controller import TaskController
 from holypipette.gui.manipulator import ManipulatorGui
@@ -26,8 +27,6 @@ class PatchGui(ManipulatorGui):
 
     def __init__(self, camera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager: RecordingStateManager, with_tracking=False):
         super(PatchGui, self).__init__(camera, pipette_interface,with_tracking=with_tracking,recording_state_manager=recording_state_manager)
-        
-
 
         self.setWindowTitle("Patch GUI")
         # Note that pipette interface already runs in a thread, we need to use
@@ -44,11 +43,11 @@ class PatchGui(ManipulatorGui):
         #add patching button tab
         button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
         self.add_config_gui(self.patch_interface.config)
-        self.add_tab(button_tab, 'Commands', index = 0)
+        self.add_tab(button_tab, 'Auto Patching', index = 0)
 
-        #add cell sorter button tab
-        cellsorter_tab = CellSorterButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals)
-        self.add_tab(cellsorter_tab, 'Cell Sorter', index = 0)
+        # #add cell sorter button tab
+        # cellsorter_tab = CellSorterButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals)
+        # self.add_tab(cellsorter_tab, 'Cell Sorter', index = 0)
 
         # add manual patching button tab
         manual_patching_tab = ManualPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
@@ -59,6 +58,22 @@ class PatchGui(ManipulatorGui):
         self.pressure_timer.timeout.connect(self.display_pressure)
         self.pressure_timer.start(16)
         self.patch_interface.set_pressure_near()
+
+    def location_on_the_screen(self):
+        ag = QDesktopWidget().availableGeometry()
+        sg = QDesktopWidget().screenGeometry()
+        # print(f"Available geometry: {ag.width()} x {ag.height()}")
+        # print(ag.width(), ag.height())
+        # print(f"Screen geometry: {sg.width()} x {sg.height()}")
+        # print(sg.width(), sg.height())
+    
+        x = 0   # Adjusted calculation for x coordinate
+        y = 30  # Adjusted calculation for y coordinate
+        width = ag.width() // 2
+        height = ag.height() - 30    # Subtract 50 from the total height
+        print(f"x: {x}, y: {y}")
+        # print(x, y)
+        self.setGeometry(x, y, width, height)
 
     # this is heavily affecting performance. If we use lastVal it introduces a delay of of a few seconds
     # however this implementation means that we are reading the arduino meaure twice, and that delays are being stacked?
@@ -230,7 +245,8 @@ class ManualPatchButtons(ButtonTabWidget):
         self.recording_state_manager.increment_sample_number()
 
     def state_emitter(self, state):
-        logging.info(f"emitting state: {state}")
+        self.patch_interface.state_emitter(state)
+
 
 
     def toggle_recording(self):

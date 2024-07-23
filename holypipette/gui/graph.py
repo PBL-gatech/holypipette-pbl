@@ -1,6 +1,6 @@
 import logging
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton, QDesktopWidget
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import Qt
 
@@ -384,6 +384,21 @@ class EPhysGraph(QWidget):
         self.raise_()
         self.show()
 
+    def location_on_the_screen(self):
+        ag = QDesktopWidget().availableGeometry()
+        sg = QDesktopWidget().screenGeometry()
+        print(f"Available geometry: {ag.width()} x {ag.height()}")
+        # print(ag.width(), ag.height())
+        print(f"Screen geometry: {sg.width()} x {sg.height()}")
+        # print(sg.width(), sg.height())
+    
+        x = ag.width() // 2    # Adjusted calculation for x coordinate
+        y = 30  # Adjusted calculation for y coordinate
+        width = ag.width() // 2
+        height = ag.height() - 30    # Subtract 50 from the total height
+        print(f"x: {x}, y: {y}")
+        # print(x, y)
+        self.setGeometry(x, y, width, height)
 
     def close(self):
         self.recorder.close()
@@ -403,7 +418,7 @@ class EPhysGraph(QWidget):
             # * subsequent shift in in daq.getDataFromSquareWave
             # 1 = 10mV -> 10 M Ohms
             # 0.5 = 5mV
-            self.lastestDaqData, totalResistance, accessResistance, membraneResistance, membraneCapacitance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
+            self.lastestDaqData, totalResistance, accessResistance, membraneResistance, membraneCapacitance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 1, 0.03)
 
             # print("Total Resistance: ", totalResistance)
             # print("Access Resistance: ", accessResistance)

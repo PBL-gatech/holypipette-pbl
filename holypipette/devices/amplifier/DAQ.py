@@ -281,7 +281,7 @@ class DAQ:
             df['X_ms'] = df['X'] * 1000  # converting seconds to milliseconds
             df['Y_pA'] = df['Y']
             # Decay filter part
-            filtered_data, pre_filtered_data, post_filtered_data, plot_params, I_prev, I_post = self.filter_data(df)
+            filtered_data, pre_filtered_data, post_filtered_data, plot_params, I_prev_pA, I_post_pA = self.filter_data(df)
             peak_time, peak_index, min_time, min_index = plot_params
             m, t, b = self.optimizer(filtered_data)
             # print("Optimized")
@@ -289,9 +289,9 @@ class DAQ:
             if m is not None and t is not None and b is not None:
                 tau = 1 / t
                     # Get peak current using peak_index
-                I_peak = df.loc[peak_index, 'Y_pA']
+                I_peak_pA = df.loc[peak_index, 'Y_pA']
                 # Calculate parameters
-                R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, cmdVoltage, I_peak, I_prev, I_post)
+                R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, cmdVoltage, I_peak_pA, I_prev_pA, I_post_pA)
             # print("Parameters calculated")
 
         except Exception as e:
@@ -372,9 +372,9 @@ class DAQ:
         # print("I_d_A, I_dss_A", I_d_A, I_dss_A)
 
         # Check for potential division by zero or very small values
-        if abs(I_d_A) < epsilon or abs(I_dss_A) < epsilon:
-            logging.warning("Warning: Division by zero or near zero encountered in R_a or R_m calculation")
-            return float('nan'), float('nan'), float('nan')
+        # if abs(I_d_A) < epsilon or abs(I_dss_A) < epsilon:
+        #     logging.warning("Warning: Division by zero or near zero encountered in R_a or R_m calculation")
+        #     return float('nan'), float('nan'), float('nan')
 
         # Calculate Access Resistance (R_a) in ohms
         R_a_Ohms = dV_V / I_d_A  # Ohms
@@ -385,9 +385,9 @@ class DAQ:
         R_m_MOhms = R_m_Ohms * 1e-6  # Convert to MOhms
 
         # Check for potential invalid operations
-        if abs(R_a_Ohms) < epsilon or abs(R_m_Ohms) < epsilon:
-            logging.warning("Warning: Invalid operation encountered in C_m calculation")
-            return float('nan'), float('nan'), float('nan')
+        # if abs(R_a_Ohms) < epsilon or abs(R_m_Ohms) < epsilon:
+        #     logging.warning("Warning: Invalid operation encountered in C_m calculation")
+        #     return float('nan'), float('nan'), float('nan')
 
         # Calculate Membrane Capacitance (C_m) in farads
         C_m_F = tau_s / (1/(1 / R_a_Ohms) + (1 / R_m_Ohms))  # Farads

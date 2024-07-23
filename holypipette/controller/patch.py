@@ -38,6 +38,9 @@ class AutoPatcher(TaskController):
         self.initial_resistance = None
 
         self.current_protocol_graph = None
+        
+    def state_emitter(self, state):
+        self.info(f"emitting state: {state}")
 
     def run_protocols(self):
         if self.config.voltage_protocol:
