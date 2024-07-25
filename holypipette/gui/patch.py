@@ -216,12 +216,12 @@ class ManualPatchButtons(ButtonTabWidget):
 
         self.addPositionBox('stage position (um)', layout, self.update_stage_pos_labels, tare_func=self.tare_stage)
         self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
-        self.init_stage_pos = None #used to store bootup positions so we can reset to them
+        self.init_stage_pos = None # used to store bootup positions so we can reset to them
         self.init_pipette_pos = None
 
-        #add box to emit patching states
+        # add box to emit patching states
         buttonList = [['Cell Found', 'Gigaseal Reached','Whole Cell Achieved'], ['Patch Attempt started', 'Patch Attempt Failed']]
-        cmds = [[self.state_emitter('NH success'), self.state_emitter('GS success'),self.state_emitter("WC success")], [self.state_emitter('patching started'), self.state_emitter('patching failed')]]
+        cmds = [[self.emit_cell_found, self.emit_gigaseal, self.emit_whole_cell], [self.emit_patch_attempt_start, self.emit_patch_attempt_fail]]
         self.addButtonList('patching states', layout, buttonList, cmds)
     
         #add a box for patching cmds
@@ -244,10 +244,16 @@ class ManualPatchButtons(ButtonTabWidget):
         self.patch_interface.run_protocols()
         self.recording_state_manager.increment_sample_number()
 
-    def state_emitter(self, state):
-        self.patch_interface.state_emitter(state)
-
-
+    def emit_cell_found(self):
+        self.patch_interface.state_emitter("NH Success")
+    def emit_gigaseal(self):
+        self.patch_interface.state_emitter("GS success")
+    def emit_whole_cell(self):
+        self.patch_interface.state_emitter("WC success")
+    def emit_patch_attempt_start(self):
+        self.patch_interface.state_emitter("patching started")
+    def emit_patch_attempt_fail(self):
+        self.patch_interface.state_emitter("patching failed")
 
     def toggle_recording(self):
         if self.recording_state_manager.is_recording_enabled():
@@ -300,6 +306,18 @@ class ManualPatchButtons(ButtonTabWidget):
         xyPos = self.pipette_interface.calibrated_stage.position()
         zPos = self.pipette_interface.microscope.position()
         self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+    
+    def tare_stage_x(self):
+        xPos = self.pipette_interface.calibrated_stage.position(0)
+        self.init_stage_pos = np.array([xPos, None, None])
+
+    def tare_stage_y(self):
+        yPos = self.pipette_interface.calibrated_stage.position(1)
+        self.init_stage_pos = np.array([None, yPos, None])
+
+    def tare_stage_z(self):
+        zPos = self.pipette_interface.microscope.position()
+        self.init_stage_pos = np.array([None, None, zPos])
 
 
     def update_stage_pos_labels(self, indices):

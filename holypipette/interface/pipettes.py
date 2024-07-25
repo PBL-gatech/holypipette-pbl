@@ -9,12 +9,14 @@ from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, Calib
 from holypipette.devices.cellsorter import CalibratedCellSorter
 import time
 
+from holypipette.devices.manipulator.microscope import Microscope
+
 class PipetteInterface(TaskInterface):
     '''
     Controller for the stage, the microscope, a pipette, and the cell sorter.
     '''
 
-    def __init__(self, stage, microscope, camera, unit, cellsorterManip, cellsorterController,
+    def __init__(self, stage, microscope: Microscope, camera, unit, cellsorterManip, cellsorterController,
                  config_filename='calibration.pickle'):
         super().__init__()
         self.microscope = microscope

@@ -22,11 +22,13 @@ from datetime import datetime
 __all__ = ["DAQtest", "EPhysGraph"]
 
 class DAQtest:
-    def __init__(self, readDev, readChannel, cmdDev, cmdChannel):
+    def __init__(self, readDev, readChannel, cmdDev, cmdChannel, respDev, respChannel):
         self.readDev = readDev
         self.cmdDev = cmdDev
+        self.respDev = respDev
         self.readChannel = readChannel
         self.cmdChannel = cmdChannel
+        self.respChannel = respChannel
         self.latestAccessResistance = None
         self.totalResistance = None
         self.latestMembraneResistance = None
@@ -43,19 +45,20 @@ class DAQtest:
 
         self.cellMode = False
 
-        logging.info(f'Using {self.readDev}/{self.readChannel} for reading and {self.cmdDev}/{self.cmdChannel} for writing.')
+        logging.info(f'Using {self.readDev}/{self.readChannel} for reading the output of {self.cmdDev}/{self.cmdChannel} and {self.respDev}/{self.respChannel} for response.')
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         numSamples = int(samplesPerSec * recordingTime)
         with nidaqmx.Task() as task:
             task.ai_channels.add_ai_voltage_chan(f'{self.readDev}/{self.readChannel}', max_val=10, min_val=0, terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF)
+            task.ai_channels.add_ai_voltage_chan(f'{self.respDev}/{self.respChannel}', max_val=10, min_val=0, terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF)
             task.timing.cfg_samp_clk_timing(samplesPerSec, sample_mode=nidaqmx.constants.AcquisitionType.FINITE, samps_per_chan=numSamples)
             data = task.read(number_of_samples_per_channel=numSamples, timeout=10)
             data = np.array(data, dtype=float)
             task.stop()
 
         if data is None or np.where(data == None)[0].size > 0:
-            data = np.zeros(numSamples)
+            data = np.zeros((2, numSamples))
             
         return data
     
@@ -66,20 +69,13 @@ class DAQtest:
         
         numSamples = int(samplesPerSec * recordingTime)
         data = np.zeros(numSamples)
-        # print the size of hte array
-        # print(f"Size of data: {data.size}")
         
         period = int(samplesPerSec / wave_freq)
-        # print the lenght of the period
-        # print(f"Period: {period}")
         onTime = int(period * dutyCycle)
-        # print the length of the onTime
-        # print(f"On Time: {onTime}")
 
         for i in range(0, numSamples, period):
             data[i:i+onTime] = amplitude
             data[i+onTime:i+period] = 0
-            
 
         task.write(data)
         
@@ -97,26 +93,31 @@ class DAQtest:
         sendTask.close()
         self._deviceLock.release()
         
-        triggeredSamples = data.shape[0]
+        triggeredSamples = data.shape[1]
         xdata = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype = float)
 
-        # gradientData = np.gradient(data, xdata)
-        # max_index = np.argmax(gradientData)
-        # min_index = np.argmin(gradientData[max_index:]) + max_index
+        # Gradient
+        gradientData = np.gradient(data[0], xdata)
+        max_index = np.argmax(gradientData)
+        # Find the index of the minimum value after the maximum value
+        min_index = np.argmin(gradientData[max_index:]) + max_index
         
-        left_bound = 100
+        #Truncate the array
+        left_bound = 10
         right_bound = 150
-        # data = data[max_index - left_bound:min_index + right_bound]
-        # xdata = xdata[max_index - left_bound:min_index + right_bound]
-        # cmdData = cmdData[max_index - left_bound:min_index + right_bound]
+        # * bound is arbitrary, just to make it look good on the graph
+        respData = data[0][max_index - left_bound:min_index + right_bound]
+        readData = data[1][max_index - left_bound:min_index + right_bound]
+        xdata = xdata[max_index - left_bound:min_index + right_bound]
 
-        data *= 1e-9
+        respData *= 1e-9
+        readData *= 1e-9
         amplitude *= 1e-2
 
-        self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(data, xdata, amplitude)
-        self.totalResistance = self._getResistancefromCurrent(data, amplitude)
+        self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(respData, xdata, amplitude)
+        self.totalResistance = self._getResistancefromCurrent(respData, amplitude)
 
-        return np.array([xdata, cmdData]), np.array([xdata, data]), self.totalResistance, self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance
+        return np.array([xdata, respData]),np.array([xdata, readData]), self.totalResistance, self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance
     
     def _getParamsfromCurrent(self, data, xdata, cmdVoltage) -> tuple:
         R_a_MOhms, R_m_MOhms, C_m_pF = None, None, None
@@ -160,29 +161,31 @@ class EPhysGraph(QWidget):
 
         self.setWindowTitle("Electrophysiology")
 
-        self.commandPlot = PlotWidget()
-        self.responsePlot = PlotWidget()
+    
+        self.cmdPlot = PlotWidget()
+        self.respPlot = PlotWidget()
         self.resistancePlot = PlotWidget()
 
-        for plot in [self.commandPlot, self.responsePlot, self.resistancePlot]:
+        for plot in [self.cmdPlot, self.respPlot, self.resistancePlot]:
             plot.setBackground("w")
             plot.getAxis("left").setPen("k")
             plot.getAxis("bottom").setPen("k")
 
-        self.commandPlot.setLabel("left", "Voltage", units="V")
-        self.commandPlot.setLabel("bottom", "Time", units="s")
-        self.responsePlot.setLabel("left", "Current", units="A")
-        self.responsePlot.setLabel("bottom", "Time", units="s")
+        self.cmdPlot.setLabel("left", "Command Voltage", units="V")
+        self.cmdPlot.setLabel("bottom", "Time", units="s")
+        self.respPlot.setLabel("left", "Current (resp)", units="A")
+        self.respPlot.setLabel("bottom", "Time", units="s")
         self.resistancePlot.setLabel("left", "Resistance", units="Ohms")
         self.resistancePlot.setLabel("bottom", "Samples", units="")
 
-        self.latestCmdData = None
-        self.latestRspData = None
+
+        self.latestReadData = None
+        self.latestRespData = None
         self.resistanceDeque = deque(maxlen=100)  # Initialize the resistance deque
 
         layout = QVBoxLayout()
-        layout.addWidget(self.commandPlot)
-        layout.addWidget(self.responsePlot)
+        layout.addWidget(self.cmdPlot)
+        layout.addWidget(self.respPlot)
         layout.addWidget(self.resistancePlot)
         self.setLayout(layout)
         
@@ -202,18 +205,18 @@ class EPhysGraph(QWidget):
         while True:
             if self.daq.isRunningProtocol:
                 continue
-            self.latestCmdData, self.latestRspData, totalResistance, accessResistance, membraneResistance, membraneCapacitance = self.daq.getDataFromSquareWave(50, 50000, 0.5, 5, 0.06)
+            self.latestReadData, self.latestRespData, totalResistance, accessResistance, membraneResistance, membraneCapacitance = self.daq.getDataFromSquareWave(25,50000, 0.5, 2, 0.06)
             if totalResistance is not None:
                 self.resistanceDeque.append(totalResistance)
 
     def update_plot(self):
-        if self.latestCmdData is not None and self.latestRspData is not None:
-            self.commandPlot.clear()
-            self.commandPlot.plot(self.latestCmdData[0, :], self.latestCmdData[1, :])
-            self.responsePlot.clear()
-            self.responsePlot.plot(self.latestRspData[0, :], self.latestRspData[1, :])
-            self.latestCmdData = None
-            self.latestRspData = None
+        if  self.latestReadData is not None and self.latestRespData is not None:
+            self.cmdPlot.clear()
+            self.cmdPlot.plot(self.latestReadData[0, :], self.latestReadData[1, :])
+            self.respPlot.clear()
+            self.respPlot.plot(self.latestRespData[0, :], self.latestRespData[1, :])
+            self.latestReadData = None
+            self.latestRespData = None
 
         if len(self.resistanceDeque) > 0:
             self.resistancePlot.clear()
@@ -230,8 +233,10 @@ if __name__ == "__main__":
     readChannel = "ai0"
     cmdDev = "cDAQ1Mod4"
     cmdChannel = "ao0"
+    respDev = "cDAQ1Mod1"
+    respChannel = "ai3"
 
-    daq = DAQtest(readDev, readChannel, cmdDev, cmdChannel)
+    daq = DAQtest(readDev, readChannel, cmdDev, cmdChannel, respDev, respChannel)
     graph = EPhysGraph(daq)
     graph.show()
 

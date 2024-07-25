@@ -108,7 +108,7 @@ class AutoPatchInterface(TaskInterface):
                 description='emit the states to logger that are being attempted in manual mode',
                 success_message='state emitted')
     def state_emitter(self,state):
-        self.execute(self.current_autopatcher.state_emitter, argument=state)
+        self.execute(self.current_autopatcher.state_emitter, argument=(state))
                 
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
