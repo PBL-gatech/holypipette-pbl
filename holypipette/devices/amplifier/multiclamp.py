@@ -522,6 +522,7 @@ class MultiClampChannel(Amplifier):
     @needs_select
     def voltage_clamp(self):
         # MCCMSG_MODE_VCLAMP = 0
+        # logging.info('Switching to voltage clamp in multiclamp.py')
         if not self.dll.MCCMSG_SetMode(self.msg_handler, ctypes.c_uint(0),
                                        ctypes.byref(self.last_error)):
             self.check_error()

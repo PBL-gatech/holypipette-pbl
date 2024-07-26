@@ -27,16 +27,21 @@ class EPhysLogger(threading.Thread):
             except OSError as exc:
                 logging.error("Error creating folder for recording: %s", exc)
     
-    def _write_to_file(self, data, index, time_value,color):
+    def _write_to_file(self, timestamp, index, timeData, readData, respData, color):
         # Create a string for each pair of values in the desired format
-        lines = [f"{data[0][i]} {data[1][i]}\n" for i in range(data.shape[1])]
+        print("timeData shape: ", timeData.shape)
+        print("readData shape: ", readData.shape)
+        print("respData shape: ", respData.shape)
+        lines = [f"{timeData[i]} {readData[i]} {respData[i]}\n" for i in range(len(timeData))]
         # Open the file in append mode and write the formatted strings
-        # logging.debug("Writing to file %s", self.filename)
-        with open(f"{self.filename}_{time_value}_{index}_{color}.csv", 'a+') as file:
+        logging.debug("Writing to file %s", self.filename)
+        logging.debug("Writing lines %s", lines)
+        with open(f"{self.filename}_{timestamp}_{index}_{color}.csv", 'a+') as file:
             file.writelines(lines)
         self.write_event.set()  # Signal that writing is done
     
-    def write_ephys_data(self, index, time_value, data, color):
+    def write_ephys_data(self,timestamp, index, timeData, readData, respData, color):
+        print("Writing ephys data")
         # logging.info("Writing ephys data")
         self.write_event.clear()
         # ("len of data: ", len(data[0]))
@@ -44,7 +49,7 @@ class EPhysLogger(threading.Thread):
         # content = f"{time_value}    {data}\n"
         # content = f"{time_value}    {data[0, :]}    {data[1, :]}\n"
         # content = f"{time_value}    {' '.join(map(str, data))}\n"
-        threading.Thread(target=self._write_to_file, args=(data,index,time_value,color)).start()
+        threading.Thread(target=self._write_to_file, args=(timestamp, index, timeData, readData, respData, color)).start()
         
     def close(self):
         if self.file is not None:

@@ -44,6 +44,7 @@ class AutoPatcher(TaskController):
 
     def run_protocols(self):
         if self.config.voltage_protocol:
+            print('Running voltage protocol')
             self.run_voltage_protocol()
             self.sleep(0.25)
         if self.config.current_protocol:
@@ -56,6 +57,7 @@ class AutoPatcher(TaskController):
         self.info('Running voltage protocol (membrane test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
+        self.info("Getting data from voltage protocol")
         self.daq.getDataFromVoltageProtocol()
         self.sleep(0.25)
         self.info('finished running voltage protocol (membrane test)')

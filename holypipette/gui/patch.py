@@ -220,7 +220,7 @@ class ManualPatchButtons(ButtonTabWidget):
         self.init_pipette_pos = None
 
         # add box to emit patching states
-        buttonList = [['Cell Found', 'Gigaseal Reached','Whole Cell Achieved'], ['Patch Attempt started', 'Patch Attempt Failed']]
+        buttonList = [['Cell Found', 'Gigaseal Reached','Whole Cell Achieved'], ['Patch Attempt Start', 'Patch Attempt Failed']]
         cmds = [[self.emit_cell_found, self.emit_gigaseal, self.emit_whole_cell], [self.emit_patch_attempt_start, self.emit_patch_attempt_fail]]
         self.addButtonList('patching states', layout, buttonList, cmds)
     
@@ -241,8 +241,11 @@ class ManualPatchButtons(ButtonTabWidget):
         self.setLayout(layout)
 
     def run_protocols(self):
+        logging.info("Protocols run start")
         self.patch_interface.run_protocols()
+        logging.info("Protocols run finished")
         self.recording_state_manager.increment_sample_number()
+        logging.info("Sample number incremented")
 
     def emit_cell_found(self):
         self.patch_interface.state_emitter("NH Success")

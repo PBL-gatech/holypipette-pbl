@@ -36,7 +36,6 @@ def main():
     gui.location_on_the_screen()
     gui.show()
     ret = app.exec_()
-
     sys.exit(ret)
 
 if __name__ == "__main__":
