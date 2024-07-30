@@ -21,6 +21,8 @@ class DAQ:
     V_CLAMP_VOLT_PER_AMP = (2*1e-9) #0.5V DAQ out (DAQ input) / pA (cell out)
 
     def __init__(self, readDev, readChannel, cmdDev, cmdChannel, respDev, respChannel):
+        self.pulses = None
+        self.pulseRange = None
         self.readDev = readDev
         self.cmdDev = cmdDev
         self.respDev = respDev
@@ -90,11 +92,13 @@ class DAQ:
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
 
-    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=-300, endCurrentPicoAmp=300, stepCurrentPicoAmp=20, highTimeMs=400):
+    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=-40, endCurrentPicoAmp=40, stepCurrentPicoAmp=20, highTimeMs=400):
         '''Sends a series of square waves from startCurrentPicoAmp to endCurrentPicoAmp (inclusive) with stepCurrentPicoAmp pA increments.
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
         '''
-
+        # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
+        self.pulses = np.arange(startCurrentPicoAmp, endCurrentPicoAmp + stepCurrentPicoAmp, stepCurrentPicoAmp)
+        self.pulseRange = len(self.pulses)
         self.isRunningProtocol = True
         self.latest_protocol_data = None # clear data
         num_waves = int((endCurrentPicoAmp - startCurrentPicoAmp) / stepCurrentPicoAmp) + 1
@@ -124,32 +128,32 @@ class DAQ:
             sendTask.stop()
             sendTask.close()
             self._deviceLock.release()
-            respdata = data[1][0]
-            cmddata = data[0]
+            respData = data[1]
+            readData = data[0]
 
             #convert to V (cell out)
-            respdata = respdata / self.C_CLAMP_VOLT_PER_VOLT
+            respData = respData / self.C_CLAMP_VOLT_PER_VOLT
         
             lowZero = currentAmps > 0
-            respdata = self._shiftWaveToZero(data, lowZero)
-            triggeredSamples = len(cmddata)
+            respData = self._shiftWaveToZero(respData, lowZero)
+            triggeredSamples = respData.shape[0]
             timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
             time.sleep(0.5)
 
-            # print("Shape of timeData", timeData.shape)
-            # print("Shape of respdata", respdata.shape)
-            # print("Shape of cmddata", cmddata.shape)
+            print("Shape of timeData", timeData.shape)
+            print("Shape of respData", respData.shape)
+            print("Shape of readData", readData.shape)
 
             if self.current_protocol_data is None:
-                self.current_protocol_data = [[timeData, respdata, cmddata]]
+                self.current_protocol_data = [[timeData, respData, readData]]
             else:
-                self.current_protocol_data.append([timeData, respdata, cmddata])
+                self.current_protocol_data.append([timeData, respData, readData])
         
         self.isRunningProtocol = False
 
         # print("Current Protocol Data", self.current_protocol_data)
 
-        return self.current_protocol_data 
+        return self.current_protocol_data, self.pulses, self.pulseRange
     
     def getDataFromHoldingProtocol(self):
         '''measures data from Post synaptic currents to determine spontaneous activity from other connected neurons'''
@@ -176,7 +180,7 @@ class DAQ:
         try:
             self.isRunningProtocol = True
             # self.latest_protocol_data = None # clear data
-            self.voltage_protocol_data, self.voltage_command_data, totalresistance, membraneResistance, accessResistance, membraneCapacitance = self.getDataFromSquareWave(20, 50000, 0.5, 0.25, 0.04)
+            self.voltage_protocol_data, self.voltage_command_data, totalresistance, membraneResistance, accessResistance, membraneCapacitance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.04)
 
         except Exception as e:
             self.voltage_protocol_data, self.voltage_command_data = None, None
@@ -237,12 +241,12 @@ class DAQ:
             #  self.latestMembraneResistance = 500
             #  self.latestMembraneCapacitance = 33
              self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude*self.V_CLAMP_VOLT_PER_VOLT)
-             self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
         else:
             self.latestAccessResistance = 0
             self.latestMembraneResistance = 0
             self.latestMembraneCapacitance = 0
-            self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
+
+        self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
 
 
         # print("Capacitance in DAQ", self.latestMembraneCapacitance)
@@ -305,6 +309,10 @@ class DAQ:
                 #shift time axis to zero
                 start = df['T'].iloc[0]
                 df['T'] = df['T'] - start
+                # print the first 5 elements before the conversion
+                # print(f"Before conversion T {df['T']}")
+                # print(f"Before conversion X {df['X']}")
+                # print(f"Before conversion Y {df['Y']}")
                 df['T_ms'] = df['T'] * 1000  # converting seconds to milliseconds
                 df['X_mV'] = df['X'] * 1000  # converting volts to millivolts
                 df['Y_pA'] = df['Y'] * 1e12  # converting amps to picoamps
@@ -331,7 +339,7 @@ class DAQ:
                 m, t, b = self.optimizer(fit_data, I_peak_pA, I_post_pA)
                 # print(f"m: {m}, t: {t}, b: {b}")
                 if m is not None and t is not None and b is not None:
-                    tau = 1/t
+                    tau = 1 / t
                     # Calculate parameters
                     R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, mean_voltage, I_peak_pA, I_prev_pA, I_post_pA)
                     # logging.info(f"R_a: {R_a_MOhms}, R_m: {R_m_MOhms}, C_m: {C_m_pF}")
@@ -416,13 +424,12 @@ class DAQ:
         I_d = I_peak - I_prev  # in pA
         I_dss = I_ss - I_prev  # in pA
         # logging.info(f"tau: {tau}, dmV: {mean_voltage}, I_d: {I_d}, I_dss: {I_dss}")
-        #calculate access resistance:
-        R_a_Mohms = ((mean_voltage*1e-3) / (I_d*1e-12))*1e-6# 10 mV / 800 pA = 12.5 MOhms --> supposed to be 10 MOhms
+        # calculate access resistance:
+        R_a_Mohms = ((mean_voltage*1e-3) / (I_d*1e-12))*1e-6 # 10 mV / 800 pA = 12.5 MOhms --> supposed to be 10 MOhms
         # print("R_a_MOhms in calc", R_a_Mohms)
         
         # calculate membrane resistance:
-        R_m_Mohms = (((mean_voltage*1e-3) - R_a_Mohms*1e6*I_dss*1e-12)/(I_dss*1e-12)) #530 Mohms --> supposed to be 500 MOhms
-        R_a_Mohms *= 1e-6
+        R_m_Mohms = (((mean_voltage*1e-3) - R_a_Mohms*1e6*I_dss*1e-12)/(I_dss*1e-12))*1e-6 #530 Mohms --> supposed to be 500 MOhms
         
         # print("R_m_Mohms in calc", R_m_Mohms)
 
@@ -432,8 +439,7 @@ class DAQ:
         # print("Total (ohms)", total)
         # print("Tau (seconds)", tau_s)
         # print("Tau", tau)
-        C_m_pF = (tau*1e-3) / (1/(1/(R_a_Mohms*1e6) + 1/(R_m_Mohms*1e6))) # 250 pF --> supposed to be 33 pF
-        C_m_pF *= 1e12
+        C_m_pF = (tau*1e-3) / (1/(1/(R_a_Mohms*1e6) + 1/(R_m_Mohms*1e6))) * 1e12 # supposed to be 33 pF
         # print("C_m_pF in calc", C_m_pF)
         return R_a_Mohms, R_m_Mohms, C_m_pF
 

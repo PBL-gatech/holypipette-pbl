@@ -3,6 +3,7 @@ import logging
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton, QDesktopWidget
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import Qt
+from matplotlib.colors import LinearSegmentedColormap, to_hex
 
 
 from pyqtgraph import PlotWidget
@@ -71,7 +72,15 @@ class CurrentProtocolGraph(QWidget):
             self.isShown = True
         # curr = self.daq.latest_protocol_data
         # logging.info('length of current protocol data: ' + str(len(curr[0])) + ' ' + str(len(curr[1])))
-        colors = ["k", 'r', 'g', 'b', 'y', 'm', 'c']
+        # make a color gradient based on a list
+        color_range = self.daq.pulseRange
+        #make a gradient of colors based off of color_range, a value that should describe the number of pulses (as letters)
+        colors = [format((i / color_range), ".2f") for i in range(color_range)]
+        start_color = "#003153" #Prussian Blue
+        end_color =  "#ffffff" #White
+        cmap = LinearSegmentedColormap.from_list("", [start_color, end_color])
+        colors = [to_hex(cmap(float(i) / color_range)) for i in range(color_range)]
+        # colors = ["k", 'r', 'g', 'b', 'y', 'm', 'c']
         self.cprotocolPlot.clear()
 
         save_data = None
@@ -89,15 +98,15 @@ class CurrentProtocolGraph(QWidget):
             print("Graph: ", graph)
 
             timeData = graph[0]
-            respdata = graph[1]
-            cmddata = graph[2]
+            respData = graph[1]
+            readData = graph[2]
             print("timeData: ", len(timeData))
-            print("respdata: ", len(respdata))
-            print("cmddata: ", len(cmddata))
+            print("respData: ", len(respData))
+            print("readData: ", len(readData))
             # print(len(timeData), len(yData))
-            self.cprotocolPlot.plot(timeData, respdata, pen=colors[i])
-            self.cprotocolPlot.plot(timeData, respdata, pen="b")
-            save_data = np.array([timeData, respdata])
+            self.cprotocolPlot.plot(timeData, respData, pen=colors[i])
+            # self.cprotocolPlot.plot(timeData, respData, pen="b")
+            save_data = np.array([timeData, respData])
             # logging.info("writing current ephys data to file")
             # self.ephys_logger.write_ephys_data(timestamp, index, save_data, colors[i])
             if i == 5:
@@ -381,13 +390,13 @@ class EPhysGraph(QWidget):
 
         # start async daq data update
         self.latestReadData = None
-        self.latestRespData = None
+        self.latestrespData = None
         self.daqUpdateThread = threading.Thread(target=self.updateDAQDataAsync, daemon=True)
         self.daqUpdateThread.start()
     
 
         self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="graph_recording")
-        self.lastRespData = []
+        self.lastrespData = []
         self.lastReadData = []
 
         self.atmosphericPressureButton.clicked.connect(self.togglePressure)
@@ -430,7 +439,7 @@ class EPhysGraph(QWidget):
             # * subsequent shift in in daq.getDataFromSquareWave
             # 1 = 20mV  -> 5V on the oscilloscope
             # 0.5 = 10mV -> 2.5V on the oscilloscope
-            self.latestRespData, self.latestReadData, totalResistance, MembraneResistance, AccessResistance, MembraneCapacitance = self.daq.getDataFromSquareWave(40, 50000, 0.5, 0.25, 0.04)
+            self.latestrespData, self.latestReadData, totalResistance, MembraneResistance, AccessResistance, MembraneCapacitance = self.daq.getDataFromSquareWave(40, 50000, 0.5, 0.5, 0.04)
             
             # print("Total Resistance: ", totalResistance)
             # print("Access Resistance: ", AccessResistance)
@@ -475,11 +484,11 @@ class EPhysGraph(QWidget):
             self.lastReadData = self.latestReadData
             self.latestReadData = None
 
-        if self.latestRespData is not None:
+        if self.latestrespData is not None:
             self.respPlot.clear()
-            self.respPlot.plot(self.latestRespData[0, :], self.latestRespData[1, :])
-            self.lastRespData = self.latestRespData
-            self.latestRespData = None
+            self.respPlot.plot(self.latestrespData[0, :], self.latestrespData[1, :])
+            self.lastrespData = self.latestrespData
+            self.latestrespData = None
      
         
         #update pressure graph
@@ -506,9 +515,9 @@ class EPhysGraph(QWidget):
         # logging.debug("graph updated") # uncomment for debugging in log.csv file
 
         try:
-            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastRespData[1, :]), list(self.lastReadData[1, :]))
+            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastrespData[1, :]), list(self.lastReadData[1, :]))
         except Exception as e:
-            logging.error(f"Error in writing graph data to file: {e}, {self.lastRespData}")
+            logging.error(f"Error in writing graph data to file: {e}, {self.lastrespData}")
 
     def incrementPressure(self):
         current_value = self.pressureCommandSlider.value()
