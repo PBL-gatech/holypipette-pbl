@@ -59,21 +59,21 @@ class PatchGui(ManipulatorGui):
         self.pressure_timer.start(16)
         self.patch_interface.set_pressure_near()
 
-    def location_on_the_screen(self):
-        ag = QDesktopWidget().availableGeometry()
-        sg = QDesktopWidget().screenGeometry()
-        # print(f"Available geometry: {ag.width()} x {ag.height()}")
-        # print(ag.width(), ag.height())
-        # print(f"Screen geometry: {sg.width()} x {sg.height()}")
-        # print(sg.width(), sg.height())
+    # def location_on_the_screen(self):
+    #     ag = QDesktopWidget().availableGeometry()
+    #     sg = QDesktopWidget().screenGeometry()
+    #     # print(f"Available geometry: {ag.width()} x {ag.height()}")
+    #     # print(ag.width(), ag.height())
+    #     # print(f"Screen geometry: {sg.width()} x {sg.height()}")
+    #     # print(sg.width(), sg.height())
     
-        x = 0   # Adjusted calculation for x coordinate
-        y = 30  # Adjusted calculation for y coordinate
-        width = ag.width() // 2
-        height = ag.height() - 30    # Subtract 50 from the total height
-        print(f"x: {x}, y: {y}")
-        # print(x, y)
-        self.setGeometry(x, y, width, height)
+    #     x = 0   # Adjusted calculation for x coordinate
+    #     y = 30  # Adjusted calculation for y coordinate
+    #     width = ag.width() // 2
+    #     height = ag.height() - 30    # Subtract 50 from the total height
+    #     print(f"x: {x}, y: {y}")
+    #     # print(x, y)
+    #     self.setGeometry(x, y, width, height)
 
     # this is heavily affecting performance. If we use lastVal it introduces a delay of of a few seconds
     # however this implementation means that we are reading the arduino meaure twice, and that delays are being stacked?

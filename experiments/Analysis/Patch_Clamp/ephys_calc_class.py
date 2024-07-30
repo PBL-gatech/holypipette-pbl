@@ -56,6 +56,8 @@ class EPhysCalc:
         highlighted_time_2 = self.data.loc[self.peak_current_index:self.negative_peak_index, 'Time (ms)']
         # Calculate means
         self.mean_highlighted_1 = highlighted_response_current_1.mean()
+        print("Mean pre peak", self.mean_highlighted_1)
+
         # Get the peak value on the response current plot
         self.peak_value_response_current = self.data.loc[self.peak_current_index, 'Response Current (pA)']
         # Calculate the gradient of the highlighted portion between the positive peak of the response current and the negative peak of the derivative plot
@@ -68,9 +70,11 @@ class EPhysCalc:
         else:
             self.zero_gradient_time = None
         # Calculate the mean of the data between the zero gradient time and the min time
+        print(f"Zero gradient time: {self.zero_gradient_time}")
         if self.zero_gradient_time:
             post_peak_current_data = self.data[(self.data['Time (ms)'] >= self.zero_gradient_time) & (self.data['Time (ms)'] <= self.data.loc[self.negative_peak_index, 'Time (ms)'])]
             self.post_peak_current = post_peak_current_data['Response Current (pA)'].mean()
+            print(f"Post peak current mean: {self.post_peak_current}")
         else:
             self.post_peak_current = None
 
@@ -78,7 +82,7 @@ class EPhysCalc:
         return m * np.exp(-t * x) + b
 
     def optimizer(self, filtered_data):
-        p0 = (self.peak_value_response_current, 0.01 , self.post_peak_current)
+        p0 = (self.peak_value_response_current, 0.001 , self.post_peak_current)
         print(f"Initial guess: {p0}")
         try:
             cure_params, _ = scipy.optimize.curve_fit(self.monoExp, filtered_data["Time (ms)"], filtered_data['Response Current (pA)'], maxfev=1000000, p0=p0)
@@ -178,7 +182,7 @@ class EPhysCalc:
         plt.show()
 
     def calc_param(self):
-        tau = self.exp_fit_params[1]
+        tau = (1/self.exp_fit_params[1])
         I_peak = self.peak_value_response_current
         I_prev = self.mean_highlighted_1
         I_ss = self.post_peak_current
@@ -198,6 +202,7 @@ class EPhysCalc:
 
 
 # Example usage:
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\patch_clamp_data\2024_07_29-15_28\VoltageProtocol_1722281294.358729_1_k.csv"
 file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\patch_clamp_data\2024_07_25-17_02\VoltageProtocol_1721941384.317241_1_k.csv"
 ephys_calc = EPhysCalc(file_path)
 ephys_calc.read_and_convert_data()

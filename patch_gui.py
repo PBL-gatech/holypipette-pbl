@@ -25,7 +25,7 @@ def main():
     patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller)
     gui = PatchGui(camera, pipette_controller, patch_controller, recording_state_manager)
     graphs = EPhysGraph(daq, pressure, recording_state_manager)
-    graphs.location_on_the_screen()
+    # graphs.location_on_the_screen()
     graphs.show()
 
     currentProtocolGraph = CurrentProtocolGraph(daq, recording_state_manager)
@@ -33,7 +33,7 @@ def main():
     holdingProtocolGraph = HoldingProtocolGraph(daq, recording_state_manager)
 
     gui.initialize()
-    gui.location_on_the_screen()
+    # gui.location_on_the_screen()
     gui.show()
     ret = app.exec_()
     sys.exit(ret)

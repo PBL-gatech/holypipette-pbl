@@ -76,6 +76,7 @@ class CurrentProtocolGraph(QWidget):
 
         save_data = None
         temp_data = deque(self.daq.current_protocol_data.copy())
+        print("temp_data: ", temp_data)
         timestamp = datetime.now().timestamp()
         for i, graph in enumerate(self.daq.current_protocol_data):
             # logging.info(f"enumerating graph: {i}")
@@ -85,11 +86,18 @@ class CurrentProtocolGraph(QWidget):
         #     # print("Enumerating graph:, ", i, graph)
             save_data = temp_data.popleft()
 
+            print("Graph: ", graph)
+
             timeData = graph[0]
-            yData = graph[1]
+            respdata = graph[1]
+            cmddata = graph[2]
+            print("timeData: ", len(timeData))
+            print("respdata: ", len(respdata))
+            print("cmddata: ", len(cmddata))
             # print(len(timeData), len(yData))
-            self.cprotocolPlot.plot(timeData, yData, pen=colors[i])
-            save_data = np.array([timeData, yData])
+            self.cprotocolPlot.plot(timeData, respdata, pen=colors[i])
+            self.cprotocolPlot.plot(timeData, respdata, pen="b")
+            save_data = np.array([timeData, respdata])
             # logging.info("writing current ephys data to file")
             # self.ephys_logger.write_ephys_data(timestamp, index, save_data, colors[i])
             if i == 5:
@@ -201,7 +209,7 @@ class HoldingProtocolGraph(QWidget):
     def update_plot(self):
         # logging.warning("window should be shown")
         # is what we displayed the exact same?
-        if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.holding_protocol_data)) or self.daq.holding_protocol_data is None:
+        if self.daq.holding_protocol_data is None:
             # logging.warning("no new data, skipping plot update")
             return
         
@@ -213,15 +221,14 @@ class HoldingProtocolGraph(QWidget):
             self.setHidden(False)
             self.isShown = True
 
-        if self.daq.holding_protocol_data is not None:
-            self.hprotocolPlot.clear()
+        self.hprotocolPlot.clear()
 
-            colors = ["k"]
-            self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :], pen=colors[0])
-            timestamp = datetime.now().timestamp()
-            self.ephys_logger.write_ephys_data(timestamp, index, self.daq.holding_protocol_data,self.daq.holding_protocol_data[0,:], colors[0])
-            self.latestDisplayedData = self.daq.holding_protocol_data.copy()
-            self.daq.holding_protocol_data = None
+        colors = ["k"]
+        self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :], pen=colors[0])
+        timestamp = datetime.now().timestamp()
+        self.ephys_logger.write_ephys_data(timestamp, index, self.daq.holding_protocol_data[0,:],self.daq.holding_protocol_data[1,:],self.daq.holding_protocol_data[2,:], colors[0])
+        self.latestDisplayedData = self.daq.holding_protocol_data.copy()
+        self.daq.holding_protocol_data = None
 
         # self.latestDisplayedData = self.daq.holding_protocol_data.copy()
 class EPhysGraph(QWidget):
@@ -425,10 +432,10 @@ class EPhysGraph(QWidget):
             # 0.5 = 10mV -> 2.5V on the oscilloscope
             self.latestRespData, self.latestReadData, totalResistance, MembraneResistance, AccessResistance, MembraneCapacitance = self.daq.getDataFromSquareWave(40, 50000, 0.5, 0.25, 0.04)
             
-            print("Total Resistance: ", totalResistance)
-            print("Access Resistance: ", AccessResistance)
-            print("Membrane Resistance: ", MembraneResistance)
-            print("Membrane Capacitance: ", MembraneCapacitance)
+            # print("Total Resistance: ", totalResistance)
+            # print("Access Resistance: ", AccessResistance)
+            # print("Membrane Resistance: ", MembraneResistance)
+            # print("Membrane Capacitance: ", MembraneCapacitance)
 
 
             if totalResistance is not None:
