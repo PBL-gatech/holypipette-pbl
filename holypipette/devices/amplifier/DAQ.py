@@ -92,7 +92,7 @@ class DAQ:
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
 
-    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=-40, endCurrentPicoAmp=40, stepCurrentPicoAmp=20, highTimeMs=400):
+    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=-300, endCurrentPicoAmp=300, stepCurrentPicoAmp=100, highTimeMs=400):
         '''Sends a series of square waves from startCurrentPicoAmp to endCurrentPicoAmp (inclusive) with stepCurrentPicoAmp pA increments.
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
         '''
@@ -111,14 +111,15 @@ class DAQ:
 
         #general constants for square waves
         samplesPerSec = 50000
-        recordingTime = 3 * highTimeMs * 1e-3
+        recordingTime = 4 * highTimeMs * 1e-3
 
         for i in range(num_waves):
             currentAmps = startCurrent + i * stepCurrentPicoAmp * 1e-12
             logging.info(f'Sending {currentAmps * 1e12} pA square wave.')
 
             #convert to DAQ output
-            amplitude = currentAmps * self.C_CLAMP_AMP_PER_VOLT
+            amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
+            print("Amplitude", amplitude)
             
             #send square wave to DAQ
             self._deviceLock.acquire()
@@ -245,11 +246,14 @@ class DAQ:
             self.latestAccessResistance = 0
             self.latestMembraneResistance = 0
             self.latestMembraneCapacitance = 0
-
-        self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
-
-
-        # print("Capacitance in DAQ", self.latestMembraneCapacitance)
+            
+        self.totalResistance = 0
+        if self.cellMode:
+            self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
+        else:
+            self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
+            self.totalResistance *= 1e-6
+            # to have in in MOhms
 
         # print("Difference: ", self.totalResistance - (self.latestAccessResistance + self.latestMembraneResistance))
         # logging.info(f"Time to acquire & transform data: {time.time() - start0}")

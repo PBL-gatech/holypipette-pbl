@@ -58,7 +58,7 @@ class CurrentProtocolGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        # self.ephys_logger = EPhysLogger(ephys_filename = "CurrentProtocol", recording_state_manager = self.recording_state_manager)
+        self.ephys_logger = EPhysLogger(ephys_filename = "CurrentProtocol", recording_state_manager = self.recording_state_manager)
 
     def update_plot(self):
         # is what we displayed the exact same?
@@ -80,11 +80,15 @@ class CurrentProtocolGraph(QWidget):
         end_color =  "#ffffff" #White
         cmap = LinearSegmentedColormap.from_list("", [start_color, end_color])
         colors = [to_hex(cmap(float(i) / color_range)) for i in range(color_range)]
+        pulses = self.daq.pulses
         # colors = ["k", 'r', 'g', 'b', 'y', 'm', 'c']
         self.cprotocolPlot.clear()
 
         save_data = None
         temp_data = deque(self.daq.current_protocol_data.copy())
+        # identify the shape of temp_data
+    
+        
         print("temp_data: ", temp_data)
         timestamp = datetime.now().timestamp()
         for i, graph in enumerate(self.daq.current_protocol_data):
@@ -96,19 +100,20 @@ class CurrentProtocolGraph(QWidget):
             save_data = temp_data.popleft()
 
             print("Graph: ", graph)
-
             timeData = graph[0]
             respData = graph[1]
             readData = graph[2]
             print("timeData: ", len(timeData))
             print("respData: ", len(respData))
             print("readData: ", len(readData))
-            # print(len(timeData), len(yData))
             self.cprotocolPlot.plot(timeData, respData, pen=colors[i])
             # self.cprotocolPlot.plot(timeData, respData, pen="b")
-            save_data = np.array([timeData, respData])
-            # logging.info("writing current ephys data to file")
-            # self.ephys_logger.write_ephys_data(timestamp, index, save_data, colors[i])
+            logging.info("writing current ephys data to file")
+            # convert pulses to string with _ before it
+            
+            pulse = str(pulses[i])
+            marker = colors[i] + "_" + pulse
+            self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, marker)
             if i == 5:
                 self.daq.current_protocol_data = None
 
@@ -126,7 +131,7 @@ class VoltageProtocolGraph(QWidget):
         self.vprotocolPlot.setBackground('w')
         self.vprotocolPlot.getAxis('left').setPen("k")
         self.vprotocolPlot.getAxis('bottom').setPen("k")
-        self.vprotocolPlot.setLabel('left', "PicoAmps", units='pA')
+        self.vprotocolPlot.setLabel('left', "PicoAmps", units='A')
         self.vprotocolPlot.setLabel('bottom', "Samples", units='')
         layout.addWidget(self.vprotocolPlot)
 
@@ -192,7 +197,7 @@ class HoldingProtocolGraph(QWidget):
         self.hprotocolPlot.setBackground('w')
         self.hprotocolPlot.getAxis('left').setPen("k")
         self.hprotocolPlot.getAxis('bottom').setPen("k")
-        self.hprotocolPlot.setLabel('left', "PicoAmps", units='pA')
+        self.hprotocolPlot.setLabel('left', "PicoAmps", units='A')
         self.hprotocolPlot.setLabel('bottom', "Samples", units='')
         layout.addWidget(self.hprotocolPlot)
 
@@ -449,7 +454,7 @@ class EPhysGraph(QWidget):
 
             if totalResistance is not None:
                 self.resistanceDeque.append(totalResistance)
-                self.resistanceLabel.setText("Total Resistance: {:.2f} M Ohms\t".format(totalResistance * 1e-6))
+                self.resistanceLabel.setText("Total Resistance: {:.2f} M Ohms\t".format(totalResistance))
                 # print("Total Resistance: ", totalResistance)
                 # print("Access Resistance: ", AccessResistance)
                 # print("Membrane Resistance: ", MembraneResistance)

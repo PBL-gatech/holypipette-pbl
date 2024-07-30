@@ -21,7 +21,6 @@ class EPhysLogger(threading.Thread):
         # check that the folder exists
         if not os.path.exists(os.path.dirname(self.folder_path)):
             try:
-                # os.makedirs(os.path.dirname(self.folder_path))
                 # * created a folder deeper will always create the parent folder
                 os.makedirs(os.path.dirname(self.folder_path))
             except OSError as exc:
@@ -29,13 +28,13 @@ class EPhysLogger(threading.Thread):
     
     def _write_to_file(self, timestamp, index, timeData, readData, respData, color):
         # Create a string for each pair of values in the desired format
-        print("timeData shape: ", timeData.shape)
-        print("readData shape: ", readData.shape)
-        print("respData shape: ", respData.shape)
+        # print("timeData shape: ", timeData.shape)
+        # print("readData shape: ", readData.shape)
+        # print("respData shape: ", respData.shape)
         lines = [f"{timeData[i]} {readData[i]} {respData[i]}\n" for i in range(len(timeData))]
         # Open the file in append mode and write the formatted strings
         logging.debug("Writing to file %s", self.filename)
-        logging.debug("Writing lines %s", lines)
+        # logging.debug("Writing lines %s", lines)
         with open(f"{self.filename}_{timestamp}_{index}_{color}.csv", 'a+') as file:
             file.writelines(lines)
         self.write_event.set()  # Signal that writing is done
