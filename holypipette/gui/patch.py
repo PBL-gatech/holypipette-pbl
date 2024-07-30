@@ -137,7 +137,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
             cmd()
 
     def addPositionBox(self, name: str, layout, update_func, tare_func=None, axes=['x', 'y', 'z']):
-        #add a box for manipulator and stage positions
+        # add a box for manipulator and stage positions
         box = QtWidgets.QGroupBox(name)
         row = QtWidgets.QHBoxLayout()
         indices = []
@@ -157,6 +157,40 @@ class ButtonTabWidget(QtWidgets.QWidget):
             tare_button = QtWidgets.QPushButton('Tare')
             tare_button.clicked.connect(lambda: tare_func())
             row.addWidget(tare_button)
+
+        #periodically update the position labels
+        pos_timer = QtCore.QTimer()
+        pos_timer.timeout.connect(lambda: update_func(indices))
+        pos_timer.start(16)
+        self.pos_update_timers.append(pos_timer)
+
+        # make a function similar to AddPositionBox.
+        # it hsould accept 3 buttons with 3 commands, and stack them vertically
+        # it should also accept a layout to add the buttons to
+
+    def positionAndTareBox(self, name: str, layout, update_func, tare_funcs, axes=['x', 'y', 'z']):
+        # add a box for manipulator and stage positions
+        box = QtWidgets.QGroupBox(name)
+        rows = QtWidgets.QVBoxLayout()
+        indices = []
+        #create a new row for each position
+        for j, axis in enumerate(axes):
+            #create a label for the position
+            label = QtWidgets.QLabel(f'{axis}: TODO')
+            rows.addWidget(label)
+            indices.append(len(self.pos_labels))
+            self.pos_labels.append(label)
+        box.setLayout(rows)
+        layout.addWidget(box)
+
+        # make multiple rows of buttons
+        row = QtWidgets.QHBoxLayout()
+        for j, tare_func in enumerate(tare_funcs):
+            #add a button to tare the manipulator
+            tare_button = QtWidgets.QPushButton(f'Tare {axes[j]}')
+            tare_button.clicked.connect(lambda: tare_func())
+            row.addWidget(tare_button)
+        rows.addLayout(row)
 
         #periodically update the position labels
         pos_timer = QtCore.QTimer()
@@ -210,12 +244,15 @@ class ManualPatchButtons(ButtonTabWidget):
 
         self.stage_xy = [0, 0]
         self.stage_z = 0
-        self.pipette_xyz = [0,0,0]
+        self.pipette_xyz = [0, 0, 0]
         
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
-        self.addPositionBox('stage position (um)', layout, self.update_stage_pos_labels, tare_func=self.tare_stage)
+        # instead of one button, we have a list of buttons
+        self.positionAndTareBox('stage position (um)', layout, self.update_stage_pos_labels, tare_funcs=[self.tare_stage_x, self.tare_stage_y, self.tare_stage_z])
         self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
+        # self.addPositionBox('stage position (um)', layout, self.update_stage_pos_labels, tare_func=self.tare_stage)
+        # self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
         self.init_stage_pos = None # used to store bootup positions so we can reset to them
         self.init_pipette_pos = None
 
@@ -312,15 +349,15 @@ class ManualPatchButtons(ButtonTabWidget):
     
     def tare_stage_x(self):
         xPos = self.pipette_interface.calibrated_stage.position(0)
-        self.init_stage_pos = np.array([xPos, None, None])
+        self.init_stage_pos = np.array([xPos, 0, 0])
 
     def tare_stage_y(self):
         yPos = self.pipette_interface.calibrated_stage.position(1)
-        self.init_stage_pos = np.array([None, yPos, None])
+        self.init_stage_pos = np.array([0, yPos, 0])
 
     def tare_stage_z(self):
         zPos = self.pipette_interface.microscope.position()
-        self.init_stage_pos = np.array([None, None, zPos])
+        self.init_stage_pos = np.array([0, 0, zPos])
 
 
     def update_stage_pos_labels(self, indices):
@@ -330,6 +367,10 @@ class ManualPatchButtons(ButtonTabWidget):
 
         if self.init_stage_pos is None:
             self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+
+        print("xyPos: ", xyPos)
+        print("zPos: ", zPos)
+        print("init_stage_pos: ", self.init_stage_pos)
 
         xyPos = xyPos - self.init_stage_pos[0:2]
         zPos = zPos - self.init_stage_pos[2]

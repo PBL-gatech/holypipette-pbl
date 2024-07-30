@@ -10,6 +10,7 @@ import time
 import threading
 import logging
 import matplotlib.pyplot as plt
+from holypipette.devices.amplifier.amplifier import Amplifier
 
 __all__ = ['DAQ', 'FakeDAQ']
 
@@ -102,9 +103,9 @@ class DAQ:
 
         '''
         print(f"volt membrane capacitance: {self.voltageMembraneCapacitance}")
-        if self.voltageMembraneCapacitance is None:
+        if self.voltageMembraneCapacitance is None or self.voltageMembraneCapacitance is 0:
             self.voltageMembraneCapacitance = 0 
-            logging.errror("Voltage membrane capacitance is not set. Please run voltage protocol first.")
+            logging.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
 
         factor = 2 
         startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
@@ -430,7 +431,7 @@ class DAQ:
         # print("P0", p0)
         # print if there is a nan value in fit_data
         try:
-            print("NAN VALUES: ", fit_data.isnull().values.any())
+            # print("NAN VALUES: ", fit_data.isnull().values.any())
             params, _ = scipy.optimize.curve_fit(self.monoExp, fit_data['T_ms'], fit_data['Y_pA'], maxfev=1000000, p0=p0)
             m, t, b = params
             # print("Params", m, t, b)
