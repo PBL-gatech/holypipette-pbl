@@ -43,6 +43,10 @@ class DAQ:
         self.voltage_protocol_data = None
         self.holding_protocol_data = None
         self.voltage_command_data = None
+        self.voltageTotalResistance  =None
+        self.voltageMembraneResistance = None
+        self.voltageAccessResistance = None
+        self.voltageMembraneCapacitance = None
 
         # ! False is for BATH mode, True is for CELL mode
         self.cellMode = False
@@ -92,10 +96,19 @@ class DAQ:
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
 
-    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=-300, endCurrentPicoAmp=300, stepCurrentPicoAmp=100, highTimeMs=400):
+    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=20, highTimeMs=400):
         '''Sends a series of square waves from startCurrentPicoAmp to endCurrentPicoAmp (inclusive) with stepCurrentPicoAmp pA increments.
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
+
         '''
+        print(f"volt membrane capacitance: {self.voltageMembraneCapacitance}")
+        if self.voltageMembraneCapacitance is None:
+            self.voltageMembraneCapacitance = 0 
+            logging.errror("Voltage membrane capacitance is not set. Please run voltage protocol first.")
+
+        factor = 2 
+        startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
+        endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
         self.pulses = np.arange(startCurrentPicoAmp, endCurrentPicoAmp + stepCurrentPicoAmp, stepCurrentPicoAmp)
         self.pulseRange = len(self.pulses)
@@ -181,14 +194,15 @@ class DAQ:
         try:
             self.isRunningProtocol = True
             # self.latest_protocol_data = None # clear data
-            self.voltage_protocol_data, self.voltage_command_data, totalresistance, membraneResistance, accessResistance, membraneCapacitance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.04)
-
+            self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(40, 50000, 0.5, 0.5, 0.04)
+            # print(f"volt membrane capacitance: {self.voltageMembraneCapacitance}")
+            print(f"Latest membrane capacitance: {self.latestMembraneCapacitance}")
         except Exception as e:
             self.voltage_protocol_data, self.voltage_command_data = None, None
             logging.error(f"Error in getDataFromVoltageProtocol: {e}")
         # return self.latest_protocol_data
         self.isRunningProtocol = False
-        # return self.voltage_protocol_data, self.voltage_command_data, resistance
+        return self.voltageMembraneCapacitance
     
     def getDataFromSquareWave(self, wave_freq, samplesPerSec: int, dutyCycle, amplitude, recordingTime) -> tuple:
         # measure the time it took to acquire the data
@@ -237,18 +251,17 @@ class DAQ:
         #      self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude*self.V_CLAMP_VOLT_PER_VOLT)
         #      self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
 
-        if not self.isRunningProtocol:
+        self.latestAccessResistance = 0
+        self.latestMembraneResistance = 0
+        self.latestMembraneCapacitance = 0
+        if  self.cellMode:
             #  self.latestAccessResistance = 5
             #  self.latestMembraneResistance = 500
             #  self.latestMembraneCapacitance = 33
              self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude*self.V_CLAMP_VOLT_PER_VOLT)
-        else:
-            self.latestAccessResistance = 0
-            self.latestMembraneResistance = 0
-            self.latestMembraneCapacitance = 0
             
         self.totalResistance = 0
-        if self.cellMode:
+        if self.cellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
             self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
         else:
             self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
@@ -415,7 +428,9 @@ class DAQ:
 
         p0 = (I_peak_pA, 0.01, I_ss)
         # print("P0", p0)
+        # print if there is a nan value in fit_data
         try:
+            print("NAN VALUES: ", fit_data.isnull().values.any())
             params, _ = scipy.optimize.curve_fit(self.monoExp, fit_data['T_ms'], fit_data['Y_pA'], maxfev=1000000, p0=p0)
             m, t, b = params
             # print("Params", m, t, b)
