@@ -44,7 +44,6 @@ class AutoPatcher(TaskController):
 
     def run_protocols(self):
         if self.config.voltage_protocol:
-            print('Running voltage protocol')
             self.run_voltage_protocol()
             self.sleep(0.25)
         if self.config.current_protocol:

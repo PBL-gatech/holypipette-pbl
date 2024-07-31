@@ -40,7 +40,6 @@ class EPhysLogger(threading.Thread):
         self.write_event.set()  # Signal that writing is done
     
     def write_ephys_data(self,timestamp, index, timeData, readData, respData, color):
-        print("Writing ephys data")
         # logging.info("Writing ephys data")
         self.write_event.clear()
         # ("len of data: ", len(data[0]))

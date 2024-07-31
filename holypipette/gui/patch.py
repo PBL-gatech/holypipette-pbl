@@ -357,19 +357,19 @@ class ManualPatchButtons(ButtonTabWidget):
         # pass
         xPos = self.pipette_interface.calibrated_stage.position(0)
         self.currx_stage_pos = np.array([xPos, 0, 0])
-        print("Tare stage x: ", self.currx_stage_pos)
+        # print("Tare stage x: ", self.currx_stage_pos)
 
     def tare_stage_y(self):
         # pass
         yPos = self.pipette_interface.calibrated_stage.position(1)
         self.curry_stage_pos = np.array([0, yPos, 0])
-        print("Tare stage y: ", self.curry_stage_pos)
+        # print("Tare stage y: ", self.curry_stage_pos)
 
     def tare_stage_z(self):
         # pass
         zPos = self.pipette_interface.microscope.position()
         self.currz_stage_pos = np.array([0, 0, zPos])
-        print("Tare stage z: ", self.currz_stage_pos)
+        # print("Tare stage z: ", self.currz_stage_pos)
 
 
     def update_stage_pos_labels(self, indices):

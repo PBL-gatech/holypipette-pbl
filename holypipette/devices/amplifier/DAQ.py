@@ -102,7 +102,7 @@ class DAQ:
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
 
         '''
-        print(f"volt membrane capacitance: {self.voltageMembraneCapacitance}")
+        # print(f"volt membrane capacitance: {self.voltageMembraneCapacitance}")
         if self.voltageMembraneCapacitance is None or self.voltageMembraneCapacitance is 0:
             self.voltageMembraneCapacitance = 0 
             logging.warn("Is system set to cell mode?")
@@ -136,7 +136,7 @@ class DAQ:
 
             #convert to DAQ output
             amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
-            print("Amplitude", amplitude)
+            # print("Amplitude", amplitude)
             
             #send square wave to DAQ
             self._deviceLock.acquire()
@@ -157,10 +157,6 @@ class DAQ:
             triggeredSamples = respData.shape[0]
             timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
             time.sleep(0.5)
-
-            print("Shape of timeData", timeData.shape)
-            print("Shape of respData", respData.shape)
-            print("Shape of readData", readData.shape)
 
             if self.current_protocol_data is None:
                 self.current_protocol_data = [[timeData, respData, readData]]
@@ -206,7 +202,7 @@ class DAQ:
                     break  # exit loop if capacitance is non-zero
                 else:
                     logging.warning(f"Attempt {attempts}: Capacitance is zero, retrying...")
-            print(f"Latest membrane capacitance: {self.voltageMembraneCapacitance}")
+            # print(f"Latest membrane capacitance: {self.voltageMembraneCapacitance}")
         except Exception as e:
             self.voltage_protocol_data, self.voltage_command_data = None, None
             logging.error(f"Error in getDataFromVoltageProtocol: {e}")
@@ -349,10 +345,10 @@ class DAQ:
                 #get peak and min values
                 I_peak_pA = df.loc[peak_index + 1, 'Y_pA']
                 I_peak_time = df.loc[peak_index + 1, 'T_ms']
-                logging.info(f"Peak Current (pA): {I_peak_pA} at index: {peak_index}")
-                logging.info(f"steady state current (pA): {I_post_pA} at index: {min_index-10}")
-                logging.info(f"Peak time: {peak_time}, Peak index: {peak_index}, Min time: {min_time}, Min index: {min_index}")
-                logging.info(f"I_prev_pA: {I_prev_pA}, I_post_pA: {I_post_pA}, I_peak_pA: {I_peak_pA}")
+                # logging.info(f"Peak Current (pA): {I_peak_pA} at index: {peak_index}")
+                # logging.info(f"steady state current (pA): {I_post_pA} at index: {min_index-10}")
+                # logging.info(f"Peak time: {peak_time}, Peak index: {peak_index}, Min time: {min_time}, Min index: {min_index}")
+                # logging.info(f"I_prev_pA: {I_prev_pA}, I_post_pA: {I_post_pA}, I_peak_pA: {I_peak_pA}")
                 #group filtered_data, filtered_time, and filtered_command into a data frame
                 fit_data = pd.DataFrame({'T_ms': filtered_time, 'X_mV': filtered_command, 'Y_pA': filtered_data})
                 #print first line of fit_data
@@ -448,7 +444,7 @@ class DAQ:
             # print("NAN VALUES: ", fit_data.isnull().values.any())
             params, _ = scipy.optimize.curve_fit(self.monoExp, fit_data['T_ms'], fit_data['Y_pA'], maxfev=1000000, p0=p0)
             m, t, b = params
-            print("Params: ", params)
+            # print("Params: ", params)
             # print("Params", m, t, b)
             return m, t, b
         except Exception as e:
