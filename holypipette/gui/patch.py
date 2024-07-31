@@ -188,7 +188,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         for j, tare_func in enumerate(tare_funcs):
             #add a button to tare the manipulator
             tare_button = QtWidgets.QPushButton(f'Tare {axes[j]}')
-            tare_button.clicked.connect(lambda: tare_func())
+            tare_button.clicked.connect(tare_func)
             row.addWidget(tare_button)
         rows.addLayout(row)
 
@@ -255,6 +255,10 @@ class ManualPatchButtons(ButtonTabWidget):
         # self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
         self.init_stage_pos = None # used to store bootup positions so we can reset to them
         self.init_pipette_pos = None
+        self.currx_stage_pos = np.array([0, 0, 0])
+        self.curry_stage_pos = np.array([0, 0, 0])
+        self.currz_stage_pos = np.array([0, 0, 0])
+
 
         # add box to emit patching states
         buttonList = [['Cell Found', 'Gigaseal Reached','Whole Cell Achieved'], ['Patch Attempt Start', 'Patch Attempt Failed']]
@@ -348,16 +352,22 @@ class ManualPatchButtons(ButtonTabWidget):
         self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
     
     def tare_stage_x(self):
+        # pass
         xPos = self.pipette_interface.calibrated_stage.position(0)
-        self.init_stage_pos = np.array([xPos, 0, 0])
+        self.currx_stage_pos = np.array([xPos, 0, 0])
+        print("Tare stage x: ", self.currx_stage_pos)
 
     def tare_stage_y(self):
+        # pass
         yPos = self.pipette_interface.calibrated_stage.position(1)
-        self.init_stage_pos = np.array([0, yPos, 0])
+        self.curry_stage_pos = np.array([0, yPos, 0])
+        print("Tare stage y: ", self.curry_stage_pos)
 
     def tare_stage_z(self):
+        # pass
         zPos = self.pipette_interface.microscope.position()
-        self.init_stage_pos = np.array([0, 0, zPos])
+        self.currz_stage_pos = np.array([0, 0, zPos])
+        print("Tare stage z: ", self.currz_stage_pos)
 
 
     def update_stage_pos_labels(self, indices):
@@ -368,12 +378,16 @@ class ManualPatchButtons(ButtonTabWidget):
         if self.init_stage_pos is None:
             self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
 
-        print("xyPos: ", xyPos)
-        print("zPos: ", zPos)
-        print("init_stage_pos: ", self.init_stage_pos)
+        # print("xyPos: ", xyPos)
+        # print("zPos: ", zPos)
+        # print("init_stage_pos: ", self.init_stage_pos)
 
-        xyPos = xyPos - self.init_stage_pos[0:2]
-        zPos = zPos - self.init_stage_pos[2]
+        xyPos = xyPos - self.init_stage_pos[0:2] - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
+        zPos = zPos - self.init_stage_pos[2] - self.currz_stage_pos[2]
+        self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+        self.currx_stage_pos = np.array([0, 0, 0])
+        self.curry_stage_pos = np.array([0, 0, 0])
+        self.currz_stage_pos = np.array([0, 0, 0])
 
         self.recorder.setBatchMoves(True)
         self.recorder.write_movement_data_batch(datetime.now().timestamp(), xyPos[0], xyPos[1], zPos, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
