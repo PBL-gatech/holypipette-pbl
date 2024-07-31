@@ -2,13 +2,14 @@ import time
 
 import numpy as np
 import cv2
-from ..devices.amplifier.amplifier import Amplifier
-from ..devices.amplifier.DAQ import DAQ
-from ..devices.manipulator.calibratedunit import CalibratedUnit
-from ..devices.manipulator.microscope import Microscope
+from holypipette.devices.amplifier.amplifier import Amplifier
+from holypipette.devices.amplifier.DAQ import DAQ
+from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
+from holypipette.devices.manipulator.microscope import Microscope
+from holypipette.devices.pressurecontroller import PressureController
 import collections
 
-from holypipette.config import Config
+from holypipette.interface.patchConfig import PatchConfig
 
 from .base import TaskController
 
@@ -22,11 +23,11 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier : Amplifier, daq: DAQ, pressure, calibrated_unit : CalibratedUnit, microscope : Microscope, calibrated_stage, config : Config):
-        super(AutoPatcher, self).__init__()
+    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, config : PatchConfig):
+        super().__init__()
         self.config = config
         self.amplifier = amplifier
-        self.daq : DAQ = daq
+        self.daq = daq
         self.pressure = pressure
         self.calibrated_unit = calibrated_unit
         self.calibrated_stage = calibrated_stage
@@ -37,18 +38,26 @@ class AutoPatcher(TaskController):
         self.initial_resistance = None
 
         self.current_protocol_graph = None
+        
+    def state_emitter(self, state):
+        self.info(f"emitting state: {state}")
 
     def run_protocols(self):
-        self.run_voltage_protocol()
-        self.sleep(0.25)
-        self.run_current_protocol()
-        self.sleep(0.25)
-        self.run_holding_protocol()
+        if self.config.voltage_protocol:
+            print('Running voltage protocol')
+            self.run_voltage_protocol()
+            self.sleep(0.25)
+        if self.config.current_protocol:
+            self.run_current_protocol()
+            self.sleep(0.25)
+        if self.config.holding_protocol:
+            self.run_holding_protocol()
 
     def run_voltage_protocol(self):
         self.info('Running voltage protocol (membrane test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
+        self.info("Getting data from voltage protocol")
         self.daq.getDataFromVoltageProtocol()
         self.sleep(0.25)
         self.info('finished running voltage protocol (membrane test)')
@@ -75,22 +84,21 @@ class AutoPatcher(TaskController):
         self.amplifier.voltage_clamp()
         self.info('finished running holding protocol (E/I PSC test)')
 
-
         
     def break_in(self):
         '''
         Breaks in. The pipette must be in cell-attached mode
         '''
         self.info("Breaking in")
-        R = self.daq.resistance()
+        measuredResistance = self.daq.resistance()
         # if R is not None and R < self.config.gigaseal_R:
         #     raise AutopatchError("Seal lost")
 
         pressure = 0
         trials = 0
-        while R is None or self.daq.resistance() > self.config.max_cell_R:  # Success when resistance goes below 300 MOhm
-            trials+=1
-            self.debug('Trial: '+str(trials))
+        while measuredResistance is None or self.daq.resistance() > self.config.max_cell_R:  # Success when resistance goes below 300 MOhm
+            trials += 1
+            self.debug(f"Trial: {trials}")
             pressure += self.config.pressure_ramp_increment
             if abs(pressure) > abs(self.config.pressure_ramp_max):
                 raise AutopatchError("Break-in unsuccessful")
@@ -103,7 +111,7 @@ class AutoPatcher(TaskController):
         self.info("Successful break-in, R = " + str(self.daq.resistance() / 1e6))
 
     def _verify_resistance(self):
-        return #just for testing TODO: remove
+        return # * just for testing TODO: remove
 
         R = self.daq.resistance()
 
@@ -163,9 +171,9 @@ class AutoPatcher(TaskController):
         self.amplifier.voltage_clamp()
 
         # set amplifier to resistance mode
-        R = self.daq.resistance()
+        daqResistance = self.daq.resistance()
         # lastResDeque.append(R)
-        self.debug("Resistance:" + str(R/1e6))
+        self.debug("Resistance:" + str(daqResistance/1e6))
 
         #ensure good pipette (not broken or clogged)
         # self._verify_resistance()
@@ -213,9 +221,9 @@ class AutoPatcher(TaskController):
         print('taking resistance readings...')
         for i in range(3):
             self.sleep(1)
-            R = self.daq.resistance()
-            lastResDeque.append(R)
-            print('resistance: {}'.format(R))
+            daqResistance = self.daq.resistance()
+            lastResDeque.append(daqResistance)
+            print(f"resistance: {daqResistance}")
 
         #move above cell plane (where we're about to move the pipette to)
         self.microscope.absolute_move(self.microscope.floor_Z + self.config.cell_distance * 5)
@@ -233,7 +241,7 @@ class AutoPatcher(TaskController):
 
         self.sleep(1) #just for testing
 
-        # #create a pipette setpoint in stage coordinates
+        # create a pipette setpoint in stage coordinates
         # cell_distance = self.calibrated_unit.um_to_pixels_relative(np.array([0, 0, -self.config.cell_distance]))
         # cell_distance = cell_distance[2]
         # pipette_setpoint = np.array([0, 0, self.microscope.position() + cell_distance])
@@ -243,7 +251,7 @@ class AutoPatcher(TaskController):
 
         # Check resistance again
         self._verify_resistance()
-        R = self.daq.resistance()
+        daqResistance = self.daq.resistance()
         # lastResDeque.append(R)
 
         # recal pipette offset in multiclamp
@@ -255,7 +263,7 @@ class AutoPatcher(TaskController):
         success = False
 
 
-        #phase 1: hunt for the cell
+        # phase 1: hunt for the cell
         cellFound = False
         for _ in range(int(self.config.max_distance)):  # move 15 um down
             # move by 1 um down
@@ -264,10 +272,10 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.wait_until_still(2)
             self.sleep(1)
             self.amplifier.voltage_clamp()
-            R = self.daq.resistance()
-            lastResDeque.append(R)
+            daqResistance = self.daq.resistance()
+            lastResDeque.append(daqResistance)
 
-            self.info("R = " + str(self.daq.resistance()/1e6))
+            self.info("R = " + str(self.daq.resistance() / 1e6))
             if self._isCellDetected(lastResDeque):
                 cellFound = True
                 break #we found a cell!
@@ -277,11 +285,11 @@ class AutoPatcher(TaskController):
             self.pressure.set_pressure(20)
             raise AutopatchError("Couldn't detect a cell")
         
-        #move a bit further down to make sure we're at the cell
+        # move a bit further down to make sure we're at the cell
         self.calibrated_unit.relative_move(1, axis=2)
 
 
-        #phase 2: attempt to form a gigaseal
+        # phase 2: attempt to form a gigaseal
         lastResDeque = collections.deque(maxlen=3)
         # Release pressure
         self.info("Cell Detected, Lowering pressure")
@@ -291,7 +299,7 @@ class AutoPatcher(TaskController):
         
         self.sleep(10)
         t0 = time.time()
-        while R < self.config.gigaseal_R:
+        while daqResistance < self.config.gigaseal_R:
             t = time.time()
             if currPressure < -40:
                 currPressure = 0
@@ -303,14 +311,14 @@ class AutoPatcher(TaskController):
                 self.pressure.set_pressure(20)
                 raise AutopatchError("Seal unsuccessful")
             
-            #did we reach gigaseal?
-            R = self.daq.resistance()
-            lastResDeque.append(R)
-            if R > self.config.gigaseal_R or len(lastResDeque) == 3 and all([lastResDeque == None for x in lastResDeque]):
+            # did we reach gigaseal?
+            daqResistance = self.daq.resistance()
+            lastResDeque.append(daqResistance)
+            if daqResistance > self.config.gigaseal_R or len(lastResDeque) == 3 and all([lastResDeque == None for x in lastResDeque]):
                 success = True
                 break
             
-            #else, wait a bit and lower pressure
+            # else, wait a bit and lower pressure
             self.sleep(5)
             currPressure -= 10
 
@@ -318,7 +326,7 @@ class AutoPatcher(TaskController):
             self.pressure.set_pressure(20)
             raise AutopatchError("Seal unsuccessful")
 
-        self.info("Seal successful, R = " + str(self.daq.resistance()/1e6))
+        self.info("Seal successful, R = " + str(self.daq.resistance() / 1e6))
 
         # Phase 3: break into cell
         self.break_in()

@@ -4,13 +4,12 @@ Pressure Controller classes to communicate with the Pressure Controller Box made
 Additionally, redesigning a closed loop pressure controller for the Moscow Rig
 '''
 import logging
-from .pressurecontroller import PressureController
+from .BasePressureController import PressureController
 import serial.tools.list_ports
 import serial
 import time
-import threading
 import collections
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level = logging.INFO)
 
 all = ['MoscowPressureController']
 
@@ -18,16 +17,17 @@ class MoscowPressureController(PressureController):
     '''A PressureController child class that handles serial communication between the PC and
        the Arduino controlling the Moscow Pressure box
     '''
-    validProducts = ["USB Serial"] #TODO: move to a constants or json file?
+    validProducts = ["USB Serial"] # TODO: move to a constants or json file?
     validVIDs = [0x1a86, 0x403]
                     
-    nativePerMbar = float(4096/1380) # The number of native pressure transucer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
-    nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
-    conversionFactor = -29
+    # nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
+    # nativePerMbar = float(4096/1380) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
+    nativeZero = 1962 # The native units at a 0 pressure (y-intercept)
+    nativePerMbar = float(3062/1100) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
 
     serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
-    def __init__(self, channel, controllerSerial=None,readerSerial=None):
+    def __init__(self, channel, controllerSerial = None, readerSerial = None):
         super().__init__()
         # time.sleep(2) # wait for arduino to boot up
 
@@ -50,17 +50,16 @@ class MoscowPressureController(PressureController):
         self.setpoint_raw = None
         self.expectedResponses = collections.deque() # use a deque instead of a list for O(1) pop from beginning
 
-        self.lastVal = 0
+        self.lastVal = 0.0
 
         # set initial configuration of pressure controller
         self.set_ATM(False)
-        self.set_pressure(800) #set initial pressure to 800 mbar
+        self.set_pressure(20) # set initial pressure to 20 mbar
 
     def autodetectSerial(self):
         '''
         Use VID and name of serial devices to figure out which one is the Moscow Pressure box
         '''
-
         allPorts = [COMPort for COMPort in serial.tools.list_ports.comports()]
         logging.info(f"Attempting to find Moscow Pressure Box from: {[(p.product, hex(p.vid) if p.vid != None else None, p.name) for p in allPorts]}")
 
@@ -76,17 +75,18 @@ class MoscowPressureController(PressureController):
         '''
         Comvert from a pressure in mBar to native units
         '''
-        raw_pressure = int((pressure) * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero - MoscowPressureController.conversionFactor)
-        return min(max(raw_pressure, 0), 4095) #clamp native units to 0-4095
+        raw_pressure = int((pressure * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero))
+        return min(max(raw_pressure, 0), MoscowPressureController.nativeZero*2) # clamp native units to 0-3924
+        # return min(max(raw_pressure, 0), 4095) # clamp native units to 0-4095
 
-    def nativeToMbar(self, raw_pressure):
+    def nativeToMbar(self, raw_pressure) -> float:
         '''
         Comvert from native units to a pressure in mBar
         '''
         pressure = (raw_pressure - MoscowPressureController.nativeZero) / MoscowPressureController.nativePerMbar
         return pressure
 
-    def set_pressure_raw(self, raw_pressure):
+    def set_pressure_raw(self, raw_pressure: int):
         '''
         Tell pressure controller to go to a given setpoint pressure in native DAC units
         '''
@@ -109,7 +109,7 @@ class MoscowPressureController(PressureController):
         self.expectedResponses.append((time.time(), f"{self.channel}"))
         self.expectedResponses.append((time.time(), f"{raw_pressure}"))
 
-    def get_setpoint(self):
+    def get_setpoint(self) -> float:
         '''
         Gets the current setpoint in millibar
         '''
@@ -123,7 +123,7 @@ class MoscowPressureController(PressureController):
         return self.setpoint_raw
     
 
-    def get_pressure(self):
+    def get_pressure(self) -> float:
         '''
         Read the pressure sensor value from the Arduino
         '''
@@ -143,26 +143,30 @@ class MoscowPressureController(PressureController):
                 # Try to convert the extracted pressure string to float
                 try:
                     pressureVal = float(pressure_str)
-                    # logging.info(f"Pressure: {pressureVal} mbar")
+                    # logging.info(f"Pressure: {pressureVal} units (raw)")
+                    # pressureVal = float((pressureVal/2.559) + 512) # conversion to raw because the seeed is not working
+                    # pressureVal = float((pressureVal*0.3923)+516.72)
+                    pressureVal = float((pressureVal - 516.72)/0.3923) # conversion to raw because the seeed is not working
                     self.lastVal = pressureVal
                 except ValueError:
                     # pressureVal = None
                     logging.warning("Invalid pressure data received")
-            else:
+            # * Not sure if the else is needed.
+            # else:
                 # pressureVal = None
-                logging.warning("Incomplete or invalid data received")
+                # logging.warning("Incomplete or invalid data received")
         else:
             # pressureVal = None
             logging.warning("No data received from pressure sensor")
 
+        # print(pressureVal)
         return pressureVal
 
     
-    
-    def getLastVal(self):
+    def getLastVal(self) -> float:
         return self.lastVal
 
-    def measure(self):
+    def measure(self) -> float:
         return self.get_pressure()
     
     def pulse(self, delayMs):
@@ -173,7 +177,7 @@ class MoscowPressureController(PressureController):
         self.controllerSerial.write(bytes(cmd, 'ascii')) #do serial writing in main thread for timing?
         self.controllerSerial.flush()
         
-        #add expected arduino responces
+        # add expected arduino responces
         # self.expectedResponses.append((time.time(), f"pulse {self.channel} {delayMs}"))
         # self.expectedResponses.append((time.time(), f"pulse"))
         # self.expectedResponses.append((time.time(), f"{self.channel}"))

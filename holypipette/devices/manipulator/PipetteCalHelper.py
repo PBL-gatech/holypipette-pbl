@@ -17,8 +17,8 @@ class PipetteCalHelper():
 
     def __init__(self, pipette: Manipulator, microscope: Microscope, camera: Camera, calibrated_stage):
         self.pipette : Manipulator = pipette
-        self.microscope : Microscope = microscope
-        self.camera : Camera = camera
+        self.microscope: Microscope = microscope
+        self.camera = camera
         self.pipetteFinder : PipetteFinder = PipetteFinder()
         self.calibrated_stage = calibrated_stage
         self.cal_points = [] #the points we've recorded for calibration
@@ -82,8 +82,8 @@ class PipetteCalHelper():
 
 class PipetteFocusHelper():
     def __init__(self, pipette: Manipulator, camera: Camera):
-        self.pipette : Manipulator = pipette
-        self.camera : Camera = camera
+        self.pipette = pipette
+        self.camera = camera
         self.pipetteFocuser : PipetteFocuser = PipetteFocuser()
     
     def focus(self):

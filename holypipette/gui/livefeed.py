@@ -9,14 +9,15 @@ import logging
 import time
 
 from holypipette.utils.FileLogger import FileLogger
-
+from holypipette.utils.RecordingStateManager import RecordingStateManager
+from holypipette.devices.camera.camera import Camera
 
 
 __all__ = ['LiveFeedQt']
 
 
 class LiveFeedQt(QtWidgets.QLabel):
-    def __init__(self, camera, recording_state_manager, image_edit=None, display_edit=None, mouse_handler=None, parent=None):
+    def __init__(self, camera: Camera, recording_state_manager: RecordingStateManager, image_edit=None, display_edit=None, mouse_handler=None, parent=None):
 
         super(LiveFeedQt, self).__init__(parent=parent)
         # The image_edit function (does nothing by default) gets the raw
@@ -100,7 +101,7 @@ class LiveFeedQt(QtWidgets.QLabel):
             # * Where you place tihs function is important, relative to repeated frames and such. Either you check in this file 
             # * or in the FileLogger file
             self.recorder.write_camera_frames(frame_time.timestamp(), frame, frameno)
-            self.log_frame_rate()
+            # self.log_frame_rate()
             # print(f"FRAME SHAPE: {frame.shape}")
 
             if len(frame.shape) == 2:
@@ -113,14 +114,16 @@ class LiveFeedQt(QtWidgets.QLabel):
                     format = QtGui.QImage.Format_Indexed8
             else:
                 # Color image via OpenCV
-                bytesPerLine = 3*self.width
+                bytesPerLine = 3 * self.width
                 format = QtGui.QImage.Format_RGB888
             
+            # ? So why frame.data and not frame? frame.data points to a memory location. I think both work, but check https://doc.qt.io/qt-6/qimage.html#QImage-5
             q_image = QtGui.QImage(frame.data, self.width, self.height,
                                    bytesPerLine, format)
+            # q_image = QtGui.QImage(frame, self.width, self.height,
+            #                        bytesPerLine, format)
             
             
-
             if format == QtGui.QImage.Format_RGB888:
                 # OpenCV returns images as 24bit BGR (and not RGB), but there is no
                 # direct support for this format in QImage

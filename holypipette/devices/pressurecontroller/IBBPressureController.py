@@ -3,7 +3,7 @@ Pressure Controller classes to communicate with the Pressure Controller Box made
 '''
 from logging import exception
 import logging
-from .pressurecontroller import PressureController
+from .BasePressureController import PressureController
 import serial.tools.list_ports
 import serial
 import time
@@ -24,7 +24,7 @@ class IBBPressureController(PressureController):
 
 
     def __init__(self, channel, arduinoSerial=None):
-        super(IBBPressureController, self).__init__()
+        super().__init__()
 
         self.serial = arduinoSerial
 

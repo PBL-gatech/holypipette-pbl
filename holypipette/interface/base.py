@@ -190,7 +190,7 @@ class TaskInterface(QtCore.QObject, LoggingObject):
     task_finished = QtCore.pyqtSignal(int, object)
 
     def __init__(self):
-        super(TaskInterface, self).__init__()
+        super().__init__()
         self._current_controller = None
 
     @QtCore.pyqtSlot(MethodType, object)

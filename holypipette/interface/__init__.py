@@ -7,5 +7,6 @@ etc.) and what should be done if such command is received.
 """
 from .base import *
 from .camera import *
-from .pipettes import *
-from .patch import *
+from .pipettes import PipetteInterface
+from .patch import AutoPatchInterface
+from .patchConfig import PatchConfig

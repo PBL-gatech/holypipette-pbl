@@ -2,16 +2,12 @@
 Camera for a PCO Panda Camera
 '''
 import numpy as np
-import time
 
 from . import *
 import warnings
 import pco
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
 from holypipette.deepLearning.pipetteFocuser import PipetteFocuser, FocusLevels
-from collections import deque
-from datetime import datetime
-import logging
 
 
 try:
@@ -19,7 +15,8 @@ try:
 except ImportError:
     warnings.warn('OpenCV is not installed.')
 
-__all__ = ['PcoCamera']
+# ? See __init__.py for the following line
+# __all__ = ['PcoCamera']
 
 
 class PcoCamera(Camera):
@@ -30,9 +27,9 @@ class PcoCamera(Camera):
     PCO_RECORDER_LATEST_IMAGE = 0xFFFFFFFF
 
     def __init__(self, width: int = 1280, height: int = 1280):
-        super(PcoCamera, self).__init__()
+        super().__init__()
 
-        self.width = width #update superclass img width / height vars
+        self.width = width # update superclass img width / height vars
         self.height = height
 
         #setup the pco camera for continuous streaming
@@ -48,9 +45,10 @@ class PcoCamera(Camera):
                     'acquire': 'auto',
                     'metadata': 'on',
                     'binning': (1, 1)}
+
         self.cam.configuration = config
 
-        self.cam.record(number_of_images=10, mode='ring buffer') #use "ring buffer" mode for continuous streaming from camera
+        self.cam.record(number_of_images = 10, mode='ring buffer') #use "ring buffer" mode for continuous streaming from camera
         self.cam.wait_for_first_image()
 
         self.frameno = None
@@ -70,7 +68,7 @@ class PcoCamera(Camera):
 
         self.start_acquisition() #start thread that updates camera gui
 
-    def set_exposure(self, value) -> None:
+    def set_exposure(self, value: float) -> None:
         self.cam.set_exposure_time(value / 1000)
 
     def get_exposure(self):
@@ -102,7 +100,7 @@ class PcoCamera(Camera):
         self.cam.record(number_of_images=10, mode='ring buffer')
         self.cam.wait_for_first_image()
 
-    def normalize(self, img = None):
+    def normalize(self, img = None) -> None:
         print("NORMALIZING")
         # print(f"BEFORE IMAGE: {img}")
         if img is None:
@@ -127,7 +125,7 @@ class PcoCamera(Camera):
         # else:
         # print('-----get 16 bit image----- PcoCamera.py')
         self.frameno = self.cam.rec.get_status()['dwProcImgCount']
-        self.get_frame_rate()
+        # self.get_frame_rate()
         
         try:
             # print(f"IMAGE NUMBER: {PcoCamera.PCO_RECORDER_LATEST_IMAGE}")

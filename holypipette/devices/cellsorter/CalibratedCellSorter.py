@@ -10,7 +10,7 @@ from holypipette.controller import TaskController
 __all__ = ['CalibratedCellSorter']
 
 class CalibratedCellSorter(TaskController):
-    def __init__(self, cellsorterManip : CellSorterManip, cellSorterController: CellSorterController, stage, microscope, camera : Camera):
+    def __init__(self, cellsorterManip: CellSorterManip, cellSorterController: CellSorterController, stage, microscope, camera: Camera):
         self.cellsorterManip = cellsorterManip
         self.cellsorterController = cellSorterController
         self.stage = stage
