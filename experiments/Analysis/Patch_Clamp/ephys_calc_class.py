@@ -203,7 +203,8 @@ class EPhysCalc:
 
 # Example usage:
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\patch_clamp_data\2024_07_29-15_28\VoltageProtocol_1722281294.358729_1_k.csv"
-file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\patch_clamp_data\2024_07_25-17_02\VoltageProtocol_1721941384.317241_1_k.csv"
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\patch_clamp_data\2024_07_25-17_02\VoltageProtocol_1721941384.317241_1_k.csv"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\patch_clamp_data\2024_07_31-13_47\VoltageProtocol_1722448205.583876_2_k.csv"
 ephys_calc = EPhysCalc(file_path)
 ephys_calc.read_and_convert_data()
 ephys_calc.calculate_peaks_and_averages()
