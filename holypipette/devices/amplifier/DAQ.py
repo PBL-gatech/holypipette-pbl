@@ -106,6 +106,8 @@ class DAQ:
         if self.voltageMembraneCapacitance is None or self.voltageMembraneCapacitance is 0:
             self.voltageMembraneCapacitance = 0 
             logging.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
+            logging.error("Returning None,Current clamp protocol cannot be run.")
+            return None, None, None
 
         factor = 2 
         startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
@@ -191,19 +193,26 @@ class DAQ:
 
     def getDataFromVoltageProtocol(self):
         '''Sends a square wave to determine membrane properties, returns time constant, resistance, and capacitance.'''
-        self.voltage_protocol_data, self.voltage_command_data = None, None # clear data
+        self.voltage_protocol_data, self.voltage_command_data = None, None  # clear data
+        max_attempts = 5  # maximum number of attempts to avoid infinite loop
+        attempts = 0
         try:
             self.isRunningProtocol = True
-            # self.latest_protocol_data = None # clear data
-            self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(40, 50000, 0.5, 0.5, 0.04)
-            # print(f"volt membrane capacitance: {self.voltageMembraneCapacitance}")
-            print(f"Latest membrane capacitance: {self.latestMembraneCapacitance}")
+            while attempts < max_attempts:
+                attempts += 1
+                self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(40, 50000, 0.5, 0.5, 0.04)
+                if self.voltageMembraneCapacitance != 0:
+                    break  # exit loop if capacitance is non-zero
+                else:
+                    logging.warning(f"Attempt {attempts}: Capacitance is zero, retrying...")
+            print(f"Latest membrane capacitance: {self.voltageMembraneCapacitance}")
         except Exception as e:
             self.voltage_protocol_data, self.voltage_command_data = None, None
             logging.error(f"Error in getDataFromVoltageProtocol: {e}")
-        # return self.latest_protocol_data
-        self.isRunningProtocol = False
+        finally:
+            self.isRunningProtocol = False
         return self.voltageMembraneCapacitance
+
     
     def getDataFromSquareWave(self, wave_freq, samplesPerSec: int, dutyCycle, amplitude, recordingTime) -> tuple:
         # measure the time it took to acquire the data
