@@ -3,12 +3,10 @@ Pressure Controller classes to communicate with the Pressure Controller Box made
 '''
 from logging import exception
 import logging
-from .pressurecontroller import PressureController
+from .BasePressureController import PressureController
 import serial.tools.list_ports
 import serial
 import time
-import threading
-import collections
 logging.basicConfig(level=logging.INFO)
 
 all = ['TestPressureController']
@@ -24,7 +22,7 @@ class TestPressureController(PressureController):
 
 
     def __init__(self, channel, controllerSerial=None, readerSerial=None):
-        super(TestPressureController, self).__init__()
+        super().__init__()
         try:
             self.controllerSerial = controllerSerial
             self.readerSerial = readerSerial

@@ -4,7 +4,7 @@ Pressure Controller classes to communicate with the Pressure Controller Box made
 Additionally, redesigning a closed loop pressure controller for the Moscow Rig
 '''
 import logging
-from .pressurecontroller import PressureController
+from .BasePressureController import PressureController
 import serial.tools.list_ports
 import serial
 import time

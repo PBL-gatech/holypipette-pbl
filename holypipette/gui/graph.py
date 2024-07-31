@@ -1,8 +1,9 @@
 import logging
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton, QDesktopWidget
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import Qt
+from matplotlib.colors import LinearSegmentedColormap, to_hex
 
 
 from pyqtgraph import PlotWidget
@@ -71,11 +72,24 @@ class CurrentProtocolGraph(QWidget):
             self.isShown = True
         # curr = self.daq.latest_protocol_data
         # logging.info('length of current protocol data: ' + str(len(curr[0])) + ' ' + str(len(curr[1])))
-        colors = ["k", 'r', 'g', 'b', 'y', 'm', 'c']
+        # make a color gradient based on a list
+        color_range = self.daq.pulseRange
+        #make a gradient of colors based off of color_range, a value that should describe the number of pulses (as letters)
+        colors = [format((i / color_range), ".2f") for i in range(color_range)]
+        start_color = "#003153" #Prussian Blue
+        end_color =  "#ffffff" #White
+        cmap = LinearSegmentedColormap.from_list("", [start_color, end_color])
+        colors = [to_hex(cmap(float(i) / color_range)) for i in range(color_range)]
+        pulses = self.daq.pulses
+        # colors = ["k", 'r', 'g', 'b', 'y', 'm', 'c']
         self.cprotocolPlot.clear()
 
         save_data = None
         temp_data = deque(self.daq.current_protocol_data.copy())
+        # identify the shape of temp_data
+    
+        
+        print("temp_data: ", temp_data)
         timestamp = datetime.now().timestamp()
         for i, graph in enumerate(self.daq.current_protocol_data):
             # logging.info(f"enumerating graph: {i}")
@@ -85,20 +99,26 @@ class CurrentProtocolGraph(QWidget):
         #     # print("Enumerating graph:, ", i, graph)
             save_data = temp_data.popleft()
 
-            xData = graph[0]
-            yData = graph[1]
-            # print(len(xData), len(yData))
-            self.cprotocolPlot.plot(xData, yData, pen=colors[i])
-            save_data = np.array([xData, yData])
-            # logging.info("writing current ephys data to file")
-            self.ephys_logger.write_ephys_data(timestamp, index, save_data, colors[i])
+            print("Graph: ", graph)
+            timeData = graph[0]
+            respData = graph[1]
+            readData = graph[2]
+            print("timeData: ", len(timeData))
+            print("respData: ", len(respData))
+            print("readData: ", len(readData))
+            self.cprotocolPlot.plot(timeData, respData, pen=colors[i])
+            # self.cprotocolPlot.plot(timeData, respData, pen="b")
+            logging.info("writing current ephys data to file")
+            # convert pulses to string with _ before it
+            
+            pulse = str(pulses[i])
+            marker = colors[i] + "_" + pulse
+            self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, marker)
             if i == 5:
                 self.daq.current_protocol_data = None
 
         self.latestDisplayedData = self.daq.current_protocol_data.copy()
         
-
-
 class VoltageProtocolGraph(QWidget):
     def __init__(self, daq: DAQ, recording_state_manager: RecordingStateManager):
         super().__init__()
@@ -111,7 +131,7 @@ class VoltageProtocolGraph(QWidget):
         self.vprotocolPlot.setBackground('w')
         self.vprotocolPlot.getAxis('left').setPen("k")
         self.vprotocolPlot.getAxis('bottom').setPen("k")
-        self.vprotocolPlot.setLabel('left', "PicoAmps", units='pA')
+        self.vprotocolPlot.setLabel('left', "PicoAmps", units='A')
         self.vprotocolPlot.setLabel('bottom', "Samples", units='')
         layout.addWidget(self.vprotocolPlot)
 
@@ -134,6 +154,7 @@ class VoltageProtocolGraph(QWidget):
 
         self.ephys_logger = EPhysLogger(ephys_filename = "VoltageProtocol", recording_state_manager=self.recording_state_manager)
 
+
     def update_plot(self):
         #is what we displayed the exact same?
 
@@ -151,16 +172,18 @@ class VoltageProtocolGraph(QWidget):
             self.vprotocolPlot.clear()
             # print(self.daq.voltage_protocol_data[0, :])
             # print(self.daq.voltage_protocol_data[1, :])
+            
             colors = ["k"]
             self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :], pen=colors[0])
             timestamp = datetime.now().timestamp()
+            timeData = self.daq.voltage_protocol_data[0, :]
+            respData = self.daq.voltage_protocol_data[1, :]
+            readData = self.daq.voltage_command_data[1,:]
             
             # logging.info("writing Voltage ephys data to file")
-            self.ephys_logger.write_ephys_data(timestamp, index, self.daq.voltage_protocol_data, colors[0])
+            self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, colors[0])
             self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
-            self.daq.voltage_protocol_data = None
-        
-
+            # self.daq.voltage_protocol_data = None # This causes a crash
 
 class HoldingProtocolGraph(QWidget):
     def __init__(self, daq : DAQ, recording_state_manager: RecordingStateManager):
@@ -174,7 +197,7 @@ class HoldingProtocolGraph(QWidget):
         self.hprotocolPlot.setBackground('w')
         self.hprotocolPlot.getAxis('left').setPen("k")
         self.hprotocolPlot.getAxis('bottom').setPen("k")
-        self.hprotocolPlot.setLabel('left', "PicoAmps", units='pA')
+        self.hprotocolPlot.setLabel('left', "PicoAmps", units='A')
         self.hprotocolPlot.setLabel('bottom', "Samples", units='')
         layout.addWidget(self.hprotocolPlot)
 
@@ -191,7 +214,7 @@ class HoldingProtocolGraph(QWidget):
         self.closeEvent = lambda: self.setHidden(True)
 
         self.updateTimer = QtCore.QTimer()
-        self.updateDt = 10 #ms
+        self.updateDt = 10 # ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
@@ -200,7 +223,7 @@ class HoldingProtocolGraph(QWidget):
     def update_plot(self):
         # logging.warning("window should be shown")
         # is what we displayed the exact same?
-        if np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.holding_protocol_data)) or self.daq.holding_protocol_data is None:
+        if self.daq.holding_protocol_data is None:
             # logging.warning("no new data, skipping plot update")
             return
         
@@ -212,67 +235,74 @@ class HoldingProtocolGraph(QWidget):
             self.setHidden(False)
             self.isShown = True
 
-        if self.daq.holding_protocol_data is not None:
-            self.hprotocolPlot.clear()
+        self.hprotocolPlot.clear()
 
-            colors = ["k"]
-            self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :], pen=colors[0])
-            timestamp = datetime.now().timestamp()
-            self.ephys_logger.write_ephys_data(timestamp, index, self.daq.holding_protocol_data, colors[0])
-            self.latestDisplayedData = self.daq.holding_protocol_data.copy()
-            self.daq.holding_protocol_data = None
+        colors = ["k"]
+        self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :], pen=colors[0])
+        timestamp = datetime.now().timestamp()
+        self.ephys_logger.write_ephys_data(timestamp, index, self.daq.holding_protocol_data[0,:],self.daq.holding_protocol_data[1,:],self.daq.holding_protocol_data[2,:], colors[0])
+        self.latestDisplayedData = self.daq.holding_protocol_data.copy()
+        self.daq.holding_protocol_data = None
 
         # self.latestDisplayedData = self.daq.holding_protocol_data.copy()
-
-
 class EPhysGraph(QWidget):
-    """A window that plots electrophysiology data from the DAQ
+    """
+    A window that plots electrophysiology data from the DAQ
     """
 
     pressureLowerBound = -500
     pressureUpperBound = 800
 
-    def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager, parent = None):
+    def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager: RecordingStateManager):
         super().__init__()
 
         #stop matplotlib font warnings
         logging.getLogger("matplotlib.font_manager").disabled = True
         self.atmtoggle = True
-        # self.atmtogglecount = 0
         self.daq = daq
+
+        # I'm scared of pointers and .copy() doesn't work on bools :/
+        self.cellMode = False
+        # self.cellMode = self.daq.cellMode
+
         self.pressureController = pressureController
         # self.recording_state_manager = recording_state_manager  # Include the state manager in the graph
         self.setpoint = 0
 
         #constants for Multi Clamp
-        self.externalCommandSensitivity = 20 #mv/V
-        self.triggerLevel = 0.05 #V
+        self.externalCommandSensitivity = 20 # mv/V
+        self.triggerLevel = 0.05 # V
 
         #setup window
         self.setWindowTitle("Electrophysiology")
 
-        self.squareWavePlot = PlotWidget()
+        self.cmdPlot = PlotWidget()
+        self.respPlot = PlotWidget()
         # * numerator below is ms!
         # self.squareWavePlot.setXRange(0, 10/1000, padding=0)
         self.pressurePlot = PlotWidget()
         self.resistancePlot = PlotWidget()
 
         #set background color of plots
-        self.squareWavePlot.setBackground("w")
+        self.cmdPlot.setBackground("w")
+        self.respPlot.setBackground("w")
         self.pressurePlot.setBackground("w")
         self.resistancePlot.setBackground("w")
 
         #set axis colors to black
-        self.squareWavePlot.getAxis("left").setPen("k")
-        self.squareWavePlot.getAxis("bottom").setPen("k")
-        self.pressurePlot.getAxis("left").setPen("k")
-        self.pressurePlot.getAxis("bottom").setPen("k")
-        self.resistancePlot.getAxis("left").setPen("k")
-        self.resistancePlot.getAxis("bottom").setPen("k")
+        for plot in [self.cmdPlot, self.respPlot, self.resistancePlot, self.pressurePlot]:
+            plot.setBackground("w")
+            plot.getAxis("left").setPen("k")
+            plot.getAxis("bottom").setPen("k")
 
-        #set labels
-        self.squareWavePlot.setLabel("left", "Current", units="A")
-        self.squareWavePlot.setLabel("bottom", "Time", units="s")
+        # set labels
+        # * This "A" makes things annoying for the recorder and Daq, but its serves as a base unit. If set to pA, then if the data is 3 orders of magnitude higher,
+        # * it will show the label as kpA instead of nA.
+        # * This means we have to keep doing some "conversions" to make the graph happy
+        self.cmdPlot.setLabel("left", "Command Voltage", units="V")
+        self.cmdPlot.setLabel("bottom", "Time", units="s")
+        self.respPlot.setLabel("left", "Current (resp)", units="A")
+        self.respPlot.setLabel("bottom", "Time", units="s")
         self.pressurePlot.setLabel("left", "Pressure", units="mbar")
         self.pressurePlot.setLabel("bottom", "Time", units="s")
         self.resistancePlot.setLabel("left", "Resistance", units="Ohms")
@@ -286,9 +316,9 @@ class EPhysGraph(QWidget):
 
         #create a quarter layout for 4 graphs
         layout = QVBoxLayout()
-        layout.addWidget(self.squareWavePlot)
-        layout.addWidget(self.pressurePlot)
-        layout.addWidget(self.resistancePlot)
+        for plot in [self.cmdPlot, self.respPlot, self.pressurePlot, self.resistancePlot]:
+            layout.addWidget(plot)
+
 
         #make resistance plot show current resistance in text
         self.bottomBar = QWidget()
@@ -298,8 +328,16 @@ class EPhysGraph(QWidget):
         self.resistanceLabel = QLabel("Resistance:")
         self.bottomBarLayout.addWidget(self.resistanceLabel)
 
-        self.capacitanceLabel = QLabel("Capacitance:")
-        self.bottomBarLayout.addWidget(self.capacitanceLabel)
+        self.modelType = QPushButton(f"{'Cell' if self.cellMode else 'Bath'} Mode")
+        self.modelType.setStyleSheet(f"background-color: {'green' if self.cellMode else 'blue'}; color: white; border-radius: 5px; padding: 5px;")
+
+        self.bottomBarLayout.addWidget(self.modelType)
+        self.accessResistanceLabel = QLabel("Access Resistance: NA")
+        self.bottomBarLayout.addWidget(self.accessResistanceLabel)
+        self.membraneResistanceLabel = QLabel("Membrane Resistance: NA")
+        self.bottomBarLayout.addWidget(self.membraneResistanceLabel)
+        self.membraneCapacitanceLabel = QLabel("Membrane Capacitance: NA")
+        self.bottomBarLayout.addWidget(self.membraneCapacitanceLabel)
 
         #make bottom bar height 20px
         self.bottomBar.setMaximumHeight(20)
@@ -356,19 +394,37 @@ class EPhysGraph(QWidget):
         self.updateTimer.start(self.updateDt)
 
         # start async daq data update
-        self.lastestDaqData = None
+        self.latestReadData = None
+        self.latestrespData = None
         self.daqUpdateThread = threading.Thread(target=self.updateDAQDataAsync, daemon=True)
         self.daqUpdateThread.start()
     
 
         self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="graph_recording")
-        self.lastDaqData = []
+        self.lastrespData = []
+        self.lastReadData = []
 
         self.atmosphericPressureButton.clicked.connect(self.togglePressure)
+        self.modelType.clicked.connect(self.toggleModelType)
         #show window and bring to front
         self.raise_()
         self.show()
 
+    def location_on_the_screen(self):
+        ag = QDesktopWidget().availableGeometry()
+        sg = QDesktopWidget().screenGeometry()
+        # print(f"Available geometry: {ag.width()} x {ag.height()}")
+        # print(ag.width(), ag.height())
+        # print(f"Screen geometry: {sg.width()} x {sg.height()}")
+        # print(sg.width(), sg.height())
+    
+        x = ag.width() // 2    # Adjusted calculation for x coordinate
+        y = 30  # Adjusted calculation for y coordinate
+        width = ag.width() // 2
+        height = ag.height() - 30    # Subtract 50 from the total height
+        # print(f"x: {x}, y: {y}")
+        # print(x, y)
+        self.setGeometry(x, y, width, height)
 
     def close(self):
         self.recorder.close()
@@ -384,24 +440,61 @@ class EPhysGraph(QWidget):
                 continue # don't run membrane test while running a current protocol
 
             # * setting frequency to 100Hz fixed the resistance chart on bath mode but isn't needed on cell mode (it can be 10Hz??)
-            # self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(100, 50000, 0.5, 0.5, 0.1)
-            # self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(100, 50000, 0.5, 0.5, 0.03)
             # * best option so far is below, should we make it more flexible? --> sometimes the min appears before the max, messing up the gradient calculation and
-            # * subsequent shiftin in daq.getDataFromSquareWave
-            self.lastestDaqData, resistance = self.daq.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
-            if resistance is not None:
-                self.resistanceDeque.append(resistance)
-                self.resistanceLabel.setText("Resistance: {:.2f} MOhms\t".format(resistance / 1e6))
-                self.capacitanceLabel.setText("Capacitance: {:.2f} pF\t".format(resistance / 1e-12))
+            # * subsequent shift in in daq.getDataFromSquareWave
+            # 1 = 20mV  -> 5V on the oscilloscope
+            # 0.5 = 10mV -> 2.5V on the oscilloscope
+            self.latestrespData, self.latestReadData, totalResistance, MembraneResistance, AccessResistance, MembraneCapacitance = self.daq.getDataFromSquareWave(40, 50000, 0.5, 0.5, 0.04)
+            
+            # print("Total Resistance: ", totalResistance)
+            # print("Access Resistance: ", AccessResistance)
+            # print("Membrane Resistance: ", MembraneResistance)
+            # print("Membrane Capacitance: ", MembraneCapacitance)
+
+
+            if totalResistance is not None:
+                self.resistanceDeque.append(totalResistance)
+                self.resistanceLabel.setText("Total Resistance: {:.2f} M Ohms\t".format(totalResistance))
+                # print("Total Resistance: ", totalResistance)
+                # print("Access Resistance: ", AccessResistance)
+                # print("Membrane Resistance: ", MembraneResistance)
+                # print("Membrane Capacitance: ", MembraneCapacitance)
+            if AccessResistance is not None:
+                self.accessResistanceLabel.setText("Access Resistance: {:.2f} MΩ\t".format(AccessResistance))
+            if MembraneResistance is not None:
+                self.membraneResistanceLabel.setText("Membrane Resistance: {:.2f} MΩ\t".format(MembraneResistance))
+            if MembraneCapacitance is not None:
+                self.membraneCapacitanceLabel.setText("Membrane Capacitance: {:.2f} pF\t".format(MembraneCapacitance))
+                # # self.resistanceDeque.append(accessResistance + membraneResistance)
+                # # self.resistanceLabel.setText("Total Resistance: NA")
+                # if totalResistance is not None:
+                #     self.resistanceDeque.append(totalResistance)
+                # self.resistanceLabel.setText("Total Resistance: {:.2f} Ohms\t".format(totalResistance))
+                # # if self.cellMode:
+                #     self.membraneCapacitanceLabel.setText("Membrane Capacitance: {:.2f} pF".format(MembraneCapacitance))
+                #     self.membraneResistanceLabel.setText("Membrane Resistance: {:.2f} GΩ".format(MembraneResistance))
+                #     self.accessResistanceLabel.setText("Access Resistance: {:.2f} GΩ".format(AccessResistance))
+                # else:
+                #     self.membraneCapacitanceLabel.setText("Membrane Capacitance: NA")
+                #     self.membraneResistanceLabel.setText("Membrane Resistance: NA")
+                #     self.accessResistanceLabel.setText("Access Resistance: NA")
 
     def update_plot(self):
         # update current graph
 
-        if self.lastestDaqData is not None:
-            self.squareWavePlot.clear()
-            self.squareWavePlot.plot(self.lastestDaqData[0, :], self.lastestDaqData[1, :])
-            self.lastDaqData = self.lastestDaqData
-            # self.lastestDaqData = None
+        if self.latestReadData is not None:
+            # print("Latest Read Data: ", self.latestReadData[1, :])
+            self.cmdPlot.clear()
+            self.cmdPlot.plot(self.latestReadData[0, :], self.latestReadData[1, :])
+            self.lastReadData = self.latestReadData
+            self.latestReadData = None
+
+        if self.latestrespData is not None:
+            self.respPlot.clear()
+            self.respPlot.plot(self.latestrespData[0, :], self.latestrespData[1, :])
+            self.lastrespData = self.latestrespData
+            self.latestrespData = None
+     
         
         #update pressure graph
         currentPressureReading = int(self.pressureController.measure())
@@ -427,11 +520,9 @@ class EPhysGraph(QWidget):
         # logging.debug("graph updated") # uncomment for debugging in log.csv file
 
         try:
-            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastDaqData[1, :]))
+            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastrespData[1, :]), list(self.lastReadData[1, :]))
         except Exception as e:
-            logging.error(f"Error in writing graph data to file: {e}, {self.lastDaqData}")
-
-        self.lastestDaqData = None
+            logging.error(f"Error in writing graph data to file: {e}, {self.lastrespData}")
 
     def incrementPressure(self):
         current_value = self.pressureCommandSlider.value()
@@ -462,6 +553,20 @@ class EPhysGraph(QWidget):
         # self.pressureCommandBox.setPlaceholderText(f"{pressure} mbar")
 
         # logging.info(f"toggle pressure called: {self.atmtogglecount} times")
+    
+    def toggleModelType(self):
+        if self.daq.cellMode:
+            self.modelType.setStyleSheet("background-color: blue; color: white;border-radius: 5px; padding: 5px;")
+            self.modelType.setText("Bath Mode")
+            self.daq.setCellMode(False)
+        else:
+            self.modelType.setStyleSheet("background-color: green; color: white; border-radius: 5px; padding: 5px;")
+            self.modelType.setText("Cell Mode")
+            self.daq.setCellMode(True)
+
+        print("Cell Mode: ", self.daq.cellMode)
+        self.cellMode = self.daq.cellMode
+        print("Graph Cell Mode: ", self.cellMode)
 
     def updatePressureLabel(self, value):
         self.pressureCommandBox.setPlaceholderText(f"Set to: {value} mbar")

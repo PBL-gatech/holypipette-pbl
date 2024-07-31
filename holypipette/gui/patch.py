@@ -8,6 +8,7 @@ import PyQt5.QtGui as QtGui
 import numpy as np
 import logging
 
+from PyQt5.QtWidgets import QDesktopWidget
 
 from holypipette.controller import TaskController
 from holypipette.gui.manipulator import ManipulatorGui
@@ -26,8 +27,6 @@ class PatchGui(ManipulatorGui):
 
     def __init__(self, camera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager: RecordingStateManager, with_tracking=False):
         super(PatchGui, self).__init__(camera, pipette_interface,with_tracking=with_tracking,recording_state_manager=recording_state_manager)
-        
-
 
         self.setWindowTitle("Patch GUI")
         # Note that pipette interface already runs in a thread, we need to use
@@ -44,11 +43,11 @@ class PatchGui(ManipulatorGui):
         #add patching button tab
         button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
         self.add_config_gui(self.patch_interface.config)
-        self.add_tab(button_tab, 'Commands', index = 0)
+        self.add_tab(button_tab, 'Auto Patching', index = 0)
 
-        #add cell sorter button tab
-        cellsorter_tab = CellSorterButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals)
-        self.add_tab(cellsorter_tab, 'Cell Sorter', index = 0)
+        # #add cell sorter button tab
+        # cellsorter_tab = CellSorterButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals)
+        # self.add_tab(cellsorter_tab, 'Cell Sorter', index = 0)
 
         # add manual patching button tab
         manual_patching_tab = ManualPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
@@ -59,6 +58,22 @@ class PatchGui(ManipulatorGui):
         self.pressure_timer.timeout.connect(self.display_pressure)
         self.pressure_timer.start(16)
         self.patch_interface.set_pressure_near()
+
+    # def location_on_the_screen(self):
+    #     ag = QDesktopWidget().availableGeometry()
+    #     sg = QDesktopWidget().screenGeometry()
+    #     # print(f"Available geometry: {ag.width()} x {ag.height()}")
+    #     # print(ag.width(), ag.height())
+    #     # print(f"Screen geometry: {sg.width()} x {sg.height()}")
+    #     # print(sg.width(), sg.height())
+    
+    #     x = 0   # Adjusted calculation for x coordinate
+    #     y = 30  # Adjusted calculation for y coordinate
+    #     width = ag.width() // 2
+    #     height = ag.height() - 30    # Subtract 50 from the total height
+    #     print(f"x: {x}, y: {y}")
+    #     # print(x, y)
+    #     self.setGeometry(x, y, width, height)
 
     # this is heavily affecting performance. If we use lastVal it introduces a delay of of a few seconds
     # however this implementation means that we are reading the arduino meaure twice, and that delays are being stacked?
@@ -122,7 +137,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
             cmd()
 
     def addPositionBox(self, name: str, layout, update_func, tare_func=None, axes=['x', 'y', 'z']):
-        #add a box for manipulator and stage positions
+        # add a box for manipulator and stage positions
         box = QtWidgets.QGroupBox(name)
         row = QtWidgets.QHBoxLayout()
         indices = []
@@ -148,6 +163,42 @@ class ButtonTabWidget(QtWidgets.QWidget):
         pos_timer.timeout.connect(lambda: update_func(indices))
         pos_timer.start(16)
         self.pos_update_timers.append(pos_timer)
+
+        # make a function similar to AddPositionBox.
+        # it hsould accept 3 buttons with 3 commands, and stack them vertically
+        # it should also accept a layout to add the buttons to
+
+    def positionAndTareBox(self, name: str, layout, update_func, tare_funcs, axes=['x', 'y', 'z']):
+        # add a box for manipulator and stage positions
+        box = QtWidgets.QGroupBox(name)
+        main_layout = QtWidgets.QHBoxLayout()
+        indices = []
+
+        for j, axis in enumerate(axes):
+            axis_layout = QtWidgets.QVBoxLayout()
+
+            # create a label for the position
+            label = QtWidgets.QLabel(f'{axis}: 0.00')
+            axis_layout.addWidget(label)
+            indices.append(len(self.pos_labels))
+            self.pos_labels.append(label)
+
+            # add a button to tare the manipulator
+            tare_button = QtWidgets.QPushButton(f'Tare {axis}')
+            tare_button.clicked.connect(tare_funcs[j])
+            axis_layout.addWidget(tare_button)
+
+            main_layout.addLayout(axis_layout)
+
+        box.setLayout(main_layout)
+        layout.addWidget(box)
+
+        # periodically update the position labels
+        pos_timer = QtCore.QTimer()
+        pos_timer.timeout.connect(lambda: update_func(indices))
+        pos_timer.start(16)
+        self.pos_update_timers.append(pos_timer)
+
     
     def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds):
         box = QtWidgets.QGroupBox(box_name)
@@ -195,18 +246,25 @@ class ManualPatchButtons(ButtonTabWidget):
 
         self.stage_xy = [0, 0]
         self.stage_z = 0
-        self.pipette_xyz = [0,0,0]
+        self.pipette_xyz = [0, 0, 0]
         
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
-        self.addPositionBox('stage position (um)', layout, self.update_stage_pos_labels, tare_func=self.tare_stage)
+        # instead of one button, we have a list of buttons
+        self.positionAndTareBox('stage position (um)', layout, self.update_stage_pos_labels, tare_funcs=[self.tare_stage_x, self.tare_stage_y, self.tare_stage_z])
         self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
-        self.init_stage_pos = None #used to store bootup positions so we can reset to them
+        # self.addPositionBox('stage position (um)', layout, self.update_stage_pos_labels, tare_func=self.tare_stage)
+        # self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
+        self.init_stage_pos = None # used to store bootup positions so we can reset to them
         self.init_pipette_pos = None
+        self.currx_stage_pos = np.array([0, 0, 0])
+        self.curry_stage_pos = np.array([0, 0, 0])
+        self.currz_stage_pos = np.array([0, 0, 0])
 
-        #add box to emit patching states
-        buttonList = [['Cell Found', 'Gigaseal Reached','Whole Cell Achieved'], ['Patch Attempt started', 'Patch Attempt Failed']]
-        cmds = [[self.state_emitter('NH success'), self.state_emitter('GS success'),self.state_emitter("WC success")], [self.state_emitter('patching started'), self.state_emitter('patching failed')]]
+
+        # add box to emit patching states
+        buttonList = [['Cell Found', 'Gigaseal Reached','Whole Cell Achieved'], ['Patch Attempt Start', 'Patch Attempt Failed']]
+        cmds = [[self.emit_cell_found, self.emit_gigaseal, self.emit_whole_cell], [self.emit_patch_attempt_start, self.emit_patch_attempt_fail]]
         self.addButtonList('patching states', layout, buttonList, cmds)
     
         #add a box for patching cmds
@@ -226,12 +284,22 @@ class ManualPatchButtons(ButtonTabWidget):
         self.setLayout(layout)
 
     def run_protocols(self):
+        logging.info("Protocols run start")
         self.patch_interface.run_protocols()
+        logging.info("Protocols run finished")
         self.recording_state_manager.increment_sample_number()
+        logging.info("Sample number incremented")
 
-    def state_emitter(self, state):
-        logging.info(f"emitting state: {state}")
-
+    def emit_cell_found(self):
+        self.patch_interface.state_emitter("NH Success")
+    def emit_gigaseal(self):
+        self.patch_interface.state_emitter("GS success")
+    def emit_whole_cell(self):
+        self.patch_interface.state_emitter("WC success")
+    def emit_patch_attempt_start(self):
+        self.patch_interface.state_emitter("patching started")
+    def emit_patch_attempt_fail(self):
+        self.patch_interface.state_emitter("patching failed")
 
     def toggle_recording(self):
         if self.recording_state_manager.is_recording_enabled():
@@ -284,6 +352,24 @@ class ManualPatchButtons(ButtonTabWidget):
         xyPos = self.pipette_interface.calibrated_stage.position()
         zPos = self.pipette_interface.microscope.position()
         self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+    
+    def tare_stage_x(self):
+        # pass
+        xPos = self.pipette_interface.calibrated_stage.position(0)
+        self.currx_stage_pos = np.array([xPos, 0, 0])
+        print("Tare stage x: ", self.currx_stage_pos)
+
+    def tare_stage_y(self):
+        # pass
+        yPos = self.pipette_interface.calibrated_stage.position(1)
+        self.curry_stage_pos = np.array([0, yPos, 0])
+        print("Tare stage y: ", self.curry_stage_pos)
+
+    def tare_stage_z(self):
+        # pass
+        zPos = self.pipette_interface.microscope.position()
+        self.currz_stage_pos = np.array([0, 0, zPos])
+        print("Tare stage z: ", self.currz_stage_pos)
 
 
     def update_stage_pos_labels(self, indices):
@@ -294,22 +380,33 @@ class ManualPatchButtons(ButtonTabWidget):
         if self.init_stage_pos is None:
             self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
 
-        xyPos = xyPos - self.init_stage_pos[0:2]
-        zPos = zPos - self.init_stage_pos[2]
+        # print("xyPos: ", xyPos)
+        # print("zPos: ", zPos)
+        # print("init_stage_pos: ", self.init_stage_pos)
+
+        rxyPos = xyPos - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
+        rzPos = zPos  - self.currz_stage_pos[2]
+        # self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+        # print("new_stage_pos: ", self.init_stage_pos)
+        # self.currx_stage_pos = np.array([0, 0, 0])
+        # self.curry_stage_pos = np.array([0, 0, 0])
+        # self.currz_stage_pos = np.array([0, 0, 0])
+
+        self.stage_xy = rxyPos
+        self.stage_z = rzPos
 
         self.recorder.setBatchMoves(True)
-        self.recorder.write_movement_data_batch(datetime.now().timestamp(), xyPos[0], xyPos[1], zPos, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
+        self.recorder.write_movement_data_batch(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
 
-        self.stage_xy = xyPos
-        self.stage_z = zPos
+
 
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
             if i < 2:
-                label.setText(f'{label.text().split(":")[0]}: {xyPos[i]:.2f}')
+                label.setText(f'{label.text().split(":")[0]}: {rxyPos[i]:.2f}')
             else:
                 #note: divide by 5 here to account for z-axis gear ratio
-                label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}') 
+                label.setText(f'{label.text().split(":")[0]}: {rzPos/5:.2f}') 
     
 class PatchButtons(ButtonTabWidget):
     def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals, recording_state_manager):

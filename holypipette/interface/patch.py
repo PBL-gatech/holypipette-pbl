@@ -4,12 +4,12 @@ Control of automatic patch clamp algorithm
 '''
 import numpy as np
 
-from ..interface import TaskInterface, command, blocking_command
-from ..controller import AutoPatcher
-from ..devices.pressurecontroller import PressureController
-from ..devices.amplifier.amplifier import Amplifier
-from ..interface.pipettes import PipetteInterface
-from ..devices.amplifier.DAQ import DAQ
+from holypipette.interface import TaskInterface, command, blocking_command
+from holypipette.controller import AutoPatcher
+from holypipette.devices.pressurecontroller.BasePressureController import PressureController
+from holypipette.devices.amplifier.amplifier import Amplifier
+from holypipette.interface.pipettes import PipetteInterface
+from holypipette.devices.amplifier.DAQ import DAQ
 from .patchConfig import PatchConfig
 from PyQt5 import QtCore
 import time
@@ -104,6 +104,12 @@ class AutoPatchInterface(TaskInterface):
             self.current_autopatcher.calibrated_unit.camera.cell_list.append(camera_pos[0:2].astype(int))
             
 
+    @command(category='Patch',
+                description='emit the states to logger that are being attempted in manual mode',
+                success_message='state emitted')
+    def state_emitter(self,state):
+        self.execute(self.current_autopatcher.state_emitter, argument=(state))
+                
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
     def patch(self) -> None:
@@ -144,7 +150,6 @@ class AutoPatchInterface(TaskInterface):
         # TODO: Figure out what this should link to
         self.execute(self.current_autopatcher.contact_detection)
 
-    
     def set_pressure_near(self) -> None:
         '''puts the pipette under positive pressure to prevent blockages
         '''
