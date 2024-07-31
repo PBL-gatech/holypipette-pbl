@@ -171,32 +171,34 @@ class ButtonTabWidget(QtWidgets.QWidget):
     def positionAndTareBox(self, name: str, layout, update_func, tare_funcs, axes=['x', 'y', 'z']):
         # add a box for manipulator and stage positions
         box = QtWidgets.QGroupBox(name)
-        rows = QtWidgets.QVBoxLayout()
+        main_layout = QtWidgets.QHBoxLayout()
         indices = []
-        #create a new row for each position
+
         for j, axis in enumerate(axes):
-            #create a label for the position
-            label = QtWidgets.QLabel(f'{axis}: TODO')
-            rows.addWidget(label)
+            axis_layout = QtWidgets.QVBoxLayout()
+
+            # create a label for the position
+            label = QtWidgets.QLabel(f'{axis}: 0.00')
+            axis_layout.addWidget(label)
             indices.append(len(self.pos_labels))
             self.pos_labels.append(label)
-        box.setLayout(rows)
+
+            # add a button to tare the manipulator
+            tare_button = QtWidgets.QPushButton(f'Tare {axis}')
+            tare_button.clicked.connect(tare_funcs[j])
+            axis_layout.addWidget(tare_button)
+
+            main_layout.addLayout(axis_layout)
+
+        box.setLayout(main_layout)
         layout.addWidget(box)
 
-        # make multiple rows of buttons
-        row = QtWidgets.QHBoxLayout()
-        for j, tare_func in enumerate(tare_funcs):
-            #add a button to tare the manipulator
-            tare_button = QtWidgets.QPushButton(f'Tare {axes[j]}')
-            tare_button.clicked.connect(tare_func)
-            row.addWidget(tare_button)
-        rows.addLayout(row)
-
-        #periodically update the position labels
+        # periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
         pos_timer.start(16)
         self.pos_update_timers.append(pos_timer)
+
     
     def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds):
         box = QtWidgets.QGroupBox(box_name)
@@ -382,26 +384,29 @@ class ManualPatchButtons(ButtonTabWidget):
         # print("zPos: ", zPos)
         # print("init_stage_pos: ", self.init_stage_pos)
 
-        xyPos = xyPos - self.init_stage_pos[0:2] - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
-        zPos = zPos - self.init_stage_pos[2] - self.currz_stage_pos[2]
-        self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
-        self.currx_stage_pos = np.array([0, 0, 0])
-        self.curry_stage_pos = np.array([0, 0, 0])
-        self.currz_stage_pos = np.array([0, 0, 0])
+        rxyPos = xyPos - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
+        rzPos = zPos  - self.currz_stage_pos[2]
+        # self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+        # print("new_stage_pos: ", self.init_stage_pos)
+        # self.currx_stage_pos = np.array([0, 0, 0])
+        # self.curry_stage_pos = np.array([0, 0, 0])
+        # self.currz_stage_pos = np.array([0, 0, 0])
+
+        self.stage_xy = rxyPos
+        self.stage_z = rzPos
 
         self.recorder.setBatchMoves(True)
-        self.recorder.write_movement_data_batch(datetime.now().timestamp(), xyPos[0], xyPos[1], zPos, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
+        self.recorder.write_movement_data_batch(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
 
-        self.stage_xy = xyPos
-        self.stage_z = zPos
+
 
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
             if i < 2:
-                label.setText(f'{label.text().split(":")[0]}: {xyPos[i]:.2f}')
+                label.setText(f'{label.text().split(":")[0]}: {rxyPos[i]:.2f}')
             else:
                 #note: divide by 5 here to account for z-axis gear ratio
-                label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}') 
+                label.setText(f'{label.text().split(":")[0]}: {rzPos/5:.2f}') 
     
 class PatchButtons(ButtonTabWidget):
     def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals, recording_state_manager):
