@@ -174,6 +174,7 @@ class Camera(object):
         self.width = 1000
         self.height = 1000
         self.flipped = False # Horizontal flip
+        self.auto_normalize = False
 
         self.stop_show_time = 0
         self.point_to_show = None
@@ -305,6 +306,14 @@ class Camera(object):
     def change_exposure(self, change):
         if self.get_exposure() > 0:
             self.set_exposure(self.get_exposure() + change)
+
+    def normalize(self):
+        print('Normalizing not supported for this camera')
+        
+    def autonormalize(self, state):
+        self.auto_normalize = state
+        print('Autonormalizing not supported for this camera')
+        return self.auto_normalize
 
     def auto_exposure(self):
         '''

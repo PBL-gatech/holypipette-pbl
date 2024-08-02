@@ -99,13 +99,13 @@ class CurrentProtocolGraph(QWidget):
         #     # print("Enumerating graph:, ", i, graph)
             save_data = temp_data.popleft()
 
-            print("Graph: ", graph)
+            # print("Graph: ", graph)
             timeData = graph[0]
             respData = graph[1]
             readData = graph[2]
-            print("timeData: ", len(timeData))
-            print("respData: ", len(respData))
-            print("readData: ", len(readData))
+            # print("timeData: ", len(timeData))
+            # print("respData: ", len(respData))
+            # print("readData: ", len(readData))
             self.cprotocolPlot.plot(timeData, respData, pen=colors[i])
             # self.cprotocolPlot.plot(timeData, respData, pen="b")
             logging.info("writing current ephys data to file")
@@ -564,7 +564,7 @@ class EPhysGraph(QWidget):
             self.modelType.setText("Cell Mode")
             self.daq.setCellMode(True)
 
-        print("Cell Mode: ", self.daq.cellMode)
+        logging.info("Cell Mode: ", self.daq.cellMode)
         self.cellMode = self.daq.cellMode
         print("Graph Cell Mode: ", self.cellMode)
 

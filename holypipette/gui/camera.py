@@ -456,14 +456,29 @@ class CameraGui(QtWidgets.QMainWindow):
         self.record_button.setCheckable(True)
         self.record_button.setToolTip('Toggle video recording')
         self.record_button.setStyleSheet('QToolButton:checked {background-color: red;}')
+
         self.autoexposure_button = QtWidgets.QToolButton(clicked=self.camera_interface.normalize)
         self.autoexposure_button.setIcon(qta.icon('fa.camera'))
         self.autoexposure_button.setToolTip('Normalize the image')
 
+        # create autonormalizatoin checkbox
+        self.autonormalize_checkbox = QtWidgets.QCheckBox('Auto-normalize')
+        self.autonormalize_checkbox.setChecked(False)
+        self.autonormalize_checkbox.stateChanged.connect(lambda: self.camera_interface.autonormalize(self.autonormalize_checkbox.isChecked()))
+
+        self.setexposure_edit = QtWidgets.QLineEdit()
+        self.setexposure_edit.setMaximumWidth(200)
+        self.setexposure_edit.setPlaceholderText('Exposure time (ms)')
+        # convert the text to a float and set the exposure time if the user presses enter and clear the text box
+        self.setexposure_edit.returnPressed.connect(lambda: self.camera_interface.set_exposure(float(self.setexposure_edit.text())))
+        self.setexposure_edit.returnPressed.connect(lambda: self.setexposure_edit.clear())
+
+        self.status_bar.addPermanentWidget(self.setexposure_edit)
         self.status_bar.addPermanentWidget(self.help_button)
         self.status_bar.addPermanentWidget(self.log_button)
         self.status_bar.addPermanentWidget(self.record_button)
         self.status_bar.addPermanentWidget(self.autoexposure_button)
+        self.status_bar.addPermanentWidget(self.autonormalize_checkbox)
 
         self.status_bar.setSizeGripEnabled(False)
         self.setStatusBar(self.status_bar)

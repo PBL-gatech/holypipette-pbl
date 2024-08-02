@@ -102,14 +102,15 @@ class DAQ:
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
 
         '''
-        print(f"volt membrane capacitance: {self.voltageMembraneCapacitance}")
+        # print(f"volt membrane capacitance: {self.voltageMembraneCapacitance}")
         if self.voltageMembraneCapacitance is None or self.voltageMembraneCapacitance is 0:
             self.voltageMembraneCapacitance = 0 
+            logging.warn("Is system set to cell mode?")
             logging.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
             logging.error("Returning None,Current clamp protocol cannot be run.")
             return None, None, None
 
-        factor = 2 
+        factor = 2
         startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
         endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
@@ -135,7 +136,7 @@ class DAQ:
 
             #convert to DAQ output
             amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
-            print("Amplitude", amplitude)
+            # print("Amplitude", amplitude)
             
             #send square wave to DAQ
             self._deviceLock.acquire()
@@ -156,10 +157,6 @@ class DAQ:
             triggeredSamples = respData.shape[0]
             timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
             time.sleep(0.5)
-
-            print("Shape of timeData", timeData.shape)
-            print("Shape of respData", respData.shape)
-            print("Shape of readData", readData.shape)
 
             if self.current_protocol_data is None:
                 self.current_protocol_data = [[timeData, respData, readData]]
@@ -205,7 +202,7 @@ class DAQ:
                     break  # exit loop if capacitance is non-zero
                 else:
                     logging.warning(f"Attempt {attempts}: Capacitance is zero, retrying...")
-            print(f"Latest membrane capacitance: {self.voltageMembraneCapacitance}")
+            # print(f"Latest membrane capacitance: {self.voltageMembraneCapacitance}")
         except Exception as e:
             self.voltage_protocol_data, self.voltage_command_data = None, None
             logging.error(f"Error in getDataFromVoltageProtocol: {e}")
@@ -336,10 +333,7 @@ class DAQ:
                 #shift time axis to zero
                 start = df['T'].iloc[0]
                 df['T'] = df['T'] - start
-                # print the first 5 elements before the conversion
-                # print(f"Before conversion T {df['T']}")
-                # print(f"Before conversion X {df['X']}")
-                # print(f"Before conversion Y {df['Y']}")
+                # dimensionality conversion
                 df['T_ms'] = df['T'] * 1000  # converting seconds to milliseconds
                 df['X_mV'] = df['X'] * 1000  # converting volts to millivolts
                 df['Y_pA'] = df['Y'] * 1e12  # converting amps to picoamps
@@ -349,9 +343,9 @@ class DAQ:
                 # logging.info("Data filtered")
                 peak_time, peak_index, min_time, min_index = plot_params
                 #get peak and min values
-                I_peak_pA = df.loc[peak_index, 'Y_pA']
+                I_peak_pA = df.loc[peak_index + 1, 'Y_pA']
+                I_peak_time = df.loc[peak_index + 1, 'T_ms']
                 # logging.info(f"Peak Current (pA): {I_peak_pA} at index: {peak_index}")
-                
                 # logging.info(f"steady state current (pA): {I_post_pA} at index: {min_index-10}")
                 # logging.info(f"Peak time: {peak_time}, Peak index: {peak_index}, Min time: {min_time}, Min index: {min_index}")
                 # logging.info(f"I_prev_pA: {I_prev_pA}, I_post_pA: {I_post_pA}, I_peak_pA: {I_peak_pA}")
@@ -363,7 +357,7 @@ class DAQ:
                 mean_voltage = filtered_command.mean()
                 start = fit_data['T_ms'].iloc[0]
                 fit_data['T_ms'] = fit_data['T_ms'] - start
-                m, t, b = self.optimizer(fit_data, I_peak_pA, I_post_pA)
+                m, t, b = self.optimizer(fit_data, I_peak_pA, I_peak_time, I_post_pA)
                 # print(f"m: {m}, t: {t}, b: {b}")
                 if m is not None and t is not None and b is not None:
                     tau = 1 / t
@@ -428,21 +422,29 @@ class DAQ:
     def monoExp(self,x, m, t, b):
         return m * np.exp(-t * x) + b
 
-    def optimizer(self, fit_data, I_peak_pA, I_ss):
+    def optimizer(self, fit_data, I_peak_pA, I_peak_time, I_ss):
         start = fit_data['T_ms'].iloc[0]
         # logging.info(f"Unshifted Start time: {start}")
         # Shift the data to start at 0
         fit_data['T_ms'] = fit_data['T_ms'] - start
+        #print all of the fit data  to copy to a txt
+        pd.set_option('display.max_rows', None)
+        pd.set_option('display.max_columns', None)
+        # print("T_ms: ", fit_data['T_ms'])
+        # print("Y_pA: ", fit_data['Y_pA']) 
 
+        # Save T_ms and Y_pA to a single CSV file and overwrite it each time
+        # fit_data[['T_ms', 'Y_pA']].to_csv(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_patch_clamp_data\test_data.csv", index=False)
+        # logging.info("Data saved to CSV")
         # print("I_SS: ", I_ss)
-
-        p0 = (I_peak_pA, 0.01, I_ss)
+        p0 = (I_peak_pA, I_peak_time, I_ss)
         # print("P0", p0)
         # print if there is a nan value in fit_data
         try:
             # print("NAN VALUES: ", fit_data.isnull().values.any())
             params, _ = scipy.optimize.curve_fit(self.monoExp, fit_data['T_ms'], fit_data['Y_pA'], maxfev=1000000, p0=p0)
             m, t, b = params
+            # print("Params: ", params)
             # print("Params", m, t, b)
             return m, t, b
         except Exception as e:
@@ -459,15 +461,6 @@ class DAQ:
         
         # calculate membrane resistance:
         R_m_Mohms = (((mean_voltage*1e-3) - R_a_Mohms*1e6*I_dss*1e-12)/(I_dss*1e-12))*1e-6 #530 Mohms --> supposed to be 500 MOhms
-        
-        # print("R_m_Mohms in calc", R_m_Mohms)
-
-        #calculate membrane capacitance:
-        # tau_s = tau*1e-3
-        # total = 1/(R_a_Mohms*1e6) + 1/(R_m_Mohms*1e6)
-        # print("Total (ohms)", total)
-        # print("Tau (seconds)", tau_s)
-        # print("Tau", tau)
         C_m_pF = (tau*1e-3) / (1/(1/(R_a_Mohms*1e6) + 1/(R_m_Mohms*1e6))) * 1e12 # supposed to be 33 pF
         # print("C_m_pF in calc", C_m_pF)
         return R_a_Mohms, R_m_Mohms, C_m_pF

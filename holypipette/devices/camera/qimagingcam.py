@@ -29,6 +29,7 @@ class QImagingCam(Camera):
 
         self.width = width #update superclass img width / height vars
         self.height = height
+        self.autonormalize = False
       
 
         # self.mmc = pymmcore.CMMCore()
@@ -102,6 +103,11 @@ class QImagingCam(Camera):
         self.lowerBound = img.min()
         self.upperBound = img.max()
 
+
+    def autonormalize(self,flag = False):
+        self.auto_normalize = flag
+
+        return self.auto_normalize
     def get_frame_no(self):
         return 0 # TODO: is this ok?
         
@@ -123,6 +129,9 @@ class QImagingCam(Camera):
         This is a blocking call (wait until next frame is available)
         '''
         img = self.get_16bit_image()
+        
+        if self.auto_normalize:
+            self.normalize(img)
 
         # if img is not None:
         #     focusLvl = self.pipetteFocuser.get_pipette_focus(img)

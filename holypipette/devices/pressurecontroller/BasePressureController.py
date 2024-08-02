@@ -43,7 +43,7 @@ class PressureController(TaskController):
         while t-t0<duration:
             self.set_pressure(amplitude*(t-t0)/duration)
             t = time()
-        self.set_pressure(0.)
+        self.set_pressure(0)
 
     def set_ATM(self, atm):
         self.state = atm

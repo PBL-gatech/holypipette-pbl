@@ -5,6 +5,7 @@ import warnings
 import cv2
 from numpy import *
 from holypipette.interface import TaskInterface, command, blocking_command
+import logging
 
 
 class CameraInterface(TaskInterface):
@@ -27,7 +28,7 @@ class CameraInterface(TaskInterface):
         # Should be called by subclasses that actually support setting the exposure
         exposure = self.camera.get_exposure()
         if exposure > 0:
-            self.updated_exposure.emit('Camera', 'Exposure: %.1fms' % exposure)
+            self.updated_exposure.emit('Camera', 'Exposure: %.1f ms' % exposure)
 
     @blocking_command(category='Camera',
                       description='Auto exposure',
@@ -42,12 +43,37 @@ class CameraInterface(TaskInterface):
     def increase_exposure(self, increase):
         self.camera.change_exposure(increase)
         self.signal_updated_exposure()
+    @command(category='Camera',
+                description='Set exposure time to {:.1f}ms',
+                default_arg=2.5)
+    def set_exposure(self, exposure):     
+        currexpos = self.camera.get_exposure()
+        change = exposure - currexpos
+        if change > 0:
+            self.increase_exposure(change)
+        elif change < 0:
+            self.decrease_exposure(-change)
+        # logging.info('Current exposure time is: {}'.format(currexpos))
+        # logging.info("difference is: {}".format(change))
+        logging.info('New exposure time is: {}'.format(exposure))
+        # self.camera.set_exposure(exposure)
+        self.signal_updated_exposure()
     
     @command(category='Camera',
              description='Normalize the image',
              )
     def normalize(self, param=None):
         self.camera.normalize()
+
+    @command(category='Camera',
+             description='AutoNormalize the image',
+             )
+    def autonormalize(self, state):
+        # if state: 
+        #     print("AutoNormalizing")
+        # else:
+        #     print("Not AutoNormalizing")
+        self.camera.autonormalize(state)
 
     @command(category='Camera',
              description='Decrease exposure time by {:.1f}ms',
