@@ -31,6 +31,7 @@ class PcoCamera(Camera):
 
         self.width = width # update superclass img width / height vars
         self.height = height
+        self.auto_normalize = False
 
         #setup the pco camera for continuous streaming
         self.cam = pco.Camera()
@@ -101,7 +102,10 @@ class PcoCamera(Camera):
         self.cam.wait_for_first_image()
 
     def normalize(self, img = None) -> None:
-        print("NORMALIZING")
+
+        if not self.auto_normalize:
+            print("NORMALIZING")   
+
         # print(f"BEFORE IMAGE: {img}")
         if img is None:
             img = self.get_16bit_image()
@@ -112,6 +116,10 @@ class PcoCamera(Camera):
         #maybe 2 stdevs instead?
         self.lowerBound = img.min()
         self.upperBound = img.max()
+
+    def autonormalize(self,flag = None):
+        self.auto_normalize = flag
+        return self.auto_normalize
 
     def get_frame_no(self) -> int:
         return self.frameno
@@ -147,6 +155,10 @@ class PcoCamera(Camera):
         This is a blocking call (wait until next frame is available)
         '''
         img = self.get_16bit_image()
+
+        if self.auto_normalize:
+            # print("AutoNormalizing")
+            self.normalize(img)
 
         if img is None:
             return None

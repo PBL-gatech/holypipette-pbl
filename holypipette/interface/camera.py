@@ -66,6 +66,16 @@ class CameraInterface(TaskInterface):
         self.camera.normalize()
 
     @command(category='Camera',
+             description='AutoNormalize the image',
+             )
+    def autonormalize(self, state):
+        # if state: 
+        #     print("AutoNormalizing")
+        # else:
+        #     print("Not AutoNormalizing")
+        self.camera.autonormalize(state)
+
+    @command(category='Camera',
              description='Decrease exposure time by {:.1f}ms',
              default_arg=2.5)
     def decrease_exposure(self, decrease):
