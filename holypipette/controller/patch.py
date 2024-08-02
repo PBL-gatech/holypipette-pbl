@@ -281,7 +281,7 @@ class AutoPatcher(TaskController):
 
         if not cellFound:
             self.amplifier.stop_patch()
-            self.pressure.set_pressure(20)
+            self.pressure.set_pressure(0)
             raise AutopatchError("Couldn't detect a cell")
         
         # move a bit further down to make sure we're at the cell

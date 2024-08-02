@@ -54,7 +54,7 @@ class MoscowPressureController(PressureController):
 
         # set initial configuration of pressure controller
         self.set_ATM(False)
-        self.set_pressure(50) # set initial pressure to 20 mbar
+        self.set_pressure(0) # set initial pressure to 20 mbar
 
     def autodetectSerial(self):
         '''

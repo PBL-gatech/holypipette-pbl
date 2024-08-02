@@ -110,7 +110,7 @@ class DAQ:
             logging.error("Returning None,Current clamp protocol cannot be run.")
             return None, None, None
 
-        factor = 2 
+        factor = 2
         startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
         endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
@@ -454,7 +454,7 @@ class DAQ:
     def calc_param(self, tau, mean_voltage, I_peak, I_prev, I_ss):
         I_d = I_peak - I_prev  # in pA
         I_dss = I_ss - I_prev  # in pA
-        logging.info(f"tau: {tau}, dmV: {mean_voltage}, I_d: {I_d}, I_dss: {I_dss}")
+        # logging.info(f"tau: {tau}, dmV: {mean_voltage}, I_d: {I_d}, I_dss: {I_dss}")
         # calculate access resistance:
         R_a_Mohms = ((mean_voltage*1e-3) / (I_d*1e-12))*1e-6 # 10 mV / 800 pA = 12.5 MOhms --> supposed to be 10 MOhms
         # print("R_a_MOhms in calc", R_a_Mohms)
