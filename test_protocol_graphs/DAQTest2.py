@@ -101,14 +101,18 @@ class DAQtest:
         max_index = np.argmax(gradientData)
         # Find the index of the minimum value after the maximum value
         min_index = np.argmin(gradientData[max_index:]) + max_index
+
+
+        respData = data[0]
+        readData = data[1]
         
-        #Truncate the array
-        left_bound = 10
-        right_bound = 150
-        # * bound is arbitrary, just to make it look good on the graph
-        respData = data[0][max_index - left_bound:min_index + right_bound]
-        readData = data[1][max_index - left_bound:min_index + right_bound]
-        xdata = xdata[max_index - left_bound:min_index + right_bound]
+        # #Truncate the array
+        # # left_bound = 10
+        # # right_bound = 150
+        # # * bound is arbitrary, just to make it look good on the graph
+        # # respData = data[0][max_index - left_bound:min_index + right_bound]
+        # # readData = data[1][max_index - left_bound:min_index + right_bound]
+        # xdata = xdata[max_index - left_bound:min_index + right_bound]
 
         respData *= 1e-9
         readData *= 1e-9
@@ -205,7 +209,7 @@ class EPhysGraph(QWidget):
         while True:
             if self.daq.isRunningProtocol:
                 continue
-            self.latestReadData, self.latestRespData, totalResistance, accessResistance, membraneResistance, membraneCapacitance = self.daq.getDataFromSquareWave(25,50000, 0.5, 2, 0.06)
+            self.latestReadData, self.latestRespData, totalResistance, accessResistance, membraneResistance, membraneCapacitance = self.daq.getDataFromSquareWave(wave_freq = 50, samplesPerSec = 50000, dutyCycle = 0.5, amplitude = 0.5, recordingTime= 0.05)
             if totalResistance is not None:
                 self.resistanceDeque.append(totalResistance)
 
@@ -241,3 +245,4 @@ if __name__ == "__main__":
     graph.show()
 
     sys.exit(app.exec_())
+
