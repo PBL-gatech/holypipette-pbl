@@ -22,3 +22,4 @@ experiments/Analysis/*/*.webp
 /experiments/Analysis/Rig_Recorder/reconstruct/*.csv
 /experiments/Data/TEST_patch_clamp_data
 /experiments/reference/images
+/experiments/Data/victor_analyze/
