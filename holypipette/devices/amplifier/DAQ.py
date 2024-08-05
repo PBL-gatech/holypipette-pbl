@@ -92,6 +92,26 @@ class DAQ:
         task.write(data)
         
         return task
+    
+    def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        task = nidaqmx.Task()
+        task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
+        task.timing.cfg_samp_clk_timing(samplesPerSec, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
+        
+        # create a wave_freq Hz square wave
+        data = np.zeros(int(samplesPerSec * recordingTime))
+            
+        period = int(1 / wave_freq * samplesPerSec)
+        onTime = int(period * dutyCycle)
+
+        wavesPerSec = samplesPerSec // period
+
+        data[:wavesPerSec*period:onTime] = 0
+        data[onTime:wavesPerSec*period] = amplitude
+
+        task.write(data)
+        
+        return task
 
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
@@ -139,7 +159,7 @@ class DAQ:
             
             #send square wave to DAQ
             self._deviceLock.acquire()
-            sendTask = self._sendSquareWave(wave_freq, samplesPerSec, 0.5, amplitude, recordingTime)
+            sendTask = self._sendSquareWaveCurrent(wave_freq, samplesPerSec, 0.5, amplitude, recordingTime)
             sendTask.start()
             data = self._readAnalogInput(samplesPerSec, recordingTime)
             sendTask.stop()
