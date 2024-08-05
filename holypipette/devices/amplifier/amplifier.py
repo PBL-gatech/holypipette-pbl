@@ -39,6 +39,17 @@ class Amplifier(TaskController):
         '''
         pass
 
+    def switch_holding(self,enable):
+        '''
+        enable and disable the holding voltage or current
+
+        Parameters
+        ----------
+        value : bool
+            enable/disable flag
+        '''
+        pass
+
     def set_holding(self, value):  # Voltage-clamp value
         '''
         Set voltage clamp value
