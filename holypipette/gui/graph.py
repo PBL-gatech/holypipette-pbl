@@ -17,6 +17,7 @@ from holypipette.devices.pressurecontroller import PressureController
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.utils import FileLogger
 from holypipette.utils import EPhysLogger
+import time
 
 from datetime import datetime
 
@@ -250,8 +251,8 @@ class EPhysGraph(QWidget):
     A window that plots electrophysiology data from the DAQ
     """
 
-    pressureLowerBound = -500
-    pressureUpperBound = 800
+    pressureLowerBound = -450
+    pressureUpperBound = 730
 
     def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager: RecordingStateManager):
         super().__init__()
@@ -434,7 +435,7 @@ class EPhysGraph(QWidget):
     def updateDAQDataAsync(self):
         while True:
             # This slows down the rate your graph gets updated (bc the graph only gets updated if there is NEW data)
-            # time.sleep(0.1)
+            time.sleep(0.01)
 
             if self.daq.isRunningProtocol:
                 continue # don't run membrane test while running a current protocol
@@ -444,8 +445,11 @@ class EPhysGraph(QWidget):
             # * subsequent shift in in daq.getDataFromSquareWave
             # 1 = 20mV  -> 5V on the oscilloscope
             # 0.5 = 10mV -> 2.5V on the oscilloscope
-            self.latestrespData, self.latestReadData, totalResistance, MembraneResistance, AccessResistance, MembraneCapacitance = self.daq.getDataFromSquareWave(40, 50000, 0.5, 0.5, 0.04)
-            
+            # wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime
+            self.latestrespData, self.latestReadData, totalResistance, MembraneResistance, AccessResistance, MembraneCapacitance = self.daq.getDataFromSquareWave(wave_freq = 20, samplesPerSec = 50000, dutyCycle = 0.5, amplitude = 0.5, recordingTime= 0.05)
+
+
+            # logging.debug("DAQ data updated")
             # print("Total Resistance: ", totalResistance)
             # print("Access Resistance: ", AccessResistance)
             # print("Membrane Resistance: ", MembraneResistance)
@@ -465,19 +469,6 @@ class EPhysGraph(QWidget):
                 self.membraneResistanceLabel.setText("Membrane Resistance: {:.2f} MΩ\t".format(MembraneResistance))
             if MembraneCapacitance is not None:
                 self.membraneCapacitanceLabel.setText("Membrane Capacitance: {:.2f} pF\t".format(MembraneCapacitance))
-                # # self.resistanceDeque.append(accessResistance + membraneResistance)
-                # # self.resistanceLabel.setText("Total Resistance: NA")
-                # if totalResistance is not None:
-                #     self.resistanceDeque.append(totalResistance)
-                # self.resistanceLabel.setText("Total Resistance: {:.2f} Ohms\t".format(totalResistance))
-                # # if self.cellMode:
-                #     self.membraneCapacitanceLabel.setText("Membrane Capacitance: {:.2f} pF".format(MembraneCapacitance))
-                #     self.membraneResistanceLabel.setText("Membrane Resistance: {:.2f} GΩ".format(MembraneResistance))
-                #     self.accessResistanceLabel.setText("Access Resistance: {:.2f} GΩ".format(AccessResistance))
-                # else:
-                #     self.membraneCapacitanceLabel.setText("Membrane Capacitance: NA")
-                #     self.membraneResistanceLabel.setText("Membrane Resistance: NA")
-                #     self.accessResistanceLabel.setText("Access Resistance: NA")
 
     def update_plot(self):
         # update current graph
@@ -537,7 +528,6 @@ class EPhysGraph(QWidget):
         if new_value >= EPhysGraph.pressureLowerBound:
             self.pressureCommandSlider.setValue(new_value)
             self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
-
 
     def togglePressure(self):
         if self.atmtoggle:

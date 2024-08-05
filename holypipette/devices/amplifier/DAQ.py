@@ -79,16 +79,15 @@ class DAQ:
         task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
         task.timing.cfg_samp_clk_timing(samplesPerSec, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
         
-        # create a wave_freq Hz square wave
-        data = np.zeros(int(samplesPerSec * recordingTime))
+        numSamples = int(samplesPerSec * recordingTime)
+        data = np.zeros(numSamples)
         
-        period = int(1 / wave_freq * samplesPerSec)
+        period = int(samplesPerSec / wave_freq)
         onTime = int(period * dutyCycle)
 
-        wavesPerSec = samplesPerSec // period
-
-        data[:wavesPerSec*period:onTime] = 0
-        data[onTime:wavesPerSec*period] = amplitude
+        for i in range(0, numSamples, period):
+            data[i:i+onTime] = amplitude
+            data[i+onTime:i+period] = 0
 
         task.write(data)
         
@@ -197,7 +196,7 @@ class DAQ:
             self.isRunningProtocol = True
             while attempts < max_attempts:
                 attempts += 1
-                self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(40, 50000, 0.5, 0.5, 0.04)
+                self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.05)
                 if self.voltageMembraneCapacitance != 0:
                     break  # exit loop if capacitance is non-zero
                 else:
@@ -221,65 +220,79 @@ class DAQ:
         sendTask.start()
         # start2 = time.time()
         data = self._readAnalogInput(samplesPerSec, recordingTime)
+        # logging.info(f"Data shape: {data.shape}")
+        exp_samples = samplesPerSec * recordingTime
+        if data.shape[1] != exp_samples:
+            logging.error(f"Expected {exp_samples} samples, got {data.shape[1]}")
+
         # logging.info("read response")
         # print("Time to read", time.time() - start2)
         sendTask.stop()
         sendTask.close()
         self._deviceLock.release()
+        # if all of the data is not none: 
         
-        # print("Time to unlock", time.time() - start0)
-        
-        triggeredSamples = data.shape[1]
-        timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype = float)
-        # print(timeData)
+        if data is not None:
+            try: 
+                triggeredSamples = data.shape[1]
+                timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype = float)
+                # print(timeData)
 
-        # Gradient
-        gradientData = np.gradient(data[0], timeData)
-        max_index = np.argmax(gradientData)
-        # Find the index of the minimum value after the maximum value
-        min_index = np.argmin(gradientData[max_index:]) + max_index
-        
-        #Truncate the array
-        left_bound = 50
-        right_bound = 200
-        # * bound is arbitrary, just to make it look good on the graph
-        respData = data[1][max_index - left_bound:min_index + right_bound]
-        readData = data[0][max_index - left_bound:min_index + right_bound]
-        timeData = timeData[max_index - left_bound:min_index + right_bound]
+                # Gradient
+                gradientData = np.gradient(data[1], timeData)
+                max_index = np.argmax(gradientData)
+                # logging maximum value and index
+                # logging.info(f"Max grad value: {gradientData[max_index]},Max value:{data[1][max_index]}, Max index: {max_index}")
 
-        # convert read data to mV input
-        # print("Before conversion", readData)
-        readData = readData * self.V_CLAMP_VOLT_PER_VOLT
-        respData = respData * self.V_CLAMP_VOLT_PER_AMP
-        # print("After conversion", readData)
+                # Find the index of the minimum value after the maximum value
+                min_index = np.argmin(gradientData[max_index:]) + max_index
+                # logging minimum value and index
+                # logging.info(f"Min grad value: {gradientData[min_index]},Min value:{data[1][min_index]}, Min index: {min_index}")
+                
+                #Truncate the array
+                left_bound = 50
+                right_bound = 100
+                # * bound is arbitrary, just to make it look good on the graph
 
-        # logging.info("calculating parameters")
-        # if not self.isRunningProtocol:
-        #      self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude*self.V_CLAMP_VOLT_PER_VOLT)
-        #      self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
+                respData = data[1]
+                readData = data[0]
+                
+                respData = data[1][max_index - left_bound:min_index + right_bound]
+                readData = data[0][max_index - left_bound:min_index + right_bound]
+                timeData = timeData[max_index - left_bound:min_index + right_bound]
+                # zero the timedata
+                timeData = timeData - timeData[0]
+                
 
-        self.latestAccessResistance = 0
-        self.latestMembraneResistance = 0
-        self.latestMembraneCapacitance = 0
-        if  self.cellMode:
-            #  self.latestAccessResistance = 5
-            #  self.latestMembraneResistance = 500
-            #  self.latestMembraneCapacitance = 33
-             self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude*self.V_CLAMP_VOLT_PER_VOLT)
+                readData = readData * self.V_CLAMP_VOLT_PER_VOLT
+                respData = respData * self.V_CLAMP_VOLT_PER_AMP
             
-        self.totalResistance = 0
-        if self.cellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
-            self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
-        else:
-            self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
-            self.totalResistance *= 1e-6
-            # to have in in MOhms
 
-        # print("Difference: ", self.totalResistance - (self.latestAccessResistance + self.latestMembraneResistance))
-        # logging.info(f"Time to acquire & transform data: {time.time() - start0}")
+                self.latestAccessResistance = 0
+                self.latestMembraneResistance = 0
+                self.latestMembraneCapacitance = 0
+                if  self.cellMode:
+                    #  self.latestAccessResistance = 5
+                    #  self.latestMembraneResistance = 500
+                    #  self.latestMembraneCapacitance = 33
+                    self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude*self.V_CLAMP_VOLT_PER_VOLT)
+                    
+                self.totalResistance = 0
+                if self.cellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
+                    self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
+                else:
+                    self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
+                    self.totalResistance *= 1e-6
+                    # to have in in MOhms
 
-        # TODO: indicate units
-        return np.array([timeData, respData]), np.array([timeData, readData]), self.totalResistance, self.latestMembraneResistance, self.latestAccessResistance, self.latestMembraneCapacitance
+                # print("Difference: ", self.totalResistance - (self.latestAccessResistance + self.latestMembraneResistance))
+                # logging.info(f"Time to acquire & transform data: {time.time() - start0}")
+
+                # TODO: indicate units
+                return np.array([timeData, respData]), np.array([timeData, readData]), self.totalResistance, self.latestMembraneResistance, self.latestAccessResistance, self.latestMembraneCapacitance
+            except Exception as e:
+                logging.error(f"Error in getDataFromSquareWave: {e}")
+                return None, None, None, None, None, None
     
     
     def resistance(self):
@@ -340,6 +353,7 @@ class DAQ:
             
                 # Decay filter part
                 filtered_data, filtered_time, filtered_command, plot_params, I_prev_pA, I_post_pA = self.filter_data(df)
+
                 # logging.info("Data filtered")
                 peak_time, peak_index, min_time, min_index = plot_params
                 #get peak and min values
@@ -369,7 +383,9 @@ class DAQ:
                 logging.error(f"Error in getParamsfromCurrent: {e}")
                 return None, None, None
                 # return 0, 0, 0
-        
+        else:
+            logging.error("One or more of the data arrays is empty")
+            return 0,0,0
         # logging.info("Returning parameters")
         return R_a_MOhms, R_m_MOhms, C_m_pF
 
