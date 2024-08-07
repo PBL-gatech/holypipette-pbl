@@ -7,6 +7,9 @@ from matplotlib.colors import LinearSegmentedColormap, to_hex
 
 
 from pyqtgraph import PlotWidget
+from pyqtgraph.exporters import ImageExporter
+import io
+from PIL import Image
 
 import threading
 
@@ -38,7 +41,7 @@ class CurrentProtocolGraph(QWidget):
         self.cprotocolPlot.getAxis("left").setPen("k")
         self.cprotocolPlot.getAxis("bottom").setPen("k")
         self.cprotocolPlot.setLabel("left", "Voltage", units = "V")
-        self.cprotocolPlot.setLabel("bottom", "Samples", units = "")
+        self.cprotocolPlot.setLabel("bottom", "Time", units = "s")
         layout.addWidget(self.cprotocolPlot)
 
         self.latestDisplayedData = None
@@ -115,7 +118,8 @@ class CurrentProtocolGraph(QWidget):
             pulse = str(pulses[i])
             marker = colors[i] + "_" + pulse
             self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, marker)
-            if i == 5:
+            self.ephys_logger.save_ephys_plot(timestamp, index, self.cprotocolPlot)
+            if i == colors[-1]:
                 self.daq.current_protocol_data = None
 
         self.latestDisplayedData = self.daq.current_protocol_data.copy()
@@ -133,7 +137,7 @@ class VoltageProtocolGraph(QWidget):
         self.vprotocolPlot.getAxis('left').setPen("k")
         self.vprotocolPlot.getAxis('bottom').setPen("k")
         self.vprotocolPlot.setLabel('left', "PicoAmps", units='A')
-        self.vprotocolPlot.setLabel('bottom', "Samples", units='')
+        self.vprotocolPlot.setLabel('bottom', "time", units='s')
         layout.addWidget(self.vprotocolPlot)
 
         self.latestDisplayedData = None
@@ -176,6 +180,8 @@ class VoltageProtocolGraph(QWidget):
             
             colors = ["k"]
             self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :], pen=colors[0])
+
+
             timestamp = datetime.now().timestamp()
             timeData = self.daq.voltage_protocol_data[0, :]
             respData = self.daq.voltage_protocol_data[1, :]
@@ -183,8 +189,9 @@ class VoltageProtocolGraph(QWidget):
             
             # logging.info("writing Voltage ephys data to file")
             self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, colors[0])
+            self.ephys_logger.save_ephys_plot(timestamp, index, self.vprotocolPlot)
             self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
-            # self.daq.voltage_protocol_data = None # This causes a crash
+            self.daq.voltage_protocol_data = None # This causes a crash
 
 class HoldingProtocolGraph(QWidget):
     def __init__(self, daq : DAQ, recording_state_manager: RecordingStateManager):
@@ -199,7 +206,7 @@ class HoldingProtocolGraph(QWidget):
         self.hprotocolPlot.getAxis('left').setPen("k")
         self.hprotocolPlot.getAxis('bottom').setPen("k")
         self.hprotocolPlot.setLabel('left', "PicoAmps", units='A')
-        self.hprotocolPlot.setLabel('bottom', "Samples", units='')
+        self.hprotocolPlot.setLabel("bottom", "Time", units="s")
         layout.addWidget(self.hprotocolPlot)
 
         self.latestDisplayedData = None
@@ -229,7 +236,6 @@ class HoldingProtocolGraph(QWidget):
             return
         
         index = self.recording_state_manager.sample_number
-
         # logging.warning("new data, updating plot")
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
@@ -242,6 +248,8 @@ class HoldingProtocolGraph(QWidget):
         self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :], pen=colors[0])
         timestamp = datetime.now().timestamp()
         self.ephys_logger.write_ephys_data(timestamp, index, self.daq.holding_protocol_data[0,:],self.daq.holding_protocol_data[1,:],self.daq.holding_protocol_data[2,:], colors[0])
+        self.ephys_logger.save_ephys_plot(timestamp, index, self.hprotocolPlot)
+    
         self.latestDisplayedData = self.daq.holding_protocol_data.copy()
         self.daq.holding_protocol_data = None
 

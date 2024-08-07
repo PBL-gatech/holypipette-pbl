@@ -7,6 +7,7 @@ import os
 import logging
 
 
+
 class FileLogger(threading.Thread):
     def __init__(self, recording_state_manager, folder_path="experiments/Data/", recorder_filename="recording", filetype="csv", isVideo=False, frame_batch_size=500):
         super().__init__()
@@ -15,7 +16,7 @@ class FileLogger(threading.Thread):
 
         self.image_type  = "webp"
 
-        testMode = False
+        testMode = True
         if testMode:
             folder_path = folder_path.replace("Data/", "Data/TEST_")
 

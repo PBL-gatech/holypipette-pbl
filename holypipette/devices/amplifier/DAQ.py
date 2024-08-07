@@ -129,7 +129,7 @@ class DAQ:
             logging.error("Returning None,Current clamp protocol cannot be run.")
             return None, None, None
 
-        factor = 2
+        factor = 3
         startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
         endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
@@ -271,7 +271,7 @@ class DAQ:
                 
                 #Truncate the array
                 left_bound = 50
-                right_bound = 100
+                right_bound = 300
                 # * bound is arbitrary, just to make it look good on the graph
 
                 respData = data[1]

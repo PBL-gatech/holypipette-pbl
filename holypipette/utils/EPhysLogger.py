@@ -3,13 +3,17 @@ from datetime import datetime
 import threading
 import os
 import logging
+from PyQt5 import QtGui
 
 class EPhysLogger(threading.Thread):
     def __init__(self, recording_state_manager, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
         self.time_truth_timestamp = self.time_truth.timestamp()
-        self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
+        testMode = True
+        if testMode:
+            folder_path = folder_path.replace("Data/", "Data/TEST_")
+        self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/" +  f"{ephys_filename}" + "/"
         self.filename = self.folder_path + f"{ephys_filename}"
         self.file = None
 
@@ -48,7 +52,20 @@ class EPhysLogger(threading.Thread):
         # content = f"{time_value}    {data[0, :]}    {data[1, :]}\n"
         # content = f"{time_value}    {' '.join(map(str, data))}\n"
         threading.Thread(target=self._write_to_file, args=(timestamp, index, timeData, readData, respData, color)).start()
+
+    def save_ephys_plot(self,timestamp,index,plot):
+        image_path = f"{self.filename}_{timestamp}_{index}.png"
+                # Render the plot into an image
+        exporter = QtGui.QImage(plot.width(), plot.height(), QtGui.QImage.Format_ARGB32)
+        painter = QtGui.QPainter(exporter)
+        plot.render(painter)
+        painter.end()
+        if exporter.save(image_path):
+            logging.info("Saved plot to %s", image_path)
+        else:   
+            logging.error("Failed to save plot to %s", image_path)
         
+
     def close(self):
         if self.file is not None:
             logging.info("CLOSING FILE: ", self.filename)
