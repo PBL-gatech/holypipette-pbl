@@ -549,7 +549,7 @@ class MultiClampChannel(Amplifier):
             self.check_error()
 
     @needs_select
-    def set_holding(self, value): # Voltage-clamp value
+    def set_holding(self, value): # Voltage-clamp or current-clamp holding  value
         if not self.dll.MCCMSG_SetHolding(self.msg_handler,
                                           ctypes.c_double(value),
                                           ctypes.byref(self.last_error)):

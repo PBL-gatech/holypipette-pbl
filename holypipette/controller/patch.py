@@ -36,6 +36,9 @@ class AutoPatcher(TaskController):
         self.rinsing_bath_position = None
         self.contact_position = None
         self.initial_resistance = None
+        self.vholding = None
+        self.iholding = None
+        
 
         self.current_protocol_graph = None
         
@@ -47,6 +50,7 @@ class AutoPatcher(TaskController):
             self.run_voltage_protocol()
             self.sleep(0.25)
         if self.config.current_protocol:
+            self.iholding = self.daq.holding_current
             self.run_current_protocol()
             self.sleep(0.25)
         if self.config.holding_protocol:
@@ -71,7 +75,21 @@ class AutoPatcher(TaskController):
         self.info('Running current protocol (current clamp)')
         self.amplifier.current_clamp()
         self.sleep(0.25)
+        if self.iholding is None:
+            current = -200
+        else:
+            current = (self.iholding)
+        current = current * 1e-12
+        self.amplifier.set_holding(current)
+        self.info('holding at -70 value')
+        self.sleep(0.25)
+        self.amplifier.switch_holding(True)
+        self.info('enabled holding')
+        self.sleep(0.25)
         self.daq.getDataFromCurrentProtocol()
+        self.sleep(0.25)
+        self.amplifier.switch_holding(False)
+        self.info('disabled holding')
         self.sleep(0.25)
         self.amplifier.voltage_clamp()
         self.info('finished running current protocol(current clamp)')

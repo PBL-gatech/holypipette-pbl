@@ -1,6 +1,6 @@
 import logging
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton, QDesktopWidget
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton, QDesktopWidget, QDesktopWidget, QSlider, QToolButton, QApplication
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import Qt
 from matplotlib.colors import LinearSegmentedColormap, to_hex
@@ -88,38 +88,18 @@ class CurrentProtocolGraph(QWidget):
         # colors = ["k", 'r', 'g', 'b', 'y', 'm', 'c']
         self.cprotocolPlot.clear()
 
-        save_data = None
-        temp_data = deque(self.daq.current_protocol_data.copy())
-        # identify the shape of temp_data
-    
-        
-        print("temp_data: ", temp_data)
         timestamp = datetime.now().timestamp()
         for i, graph in enumerate(self.daq.current_protocol_data):
-            # logging.info(f"enumerating graph: {i}")
-        #     #logging the data type of self.daq.latest_protocol_data
-        #     # logging.info(f"data type: {type(self.daq.current_protocol_data)}")
-        
-        #     # print("Enumerating graph:, ", i, graph)
-            save_data = temp_data.popleft()
-
-            # print("Graph: ", graph)
             timeData = graph[0]
             respData = graph[1]
             readData = graph[2]
-            # print("timeData: ", len(timeData))
-            # print("respData: ", len(respData))
-            # print("readData: ", len(readData))
             self.cprotocolPlot.plot(timeData, respData, pen=colors[i])
-            # self.cprotocolPlot.plot(timeData, respData, pen="b")
             logging.info("writing current ephys data to file")
-            # convert pulses to string with _ before it
-            
             pulse = str(pulses[i])
             marker = colors[i] + "_" + pulse
             self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, marker)
             self.ephys_logger.save_ephys_plot(timestamp, index, self.cprotocolPlot)
-            if i == colors[-1]:
+            if i == color_range - 1:
                 self.daq.current_protocol_data = None
 
         self.latestDisplayedData = self.daq.current_protocol_data.copy()

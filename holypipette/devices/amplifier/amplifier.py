@@ -50,14 +50,14 @@ class Amplifier(TaskController):
         '''
         pass
 
-    def set_holding(self, value):  # Voltage-clamp value
+    def set_holding(self, value):  # Voltage-clamp or Current-clamp value
         '''
-        Set voltage clamp value
+        Set voltage/current clamp value
 
         Parameters
         ----------
         value : float
-            Voltage clamp value
+            Voltage/Current clamp value
         '''
         pass
 

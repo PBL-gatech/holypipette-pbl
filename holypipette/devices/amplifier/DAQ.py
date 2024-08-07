@@ -49,6 +49,9 @@ class DAQ:
         self.voltageAccessResistance = None
         self.voltageMembraneCapacitance = None
 
+        self.holding_current = None
+        self.holding_voltage = None
+
         # ! False is for BATH mode, True is for CELL mode
         self.cellMode = False
 
@@ -170,9 +173,7 @@ class DAQ:
 
             #convert to V (cell out)
             respData = respData / self.C_CLAMP_VOLT_PER_VOLT
-        
-            lowZero = currentAmps > 0
-            respData = self._shiftWaveToZero(respData, lowZero)
+    
             triggeredSamples = respData.shape[0]
             timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
             time.sleep(0.5)
@@ -259,7 +260,7 @@ class DAQ:
                 # print(timeData)
 
                 # Gradient
-                gradientData = np.gradient(data[1], timeData)
+                gradientData = np.gradient(data[0], timeData)
                 max_index = np.argmax(gradientData)
                 # logging maximum value and index
                 # logging.info(f"Max grad value: {gradientData[max_index]},Max value:{data[1][max_index]}, Max index: {max_index}")
@@ -270,7 +271,7 @@ class DAQ:
                 # logging.info(f"Min grad value: {gradientData[min_index]},Min value:{data[1][min_index]}, Min index: {min_index}")
                 
                 #Truncate the array
-                left_bound = 50
+                left_bound = 100
                 right_bound = 300
                 # * bound is arbitrary, just to make it look good on the graph
 
@@ -326,19 +327,6 @@ class DAQ:
         data = signal.filtfilt(b, a, data, irlen=1000)
         return data
 
-    def _shiftWaveToZero(self, data, lowZero=True):
-        median = np.median(data)
-
-        if lowZero:
-            zeroAvg = np.mean(data[data < median])
-        else:
-            zeroAvg = np.mean(data[data > median])
-
-        #set data mean to 0
-        shiftedData = data - zeroAvg
-
-        return shiftedData
-
     def _getResistancefromCurrent(self, data, cmdVoltage) -> float | None:
         try:
             mean = np.mean(data)
@@ -373,6 +361,8 @@ class DAQ:
             
                 # Decay filter part
                 filtered_data, filtered_time, filtered_command, plot_params, I_prev_pA, I_post_pA = self.filter_data(df)
+            
+                self.holding_current = I_prev_pA
 
                 # logging.info("Data filtered")
                 peak_time, peak_index, min_time, min_index = plot_params
@@ -398,6 +388,7 @@ class DAQ:
                     # Calculate parameters
                     R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, mean_voltage, I_peak_pA, I_prev_pA, I_post_pA)
                     # logging.info(f"R_a: {R_a_MOhms}, R_m: {R_m_MOhms}, C_m: {C_m_pF}")
+                    
             
             except Exception as e:
                 logging.error(f"Error in getParamsfromCurrent: {e}")
