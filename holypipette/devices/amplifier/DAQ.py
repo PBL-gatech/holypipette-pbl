@@ -48,6 +48,7 @@ class DAQ:
         self.voltageMembraneResistance = None
         self.voltageAccessResistance = None
         self.voltageMembraneCapacitance = None
+        self.equalizer = False
 
         self.holding_current = None
         self.holding_voltage = None
@@ -218,6 +219,7 @@ class DAQ:
             while attempts < max_attempts:
                 attempts += 1
                 self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.05)
+        
                 if self.voltageMembraneCapacitance != 0:
                     break  # exit loop if capacitance is non-zero
                 else:
@@ -231,90 +233,83 @@ class DAQ:
         return self.voltageMembraneCapacitance
 
     
+
+
+
     def getDataFromSquareWave(self, wave_freq, samplesPerSec: int, dutyCycle, amplitude, recordingTime) -> tuple:
-        # measure the time it took to acquire the data
-        # start0 = time.time()
-        self._deviceLock.acquire()
-        # ? What is the unit for amplitude here?
-        sendTask = self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
-        # logging.info("Sending square wave")
-        sendTask.start()
-        # start2 = time.time()
-        data = self._readAnalogInput(samplesPerSec, recordingTime)
-        # logging.info(f"Data shape: {data.shape}")
-        exp_samples = samplesPerSec * recordingTime
-        if data.shape[1] != exp_samples:
-            logging.error(f"Expected {exp_samples} samples, got {data.shape[1]}")
-
-        # logging.info("read response")
-        # print("Time to read", time.time() - start2)
-        sendTask.stop()
-        sendTask.close()
-        self._deviceLock.release()
-        # if all of the data is not none: 
+        self.equalizer = False
         
-        if data is not None:
-            try: 
-                triggeredSamples = data.shape[1]
-                timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype = float)
-                # print(timeData)
+        while not self.equalizer:
+            self._deviceLock.acquire()
+            sendTask = self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
+            sendTask.start()
+            data = self._readAnalogInput(samplesPerSec, recordingTime)
+            sendTask.stop()
+            sendTask.close()
+            self._deviceLock.release()
 
-                # Gradient
-                gradientData = np.gradient(data[0], timeData)
-                max_index = np.argmax(gradientData)
-                # logging maximum value and index
-                # logging.info(f"Max grad value: {gradientData[max_index]},Max value:{data[1][max_index]}, Max index: {max_index}")
+            if data is not None:
+                try:
+                    triggeredSamples = data.shape[1]
+                    timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
 
-                # Find the index of the minimum value after the maximum value
-                min_index = np.argmin(gradientData[max_index:]) + max_index
-                # logging minimum value and index
-                # logging.info(f"Min grad value: {gradientData[min_index]},Min value:{data[1][min_index]}, Min index: {min_index}")
-                
-                #Truncate the array
-                left_bound = 100
-                right_bound = 300
-                # * bound is arbitrary, just to make it look good on the graph
-
-                respData = data[1]
-                readData = data[0]
-                
-                respData = data[1][max_index - left_bound:min_index + right_bound]
-                readData = data[0][max_index - left_bound:min_index + right_bound]
-                timeData = timeData[max_index - left_bound:min_index + right_bound]
-                # zero the timedata
-                timeData = timeData - timeData[0]
-                
-
-                readData = readData * self.V_CLAMP_VOLT_PER_VOLT
-                respData = respData * self.V_CLAMP_VOLT_PER_AMP
-            
-
-                self.latestAccessResistance = 0
-                self.latestMembraneResistance = 0
-                self.latestMembraneCapacitance = 0
-                if  self.cellMode:
-                    #  self.latestAccessResistance = 5
-                    #  self.latestMembraneResistance = 500
-                    #  self.latestMembraneCapacitance = 33
-                    self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude*self.V_CLAMP_VOLT_PER_VOLT)
+                    # Gradient
+                    gradientData = np.gradient(data[0], timeData)
+                    max_index = np.argmax(gradientData)
+                    min_index = np.argmin(gradientData[max_index:])
+                    max_grad = np.max(gradientData)
+                    min_grad = np.min(gradientData[max_index:])
+                    equalizer = abs(max_grad) - abs(min_grad)
                     
-                self.totalResistance = 0
-                if self.cellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
-                    self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
-                else:
-                    self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
-                    self.totalResistance *= 1e-6
-                    # to have in in MOhms
+                    if abs(max_grad) - abs(min_grad) < 1000:
+                        self.equalizer = True
+                        # logging.error(f"gradients equal: {equalizer}")
+                    else:
+                        self.equalizer = False
+                        logging.error(f"gradients not equal: {equalizer}")
+                        # logging.info(f"Max grad value: {gradientData[max_index]}, Max value: {data[0][max_index]}, Max index: {max_index}")
+                        # logging.info(f"Min grad value: {gradientData[min_index]}, Max value: {data[0][min_index]}, Min index: {min_index}")
 
-                # print("Difference: ", self.totalResistance - (self.latestAccessResistance + self.latestMembraneResistance))
-                # logging.info(f"Time to acquire & transform data: {time.time() - start0}")
+                except Exception as e:
+                    logging.error(f"Error in getDataFromSquareWave: {e}")
+                    return None, None, None, None, None, None
 
-                # TODO: indicate units
-                return np.array([timeData, respData]), np.array([timeData, readData]), self.totalResistance, self.latestMembraneResistance, self.latestAccessResistance, self.latestMembraneCapacitance
-            except Exception as e:
-                logging.error(f"Error in getDataFromSquareWave: {e}")
-                return None, None, None, None, None, None
-    
+        # Calculate other parameters only if equalizer is True
+        try:
+            min_index = np.argmin(gradientData[max_index:]) + max_index
+
+            left_bound = 100
+            right_bound = 300
+            respData = data[1]
+            readData = data[0]
+
+            respData = data[1][max_index - left_bound:min_index + right_bound]
+            readData = data[0][max_index - left_bound:min_index + right_bound]
+            timeData = timeData[max_index - left_bound:min_index + right_bound]
+            timeData = timeData - timeData[0]
+
+            readData = readData * self.V_CLAMP_VOLT_PER_VOLT
+            respData = respData * self.V_CLAMP_VOLT_PER_AMP
+
+            self.latestAccessResistance = 0
+            self.latestMembraneResistance = 0
+            self.latestMembraneCapacitance = 0
+            if self.cellMode:
+                self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
+
+            self.totalResistance = 0
+            if self.cellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
+                self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
+            else:
+                self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
+                self.totalResistance *= 1e-6  # to have it in MOhms
+
+            return np.array([timeData, respData]), np.array([timeData, readData]), self.totalResistance, self.latestMembraneResistance, self.latestAccessResistance, self.latestMembraneCapacitance
+        except Exception as e:
+            logging.error(f"Error in getDataFromSquareWave: {e}")
+            return None, None, None, None, None, None
+
+
     
     def resistance(self):
         # logging.warn("totalResistance", self.totalResistance)
