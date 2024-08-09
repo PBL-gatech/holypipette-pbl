@@ -19,6 +19,8 @@ from holypipette.interface.base import command
 
 from holypipette.utils.FileLogger import FileLogger
 from datetime import datetime
+import json
+import os
 
 class PatchGui(ManipulatorGui):
 
@@ -247,6 +249,15 @@ class ManualPatchButtons(ButtonTabWidget):
         self.stage_xy = [0, 0]
         self.stage_z = 0
         self.pipette_xyz = [0, 0, 0]
+        self.init_stage_pos = None 
+        self.init_pipette_pos = None
+
+        self.currx_stage_pos = np.array([0, 0, 0])
+        self.curry_stage_pos = np.array([0, 0, 0])
+        self.currz_stage_pos = np.array([0, 0, 0])
+        self.stage_json_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\setup\stage_position.json"
+        self.load_stage_pos()
+
         
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
@@ -255,11 +266,7 @@ class ManualPatchButtons(ButtonTabWidget):
         self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
         # self.addPositionBox('stage position (um)', layout, self.update_stage_pos_labels, tare_func=self.tare_stage)
         # self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
-        self.init_stage_pos = None # used to store bootup positions so we can reset to them
-        self.init_pipette_pos = None
-        self.currx_stage_pos = np.array([0, 0, 0])
-        self.curry_stage_pos = np.array([0, 0, 0])
-        self.currz_stage_pos = np.array([0, 0, 0])
+ 
 
 
         # add box to emit patching states
@@ -282,6 +289,55 @@ class ManualPatchButtons(ButtonTabWidget):
         layout.addWidget(self.record_button)
         
         self.setLayout(layout)
+
+
+    def save_stage_pos(self):
+        stage_position = {
+            'stage_xy': self.stage_xy.tolist() if isinstance(self.stage_xy, np.ndarray) else self.stage_xy,
+            'stage_z': self.stage_z.tolist() if isinstance(self.stage_z, np.ndarray) else self.stage_z,
+            'pipette_xyz': self.pipette_xyz.tolist() if isinstance(self.pipette_xyz, np.ndarray) else self.pipette_xyz
+        }
+
+        with open(self.stage_json_path, 'w') as f:
+            json.dump(stage_position, f)
+
+
+
+    def load_stage_pos(self):
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(self.stage_json_path), exist_ok=True)
+
+        try:
+            with open(self.stage_json_path, 'r') as f:
+                stage_position = json.load(f)
+                
+                # Load and convert back to ndarray
+                self.stage_xy = np.array(stage_position.get('stage_xy', [0, 0]))
+                self.stage_z = stage_position.get('stage_z', 0)
+                self.pipette_xyz = np.array(stage_position.get('pipette_xyz', [0, 0, 0]))
+
+                # Apply loaded values to current stage positions
+                self.currx_stage_pos = np.array([self.stage_xy[0], 0, 0])
+                self.curry_stage_pos = np.array([0, self.stage_xy[1], 0])
+                self.currz_stage_pos = np.array([0, 0, self.stage_z])
+
+        except (FileNotFoundError, json.JSONDecodeError):
+            # Handle the case where the file doesn't exist or is corrupted
+            print(f"{self.stage_json_path} not found or corrupted. Initializing with default values.")
+            self.stage_xy = np.array([0, 0])
+            self.stage_z = 0
+            self.pipette_xyz = np.array([0, 0, 0])
+
+            # Ensure current stage positions are reset as well
+            self.currx_stage_pos = np.array([0, 0, 0])
+            self.curry_stage_pos = np.array([0, 0, 0])
+            self.currz_stage_pos = np.array([0, 0, 0])
+
+            # Save the default values to the JSON file
+            self.save_stage_pos()
+
+
+
 
     def run_protocols(self):
         logging.info("Protocols run start")
@@ -321,10 +377,12 @@ class ManualPatchButtons(ButtonTabWidget):
 
 
     def close(self):
+        self.save_stage_pos()
         self.recorder.close()
         super(PatchButtons, self).close()
 
     def closeEvent(self):
+        self.save_stage_pos()
         self.recorder.close()
         super(PatchButtons, self).closeEvent()
 
@@ -380,20 +438,12 @@ class ManualPatchButtons(ButtonTabWidget):
         if self.init_stage_pos is None:
             self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
 
-        # print("xyPos: ", xyPos)
-        # print("zPos: ", zPos)
-        # print("init_stage_pos: ", self.init_stage_pos)
-
         rxyPos = xyPos - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
         rzPos = zPos  - self.currz_stage_pos[2]
-        # self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
-        # print("new_stage_pos: ", self.init_stage_pos)
-        # self.currx_stage_pos = np.array([0, 0, 0])
-        # self.curry_stage_pos = np.array([0, 0, 0])
-        # self.currz_stage_pos = np.array([0, 0, 0])
 
         self.stage_xy = rxyPos
         self.stage_z = rzPos
+        # self.save_stage_pos()
 
         self.recorder.setBatchMoves(True)
         self.recorder.write_movement_data_batch(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
