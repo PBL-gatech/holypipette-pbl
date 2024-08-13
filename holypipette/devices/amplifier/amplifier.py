@@ -38,7 +38,17 @@ class Amplifier(TaskController):
         Switch to current clamp mode
         '''
         pass
-
+    def auto_fast_compensation(self):
+        '''
+        Automatically set the fast compensation value
+        '''
+        pass
+    def auto_slow_compensation(self):
+        '''
+        Automatically set the slow compensation value
+        '''
+        pass
+    
     def get_fast_compensation_capacitance(self):
         '''
         Get the fast compensation value

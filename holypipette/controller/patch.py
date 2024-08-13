@@ -75,10 +75,17 @@ class AutoPatcher(TaskController):
     def run_current_protocol(self):
         self.info('Running current protocol (current clamp)')
         self.amplifier.voltage_clamp()
+        self.sleep(0.1)
+        self.amplifier.auto_fast_compensation()
+        self.sleep(0.25)
+        self.amplifier.auto_slow_compensation()
+        self.sleep(0.25)
+        self.info('auto capacitance compensation')  
         cap_c_double = self.amplifier.get_fast_compensation_capacitance()
         cap = float(cap_c_double.value) * 1e12 - 0.5
         cap = cap*1e-12
         self.info(f'fast compensation capacitance: {cap} pF' )
+        self.sleep(0.1)
         self.amplifier.current_clamp()
         self.sleep(0.1)
         self.amplifier.set_bridge_balance(True)
