@@ -2,6 +2,7 @@ import time
 
 import numpy as np
 import cv2
+import ctypes
 from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.devices.amplifier.DAQ import DAQ
 from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
@@ -73,24 +74,37 @@ class AutoPatcher(TaskController):
 
     def run_current_protocol(self):
         self.info('Running current protocol (current clamp)')
+        self.amplifier.voltage_clamp()
+        cap_c_double = self.amplifier.get_fast_compensation_capacitance()
+        cap = float(cap_c_double.value) * 1e12 - 0.5
+        cap = cap*1e-12
+        self.info(f'fast compensation capacitance: {cap} pF' )
         self.amplifier.current_clamp()
-        self.sleep(0.25)
+        self.sleep(0.1)
+        self.amplifier.set_bridge_balance(True)
+        self.info('auto bridge balance')
+        self.amplifier.auto_bridge_balance()
+        self.sleep(0.1)
+        self.amplifier.set_neutralization_capacitance(cap)
+        self.info('set neutralization capacitance')
+        self.amplifier.set_neutralization_enable(True)
+        self.info('enabled neutralization')
         if self.iholding is None:
             current = -200
         else:
             current = (self.iholding)
         current = current * 1e-12
         self.amplifier.set_holding(current)
-        self.info('holding at -70 value')
-        self.sleep(0.25)
+        self.info(f'holding at {current} pA')
+        self.sleep(0.1)
         self.amplifier.switch_holding(True)
         self.info('enabled holding')
-        self.sleep(0.25)
+        self.sleep(0.1)
         self.daq.getDataFromCurrentProtocol()
-        self.sleep(0.25)
+        self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')
-        self.sleep(0.25)
+        self.sleep(0.1)
         self.amplifier.voltage_clamp()
         self.info('finished running current protocol(current clamp)')
 

@@ -606,8 +606,21 @@ class MultiClampChannel(Amplifier):
         if not self.dll.MCCMSG_AutoPipetteOffset(self.msg_handler,
                                                  ctypes.byref(self.last_error)):
             self.check_error()
+    @needs_select
+    def set_neutralization_enable(self, state):
+        if not self.dll.MCCMSG_SetNeutralizationEnable(self.msg_handler,
+                                                      ctypes.c_bool(state),
+                                                      ctypes.byref(self.last_error)):
+            self.check_error()
 
     @needs_select
+    def set_neutralization_capacitance(self, capacitance):
+        if not self.dll.MCCMSG_SetNeutralizationCap(self.msg_handler,
+                                                    ctypes.c_double(capacitance),
+                                                    ctypes.byref(self.last_error)):
+            self.check_error()
+
+
     def set_bridge_balance(self, state):
         if not self.dll.MCCMSG_SetBridgeBalEnable(self.msg_handler, ctypes.c_bool(state),
                                                  ctypes.byref(self.last_error)):

@@ -145,6 +145,7 @@ class DAQ:
 
         # convert to amps
         startCurrent = startCurrentPicoAmp * 1e-12
+        print("Start Current", startCurrent)
 
         # get wave frequency Hz
         wave_freq = 1 / (2 * highTimeMs * 1e-3)
@@ -154,30 +155,55 @@ class DAQ:
         recordingTime = 4 * highTimeMs * 1e-3
 
         for i in range(num_waves):
+
+            # param pulse at -20 pA
+            amp_pulse = (-20*1e-12)/self.C_CLAMP_AMP_PER_VOLT
+            wave_pulse = 1 / (2 * highTimeMs/2 * 1e-3)
+            recording_pulse = 3 * highTimeMs/2 * 1e-3
+            logging.info(f'Sending param pulse at -20 pA square wave.')
+            self._deviceLock.acquire()
+            sendTask = self._sendSquareWaveCurrent(wave_pulse, samplesPerSec, 0.5, amp_pulse, recording_pulse)
+            sendTask.start()
+            #read analog input
+            data = self._readAnalogInput(samplesPerSec, recording_pulse)
+            sendTask.stop()
+            sendTask.close()
+            self._deviceLock.release()
+            respData0 = data[1] # Current response from the cell
+            readData0 = data[0] # voltage sent to the cell
+            respData0 = respData0 / self.C_CLAMP_VOLT_PER_VOLT
+            time.sleep(0.5)
+            # logging.info(f'obtain parameters from  cell with -20 pA square wave.')
+
             currentAmps = startCurrent + i * stepCurrentPicoAmp * 1e-12
             logging.info(f'Sending {currentAmps * 1e12} pA square wave.')
-
             #convert to DAQ output
             amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
             # print("Amplitude", amplitude)
-            
+
             #send square wave to DAQ
             self._deviceLock.acquire()
             sendTask = self._sendSquareWaveCurrent(wave_freq, samplesPerSec, 0.5, amplitude, recordingTime)
             sendTask.start()
+            #read analog input
             data = self._readAnalogInput(samplesPerSec, recordingTime)
             sendTask.stop()
             sendTask.close()
             self._deviceLock.release()
-            respData = data[1]
-            readData = data[0]
+            respData1 = data[1] # Current response from the cell
+            readData1 = data[0] # voltage sent to the cell
 
             #convert to V (cell out)
-            respData = respData / self.C_CLAMP_VOLT_PER_VOLT
-    
+            respData1 = respData1 / self.C_CLAMP_VOLT_PER_VOLT
+            respData = np.concatenate((respData0,respData1))
+            readData = np.concatenate((readData0, readData1))
             triggeredSamples = respData.shape[0]
             timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
             time.sleep(0.5)
+            #combine data
+
+            
+            
 
             if self.current_protocol_data is None:
                 self.current_protocol_data = [[timeData, respData, readData]]

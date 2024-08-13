@@ -7,7 +7,7 @@ class Amplifier(TaskController):
     """
     Base class for amplifiers.
     """
-
+    
     def start_patch(self, pulse_amplitude=1e-2,
                     pulse_frequency=1e-2):  # Not clear what the units are for frequency
         '''
@@ -36,6 +36,50 @@ class Amplifier(TaskController):
     def current_clamp(self):
         '''
         Switch to current clamp mode
+        '''
+        pass
+
+    def get_fast_compensation_capacitance(self):
+        '''
+        Get the fast compensation value
+        '''
+        pass
+    def set_neutralization_enable(self, state):
+        '''
+        switch the pipette capacitanceneutralization state
+
+        Parameters
+        ----------
+        state : bool
+            Neutralization state flag
+        '''
+        pass
+
+    def set_neutralization_capacitance(self,value):
+        '''
+        Set the pipette capacitance neutralization value
+
+        Parameters
+        ----------
+        value : float
+            Neutralization value
+        '''
+        pass
+
+    def set_bridge_balance(self, state):
+        '''
+        Set the bridge balance value
+
+        Parameters
+        ----------
+        value : bool
+            Bridge balance state flag
+        '''
+        pass
+
+    def auto_bridge_balance(self):
+        '''
+        Automatically set bridge balancing to minimize the resistance
         '''
         pass
 
@@ -85,7 +129,7 @@ class Amplifier(TaskController):
 
     def close(self):
         '''
-        Shut down the connection to th eamplifier.
+        Shut down the connection to the amplifier.
         '''
         pass
 
