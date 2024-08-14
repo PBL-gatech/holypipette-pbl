@@ -126,6 +126,7 @@ class PipetteInterface(TaskInterface):
              success_message='Cover slip position stored')
     def set_floor(self):
         self.microscope.floor_Z = self.microscope.position()
+        self.info(f'Cell plane position set to {self.microscope.floor_Z}')
 
     @command(category='Stage',
              description='Move stage vertically by {:.0f}μm',
@@ -149,6 +150,11 @@ class PipetteInterface(TaskInterface):
                       description='Calibrate manipulator',
                       task_description='Calibrating manipulator')
     def calibrate_manipulator(self):
+        self.execute([self.calibrated_unit.calibrate])
+    @blocking_command(category='Manipulators',
+                        description='Home the manipulator',
+                        task_description='Homming the manipulator')
+    def Home_manipulator(self):
         self.execute([self.calibrated_unit.calibrate])
 
     @blocking_command(category='Manipulators',

@@ -23,3 +23,4 @@ experiments/Analysis/*/*.webp
 /experiments/Data/TEST_patch_clamp_data
 /experiments/reference/images
 /experiments/Data/victor_analyze/
+holypipette/deepLearning/pipetteModelTrainer/Dataset/.*
