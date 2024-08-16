@@ -98,6 +98,10 @@ class ImageLabeler(QMainWindow):
         sidebar = QWidget()
         sidebar_layout = QVBoxLayout()
         
+        self.delete_button = QPushButton('Delete Selected Box')
+        self.delete_button.clicked.connect(self.delete_selected_box)
+
+
         self.prev_button = QPushButton('Previous Image')
         self.prev_button.clicked.connect(self.prev_image)
         
@@ -121,6 +125,7 @@ class ImageLabeler(QMainWindow):
         sidebar_layout.addWidget(self.prev_button)
         sidebar_layout.addWidget(self.next_button)
         sidebar_layout.addWidget(save_button)
+        sidebar_layout.addWidget(self.delete_button)
         sidebar_layout.addWidget(QLabel('Labels:'))
         sidebar_layout.addWidget(self.label_list)
         sidebar.setLayout(sidebar_layout)
@@ -138,6 +143,61 @@ class ImageLabeler(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_Right), self, self.next_image)
         QShortcut(QKeySequence("Ctrl+S"), self, self.save_labels)
         QShortcut(QKeySequence(Qt.Key_Delete), self, self.delete_selected_box)
+
+    def delete_selected_box(self):
+        selected_items = self.viewer.scene.selectedItems()
+        for item in selected_items:
+            if isinstance(item, BoundingBox):
+                self.viewer.scene.removeItem(item)
+                for i in range(self.label_list.count()):
+                    if self.label_list.item(i).text() == item.label:
+                        self.label_list.takeItem(i)
+                        break
+        
+        # Update the XML file to remove the deleted box
+        self.update_xml_file()
+
+
+    def update_xml_file(self):
+        if not self.current_image_path or not self.label_dir:
+            return
+
+        xml_file = os.path.join(self.label_dir, os.path.splitext(os.path.basename(self.current_image_path))[0] + '.xml')
+        
+        if not os.path.exists(xml_file):
+            return
+
+        try:
+            tree = ET.parse(xml_file)
+            root = tree.getroot()
+
+            # Remove all existing object elements
+            for obj in root.findall('object'):
+                root.remove(obj)
+
+            # Add current bounding boxes
+            for item in self.viewer.scene.items():
+                if isinstance(item, BoundingBox):
+                    obj = ET.SubElement(root, "object")
+                    ET.SubElement(obj, "name").text = item.label
+                    bndbox = ET.SubElement(obj, "bndbox")
+                    rect = item.sceneBoundingRect()
+                    ET.SubElement(bndbox, "xmin").text = str(int(rect.left()))
+                    ET.SubElement(bndbox, "ymin").text = str(int(rect.top()))
+                    ET.SubElement(bndbox, "xmax").text = str(int(rect.right()))
+                    ET.SubElement(bndbox, "ymax").text = str(int(rect.bottom()))
+
+            tree.write(xml_file)
+        except ET.ParseError as e:
+            QMessageBox.warning(self, "Warning", f"Error updating XML file: {str(e)}")
+            
+    def save_labels(self):
+            if not self.current_image_path or not self.label_dir:
+                QMessageBox.warning(self, "Warning", "No image loaded or label directory not set.")
+                return
+
+            self.update_xml_file()
+            QMessageBox.information(self, "Info", f"Labels saved to {os.path.join(self.label_dir, os.path.splitext(os.path.basename(self.current_image_path))[0] + '.xml')}")
 
     def on_box_drawn(self, rect):
         label, ok = QInputDialog.getText(self, "Input Label", "Enter label for the bounding box:")
