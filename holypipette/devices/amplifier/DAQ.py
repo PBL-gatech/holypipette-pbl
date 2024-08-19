@@ -128,12 +128,12 @@ class DAQ:
         # print(f"volt membrane capacitance: {self.voltageMembraneCapacitance}")
         if self.voltageMembraneCapacitance is None or self.voltageMembraneCapacitance is 0:
             self.voltageMembraneCapacitance = 0 
-            logging.warn("Is system set to cell mode?")
-            logging.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
-            logging.error("Returning None,Current clamp protocol cannot be run.")
+            # logging.warn("Is system set to cell mode?")
+            # logging.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
+            # logging.error("Returning None,Current clamp protocol cannot be run.")
             return None, None, None
 
-        factor = 3
+        factor = 2
         startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
         endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
@@ -253,7 +253,7 @@ class DAQ:
             # print(f"Latest membrane capacitance: {self.voltageMembraneCapacitance}")
         except Exception as e:
             self.voltage_protocol_data, self.voltage_command_data = None, None
-            logging.error(f"Error in getDataFromVoltageProtocol: {e}")
+            # logging.error(f"Error in getDataFromVoltageProtocol: {e}")
         finally:
             self.isRunningProtocol = False
         return self.voltageMembraneCapacitance
@@ -273,8 +273,10 @@ class DAQ:
             sendTask.stop()
             sendTask.close()
             self._deviceLock.release()
+            numSamples = int(samplesPerSec * recordingTime)
 
-            if data is not None:
+            if data is not None and data.shape[1] == numSamples:
+                # logging.info(f"Data shape: {data.shape[1]}")
                 try:
                     triggeredSamples = data.shape[1]
                     timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
@@ -292,48 +294,52 @@ class DAQ:
                         # logging.error(f"gradients equal: {equalizer}")
                     else:
                         self.equalizer = False
-                        logging.error(f"gradients not equal: {equalizer}")
+                        # logging.warning(f"gradients not equal: {equalizer}")
                         # logging.info(f"Max grad value: {gradientData[max_index]}, Max value: {data[0][max_index]}, Max index: {max_index}")
                         # logging.info(f"Min grad value: {gradientData[min_index]}, Max value: {data[0][min_index]}, Min index: {min_index}")
 
                 except Exception as e:
-                    logging.error(f"Error in getDataFromSquareWave: {e}")
+                    # logging.error(f"Error in getDataFromSquareWave: {e}")
+                    # logging.info(f"Data shape: {data.shape[1]}")
                     return None, None, None, None, None, None
 
-        # Calculate other parameters only if equalizer is True
-        try:
-            min_index = np.argmin(gradientData[max_index:]) + max_index
+        if self.equalizer:
+            try:
+                self.equalizer = False
+                min_index = np.argmin(gradientData[max_index:]) + max_index
 
-            left_bound = 100
-            right_bound = 300
-            respData = data[1]
-            readData = data[0]
+                left_bound = 100
+                right_bound = 300
+                respData = data[1]
+                readData = data[0]
 
-            respData = data[1][max_index - left_bound:min_index + right_bound]
-            readData = data[0][max_index - left_bound:min_index + right_bound]
-            timeData = timeData[max_index - left_bound:min_index + right_bound]
-            timeData = timeData - timeData[0]
+                respData = data[1][max_index - left_bound:min_index + right_bound]
+                readData = data[0][max_index - left_bound:min_index + right_bound]
+                timeData = timeData[max_index - left_bound:min_index + right_bound]
+                timeData = timeData - timeData[0]
 
-            readData = readData * self.V_CLAMP_VOLT_PER_VOLT
-            respData = respData * self.V_CLAMP_VOLT_PER_AMP
+                readData = readData * self.V_CLAMP_VOLT_PER_VOLT
+                respData = respData * self.V_CLAMP_VOLT_PER_AMP
 
-            self.latestAccessResistance = 0
-            self.latestMembraneResistance = 0
-            self.latestMembraneCapacitance = 0
-            if self.cellMode:
-                self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
+                self.latestAccessResistance = 0
+                self.latestMembraneResistance = 0
+                self.latestMembraneCapacitance = 0
+                if self.cellMode:
+                    self.latestAccessResistance, self.latestMembraneResistance, self.latestMembraneCapacitance = self._getParamsfromCurrent(readData, respData, timeData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
 
-            self.totalResistance = 0
-            if self.cellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
-                self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
-            else:
-                self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
-                self.totalResistance *= 1e-6  # to have it in MOhms
+                self.totalResistance = 0
+                if self.cellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
+                    self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
+                else:
+                    self.totalResistance = self._getResistancefromCurrent(respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
+                    self.totalResistance *= 1e-6  # to have it in MOhms
 
-            return np.array([timeData, respData]), np.array([timeData, readData]), self.totalResistance, self.latestMembraneResistance, self.latestAccessResistance, self.latestMembraneCapacitance
-        except Exception as e:
-            logging.error(f"Error in getDataFromSquareWave: {e}")
-            return None, None, None, None, None, None
+                return np.array([timeData, respData]), np.array([timeData, readData]), self.totalResistance, self.latestMembraneResistance, self.latestAccessResistance, self.latestMembraneCapacitance
+            except Exception as e:
+                # logging.error(f"Error in getDataFromSquareWave: {e}")
+                # logging.info(f"resistance: {self.totalResistance}, membrane resistance: {self.latestMembraneResistance}, membrane capacitance: {self.latestMembraneCapacitance}")
+                
+                return None, None, None, None, None, None
 
 
     
@@ -360,7 +366,7 @@ class DAQ:
             
         except Exception as e:
             # * we got an invalid square wave, or division by zero
-            logging.error(f"Error in getResistancefromCurrent: {e}")
+            # logging.error(f"Error in getResistancefromCurrent: {e}")
             return None
         
     def _getParamsfromCurrent(self, readData, respData, timeData, amplitude) -> tuple:
@@ -412,11 +418,11 @@ class DAQ:
                     
             
             except Exception as e:
-                logging.error(f"Error in getParamsfromCurrent: {e}")
+                # logging.error(f"Error in getParamsfromCurrent: {e}")
                 return None, None, None
                 # return 0, 0, 0
         else:
-            logging.error("One or more of the data arrays is empty")
+            # logging.error("One or more of the data arrays is empty")
             return 0,0,0
         # logging.info("Returning parameters")
         return R_a_MOhms, R_m_MOhms, C_m_pF
@@ -496,7 +502,7 @@ class DAQ:
             # print("Params", m, t, b)
             return m, t, b
         except Exception as e:
-            logging.error(f"Error in the optimizer: {e}")
+            # logging.error(f"Error in the optimizer: {e}")
             return None, None, None
 
     def calc_param(self, tau, mean_voltage, I_peak, I_prev, I_ss):

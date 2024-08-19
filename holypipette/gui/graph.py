@@ -542,9 +542,9 @@ class EPhysGraph(QWidget):
             self.modelType.setText("Cell Mode")
             self.daq.setCellMode(True)
 
-        logging.info("Cell Mode: ", self.daq.cellMode)
+        logging.info(f"Cell Mode: {self.daq.cellMode}")
         self.cellMode = self.daq.cellMode
-        print("Graph Cell Mode: ", self.cellMode)
+    
 
     def updatePressureLabel(self, value):
         self.pressureCommandBox.setPlaceholderText(f"Set to: {value} mbar")
