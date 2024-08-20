@@ -58,9 +58,11 @@ class CurrentProtocolGraph(QWidget):
 
         #start async daq data update
         self.updateTimer = QtCore.QTimer()
-        self.updateDt = 100 #ms
+        self.updateDt = 10 #ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
+        if  not self.updateTimer.isActive():
+            logging.info("Cprot Timer not active")
 
         self.ephys_logger = EPhysLogger(ephys_filename = "CurrentProtocol", recording_state_manager = self.recording_state_manager)
 
@@ -133,9 +135,11 @@ class VoltageProtocolGraph(QWidget):
         self.closeEvent = lambda: self.setHidden(True)
 
         self.updateTimer = QtCore.QTimer()
-        self.updateDt = 100 #ms
+        self.updateDt = 10 #ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
+        if  not self.updateTimer.isActive():
+            logging.info("Vprot Timer not active")
 
         self.ephys_logger = EPhysLogger(ephys_filename = "VoltageProtocol", recording_state_manager=self.recording_state_manager)
 
@@ -205,6 +209,8 @@ class HoldingProtocolGraph(QWidget):
         self.updateDt = 10 # ms
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
+        if  not self.updateTimer.isActive():
+            logging.info("Hprot Timer not active")
 
         self.ephys_logger = EPhysLogger(ephys_filename = "HoldingProtocol", recording_state_manager = self.recording_state_manager)
 
