@@ -261,7 +261,7 @@ class EPhysGraph(QWidget):
         # self.cellMode = self.daq.cellMode
 
         self.pressureController = pressureController
-        # self.recording_state_manager = recording_state_manager  # Include the state manager in the graph
+        self.recording_state_manager = recording_state_manager  # Include the state manager in the graph
         self.setpoint = 0
 
         #constants for Multi Clamp
@@ -503,11 +503,11 @@ class EPhysGraph(QWidget):
         # self.atmosphericPressureButton.clicked.connect(self.togglePressure)
 
         # logging.debug("graph updated") # uncomment for debugging in log.csv file
-
-        try:
-            self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastrespData[1, :]), list(self.lastReadData[1, :]))
-        except Exception as e:
-            logging.error(f"Error in writing graph data to file: {e}, {self.lastrespData}")
+        if self.recording_state_manager.is_recording_enabled():
+            try:
+                self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastrespData[1, :]), list(self.lastReadData[1, :]))
+            except Exception as e:
+                logging.error(f"Error in writing graph data to file: {e}, {self.lastrespData}")
 
     def incrementPressure(self):
         current_value = self.pressureCommandSlider.value()
