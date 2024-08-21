@@ -138,10 +138,13 @@ class DAQ:
         endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
         self.pulses = np.arange(startCurrentPicoAmp, endCurrentPicoAmp + stepCurrentPicoAmp, stepCurrentPicoAmp)
+        if 0 not in self.pulses:
+            self.pulses = np.insert(self.pulses, len(self.pulses) // 2, 0)
+        logging.info(f'Pulses: {self.pulses}')
         self.pulseRange = len(self.pulses)
         self.isRunningProtocol = True
         self.latest_protocol_data = None # clear data
-        num_waves = int((endCurrentPicoAmp - startCurrentPicoAmp) / stepCurrentPicoAmp) + 1
+        num_waves = int((endCurrentPicoAmp - startCurrentPicoAmp) / stepCurrentPicoAmp) + 2
 
         # convert to amps
         startCurrent = startCurrentPicoAmp * 1e-12
@@ -174,8 +177,8 @@ class DAQ:
             respData0 = respData0 / self.C_CLAMP_VOLT_PER_VOLT
             time.sleep(0.5)
             # logging.info(f'obtain parameters from  cell with -20 pA square wave.')
-
-            currentAmps = startCurrent + i * stepCurrentPicoAmp * 1e-12
+            
+            currentAmps = self.pulses[i]*1e-12
             logging.info(f'Sending {currentAmps * 1e12} pA square wave.')
             #convert to DAQ output
             amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT

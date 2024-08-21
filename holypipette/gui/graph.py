@@ -26,7 +26,7 @@ from datetime import datetime
 
 __all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "HoldingProtocolGraph"]
 
-global_index = 0
+
 
 class CurrentProtocolGraph(QWidget):
     def __init__(self, daq: DAQ, rescording_state_manager: RecordingStateManager):
@@ -72,6 +72,7 @@ class CurrentProtocolGraph(QWidget):
             return
         
         index = self.recording_state_manager.sample_number
+        # logging.info(f" current index: {index}")
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
             self.setHidden(False)
@@ -90,7 +91,7 @@ class CurrentProtocolGraph(QWidget):
         # colors = ["k", 'r', 'g', 'b', 'y', 'm', 'c']
         self.cprotocolPlot.clear()
 
-        timestamp = datetime.now().timestamp()
+        # timestamp = datetime.now().timestamp()
         for i, graph in enumerate(self.daq.current_protocol_data):
             timeData = graph[0]
             respData = graph[1]
@@ -99,9 +100,12 @@ class CurrentProtocolGraph(QWidget):
             logging.info("writing current ephys data to file")
             pulse = str(pulses[i])
             marker = colors[i] + "_" + pulse
-            self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, marker)
-            self.ephys_logger.save_ephys_plot(timestamp, index, self.cprotocolPlot)
+            self.ephys_logger.write_ephys_data(index, timeData, readData, respData, marker)
+            
             if i == color_range - 1:
+                logging.info ("saving current ephys plot")
+                # self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, marker)
+                self.ephys_logger.save_ephys_plot(index, self.cprotocolPlot)
                 self.daq.current_protocol_data = None
 
         self.latestDisplayedData = self.daq.current_protocol_data.copy()
@@ -152,6 +156,7 @@ class VoltageProtocolGraph(QWidget):
             return
 
         index = self.recording_state_manager.sample_number
+        # logging.info(f"voltage index: {index}")
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
             self.setHidden(False)
@@ -166,14 +171,14 @@ class VoltageProtocolGraph(QWidget):
             self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :], pen=colors[0])
 
 
-            timestamp = datetime.now().timestamp()
+            # timestamp = datetime.now().timestamp()
             timeData = self.daq.voltage_protocol_data[0, :]
             respData = self.daq.voltage_protocol_data[1, :]
             readData = self.daq.voltage_command_data[1,:]
             
             # logging.info("writing Voltage ephys data to file")
-            self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, colors[0])
-            self.ephys_logger.save_ephys_plot(timestamp, index, self.vprotocolPlot)
+            self.ephys_logger.write_ephys_data(index, timeData, readData, respData, colors[0])
+            self.ephys_logger.save_ephys_plot( index, self.vprotocolPlot)
             self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
             self.daq.voltage_protocol_data = None # This causes a crash
 
@@ -222,6 +227,7 @@ class HoldingProtocolGraph(QWidget):
             return
         
         index = self.recording_state_manager.sample_number
+        # logging.info(f" holding index: {index}")
         # logging.warning("new data, updating plot")
         #if the window was closed or hidden, relaunch it
         if self.isHidden():
@@ -232,9 +238,9 @@ class HoldingProtocolGraph(QWidget):
 
         colors = ["k"]
         self.hprotocolPlot.plot(self.daq.holding_protocol_data[0, :], self.daq.holding_protocol_data[1, :], pen=colors[0])
-        timestamp = datetime.now().timestamp()
-        self.ephys_logger.write_ephys_data(timestamp, index, self.daq.holding_protocol_data[0,:],self.daq.holding_protocol_data[1,:],self.daq.holding_protocol_data[2,:], colors[0])
-        self.ephys_logger.save_ephys_plot(timestamp, index, self.hprotocolPlot)
+        # timestamp = datetime.now().timestamp()
+        self.ephys_logger.write_ephys_data(index, self.daq.holding_protocol_data[0,:],self.daq.holding_protocol_data[1,:],self.daq.holding_protocol_data[2,:], colors[0])
+        self.ephys_logger.save_ephys_plot( index, self.hprotocolPlot)
     
         self.latestDisplayedData = self.daq.holding_protocol_data.copy()
         self.daq.holding_protocol_data = None

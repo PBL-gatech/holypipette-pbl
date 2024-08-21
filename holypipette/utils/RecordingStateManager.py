@@ -1,5 +1,6 @@
 import threading
 
+
 class RecordingStateManager:
     def __init__(self):
         self._recording_enabled = False
@@ -9,7 +10,7 @@ class RecordingStateManager:
     def increment_sample_number(self):
         with self._lock:
             self.sample_number += 1
-            # print("Sample number incremented to:", self.sample_number)
+            print("Sample number incremented to:", self.sample_number)
 
     def toggle_recording(self):
         with self._lock:

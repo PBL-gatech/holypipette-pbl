@@ -126,11 +126,20 @@ class ButtonTabWidget(QtWidgets.QWidget):
     def do_nothing(self):
         pass # a dummy function for buttons that aren't implemented yet
 
-    def run_command(self, cmd):
+    def run_command(self, cmds):
+        if isinstance(cmds, list):
+            for cmd in cmds:
+                if isinstance(cmd, list):
+                    for sub_cmd in cmd:
+                        self.execute_command(sub_cmd)
+                else:
+                    self.execute_command(cmd)
+        else:
+            self.execute_command(cmds)
 
-        #check if the task_description exists
+    def execute_command(self, cmd):
+        logging.info(f"Executing command: {cmd}")
         if hasattr(cmd, 'task_description'):
-            #we're dealing with a command
             self.start_task(cmd.task_description, cmd.__self__)
             if cmd.__self__ in self.interface_signals:
                 command_signal, _ = self.interface_signals[cmd.__self__]
@@ -138,8 +147,8 @@ class ButtonTabWidget(QtWidgets.QWidget):
             else:
                 cmd(None)
         else:
-            #we're dealing with a function
             cmd()
+
 
     def addPositionBox(self, name: str, layout, update_func, tare_func=None, axes=['x', 'y', 'z']):
         # add a box for manipulator and stage positions
@@ -208,30 +217,27 @@ class ButtonTabWidget(QtWidgets.QWidget):
     def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds):
         box = QtWidgets.QGroupBox(box_name)
         rows = QtWidgets.QVBoxLayout()
-        # create a new row for each button
+        
         for i, buttons_in_row in enumerate(buttonNames):
             new_row = QtWidgets.QHBoxLayout()
             new_row.setAlignment(Qt.AlignLeft)
 
-            #for each button in the row, create a button
-            for j, button in enumerate(buttons_in_row):
-                button = QtWidgets.QPushButton(button)
-
-                #make sure buttons fill the space in the x-axis
+            for j, button_name in enumerate(buttons_in_row):
+                button = QtWidgets.QPushButton(button_name)
                 button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-
-                #set the size of the button
                 button.setMinimumWidth(50)
                 button.setMinimumHeight(50)
 
-                #connect the button to the command, run using the start_task method
-                button.clicked.connect(lambda state, i=i, j=j: self.run_command(cmds[i][j]))
+                # Use a lambda function with a default argument to correctly capture the command list
+                button.clicked.connect(lambda state, cmds=cmds[i][j]: self.run_command(cmds))
 
-                #add the button to the frame
                 new_row.addWidget(button)
             rows.addLayout(new_row)
+
         box.setLayout(rows)
         layout.addWidget(box)
+
+
 # class SemiAutoPatchButtons(ButtonTabWidget):
 #     def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
 #         super().__init__()
@@ -511,7 +517,7 @@ class ManualPatchButtons(ButtonTabWidget):
     
         #add a box for patching cmds
         buttonList = [['Run Protocols']]
-        cmds = [[self.run_protocols]]
+        cmds = [[[self.patch_interface.run_protocols,self.recording_state_manager.increment_sample_number]]]
         self.addButtonList('patching', layout, buttonList, cmds)
 
 
@@ -570,16 +576,6 @@ class ManualPatchButtons(ButtonTabWidget):
 
             # Save the default values to the JSON file
             self.save_stage_pos()
-
-
-
-
-    def run_protocols(self):
-        logging.info("Protocols run start")
-        self.patch_interface.run_protocols()
-        logging.info("Protocols run finished")
-        self.recording_state_manager.increment_sample_number()
-        logging.info("Sample number incremented")
 
     def emit_cell_found(self):
         self.patch_interface.state_emitter("NH Success")
