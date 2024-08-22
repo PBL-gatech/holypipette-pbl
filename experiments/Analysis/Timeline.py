@@ -1,41 +1,78 @@
 import os
 import csv
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QMessageBox, QShortcut
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QKeySequence
 from PIL import Image
 import time
-import tkinter as tk
-from tkinter import filedialog, messagebox
 from collections import deque
 import numpy as np
 
-class DataVisualizer:
+class DataVisualizer(QMainWindow):
     def __init__(self):
+        super().__init__()
         self.graphs = {}
         self.images = {}
         self.current_timestamp = None
-        self.setup_gui()
+        self.setup_ui()
+        self.setup_shortcuts()
 
-    def setup_gui(self):
-        self.root = tk.Tk()
-        self.root.title("Data Visualizer")
-        self.load_button = tk.Button(self.root, text="Load Data", command=self.load_data)
-        self.load_button.pack()
-        self.prev_button = tk.Button(self.root, text="Previous", command=self.show_previous)
-        self.prev_button.pack(side=tk.LEFT)
-        self.next_button = tk.Button(self.root, text="Next", command=self.show_next)
-        self.next_button.pack(side=tk.RIGHT)
-        self.timestamp_label = tk.Label(self.root, text="")
-        self.timestamp_label.pack()
-        self.filename_label = tk.Label(self.root, text="")
-        self.filename_label.pack()
+    def setup_ui(self):
+        self.setWindowTitle("Data Visualizer")
+        self.setGeometry(100, 100, 1200, 800)
+
+        main_widget = QWidget()
+        main_layout = QHBoxLayout()
         
-        # Bind arrow keys for navigation
-        self.root.bind('<Left>', lambda event: self.show_previous())
-        self.root.bind('<Right>', lambda event: self.show_next())
+        # Sidebar
+        sidebar = QWidget()
+        sidebar_layout = QVBoxLayout()
+        
+        self.load_button = QPushButton("Load Data")
+        self.load_button.clicked.connect(self.load_data)
+        sidebar_layout.addWidget(self.load_button)
+        
+        self.prev_button = QPushButton("Previous")
+        self.prev_button.clicked.connect(self.show_previous)
+        sidebar_layout.addWidget(self.prev_button)
+        
+        self.next_button = QPushButton("Next")
+        self.next_button.clicked.connect(self.show_next)
+        sidebar_layout.addWidget(self.next_button)
+        
+        self.timestamp_label = QLabel("")
+        sidebar_layout.addWidget(self.timestamp_label)
+        
+        self.filename_label = QLabel("")
+        sidebar_layout.addWidget(self.filename_label)
+        
+        sidebar_layout.addStretch()
+        sidebar.setLayout(sidebar_layout)
+        sidebar.setFixedWidth(200)
+        
+        main_layout.addWidget(sidebar)
+        
+        # Matplotlib figure
+        self.figure, self.ax = plt.subplots(2, 2, figsize=(10, 8))
+        self.canvas = FigureCanvas(self.figure)
+        main_layout.addWidget(self.canvas)
+        
+        main_widget.setLayout(main_layout)
+        self.setCentralWidget(main_widget)
+
+    def setup_shortcuts(self):
+        # Create shortcuts for next and previous
+        self.shortcut_next = QShortcut(QKeySequence(Qt.Key_Right), self)
+        self.shortcut_next.activated.connect(self.show_next)
+
+        self.shortcut_prev = QShortcut(QKeySequence(Qt.Key_Left), self)
+        self.shortcut_prev.activated.connect(self.show_previous)
 
     def load_data(self):
-        graph_dir = filedialog.askdirectory(title="Select Graph Directory")
-        image_dir = filedialog.askdirectory(title="Select Image Directory")
+        graph_dir = QFileDialog.getExistingDirectory(self, "Select Graph Directory")
+        image_dir = QFileDialog.getExistingDirectory(self, "Select Image Directory")
         self.load_graphs(graph_dir)
         self.load_images(image_dir)
         if self.graphs and self.images:
@@ -47,11 +84,11 @@ class DataVisualizer:
             if valid_timestamps:
                 self.current_timestamp = min(valid_timestamps)
             else:
-                messagebox.showerror("Error", "No valid timestamps found in the data")
+                QMessageBox.critical(self, "Error", "No valid timestamps found in the data")
                 self.current_timestamp = None
             self.update_display()
         else:
-            messagebox.showerror("Error", "No data loaded")
+            QMessageBox.critical(self, "Error", "No data loaded")
 
     def load_graphs(self, directory):
         pressure_deque = deque(maxlen=100)
@@ -102,46 +139,45 @@ class DataVisualizer:
         return min(data.keys(), key=lambda x: abs(x - target))
 
     def update_display(self):
-        plt.clf()
+        for ax in self.ax.flat:
+            ax.clear()
+
         # Display graphs
         graph_timestamp = self.find_closest_timestamp(self.current_timestamp, self.graphs)
         graph_data = self.graphs[graph_timestamp]
         
         # Pressure plot
-        plt.subplot(221)
         indices = list(range(len(graph_data['pressure_deque'])))
-        plt.plot(indices, list(graph_data['pressure_deque']))
-        plt.xlabel('Index')
-        plt.ylabel('Pressure')
-        plt.title('Pressure Plot')
+        self.ax[0, 0].plot(indices, list(graph_data['pressure_deque']))
+        self.ax[0, 0].set_xlabel('Index')
+        self.ax[0, 0].set_ylabel('Pressure')
+        self.ax[0, 0].set_title('Pressure Plot')
         
         # Resistance plot
-        plt.subplot(222)
         resistance_indices = list(range(len(graph_data['resistance_deque'])))
-        plt.plot(resistance_indices, list(graph_data['resistance_deque']))
-        plt.title('Resistance')
-        plt.ylabel('Resistance')
+        self.ax[0, 1].plot(resistance_indices, list(graph_data['resistance_deque']))
+        self.ax[0, 1].set_title('Resistance')
+        self.ax[0, 1].set_ylabel('Resistance')
         
         # Current plot
-        plt.subplot(223)
-        plt.plot(graph_data['time'], graph_data['current'])
-        plt.title('Current vs Time')
-        plt.xlabel('Time')
-        plt.ylabel('Current')
+        self.ax[1, 0].plot(graph_data['time'], graph_data['current'])
+        self.ax[1, 0].set_title('Current vs Time')
+        self.ax[1, 0].set_xlabel('Time')
+        self.ax[1, 0].set_ylabel('Current')
         
         # Display image
         image_timestamp = self.find_closest_timestamp(self.current_timestamp, self.images)
         img = Image.open(self.images[image_timestamp])
-        plt.subplot(224)
-        plt.imshow(img)
-        plt.title(f"Image at {image_timestamp}")
+        self.ax[1, 1].imshow(img)
+        self.ax[1, 1].set_title(f"Image at {image_timestamp}")
+        self.ax[1, 1].axis('off')
         
-        plt.tight_layout()
-        plt.draw()
+        self.figure.tight_layout()
+        self.canvas.draw()
         
         # Update labels with timestamp and filename
-        self.timestamp_label.config(text=f"Current Timestamp: {time.ctime(self.current_timestamp)} (UNIX: {self.current_timestamp})")
-        self.filename_label.config(text=f"File: {os.path.basename(self.images[image_timestamp])}")
+        self.timestamp_label.setText(f"Current Timestamp: {time.ctime(self.current_timestamp)}\n(UNIX: {self.current_timestamp})")
+        self.filename_label.setText(f"File: {os.path.basename(self.images[image_timestamp])}")
 
     def show_previous(self):
         if self.current_timestamp:
@@ -159,11 +195,8 @@ class DataVisualizer:
                 self.current_timestamp = all_timestamps[current_index + 1]
                 self.update_display()
 
-    def run(self):
-        plt.ion()
-        plt.show()
-        self.root.mainloop()
-
 if __name__ == "__main__":
+    app = QApplication([])
     visualizer = DataVisualizer()
-    visualizer.run()
+    visualizer.show()
+    app.exec_()
