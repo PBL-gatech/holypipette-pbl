@@ -238,9 +238,10 @@
 #     visualizer.show()
 #     app.exec_()
 
+
 # import sys
 # import os
-# from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QFileDialog, QSlider, QListWidget, QShortcut
+# from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton, QFileDialog, QSlider, QShortcut
 # from PyQt5.QtGui import QPixmap
 # from PyQt5.QtCore import Qt
 
@@ -253,6 +254,11 @@
 #         # Main layout
 #         self.main_layout = QVBoxLayout()
         
+#         # Label to display the current image file name
+#         self.filename_label = QLabel("No image loaded")
+#         self.filename_label.setAlignment(Qt.AlignCenter)
+#         self.main_layout.addWidget(self.filename_label)
+        
 #         # Image display area
 #         self.image_label = QLabel()
 #         self.image_label.setAlignment(Qt.AlignCenter)
@@ -261,34 +267,24 @@
 #         # Timeline slider
 #         self.timeline_slider = QSlider(Qt.Horizontal)
 #         self.timeline_slider.setMinimum(0)
+#         self.timeline_slider.setTickPosition(QSlider.TicksBelow)
+#         self.timeline_slider.setTickInterval(1)
 #         self.timeline_slider.valueChanged.connect(self.slider_changed)
 #         self.main_layout.addWidget(self.timeline_slider)
         
-#         # Sidebar layout
-#         self.sidebar_layout = QVBoxLayout()
+#         # Label to display the current time on the scrubber
+#         self.time_label = QLabel("Time: 0")
+#         self.time_label.setAlignment(Qt.AlignCenter)
+#         self.main_layout.addWidget(self.time_label)
         
 #         # Button to select directory
 #         self.open_dir_button = QPushButton("Open Directory")
 #         self.open_dir_button.clicked.connect(self.open_directory)
-#         self.sidebar_layout.addWidget(self.open_dir_button)
+#         self.main_layout.addWidget(self.open_dir_button)
         
-#         # List widget to display image names
-#         self.image_list_widget = QListWidget()
-#         self.image_list_widget.currentRowChanged.connect(self.display_image)
-#         self.sidebar_layout.addWidget(self.image_list_widget)
-        
-#         # Set sidebar
-#         self.sidebar_widget = QWidget()
-#         self.sidebar_widget.setLayout(self.sidebar_layout)
-        
-#         # Combine sidebar and main display
-#         self.horizontal_layout = QHBoxLayout()
-#         self.horizontal_layout.addWidget(self.sidebar_widget)
-#         self.horizontal_layout.addLayout(self.main_layout)
-        
-#         # Set main widget
+#         # Set the main widget
 #         self.main_widget = QWidget()
-#         self.main_widget.setLayout(self.horizontal_layout)
+#         self.main_widget.setLayout(self.main_layout)
 #         self.setCentralWidget(self.main_widget)
         
 #         # Initialize image list
@@ -304,23 +300,47 @@
 #     def open_directory(self):
 #         directory = QFileDialog.getExistingDirectory(self, "Open Directory", "")
 #         if directory:
-#             self.load_images_from_directory(directory)
+#             camera_frames_dir = os.path.join(directory, 'camera_frames')
+#             if os.path.exists(camera_frames_dir):
+#                 self.load_images_from_directory(camera_frames_dir)
+#             else:
+#                 self.filename_label.setText("No camera_frames directory found in the selected folder.")
     
 #     def load_images_from_directory(self, directory):
 #         self.image_paths = [os.path.join(directory, f) for f in os.listdir(directory) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'))]
-#         self.image_list_widget.clear()
-#         self.image_list_widget.addItems([os.path.basename(path) for path in self.image_paths])
-#         self.timeline_slider.setMaximum(len(self.image_paths) - 1)
+#         self.image_paths.sort(key=self.extract_timestamp)  # Sort images by timestamp
+
 #         if self.image_paths:
+#             first_timestamp = self.extract_timestamp(self.image_paths[0])
+#             last_timestamp = self.extract_timestamp(self.image_paths[-1])
+#             self.duration = last_timestamp - first_timestamp
+#             self.timeline_slider.setMaximum(self.duration)
+#             self.timeline_slider.setTickInterval(max(1, self.duration // 10))
 #             self.current_image_index = 0
 #             self.display_image(0)
+    
+#     def extract_timestamp(self, filepath):
+#         try:
+#             filename = os.path.basename(filepath)
+#             timestamp_str = filename.split('_')[1].split('.')[0]
+#             return int(timestamp_str)
+#         except (IndexError, ValueError):
+#             return 0
     
 #     def display_image(self, index):
 #         if index >= 0 and index < len(self.image_paths):
 #             pixmap = QPixmap(self.image_paths[index])
-#             self.image_label.setPixmap(pixmap)
+#             # Adjust the image display to fit within the window while keeping the aspect ratio
+#             self.image_label.setPixmap(pixmap.scaled(1280, 1280, Qt.KeepAspectRatio))
 #             self.setWindowTitle(f"Image Viewer - {os.path.basename(self.image_paths[index])}")
-#             self.timeline_slider.setValue(index)
+#             self.filename_label.setText(f"Current Image: {os.path.basename(self.image_paths[index])}")
+#             self.timeline_slider.setValue(self.calculate_slider_value(index))
+#             self.update_time_label(self.calculate_slider_value(index))
+        
+#     def calculate_slider_value(self, index):
+#         first_timestamp = self.extract_timestamp(self.image_paths[0])
+#         current_timestamp = self.extract_timestamp(self.image_paths[index])
+#         return current_timestamp - first_timestamp
     
 #     def show_previous_image(self):
 #         if self.current_image_index > 0:
@@ -333,8 +353,18 @@
 #             self.display_image(self.current_image_index)
     
 #     def slider_changed(self, value):
-#         self.current_image_index = value
-#         self.image_list_widget.setCurrentRow(value)
+#         closest_index = self.find_closest_image_index(value)
+#         self.display_image(closest_index)
+    
+#     def find_closest_image_index(self, slider_value):
+#         first_timestamp = self.extract_timestamp(self.image_paths[0])
+#         target_timestamp = first_timestamp + slider_value
+#         closest_index = min(range(len(self.image_paths)), key=lambda i: abs(self.extract_timestamp(self.image_paths[i]) - target_timestamp))
+#         self.current_image_index = closest_index
+#         return closest_index
+    
+#     def update_time_label(self, slider_value):
+#         self.time_label.setText(f"Time: {slider_value}s")
 
 # if __name__ == "__main__":
 #     app = QApplication(sys.argv)
@@ -342,94 +372,164 @@
 #     viewer.show()
 #     sys.exit(app.exec_())
 
+
 import sys
 import os
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QFileDialog, QSlider,QShortcut
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import Qt
+import csv
+import numpy as np
+from collections import deque
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QFileDialog, QSlider, QShortcut
+from PyQt5.QtGui import QPixmap, QPainter, QPen, QColor
+from PyQt5.QtCore import Qt, QRectF
 
 class ImageViewer(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Image Viewer")
-        self.setGeometry(100, 100, 1000, 700)
+        self.setGeometry(100, 100, 1800, 900)
         
         # Main layout
-        self.main_layout = QVBoxLayout()
+        self.main_layout = QHBoxLayout()
         
-        # Label to display the current image file name
+        # Left layout for the image
+        self.image_layout = QVBoxLayout()
+        
         self.filename_label = QLabel("No image loaded")
         self.filename_label.setAlignment(Qt.AlignCenter)
-        self.main_layout.addWidget(self.filename_label)
+        self.image_layout.addWidget(self.filename_label)
         
-        # Image display area
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.main_layout.addWidget(self.image_label)
+        self.image_layout.addWidget(self.image_label)
         
-        # Timeline slider
         self.timeline_slider = QSlider(Qt.Horizontal)
         self.timeline_slider.setMinimum(0)
         self.timeline_slider.setTickPosition(QSlider.TicksBelow)
         self.timeline_slider.setTickInterval(1)
         self.timeline_slider.valueChanged.connect(self.slider_changed)
-        self.main_layout.addWidget(self.timeline_slider)
+        self.image_layout.addWidget(self.timeline_slider)
         
-        # Label to display the current time on the scrubber
         self.time_label = QLabel("Time: 0")
         self.time_label.setAlignment(Qt.AlignCenter)
-        self.main_layout.addWidget(self.time_label)
+        self.image_layout.addWidget(self.time_label)
         
-        # Button to select directory
         self.open_dir_button = QPushButton("Open Directory")
         self.open_dir_button.clicked.connect(self.open_directory)
-        self.main_layout.addWidget(self.open_dir_button)
+        self.image_layout.addWidget(self.open_dir_button)
         
-        # Set the main widget
+        self.main_layout.addLayout(self.image_layout, 2)
+        
+        # Right layout for the plots
+        self.plot_layout = QVBoxLayout()
+        
+        self.voltage_plot = QLabel()
+        self.current_plot = QLabel()
+        self.pressure_plot = QLabel()
+        self.resistance_plot = QLabel()
+
+        self.plot_layout.addWidget(self.voltage_plot)
+        self.plot_layout.addWidget(self.current_plot)
+        self.plot_layout.addWidget(self.pressure_plot)
+        self.plot_layout.addWidget(self.resistance_plot)
+
+        self.main_layout.addLayout(self.plot_layout, 1)
+        
         self.main_widget = QWidget()
         self.main_widget.setLayout(self.main_layout)
         self.setCentralWidget(self.main_widget)
         
-        # Initialize image list
         self.image_paths = []
         self.current_image_index = -1
+        self.graphs = {}
         
-        # Keyboard shortcuts
         self.shortcut_left = QShortcut(Qt.Key_Left, self)
         self.shortcut_left.activated.connect(self.show_previous_image)
         self.shortcut_right = QShortcut(Qt.Key_Right, self)
         self.shortcut_right.activated.connect(self.show_next_image)
-    
+
     def open_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Open Directory", "")
         if directory:
-            self.load_images_from_directory(directory)
+            camera_frames_dir = os.path.join(directory, 'camera_frames')
+            if os.path.exists(camera_frames_dir):
+                self.load_images_from_directory(camera_frames_dir)
+                self.load_graphs(directory)
+                print(f"Loaded {len(self.image_paths)} images and {len(self.graphs)} graph data points")
+            else:
+                self.filename_label.setText("No camera_frames directory found in the selected folder.")
     
     def load_images_from_directory(self, directory):
         self.image_paths = [os.path.join(directory, f) for f in os.listdir(directory) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'))]
-        
+        self.image_paths.sort(key=self.extract_timestamp)
+
         if self.image_paths:
             first_timestamp = self.extract_timestamp(self.image_paths[0])
             last_timestamp = self.extract_timestamp(self.image_paths[-1])
             self.duration = last_timestamp - first_timestamp
             self.timeline_slider.setMaximum(self.duration)
-            self.timeline_slider.setTickInterval(self.duration // 10)
+            self.timeline_slider.setTickInterval(max(1, self.duration // 10))
             self.current_image_index = 0
             self.display_image(0)
     
+    def load_graphs(self, directory):
+        print("Loading graphs...")
+        pressure_deque = deque(maxlen=100)
+        resistance_deque = deque(maxlen=100)
+        for filename in os.listdir(directory):
+            if filename == "graph_recording.csv":
+                filepath = os.path.join(directory, filename)
+                with open(filepath, 'r') as file:
+                    reader = csv.reader(file)
+                    for row in reader:
+                        joined_row = ''.join(row)
+                        timestamp_str = joined_row.split("pressure:")[0].replace("timestamp:", "").strip()
+                        timestamp = float(timestamp_str)
+                        
+                        if timestamp not in self.graphs:
+                            self.graphs[timestamp] = {}
+                        
+                        pressure_val = float(joined_row.split('pressure:')[1].split('resistance', 1)[0].strip())
+                        pressure_deque.append(pressure_val)
+                        self.graphs[timestamp]['pressure_deque'] = list(pressure_deque)
+                        
+                        resistance_vals = joined_row.split('resistance:')[1].split('current:')[0].replace("[","").replace("]","")
+                        resistance_val = float(resistance_vals.strip().split()[0])
+                        resistance_deque.append(resistance_val)
+                        self.graphs[timestamp]['resistance_deque'] = list(resistance_deque)
+                        
+                        current_vals = joined_row.split('current:')[1].split('voltage:')[0]
+                        current_vals_list = [float(val.strip(']')) for val in current_vals.strip('[').split()]
+                        self.graphs[timestamp]['current'] = current_vals_list
+                        self.graphs[timestamp]['time'] = list(range(len(current_vals_list)))
+
+                        voltage_vals = joined_row.split('voltage:')[1]
+                        voltage_vals_list = [float(val.strip(']')) for val in voltage_vals.strip('[').split()]
+                        self.graphs[timestamp]['voltage'] = voltage_vals_list
+        print(f"Graphs loaded. Total timestamps: {len(self.graphs)}")
+        # testing for loaded data
+        print("Sample of loaded graph data:")
+        for timestamp in list(self.graphs.keys())[:3]:  # Print first 3 timestamps
+            print(f"Timestamp {timestamp}:")
+            for key, value in self.graphs[timestamp].items():
+                print(f"  {key}: {value[:5]}...") 
+            
     def extract_timestamp(self, filepath):
-        filename = os.path.basename(filepath)
-        timestamp_str = filename.split('_')[1].split('.')[0]
-        return int(timestamp_str)
+        try:
+            filename = os.path.basename(filepath)
+            timestamp_str = filename.split('_')[1].split('.')[0]
+            return int(timestamp_str)
+        except (IndexError, ValueError):
+            return 0
     
     def display_image(self, index):
         if index >= 0 and index < len(self.image_paths):
             pixmap = QPixmap(self.image_paths[index])
-            self.image_label.setPixmap(pixmap)
+            self.image_label.setPixmap(pixmap.scaled(800, 600, Qt.KeepAspectRatio))
             self.setWindowTitle(f"Image Viewer - {os.path.basename(self.image_paths[index])}")
             self.filename_label.setText(f"Current Image: {os.path.basename(self.image_paths[index])}")
             self.timeline_slider.setValue(self.calculate_slider_value(index))
             self.update_time_label(self.calculate_slider_value(index))
+            self.update_plots(index)
     
     def calculate_slider_value(self, index):
         first_timestamp = self.extract_timestamp(self.image_paths[0])
@@ -459,6 +559,60 @@ class ImageViewer(QMainWindow):
     
     def update_time_label(self, slider_value):
         self.time_label.setText(f"Time: {slider_value}s")
+
+    def update_plots(self, index):
+        timestamp = self.extract_timestamp(self.image_paths[index])
+        if timestamp in self.graphs:
+            graph_data = self.graphs[timestamp]
+            
+            self.plot_graph(self.voltage_plot, graph_data['time'], graph_data['voltage'], "Voltage", Qt.blue)
+            self.plot_graph(self.current_plot, graph_data['time'], graph_data['current'], "Current", Qt.red)
+            self.plot_graph(self.pressure_plot, range(len(graph_data['pressure_deque'])), graph_data['pressure_deque'], "Pressure", Qt.green)
+            self.plot_graph(self.resistance_plot, range(len(graph_data['resistance_deque'])), graph_data['resistance_deque'], "Resistance", Qt.magenta)
+        else:
+            print(f"No graph data for timestamp {timestamp}")
+
+    def plot_graph(self, plot_widget, x_data, y_data, title, color):
+        if not x_data or not y_data:
+            print(f"Empty data for {title} graph")
+            return
+
+        pixmap = QPixmap(400, 200)
+        pixmap.fill(Qt.white)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        plot_rect = QRectF(40, 10, 350, 180)
+
+        # Draw axes
+        pen = QPen(Qt.black, 1)
+        painter.setPen(pen)
+        painter.drawLine(plot_rect.left(), plot_rect.bottom(), plot_rect.right(), plot_rect.bottom())
+        painter.drawLine(plot_rect.left(), plot_rect.top(), plot_rect.left(), plot_rect.bottom())
+
+        # Draw the graph
+        pen = QPen(color, 2)
+        painter.setPen(pen)
+        
+        x_min, x_max = min(x_data), max(x_data)
+        y_min, y_max = min(y_data), max(y_data)
+        x_range = x_max - x_min
+        y_range = y_max - y_min if y_max > y_min else 1  # Prevent division by zero
+
+        for i in range(len(x_data) - 1):
+            x1 = plot_rect.left() + (x_data[i] - x_min) * plot_rect.width() / x_range
+            y1 = plot_rect.bottom() - (y_data[i] - y_min) * plot_rect.height() / y_range
+            x2 = plot_rect.left() + (x_data[i+1] - x_min) * plot_rect.width() / x_range
+            y2 = plot_rect.bottom() - (y_data[i+1] - y_min) * plot_rect.height() / y_range
+            painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+        # Draw the title
+        painter.setPen(Qt.black)
+        painter.drawText(QRectF(0, 0, pixmap.width(), 30), Qt.AlignCenter, title)
+
+        painter.end()
+        plot_widget.setPixmap(pixmap)
+        plot_widget.setMinimumSize(400, 200)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
