@@ -72,18 +72,6 @@ class FileLogger(threading.Thread):
         self.write_event.set()  # Signal that writing is done
         # print("Wrote file contents at path: ", self.filename)
 
-    # def write_graph_data_batch(self, time_value, pressure, resistance, time_current, current):
-    #     if not self.recording_state_manager.is_recording_enabled():
-    #         return
-    #     if time_value == self.last_graph_time:
-    #         return
-    #     self.last_graph_time = time_value
-
-    #     content = f"{time_value}  {pressure}  {resistance}  {time_current}  {current}\n"
-    #     self.graph_contents.append(content)
-    #     if len(self.graph_contents) >= self.frame_batch_size - 50:
-    #         self._flush_contents(self.graph_contents)
-
     def write_graph_data(self, time_value, pressure: float, resistance: float, current, voltage):
     # ? time_current is probably not necessary, will remove in a future commit when confirmed.
     # def write_graph_data(self, time_value, pressure: float, resistance: float, time_current, current):
@@ -97,16 +85,6 @@ class FileLogger(threading.Thread):
         content = f"timestamp:{time_value}  pressure:{pressure}  resistance:{resistance}  current:{current} voltage:{voltage}\n"
         self.write_event.clear()
         threading.Thread(target=self._write_to_file, args=(content,)).start()
-
-    # def write_movement_data(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
-    #     if not self.recording_state_manager.is_recording_enabled():
-    #         return
-    #     if time_value == self.last_movement_time:
-    #         return
-    #     self.last_movement_time = time_value
-    #     content = f"timestamp:{time_value}  st_x:{stage_x}  st_y:{stage_y}  st_z:{stage_z}  pi_x:{pipette_x} pi_y:{pipette_y} pi_z:{pipette_z}\n"
-    #     self.write_event.clear()
-    #     threading.Thread(target=self._write_to_file, args=(content,)).start()
 
     def write_movement_data_batch(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
         if not self.recording_state_manager.is_recording_enabled():
