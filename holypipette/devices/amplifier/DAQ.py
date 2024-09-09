@@ -120,7 +120,7 @@ class DAQ:
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
 
-    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=20, highTimeMs=400):
+    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, highTimeMs=400):
         '''Sends a series of square waves from startCurrentPicoAmp to endCurrentPicoAmp (inclusive) with stepCurrentPicoAmp pA increments.
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
 
@@ -133,7 +133,9 @@ class DAQ:
             # logging.error("Returning None,Current clamp protocol cannot be run.")
             return None, None, None
 
-        factor = 4
+        factor = 2
+
+    
         startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
         endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
@@ -157,7 +159,7 @@ class DAQ:
         samplesPerSec = 50000
         recordingTime = 4 * highTimeMs * 1e-3
 
-        for i in range(num_waves):
+        for i in range(num_waves-1):
 
             # param pulse at -20 pA
             amp_pulse = (-20*1e-12)/self.C_CLAMP_AMP_PER_VOLT
@@ -205,9 +207,7 @@ class DAQ:
             time.sleep(0.5)
             #combine data
 
-            
-            
-
+        
             if self.current_protocol_data is None:
                 self.current_protocol_data = [[timeData, respData, readData]]
             else:

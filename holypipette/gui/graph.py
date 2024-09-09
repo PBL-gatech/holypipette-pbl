@@ -102,7 +102,7 @@ class CurrentProtocolGraph(QWidget):
             marker = colors[i] + "_" + pulse
             self.ephys_logger.write_ephys_data(index, timeData, readData, respData, marker)
             
-            if i == color_range - 1:
+            if i == color_range:
                 logging.info ("saving current ephys plot")
                 # self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, marker)
                 self.ephys_logger.save_ephys_plot(index, self.cprotocolPlot)

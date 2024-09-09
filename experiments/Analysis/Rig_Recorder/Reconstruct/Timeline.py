@@ -20,8 +20,8 @@ class ImageViewer(QMainWindow):
         # Top section (Image display area)
         self.image_label = QLabel("No Image Loaded")
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setMinimumSize(500, 500)
-        self.image_label.setMaximumSize(800, 800)
+        self.image_label.setMinimumSize(1280, 1280)
+        self.image_label.setMaximumSize(800, 1280)
         
         # Add dividing line above the bottom widget
         self.image_frame = QFrame()
@@ -52,14 +52,16 @@ class ImageViewer(QMainWindow):
 
         # Bottom section
         self.bottom_layout = QVBoxLayout()
-        
+    
         # Combine time, stage, and pipette information in one widget
         self.info_label = QLabel("Time: 0.0s\nStage (X, Y, Z): N/A, N/A, N/A\nPipette (X, Y, Z): N/A, N/A, N/A")
         self.info_label.setAlignment(Qt.AlignLeft)
+        self.info_label.setMaximumHeight(40)
         
         # Add dividing line above the info display
         self.info_frame = QFrame()
         self.info_frame.setLayout(QHBoxLayout())
+        self.info_frame.setMaximumHeight(60)
         self.info_frame.layout().addWidget(self.info_label)
         self.info_frame.setFrameShape(QFrame.StyledPanel)
         self.info_frame.setFrameShadow(QFrame.Sunken)
@@ -114,15 +116,6 @@ class ImageViewer(QMainWindow):
         self.shortcut_left.activated.connect(self.show_previous_image)
         self.shortcut_right = QShortcut(Qt.Key_Right, self)
         self.shortcut_right.activated.connect(self.show_next_image)
-    
-        # 3D Plot
-        self.figure = plt.figure()
-        self.ax = self.figure.add_subplot(111, projection='3d')
-        self.ax.set_title('Movement Data')
-        self.ax.set_xlabel('X')
-        self.ax.set_ylabel('Y')
-        self.ax.set_zlabel('Z')
-        plt.ion()  # Interactive mode on
         
     def set_white_box(self):
         """Display a white box as a placeholder in the image label."""
@@ -157,9 +150,17 @@ class ImageViewer(QMainWindow):
 
         if self.image_paths:
             self.first_timestamp = self.extract_timestamp(self.image_paths[0])
+            print(f"First Timestamp: {self.first_timestamp} s")
             last_timestamp = self.extract_timestamp(self.image_paths[-1])
-            self.duration = (last_timestamp - self.first_timestamp) / 1000  # Convert to seconds
-            self.timeline_slider.setMaximum(int(self.duration * 1000))  # Set max to milliseconds
+            print(f"Last Timestamp: {last_timestamp} s")
+            self.duration = (last_timestamp - self.first_timestamp) # Convert to milliseconds
+            print(f"Duration: {self.duration}s")
+            self.timeline_slider.setMaximum(int(self.duration)) 
+            # self.timeline_slider.setTickInterval(int(self.duration/10))  # Add 10 ticks
+            self.first_index = self.extract_image_index(self.image_paths[0])
+            print(f"First Index: {self.first_index}")
+            self.last_index = self.extract_image_index(self.image_paths[-1])
+            print(f"Last Index: {self.last_index}")
             self.current_image_index = 0
             self.display_image(0)
         else:
@@ -207,8 +208,18 @@ class ImageViewer(QMainWindow):
     def extract_timestamp(self, filepath):
         try:
             filename = os.path.basename(filepath)
-            timestamp_str = filename.split('_')[1].split('.')[0]
-            return int(timestamp_str)
+            timestamp_str = filename.split('_')[1].rsplit('.', 1)[0]
+        
+            return float(timestamp_str)
+        except (IndexError, ValueError):
+            return 0
+        
+    def extract_image_index(self, filepath):
+        try:
+            filename = os.path.basename(filepath)
+            index_str = filename.split('_')[0]
+        
+            return int(index_str)
         except (IndexError, ValueError):
             return 0
     
@@ -222,7 +233,9 @@ class ImageViewer(QMainWindow):
     def display_image(self, index):
         """Display the image at the specified index and update movement data."""
         if index >= 0 and index < len(self.image_paths): 
+            print(f"index: {index}")
             pixmap = QPixmap(self.image_paths[index]) 
+            print(f"Displaying Image: {self.image_paths[index]}")
             self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio)) 
             self.setWindowTitle(f"Rig Replay - {os.path.basename(self.image_paths[index])}") 
             time_elapsed = self.calculate_time_elapsed(index)
@@ -239,9 +252,10 @@ class ImageViewer(QMainWindow):
         closest_time = self.find_closest_time(time_elapsed)
         if closest_time is not None:
             stage_pos = self.movement_data[closest_time]['stage']
-            print(stage_pos)
+            # print(stage_pos)
             pipette_pos = self.movement_data[closest_time]['pipette']
-            print(pipette_pos)
+            # print(pipette_pos)
+            time_elapsed = self.calculate_time_elapsed(self.current_image_index)*1000
             self.info_label.setText(f"Time: {time_elapsed:.1f}s (Data: {closest_time:.1f}s)\n"
                                     f"Stage (X, Y, Z): {stage_pos[0]:.2f}, {stage_pos[1]:.2f}, {stage_pos[2]:.2f}\n"
                                     f"Pipette (X, Y, Z): {pipette_pos[0]:.2f}, {pipette_pos[1]:.2f}, {pipette_pos[2]:.2f}")
@@ -254,7 +268,7 @@ class ImageViewer(QMainWindow):
         """Handle slider movement to display the closest image and update movement data."""
         if not self.check_images_loaded():
             return
-        time_elapsed = value / 1000  # Convert milliseconds to seconds from the start
+        time_elapsed = value   # Convert milliseconds to seconds from the start
         self.current_image_index = self.find_closest_image_index(time_elapsed)
         self.display_image(self.current_image_index)
         
@@ -264,7 +278,7 @@ class ImageViewer(QMainWindow):
 
     def calculate_time_elapsed(self, index):
         """Calculate time elapsed in seconds from the start of the video."""
-        return (self.extract_timestamp(self.image_paths[index]) - self.first_timestamp) / 1000  # Convert to seconds
+        return (self.extract_timestamp(self.image_paths[index]) - self.first_timestamp)
 
     def find_closest_image_index(self, target_time):
         """Find the index of the image closest to the target time."""
@@ -277,39 +291,35 @@ class ImageViewer(QMainWindow):
             return
         if self.current_image_index > 0:
             self.current_image_index -= 1
-            self.display_image(self.current_image_index)
+            print(f"Previous Image Index: {self.current_image_index}")
+            # self.display_image(self.current_image_index)
             # Update slider to reflect the correct time for this image
             time_elapsed = self.calculate_time_elapsed(self.current_image_index)
-            self.timeline_slider.setValue(int(time_elapsed * 1000))  # Convert to milliseconds
+            # print(f"Time Elapsed: {time_elapsed}")
+            print(f"Time Elapsed: {time_elapsed}")
+            self.timeline_slider.setValue(int(time_elapsed))  
+            self.slider_changed(int(time_elapsed))  # Call slider_changed
 
+        
     def show_next_image(self):
         """Navigate to the next image and update the slider."""
         if not self.check_images_loaded():
             return
+
         if self.current_image_index < len(self.image_paths) - 1:
+            print(f"Current Index: {self.current_image_index}")
             self.current_image_index += 1
-            self.display_image(self.current_image_index)
+            print(f"New Index: {self.current_image_index}")
+
+            # self.display_image(self.current_image_index)
             # Update slider to reflect the correct time for this image
             time_elapsed = self.calculate_time_elapsed(self.current_image_index)
-            self.timeline_slider.setValue(int(time_elapsed * 1000))  # Convert to milliseconds
-
-    def update_movement_plot(self, time_elapsed):
-        closest_time = self.find_closest_time(time_elapsed)
-        if closest_time is not None:
-            stage_pos = self.movement_data[closest_time]['stage']
-            pipette_pos = self.movement_data[closest_time]['pipette']
-            
-            self.ax.clear()
-            self.ax.scatter(*stage_pos, color='r', label='Stage')
-            self.ax.scatter(*pipette_pos, color='b', label='Pipette')
-            
-            self.ax.set_title(f'Movement Data at {time_elapsed:.1f}s (Data: {closest_time:.1f}s)')
-            self.ax.legend()
-            plt.draw()
+            print(f"Time Elapsed: {time_elapsed}")
+            self.timeline_slider.setValue(int(time_elapsed))  # Convert to milliseconds
+            self.slider_changed(int(time_elapsed))  # Call slider_changed
         else:
-            self.ax.clear()
-            self.ax.set_title('No movement data for this time')
-            plt.draw()
+            print("Reached the last image.")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

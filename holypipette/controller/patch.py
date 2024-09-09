@@ -52,6 +52,7 @@ class AutoPatcher(TaskController):
             self.sleep(0.25)
         if self.config.current_protocol:
             self.iholding = self.daq.holding_current
+            # self.iholding = 0
             self.run_current_protocol()
             self.sleep(0.25)
         if self.config.holding_protocol:
@@ -61,7 +62,7 @@ class AutoPatcher(TaskController):
         self.info('Running voltage protocol (membrane test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        self.amplifier.set_holding(-0.070)
+        self.amplifier.set_holding(-0.085)
         self.info('holding at -70mV')
         self.sleep(0.25)
         self.amplifier.switch_holding(True)
@@ -97,7 +98,8 @@ class AutoPatcher(TaskController):
         # self.amplifier.set_neutralization_enable(True)
         # self.info('enabled neutralization')
         if self.iholding is None:
-            current = -200
+            current = -50
+
         else:
             current = (self.iholding)
         current = current * 1e-12
