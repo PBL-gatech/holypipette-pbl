@@ -24,4 +24,6 @@ experiments/Analysis/*/*.webp
 /experiments/reference/images
 /experiments/Data/victor_analyze/
 holypipette/deepLearning/pipetteModelTrainer/Dataset/.*
-/experiments/Analysis/Rig_Recorder/Reconstruct/sample_data/.*
+/experiments/Analysis/Rig_Recorder/recontruct/*.csv
+
+
