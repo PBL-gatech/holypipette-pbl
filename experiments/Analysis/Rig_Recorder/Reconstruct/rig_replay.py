@@ -9,6 +9,7 @@ import ast
 import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame
 from PyQt5.QtCore import Qt
+from collections import deque
 
 class Timeline(QMainWindow):
     def __init__(self):
@@ -141,6 +142,9 @@ class Timeline(QMainWindow):
         self.movement_data = []
         self.graph_data = []
         self.directory = None
+        self.pressure_deque = deque(maxlen=100) # add 100 value to the deque
+        self.resistance_deque = deque(maxlen=100) # add 100 value to the deque
+        self.direction = 1
 
         # Keyboard shortcuts
         self.shortcut_left = QShortcut(Qt.Key_Left, self)
@@ -182,33 +186,47 @@ class Timeline(QMainWindow):
         """Show the previous timepoint"""
         if not self.check_data_loaded():
             return  # Only proceed if data is loaded
-        if self.current_index > 0:
-            self.current_index -= 1
-            self.display_image(self.image_paths[self.current_index])  # Call display_image with valid path
-            slider_value = min(max(self.current_index, 0), self.slider.maximum())
-            
-            self.slider.setValue(slider_value)
-            self.update_info()
-            self.update_graphs()
 
-        else:
-            print("No previous image available.")  # Prevent out-of-bound access
+        if self.current_index > 0:
+            self.current_index -= 1  # Move one timepoint back
+            self.slider.setValue(self.current_index)  # Update slider to reflect the current index
+            self.update_view()
 
     def show_next_timepoint(self):
         """Show the next timepoint"""
         if not self.check_data_loaded():
             return  # Only proceed if data is loaded
+
         if self.current_index < len(self.image_paths) - 1:
-            self.current_index += 1
-            self.display_image(self.image_paths[self.current_index])  # Call display_image with valid path
-            slider_value = min(max(self.current_index, 0), self.slider.maximum())
+            self.current_index += 1  # Move one timepoint forward
+            self.slider.setValue(self.current_index)  # Update slider to reflect the current index
+            self.update_view()
+
+    def slider_changed(self):
+        """Update timepoint based on the slider's position"""
+        if not self.check_data_loaded():
+            return  # Only proceed if data is loaded
+
+        new_index = self.slider.value()  # Get the new index from the slider
+        
+        # Update the current index
+        self.current_index = new_index
+
+        # Update the view based on the slider's new value
+        self.update_view()
+
+    def update_view(self):
+        """Update the displayed image, graphs, and info based on the current timestamp"""
+        if 0 <= self.current_index < len(self.image_paths):
+            # Display the selected image
+            self.display_image(self.image_paths[self.current_index])
             
-            self.slider.setValue(slider_value)
+            # Update info and graphs
             self.update_info()
             self.update_graphs()
 
         else:
-            print("No next image available.")  # Prevent out-of-bound access
+            print(f"Invalid index: {self.current_index}. The image paths list has {len(self.image_paths)} items.")
 
 
     def update_info(self):
@@ -232,31 +250,56 @@ class Timeline(QMainWindow):
             self.info.setText(f"Time: {timepoint} seconds, No movement data available.")
 
     def update_graphs(self):
-        """Update the graphs with the current timepoint data"""
+        """Update the graphs with the current timepoint data and manage deques based on the closest timestamp"""
         if not self.check_data_loaded():
             return  # Only proceed if data is loaded
-        
-        # Find the closest graph data timepoint from dictionary to the current timepoint
-        graph_index = next((i for i, data in enumerate(self.graph_data) if data['time'] >= self.timestamps[self.current_index]), None)
+
+        # Get the current timestamp for the current frame
+        current_timestamp = self.timestamps[self.current_index]
+
+        # Clear deques before repopulating
+        self.pressure_deque.clear()
+        self.resistance_deque.clear()
+
+        # Find the closest graph_data entries for the current timestamp
+        graph_index = next((i for i, data in enumerate(self.graph_data) if data['time'] >= current_timestamp), None)
+
+        # If a matching entry is found, backtrack up to 99 previous entries
         if graph_index is not None:
-            print(f"timestamp: {self.timestamps[self.current_index]} and graph timestamp: {self.graph_data[graph_index]['time']}")
+            start_index = max(0, graph_index - 99)  # Make sure we don't go below 0
+            
+            # Loop through the 99 previous entries (or as many as available)
+            for i in range(start_index, graph_index + 1):
+                graph_data = self.graph_data[i]
+                self.pressure_deque.append(graph_data['pressure'])
+                self.resistance_deque.append(graph_data['resistance'])
+
+        # Now that the deques have been updated, plot the values
+        self.plot_graphs()
+
+    def plot_graphs(self):
+        """Plot the values from the deques and the main graph data"""
+        # Clear the plots
+        self.plots[0].clear()
+        self.plots[1].clear()
+        self.plots[2].clear()
+        self.plots[3].clear()
+
+        # Plot the new data (voltage and current are continuous lists)
+        current_timestamp = self.timestamps[self.current_index]
+        graph_index = next((i for i, data in enumerate(self.graph_data) if data['time'] >= current_timestamp), None)
+
+        if graph_index is not None:
             graph_data = self.graph_data[graph_index]
-            print(f"ghwats going on??? {graph_data}")
+            current = graph_data['current']
+            voltage = graph_data['voltage']
 
-    def slider_changed(self):
-        """Will show the timepoint at the slider's position"""
-        if not self.check_data_loaded():
-            return
-        
-        # Ensure the current index is within bounds
-        self.current_index = self.slider.value()
-        if 0 <= self.current_index < len(self.image_paths):
-            self.display_image(self.image_paths[self.current_index])
-            self.update_info()
-            self.update_graphs()
+            self.plots[0].plot(voltage, pen=pg.mkPen(color='b', width=2))  # Plot voltage
+            self.plots[1].plot(current, pen=pg.mkPen(color='r', width=2))  # Plot current
 
-        else:
-            print(f"Invalid index: {self.current_index}. The image paths list has {len(self.image_paths)} items.")
+        # Plot the deque values for pressure and resistance
+        self.plots[2].plot(list(self.pressure_deque), pen=pg.mkPen(color='g', width=2))  # Pressure
+        self.plots[3].plot(list(self.resistance_deque), pen=pg.mkPen(color='m', width=2))  # Resistance
 
     def load_images_from_directory(self, directory):
         "will load images from the directory"
@@ -340,24 +383,24 @@ class Timeline(QMainWindow):
                     parts = [part for part in line.strip().split(':') if part]
                     
                     # Print first 3 parts for debugging
-                    print(parts[:4])
+                    # print(parts[:4])
                     
                     # Parse each value
                     time_value = float(parts[1].split(' ')[0])
-                    print(f"Time value: {time_value} s")
+                    # print(f"Time value: {time_value} s")
                     pressure_value = float(parts[2].split(' ')[0])
-                    print(f"Pressure value: {pressure_value} mBAR")
+                    # print(f"Pressure value: {pressure_value} mBAR")
                     resistance_value = float(parts[3].split(' ')[0])
-                    print(f"Resistance value: {resistance_value} MOhm")
+                    # print(f"Resistance value: {resistance_value} MOhm")
                     
                     # Extract the current and voltage values as lists
                     current_data = parts[4].split('[')[-1].split(']')[0]
                     current_value = [float(x) for x in current_data.split(',')]
-                    print(f"Current values: {current_value[:5]} ...")  # Print only the first 5 for brevity
+                    # print(f"Current values: {current_value[:5]} ...")  # Print only the first 5 for brevity
                     
                     voltage_data = parts[5].split('[')[-1].split(']')[0]
                     voltage_value = [float(x) for x in voltage_data.split(',')]
-                    print(f"Voltage values: {voltage_value[:5]} ...")  # Print only the first 5 for brevity
+                    # print(f"Voltage values: {voltage_value[:5]} ...")  # Print only the first 5 for brevity
 
                     # Create a dictionary for this row
                     row_data = {
@@ -374,7 +417,7 @@ class Timeline(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error Loading Graph Data", f"An error occurred while loading graph data: {e}")
 
-        print(f"Loaded {len(self.graph_data)} graph data entries.")
+        # print(f"Loaded {len(self.graph_data)} graph data entries.")
 
     
     def extract_image_data(self, image_path):
