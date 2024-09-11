@@ -8,8 +8,9 @@ import pyqtgraph as pg
 import ast
 import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QFrame
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from collections import deque
+import time
 
 class Timeline(QMainWindow):
     def __init__(self):
@@ -37,7 +38,6 @@ class Timeline(QMainWindow):
         self.image_frame.setFrameShape(QFrame.StyledPanel)
         self.image_frame.setFrameShadow(QFrame.Sunken)
 
-
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
 
@@ -47,7 +47,7 @@ class Timeline(QMainWindow):
         self.graph_frame.setMaximumSize(900, 900)
         self.graph_frame.setFrameShape(QFrame.StyledPanel)
         self.graph_frame.setFrameShadow(QFrame.Sunken)
-        
+
         # Create a layout to hold the 2x2 graphs
         self.graph_layout = QVBoxLayout(self.graph_frame)
 
@@ -123,12 +123,17 @@ class Timeline(QMainWindow):
         self.next_image_button.clicked.connect(self.show_next_timepoint)
         self.buttons_layout.addWidget(self.next_image_button)
 
+        self.toggle_video_button = QPushButton("Play")
+        self.toggle_video_button.clicked.connect(self.toggle_video)
+        self.buttons_layout.addWidget(self.toggle_video_button)
+
         # Add the buttons layout to the middle layout
         self.middle_layout.addLayout(self.buttons_layout)
 
         # Add the middle layout to the main layout
         self.main_layout.addLayout(self.middle_layout)
 
+        # Initialize required variables
         self.image_paths = []
         self.image_index = []
         self.timestamps = []
@@ -142,9 +147,15 @@ class Timeline(QMainWindow):
         self.movement_data = []
         self.graph_data = []
         self.directory = None
-        self.pressure_deque = deque(maxlen=100) # add 100 value to the deque
-        self.resistance_deque = deque(maxlen=100) # add 100 value to the deque
+        self.pressure_deque = deque(maxlen=100)  # add 100 value to the deque
+        self.resistance_deque = deque(maxlen=100)  # add 100 value to the deque
         self.direction = 1
+
+
+        self.timer = QTimer()
+        self.interval = 33/1000  # 33ms for ~30 frames per second
+        self.timer.setInterval(33)  # 33ms for ~30 frames per second
+        self.timer.timeout.connect(self.advance_timepoint)
 
         # Keyboard shortcuts
         self.shortcut_left = QShortcut(Qt.Key_Left, self)
@@ -152,28 +163,61 @@ class Timeline(QMainWindow):
         self.shortcut_right = QShortcut(Qt.Key_Right, self)
         self.shortcut_right.activated.connect(self.show_next_timepoint)
 
+    def toggle_video(self):
+        """Toggle play/pause functionality"""
+        if not self.check_data_loaded():
+            return  # Only proceed if data is loaded
+        if self.timer.isActive():
+            self.toggle_video_button.setText("Play")  # Update button to show "Play"
+            self.timer.stop()
+        else:
+            self.toggle_video_button.setText("Pause")  # Update button to show "Pause"
+            self.timer.start()
+
+    def advance_timepoint(self):
+        """Advance to the next time point"""
+        if not self.check_data_loaded():
+            return
+        
+        timepoint = self.timestamps[self.current_index]
+        new_timepoint = timepoint + self.interval
+        print(f"Current timepoint: {timepoint}")
+        print(f"New timepoint: {new_timepoint}")
+        
+        # Find the next closest timestamp, either at the interval or the next interval
+        new_index = next((i for i, t in enumerate(self.timestamps) if t >= new_timepoint), None)
+        if new_index is None:
+            new_index = next((i for i, t in enumerate(self.timestamps) if t >= new_timepoint + self.interval), None)
+        
+        if new_index is not None:
+            self.current_index = new_index
+            self.slider.setValue(self.current_index)
+            self.update_view()
+
+
+
+
     def open_directory(self):
         self.directory = QFileDialog.getExistingDirectory(self, "Open Directory", "")
         if self.directory:
             camera_frames_dir = os.path.join(self.directory, 'camera_frames')
             movement_file_path = os.path.join(self.directory, 'movement_recording.csv')
             graph_file_path = os.path.join(self.directory, 'graph_recording.csv')
+            self.info.setText(f"Loading data from {self.directory}")
             if os.path.exists(camera_frames_dir):
                 self.load_images_from_directory(camera_frames_dir)
             else:
                 self.image.setText("No camera_frames directory found in the selected folder.")
             if os.path.exists(movement_file_path):
                 self.load_movement_data(movement_file_path)
-                if self.movement_data:
-                    self.info.setText(f"Loaded {len(self.movement_data)} movement data entries.")
             else:
                 QMessageBox.warning(self, "No Movement Data Found", "The selected directory does not contain a valid movement_recording.csv file.")
             if os.path.exists(graph_file_path):
                 self.load_graph_data(graph_file_path)
-                if self.graph_data:
-                    self.info.setText(f"Loaded {len(self.graph_data)} graph data entries,and {len(self.movement_data)} movement data entries.")
             else:
                 QMessageBox.warning(self, "No Graph Data Found", "The selected directory does not contain a valid graph_recording.csv file.")
+            
+            self.info.setText(f"Loaded images, movement data, and graph data entries!")
 
     def check_data_loaded(self):
         """Check if image paths are loaded before allowing navigation"""
@@ -447,18 +491,11 @@ class Timeline(QMainWindow):
         self.slider.blockSignals(False)
 
     
-
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     timeline = Timeline()
     timeline.show()
     sys.exit(app.exec_())
 
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    timeline = Timeline()
-    timeline.show()
-    sys.exit(app.exec_())
 
 
