@@ -62,8 +62,11 @@ class AutoPatcher(TaskController):
         self.info('Running voltage protocol (membrane test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        self.amplifier.set_holding(-0.085)
-        self.info('holding at -70mV')
+        holding = self.amplifier.get_holding()
+        if holding is None:
+            holding = -0.070
+        self.amplifier.set_holding(holding)
+        self.info(f'holding at {holding} mV')
         self.sleep(0.25)
         self.amplifier.switch_holding(True)
         self.info('enabled holding')
@@ -121,7 +124,11 @@ class AutoPatcher(TaskController):
         self.info('Running holding protocol (E/I PSC test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        self.amplifier.set_holding(-0.070)
+        holding = self.amplifier.get_holding()
+        if holding is None:
+            holding = -0.070
+        self.amplifier.set_holding(holding)
+        self.info(f'holding at {holding} mV')
         self.sleep(0.25)
         self.daq.getDataFromHoldingProtocol()
         self.sleep(0.25)
