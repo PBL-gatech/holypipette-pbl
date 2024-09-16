@@ -40,9 +40,19 @@ class PatchConfig(Config):
     current_protocol = Boolean(True, doc='Run the Current Protocol automatically')
     holding_protocol = Boolean(True, doc='Run the Holding Protocol automatically')
 
+    custom_protocol = Boolean(False, doc='Customize the protocol parameters')
+    cclamp_step = NumberWithUnit(10e-12, bounds=(0, 20e-12), doc='Step Current', unit='pA', magnitude=1e-12)
+    cclamp_start = NumberWithUnit(-50e-12, bounds=(-300e-12, -20e-12), doc='Start Current', unit='pA', magnitude=1e-12)
+    cclamp_end = NumberWithUnit(50e-12, bounds=(0e-12, 300e-12), doc='End Current', unit='pA', magnitude=1e-12)
+
+
+
+
     categories = [('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance', 'max_distance', 'cell_R_increase']),
                   ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_duration', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
                   ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R']),
-                  ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol'])
+                  ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol',]),
+                  ('Current Clamp', ['custom_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end'])
+
                   ]
 

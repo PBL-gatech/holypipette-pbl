@@ -6,7 +6,6 @@ from holypipette.log_utils import setup_logging
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
-# from holypipette.gui import PatchGui, EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 from holypipette.gui.patch import PatchGui
 

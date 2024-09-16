@@ -555,6 +555,15 @@ class MultiClampChannel(Amplifier):
                                           ctypes.byref(self.last_error)):
             self.check_error()
 
+    @needs_select
+    def get_holding(self):
+        holding = ctypes.c_double(0.)
+        if not self.dll.MCCMSG_GetHolding(self.msg_handler,
+                                          ctypes.byref(holding),
+                                          ctypes.byref(self.last_error)):
+            self.check_error()
+        return holding.value
+
     # **** Compensation ****
 
     @needs_select

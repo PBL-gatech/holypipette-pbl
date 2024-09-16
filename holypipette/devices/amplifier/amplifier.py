@@ -114,7 +114,17 @@ class Amplifier(TaskController):
             Voltage/Current clamp value
         '''
         pass
+    def get_holding(self):
+        '''
+        Get holding voltage or current
 
+        Parameters
+        ----------
+        value : float
+            Voltage/Current clamp value
+            
+        '''
+        pass
     def zap(self):
         '''
         "Zap" the cell to break the membrane
@@ -209,7 +219,13 @@ class FakeAmplifier(Amplifier):
         self.debug('Setting holding {} to {:.2f}{}'.format(holding_what,
                                                            value,
                                                            unit))
-
+    def get_holding(self):
+        '''
+        Get holding voltage or current
+        '''
+        self.debug('Getting holding value')
+        return self._holding
+    
     def zap(self):
         '''
         "Zap" the cell to break the membrane

@@ -11,6 +11,7 @@ import threading
 import logging
 import matplotlib.pyplot as plt
 from holypipette.devices.amplifier.amplifier import Amplifier
+from holypipette.interface.patchConfig import PatchConfig
 
 __all__ = ['DAQ', 'FakeDAQ']
 
@@ -132,10 +133,8 @@ class DAQ:
             # logging.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
             # logging.error("Returning None,Current clamp protocol cannot be run.")
             return None, None, None
-
+        # if not self.config.custom_protocol:
         factor = 2
-
-    
         startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
         endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
