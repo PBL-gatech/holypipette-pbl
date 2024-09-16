@@ -1,342 +1,187 @@
-import sys
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton, QFileDialog, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QHBoxLayout, QFrame, QMessageBox, QShortcut
+from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtGui import QPixmap
 import os
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QFileDialog, QListWidget, QInputDialog, QMessageBox, QShortcut)
-from PyQt5.QtGui import QPixmap, QPainter, QPen, QImage, QColor, QKeySequence, QFont
-from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal
-from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsItem
-from PIL import Image
-import xml.etree.ElementTree as ET
-
-class BoundingBox(QGraphicsRectItem):
-    def __init__(self, rect, label):
-        super().__init__(rect)
-        self.label = label
-        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
-        self.setPen(QPen(Qt.red, 2, Qt.SolidLine))
-
-    def paint(self, painter, option, widget):
-        super().paint(painter, option, widget)
-        font = QFont()
-        font.setPointSize(10)
-        painter.setFont(font)
-        painter.setPen(Qt.white)
-        painter.drawText(self.rect().topLeft(), self.label)
-
-class ImageViewer(QGraphicsView):
-    boxDrawn = pyqtSignal(QRectF)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.scene = QGraphicsScene(self)
-        self.setScene(self.scene)
-        self.setRenderHint(QPainter.Antialiasing)
-        self.setRenderHint(QPainter.SmoothPixmapTransform)
-        self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
-        self.setDragMode(QGraphicsView.NoDrag)
-        self.start_pos = None
-        self.current_rect = None
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.start_pos = self.mapToScene(event.pos())
-            self.current_rect = QGraphicsRectItem()
-            self.current_rect.setPen(QPen(Qt.green, 2, Qt.DashLine))
-            self.scene.addItem(self.current_rect)
-
-    def mouseMoveEvent(self, event):
-        if self.start_pos:
-            end_pos = self.mapToScene(event.pos())
-            rect = QRectF(self.start_pos, end_pos).normalized()
-            self.current_rect.setRect(rect)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self.start_pos:
-            end_pos = self.mapToScene(event.pos())
-            rect = QRectF(self.start_pos, end_pos).normalized()
-            self.scene.removeItem(self.current_rect)
-            self.current_rect = None
-            self.start_pos = None
-            if rect.width() > 5 and rect.height() > 5:
-                self.boxDrawn.emit(rect)
-
-    def wheelEvent(self, event):
-        if event.angleDelta().y() > 0:
-            factor = 1.25
-        else:
-            factor = 0.8
-        self.scale(factor, factor)
+import json
 
 class ImageLabeler(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.image_dir = ""
-        self.label_dir = ""
-        self.initUI()
-        self.current_image_index = -1
-        self.image_files = []
-        self.current_image_path = ""
-        self.original_image_size = (0, 0)
+        self.setWindowTitle("Image Labeler")
+        self.setGeometry(50, 50, 1200, 1200)  # Assuming square images, resized the window accordingly
         
-    def initUI(self):
-        self.setWindowTitle('Image Labeler')
-        self.setGeometry(100, 100, 1200, 800)
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
 
-        main_widget = QWidget()
-        main_layout = QVBoxLayout()
+        self.main_layout = QVBoxLayout(self.central_widget)
 
-        self.image_name_label = QLabel("No Image Loaded")
-        self.image_name_label.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(self.image_name_label)
+        # Horizontal layout for image and controls
+        self.top_layout = QHBoxLayout()
 
-        content_layout = QHBoxLayout()
+        # Set up the image label and frame (for square images)
+        self.image_label = QLabel("No Image loaded yet!")
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setMinimumSize(600, 600)  # Adjusted to 600x600 for square images
+        self.image_label.setMaximumSize(600, 600)
 
-        self.viewer = ImageViewer()
-        self.viewer.boxDrawn.connect(self.on_box_drawn)
-        content_layout.addWidget(self.viewer, 7)
+        self.image_frame = QFrame()
+        image_frame_layout = QVBoxLayout(self.image_frame)
+        image_frame_layout.addWidget(self.image_label)
+        self.image_frame.setFrameShape(QFrame.StyledPanel)
+        self.image_frame.setFrameShadow(QFrame.Sunken)
 
-        sidebar = QWidget()
-        sidebar_layout = QVBoxLayout()
+        # Graphics scene and view for bounding boxes
+        self.scene = QGraphicsScene(self)
+        self.view = QGraphicsView(self.scene, self)
+        self.view.setMinimumSize(600, 600)
+
+        # Add the image frame to the top layout
+        self.top_layout.addWidget(self.view)
+        self.main_layout.addLayout(self.top_layout)
+
+        # Info pane layout for displaying messages to the user
+        self.info_label = QLabel("No info yet!")
+        self.info_label.setAlignment(Qt.AlignLeft)
+        self.info_label.setFixedHeight(20)
+        self.info_frame = QFrame()
+        info_frame_layout = QHBoxLayout(self.info_frame)
+        info_frame_layout.addWidget(self.info_label)
+        self.info_frame.setFrameShape(QFrame.StyledPanel)
+        self.info_frame.setFrameShadow(QFrame.Sunken)
+
+        self.main_layout.addWidget(self.info_frame)
+
+        # Add buttons for navigation and directory selection at the bottom
+        self.buttons_layout = QHBoxLayout()
+
+        self.load_button = QPushButton("Select Data Directory")
+        self.load_button.clicked.connect(self.open_directory)
         
-        self.delete_button = QPushButton('Delete Selected Box')
-        self.delete_button.clicked.connect(self.delete_selected_box)
-
-
-        self.prev_button = QPushButton('Previous Image')
-        self.prev_button.clicked.connect(self.prev_image)
+        self.prev_button = QPushButton("Previous Image")
+        self.prev_button.clicked.connect(self.show_previous_image)
         
-        self.next_button = QPushButton('Next Image')
-        self.next_button.clicked.connect(self.next_image)
-        
-        save_button = QPushButton('Save Labels')
-        save_button.clicked.connect(self.save_labels)
-        
-        select_image_dir_button = QPushButton('Select Image Directory')
-        select_image_dir_button.clicked.connect(self.select_image_directory)
-        
-        select_label_dir_button = QPushButton('Select Label Directory')
-        select_label_dir_button.clicked.connect(self.select_label_directory)
+        self.next_button = QPushButton("Next Image")
+        self.next_button.clicked.connect(self.show_next_image)
 
-        self.label_list = QListWidget()
-        self.label_list.itemClicked.connect(self.highlight_bounding_box)
-        
-        sidebar_layout.addWidget(select_image_dir_button)
-        sidebar_layout.addWidget(select_label_dir_button)
-        sidebar_layout.addWidget(self.prev_button)
-        sidebar_layout.addWidget(self.next_button)
-        sidebar_layout.addWidget(save_button)
-        sidebar_layout.addWidget(self.delete_button)
-        sidebar_layout.addWidget(QLabel('Labels:'))
-        sidebar_layout.addWidget(self.label_list)
-        sidebar.setLayout(sidebar_layout)
-        
-        content_layout.addWidget(sidebar, 3)
-        main_layout.addLayout(content_layout)
-        
-        main_widget.setLayout(main_layout)
-        self.setCentralWidget(main_widget)
+        self.buttons_layout.addWidget(self.prev_button)
+        self.buttons_layout.addWidget(self.load_button)
+        self.buttons_layout.addWidget(self.next_button)
 
-        self.setup_shortcuts()
+        self.main_layout.addLayout(self.buttons_layout)
 
-    def setup_shortcuts(self):
-        QShortcut(QKeySequence(Qt.Key_Left), self, self.prev_image)
-        QShortcut(QKeySequence(Qt.Key_Right), self, self.next_image)
-        QShortcut(QKeySequence("Ctrl+S"), self, self.save_labels)
-        QShortcut(QKeySequence(Qt.Key_Delete), self, self.delete_selected_box)
+        # Set initial state
+        self.image_paths = []
+        self.labels_path = ''
+        self.current_index = 0
 
-    def delete_selected_box(self):
-        selected_items = self.viewer.scene.selectedItems()
-        for item in selected_items:
-            if isinstance(item, BoundingBox):
-                self.viewer.scene.removeItem(item)
-                for i in range(self.label_list.count()):
-                    if self.label_list.item(i).text() == item.label:
-                        self.label_list.takeItem(i)
-                        break
-        
-        # Update the XML file to remove the deleted box
-        self.update_xml_file()
+                # Keyboard shortcuts
+        self.shortcut_left = QShortcut(Qt.Key_Left, self)
+        self.shortcut_left.activated.connect(self.show_previous_image)
+        self.shortcut_right = QShortcut(Qt.Key_Right, self)
+        self.shortcut_right.activated.connect(self.show_next_image)
 
-
-    def update_xml_file(self):
-        if not self.current_image_path or not self.label_dir:
-            return
-
-        xml_file = os.path.join(self.label_dir, os.path.splitext(os.path.basename(self.current_image_path))[0] + '.xml')
-        
-        if not os.path.exists(xml_file):
-            return
-
-        try:
-            tree = ET.parse(xml_file)
-            root = tree.getroot()
-
-            # Remove all existing object elements
-            for obj in root.findall('object'):
-                root.remove(obj)
-
-            # Add current bounding boxes
-            for item in self.viewer.scene.items():
-                if isinstance(item, BoundingBox):
-                    obj = ET.SubElement(root, "object")
-                    ET.SubElement(obj, "name").text = item.label
-                    bndbox = ET.SubElement(obj, "bndbox")
-                    rect = item.sceneBoundingRect()
-                    ET.SubElement(bndbox, "xmin").text = str(int(rect.left()))
-                    ET.SubElement(bndbox, "ymin").text = str(int(rect.top()))
-                    ET.SubElement(bndbox, "xmax").text = str(int(rect.right()))
-                    ET.SubElement(bndbox, "ymax").text = str(int(rect.bottom()))
-
-            tree.write(xml_file)
-        except ET.ParseError as e:
-            QMessageBox.warning(self, "Warning", f"Error updating XML file: {str(e)}")
+    def open_directory(self):
+        """Open a directory with 'images' and 'labels' folders."""
+        directory = QFileDialog.getExistingDirectory(self, "Open Directory", "")
+        if directory:
+            images_dir = os.path.join(directory, 'P_DET_IMAGES')
+            labels_dir = os.path.join(directory, 'P_DET_LABELS')
             
-    def save_labels(self):
-            if not self.current_image_path or not self.label_dir:
-                QMessageBox.warning(self, "Warning", "No image loaded or label directory not set.")
-                return
+            if os.path.exists(images_dir) and os.path.exists(labels_dir):
+                self.load_images_from_directory(images_dir)
+                self.labels_path = labels_dir
+                self.info_label.setText(f"Loaded images and labels from {directory}.")
+            else:
+                QMessageBox.warning(self, "Directory Error", "Selected folder must contain 'images' and 'labels' subfolders.")
 
-            self.update_xml_file()
-            QMessageBox.information(self, "Info", f"Labels saved to {os.path.join(self.label_dir, os.path.splitext(os.path.basename(self.current_image_path))[0] + '.xml')}")
-
-    def on_box_drawn(self, rect):
-        label, ok = QInputDialog.getText(self, "Input Label", "Enter label for the bounding box:")
-        if ok and label:
-            box = BoundingBox(rect, label)
-            self.viewer.scene.addItem(box)
-            self.label_list.addItem(label)
-
-    def select_image_directory(self):
-        directory = QFileDialog.getExistingDirectory(self, "Select Image Directory")
-        if directory:
-            self.image_dir = directory
-            self.load_image_directory()
-
-    def select_label_directory(self):
-        directory = QFileDialog.getExistingDirectory(self, "Select Label Directory")
-        if directory:
-            self.label_dir = directory
-
-    def load_image_directory(self):
-        if not os.path.isdir(self.image_dir):
-            QMessageBox.critical(self, "Error", f"The specified image directory does not exist: {self.image_dir}")
-            return
-
-        self.image_files = [f for f in os.listdir(self.image_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
-        if not self.image_files:
-            QMessageBox.warning(self, "Warning", "No supported image files found in the specified directory.")
+    def load_images_from_directory(self, directory):
+        """Load images from the 'images' folder."""
+        if not os.path.exists(directory):
+            self.info_label.setText(f"Directory {directory} does not exist")
             return
         
-        self.image_files.sort()
-        self.current_image_index = 0
-        self.load_image(os.path.join(self.image_dir, self.image_files[self.current_image_index]))
-
-    def load_image(self, file_path):
-        try:
-            self.current_image_path = file_path
-            image = Image.open(file_path)
-            self.original_image_size = image.size
-            image = image.convert("RGBA")
-            data = image.tobytes("raw", "RGBA")
-            qimage = QImage(data, image.width, image.height, QImage.Format_RGBA8888)
-            pixmap = QPixmap.fromImage(qimage)
-
-            self.viewer.scene.clear()
-            self.viewer.scene.addPixmap(pixmap)
-            self.viewer.setSceneRect(QRectF(pixmap.rect()))
-            self.viewer.fitInView(self.viewer.sceneRect(), Qt.KeepAspectRatio)
-
-            self.image_name_label.setText(os.path.basename(file_path))
-            self.load_labels()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load image: {str(e)}")
-
-    def prev_image(self):
-        if self.current_image_index > 0:
-            self.current_image_index -= 1
-            self.load_image(os.path.join(self.image_dir, self.image_files[self.current_image_index]))
-
-    def next_image(self):
-        if self.current_image_index < len(self.image_files) - 1:
-            self.current_image_index += 1
-            self.load_image(os.path.join(self.image_dir, self.image_files[self.current_image_index]))
-
-    def highlight_bounding_box(self, item):
-        label = item.text()
-        for box in self.viewer.scene.items():
-            if isinstance(box, BoundingBox) and box.label == label:
-                box.setPen(QPen(Qt.yellow, 3, Qt.SolidLine))
-            elif isinstance(box, BoundingBox):
-                box.setPen(QPen(Qt.red, 2, Qt.SolidLine))
-
-    def delete_selected_box(self):
-        selected_items = self.viewer.scene.selectedItems()
-        for item in selected_items:
-            if isinstance(item, BoundingBox):
-                self.viewer.scene.removeItem(item)
-                for i in range(self.label_list.count()):
-                    if self.label_list.item(i).text() == item.label:
-                        self.label_list.takeItem(i)
-                        break
-
-    def save_labels(self):
-        if not self.current_image_path or not self.label_dir:
-            QMessageBox.warning(self, "Warning", "No image loaded or label directory not set.")
+        self.image_paths = [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(('.png', '.jpg', '.jpeg','webp'))]
+        if not self.image_paths:
+            self.info_label.setText(f"No images found in {directory}")
             return
-
-        xml_file = os.path.join(self.label_dir, os.path.splitext(os.path.basename(self.current_image_path))[0] + '.xml')
         
-        root = ET.Element("annotation")
-        ET.SubElement(root, "filename").text = os.path.basename(self.current_image_path)
+        self.current_index = 0
+        self.display_image(self.image_paths[self.current_index])
+        self.info_label.setText(f"Loaded {len(self.image_paths)} images.")
+
+    def display_image(self, image_path):
+        """Display the image on the QGraphicsView using QGraphicsScene."""
+        if not os.path.exists(image_path):
+            QMessageBox.warning(self, "Error", f"Image file {image_path} does not exist.")
+            return  # Exit if image path is invalid
+
+        pixmap = QPixmap(image_path)
+        if pixmap.isNull():
+            QMessageBox.warning(self, "Error", "Unable to load image.")
+        else:
+            # Clear the scene to remove any previous content
+            self.scene.clear()
+
+            # Add the image to the QGraphicsScene
+            pixmap_item = self.scene.addPixmap(pixmap)
+
+            # Fit the image to the view
+            self.view.fitInView(pixmap_item, Qt.KeepAspectRatio)
+            self.info_label.setText(f"Displaying {os.path.basename(image_path)}")
+
+
+    def load_bounding_boxes(self, image_path):
+        """Load bounding boxes from the corresponding label file."""
+        self.scene.clear()  # Clear previous bounding boxes
+        label_file = os.path.join(self.labels_path, os.path.basename(image_path).replace('.jpg', '.json').replace('.png', '.json').replace('.jpeg', '.json').replace('.webp', '.json'))
         
-        size = ET.SubElement(root, "size")
-        ET.SubElement(size, "width").text = str(self.original_image_size[0])
-        ET.SubElement(size, "height").text = str(self.original_image_size[1])
-        ET.SubElement(size, "depth").text = "3"
+        if os.path.exists(label_file):
+            with open(label_file, 'r') as f:
+                bounding_boxes = json.load(f).get('bounding_boxes', [])
+                for box in bounding_boxes:
+                    rect_item = QGraphicsRectItem(QRectF(box['x'], box['y'], box['width'], box['height']))
+                    rect_item.setFlag(QGraphicsRectItem.ItemIsMovable)
+                    rect_item.setFlag(QGraphicsRectItem.ItemIsSelectable)
+                    rect_item.setFlag(QGraphicsRectItem.ItemIsFocusable)
+                    self.scene.addItem(rect_item)
+            self.info_label.setText(f"Loaded labels for {os.path.basename(image_path)}")
+        else:
+            self.info_label.setText(f"No labels found for {os.path.basename(image_path)}")
 
-        for item in self.viewer.scene.items():
-            if isinstance(item, BoundingBox):
-                obj = ET.SubElement(root, "object")
-                ET.SubElement(obj, "name").text = item.label
-                bndbox = ET.SubElement(obj, "bndbox")
-                rect = item.sceneBoundingRect()
-                ET.SubElement(bndbox, "xmin").text = str(int(rect.left()))
-                ET.SubElement(bndbox, "ymin").text = str(int(rect.top()))
-                ET.SubElement(bndbox, "xmax").text = str(int(rect.right()))
-                ET.SubElement(bndbox, "ymax").text = str(int(rect.bottom()))
-
-        tree = ET.ElementTree(root)
-        tree.write(xml_file)
+    def save_bounding_boxes(self, image_path):
+        """Save bounding boxes to the corresponding label file."""
+        label_file = os.path.join(self.labels_path, os.path.basename(image_path).replace('.jpg', '.json').replace('.png', '.json').replace('.jpeg', '.json').replace('.webp', '.json'))
+        bounding_boxes = []
         
-        QMessageBox.information(self, "Info", f"Labels saved to {xml_file}")
-
-    def load_labels(self):
-        xml_file = os.path.join(self.label_dir, os.path.splitext(os.path.basename(self.current_image_path))[0] + '.xml')
+        for item in self.scene.items():
+            if isinstance(item, QGraphicsRectItem):
+                bounding_boxes.append({
+                    'x': item.rect().x(),
+                    'y': item.rect().y(),
+                    'width': item.rect().width(),
+                    'height': item.rect().height()
+                })
         
-        if not os.path.exists(xml_file):
-            return
+        with open(label_file, 'w') as f:
+            json.dump({'bounding_boxes': bounding_boxes}, f)
+        self.info_label.setText(f"Saved labels for {os.path.basename(image_path)}")
 
-        try:
-            tree = ET.parse(xml_file)
-            root = tree.getroot()
+    def show_previous_image(self):
+        """Show the previous image and load its bounding boxes."""
+        if self.current_index > 0:
+            self.save_bounding_boxes(self.image_paths[self.current_index])  # Save before switching
+            self.current_index -= 1
+            self.display_image(self.image_paths[self.current_index])
 
-            for obj in root.findall('object'):
-                label = obj.find('name').text
-                bndbox = obj.find('bndbox')
-                xmin = float(bndbox.find('xmin').text)
-                ymin = float(bndbox.find('ymin').text)
-                xmax = float(bndbox.find('xmax').text)
-                ymax = float(bndbox.find('ymax').text)
-                
-                rect = QRectF(QPointF(xmin, ymin), QPointF(xmax, ymax))
-                box = BoundingBox(rect, label)
-                self.viewer.scene.addItem(box)
-                self.label_list.addItem(label)
-        except ET.ParseError as e:
-            QMessageBox.warning(self, "Warning", f"Error parsing XML file: {str(e)}")
+    def show_next_image(self):
+        """Show the next image and load its bounding boxes."""
+        if self.current_index < len(self.image_paths) - 1:
+            self.save_bounding_boxes(self.image_paths[self.current_index])  # Save before switching
+            self.current_index += 1
+            self.display_image(self.image_paths[self.current_index])
 
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    ex = ImageLabeler()
-    ex.show()
-    sys.exit(app.exec_())
+if __name__ == "__main__":
+    app = QApplication([])
+    labeler = ImageLabeler()
+    labeler.show()
+    app.exec_()
