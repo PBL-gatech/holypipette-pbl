@@ -1,0 +1,11 @@
+{
+    "bounding_boxes": [
+        {
+            "label": "tip",
+            "x_center": 0.419207,
+            "y_center": 0.704268,
+            "width": 0.067073,
+            "height": 0.091463
+        }
+    ]
+}
