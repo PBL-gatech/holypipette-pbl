@@ -39,7 +39,7 @@ class PatchConfig(Config):
     custom_protocol = Boolean(default = False, doc='Customize the protocol parameters')
     cclamp_step = NumberWithUnit(10, bounds=(0, 20), doc='Step Current', unit='pA', magnitude=1)
     cclamp_start = NumberWithUnit(-50, bounds=(-300, -20), doc='Start Current', unit='pA', magnitude=1)
-    cclamp_end = NumberWithUnit(50e-12, bounds=(0, 300), doc='End Current', unit='pA', magnitude=1)
+    cclamp_end = NumberWithUnit(50, bounds=(0, 300), doc='End Current', unit='pA', magnitude=1)
 
     categories = [
         ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance', 'max_distance', 'cell_R_increase']),

@@ -2,7 +2,7 @@ import logging
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton, QDesktopWidget, QDesktopWidget, QSlider, QToolButton, QApplication
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
 from matplotlib.colors import LinearSegmentedColormap, to_hex
 
 
@@ -109,8 +109,7 @@ class CurrentProtocolGraph(QWidget):
                 # self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, marker)
                 self.ephys_logger.save_ephys_plot(index, self.cprotocolPlot)
                 self.daq.current_protocol_data = None
-            else:
-                logging.error("Ephys Plot Not saved")
+
 
         self.latestDisplayedData = self.daq.current_protocol_data.copy()
         
@@ -250,34 +249,6 @@ class HoldingProtocolGraph(QWidget):
         self.daq.holding_protocol_data = None
 
         # self.latestDisplayedData = self.daq.holding_protocol_data.copy()
-import logging
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QSlider, QPushButton, QToolButton, QDesktopWidget, QApplication
-)
-from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
-
-from pyqtgraph import PlotWidget
-from pyqtgraph.exporters import ImageExporter
-import io
-from PIL import Image
-
-import threading
-
-import numpy as np
-from collections import deque
-from holypipette.devices.amplifier import DAQ
-from holypipette.devices.pressurecontroller import PressureController
-from holypipette.utils.RecordingStateManager import RecordingStateManager
-from holypipette.utils import FileLogger
-from holypipette.utils import EPhysLogger
-import time
-
-from datetime import datetime
-
-__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "HoldingProtocolGraph"]
-
 
 class EPhysGraph(QWidget):
     """

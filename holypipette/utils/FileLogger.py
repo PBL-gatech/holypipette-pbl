@@ -41,16 +41,20 @@ class FileLogger(threading.Thread):
 
         self.last_movement_time = None
         self.last_graph_time = None
+        self.folder_created = False  # Flag to track folder creation
 
-        logging.info(f"FileLogger created at:{self.folder_path}")
-        self.create_folder()
+        logging.info(f"FileLogger initialized. Folder path set to: {self.folder_path}")
 
     def create_folder(self):
-        try:
-            os.makedirs(self.camera_folder_path, exist_ok=True)
-            print(f"Created folder at: {self.folder_path}")
-        except OSError as exc:
-            logging.error("Error creating folder for recording: %s", exc)
+        # Check if the recording is enabled before creating the folder
+        if self.recording_state_manager.is_recording_enabled() and not self.folder_created:
+            try:
+                os.makedirs(self.camera_folder_path, exist_ok=True)
+                self.folder_created = True  # Set the flag to True once folder is created
+                print(f"Created folder at: {self.folder_path}")
+            except OSError as exc:
+                logging.error("Error creating folder for recording: %s", exc)
+
 
     def open(self):
         self.file = open(self.filename, 'a+')
@@ -80,7 +84,7 @@ class FileLogger(threading.Thread):
         if time_value == self.last_graph_time:
             return
         self.last_graph_time = time_value
-
+        self.create_folder()  # Create the folder if recording is enabled and it's the first time
         # content = f"timestamp:{time_value}  pressure:{pressure}  resistance:{resistance}  / current:{current}\n"
         content = f"timestamp:{time_value}  pressure:{pressure}  resistance:{resistance}  current:{current} voltage:{voltage}\n"
         self.write_event.clear()
@@ -92,7 +96,7 @@ class FileLogger(threading.Thread):
         if time_value == self.last_movement_time:
             return
         self.last_movement_time = time_value
-
+        self.create_folder()  # Create the folder if recording is enabled and it's the first time
         content = f"timestamp:{time_value}  st_x:{stage_x}  st_y:{stage_y}  st_z:{stage_z}  pi_x:{pipette_x} pi_y:{pipette_y} pi_z:{pipette_z}\n"
 
         self.movement_contents.append(content)
@@ -140,7 +144,7 @@ class FileLogger(threading.Thread):
 
         if frameno <= self.last_frameno:
             return
-
+        self.create_folder()  # Create the folder if recording is enabled and it's the first time
         image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + "." + self.image_type
         self._save_image(frame, image_path)
         self.last_frameno = frameno

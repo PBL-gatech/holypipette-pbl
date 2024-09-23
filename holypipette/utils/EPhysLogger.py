@@ -9,7 +9,6 @@ class EPhysLogger(threading.Thread):
     def __init__(self, recording_state_manager, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
-        # self.time_truth_timestamp = self.time_truth.timestamp()
         testMode = False
         if testMode:
             folder_path = folder_path.replace("Data/", "Data/TEST_")
@@ -17,53 +16,48 @@ class EPhysLogger(threading.Thread):
         self.filename = self.folder_path + f"{ephys_filename}"
         self.file = None
 
-        self.create_folder()
+        self.folder_created = False  # Add flag to track folder creation
         self.write_event = threading.Event()
 
     def create_folder(self):
-        # check that the folder exists
-        if not os.path.exists(os.path.dirname(self.folder_path)):
+        if not self.folder_created:  # Check if the folder has been created
             try:
-                # * created a folder deeper will always create the parent folder
-                os.makedirs(os.path.dirname(self.folder_path))
+                os.makedirs(os.path.dirname(self.folder_path), exist_ok=True)
+                self.folder_created = True  # Set flag once folder is created
+                logging.info(f"Created folder at: {self.folder_path}")
             except OSError as exc:
                 logging.error("Error creating folder for recording: %s", exc)
-    
+        else:
+            logging.info("Folder already created. Skipping creation.")
+
     def _write_to_file(self, index, timeData, readData, respData, color):
         # Create a string for each pair of values in the desired format
-        # print("timeData shape: ", timeData.shape)
-        # print("readData shape: ", readData.shape)
-        # print("respData shape: ", respData.shape)
         lines = [f"{timeData[i]} {readData[i]} {respData[i]}\n" for i in range(len(timeData))]
         # Open the file in append mode and write the formatted strings
         logging.debug("Writing to file %s", self.filename)
-        # logging.debug("Writing lines %s", lines)
         with open(f"{self.filename}_{index}_{color}.csv", 'a+') as file:
             file.writelines(lines)
         self.write_event.set()  # Signal that writing is done
-    
-    def write_ephys_data(self, index, timeData, readData, respData, color):
-        # logging.info("Writing ephys data")
-        self.write_event.clear()
-        # ("len of data: ", len(data[0]))
-        # print("len of data: ", len(data[1]))
-        # content = f"{time_value}    {data}\n"
-        # content = f"{time_value}    {data[0, :]}    {data[1, :]}\n"
-        # content = f"{time_value}    {' '.join(map(str, data))}\n"
-        threading.Thread(target=self._write_to_file, args=( index, timeData, readData, respData, color)).start()
 
-    def save_ephys_plot(self,index,plot):
+    def write_ephys_data(self, index, timeData, readData, respData, color):
+        self.create_folder()  # Ensure folder is created if it hasn't been
+        
+        self.write_event.clear()
+        threading.Thread(target=self._write_to_file, args=(index, timeData, readData, respData, color)).start()
+
+    def save_ephys_plot(self, index, plot):
+        self.create_folder()  # Ensure folder is created if it hasn't been
+
         image_path = f"{self.filename}_{index}.png"
-                # Render the plot into an image
         exporter = QtGui.QImage(plot.width(), plot.height(), QtGui.QImage.Format_ARGB32)
         painter = QtGui.QPainter(exporter)
         plot.render(painter)
         painter.end()
+        
         if exporter.save(image_path):
             logging.info("Saved plot to %s", image_path)
-        else:   
+        else:
             logging.error("Failed to save plot to %s", image_path)
-        
 
     def close(self):
         if self.file is not None:
