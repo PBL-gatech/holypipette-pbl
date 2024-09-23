@@ -1,0 +1,179 @@
+Time(HH:MM:SS),Time(ms),Level,Message,Logger Name,Thread ID
+2024-09-23 12:44:31,550,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_44/,root,42980
+2024-09-23 12:44:31,555,DEBUG,Adding config GUI for Calibration,root,42980
+2024-09-23 12:44:31,557,WARNING,Use method 'params' via param namespace ,param.CalibrationConfig,42980
+2024-09-23 12:44:31,563,DEBUG,Config GUI added,root,42980
+2024-09-23 12:44:31,563,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_44/,root,42980
+2024-09-23 12:44:31,565,DEBUG,Adding config GUI for Patch,root,42980
+2024-09-23 12:44:31,566,WARNING,Use method 'params' via param namespace ,param.PatchConfig,42980
+2024-09-23 12:44:31,569,DEBUG,Config GUI added,root,42980
+2024-09-23 12:44:31,569,DEBUG,Added config GUI.,root,42980
+2024-09-23 12:44:31,569,DEBUG,Added 'Auto Patching' tab.,root,42980
+2024-09-23 12:44:31,570,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_44/,root,42980
+2024-09-23 12:44:31,571,INFO,Setting pressure to 19.758327890267797 mbar (raw: 2017),root,42980
+2024-09-23 12:44:31,572,INFO,"Sending command: set 1 2017
+",root,42980
+2024-09-23 12:44:31,573,INFO,"SenT command: set 1 2017
+",root,42980
+2024-09-23 12:44:31,610,WARNING,No data received from pressure sensor,root,42980
+2024-09-23 12:44:31,611,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_44/,root,42980
+2024-09-23 12:46:03,552,INFO,closing GUI,root,42980
+2024-09-23 12:46:04,362,ERROR,Uncaught exception,root,"42980
+Traceback (most recent call last):
+  File ""c:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\gui\graph.py""", line 442," in closeEvent
+    self.recorder.close()
+  File ""c:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\utils\FileLogger.py""", line 169," in close
+    self.write_frame.wait()
+    ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'wait'"
+Time(HH:MM:SS),Time(ms),Level,Message,Logger Name,Thread ID
+2024-09-23 12:44:28,484,INFO,Program Started,root,42980
+2024-09-23 12:44:29,288,DEBUG,matplotlib data path: C:\Users\sa-forest\.conda\envs\moscow3\Lib\site-packages\matplotlib\mpl-data,matplotlib,42980
+2024-09-23 12:44:29,291,DEBUG,CONFIGDIR=C:\Users\sa-forest\.matplotlib,matplotlib,42980
+2024-09-23 12:44:29,292,DEBUG,interactive is False,matplotlib,42980
+2024-09-23 12:44:29,292,DEBUG,platform is win32,matplotlib,42980
+2024-09-23 12:44:29,318,DEBUG,CACHEDIR=C:\Users\sa-forest\.matplotlib,matplotlib,42980
+2024-09-23 12:44:29,320,DEBUG,Using fontManager instance from C:\Users\sa-forest\.matplotlib\fontlist-v330.json,matplotlib.font_manager,42980
+2024-09-23 12:44:29,428,INFO,PatchConfig initialized successfully.,root,42980
+2024-09-23 12:44:30,126,INFO,Using cDAQ1Mod1/ai0 for reading the output of cDaq1Mod4/ao0 and cDaq1Mod1/ai3 for response.,root,42980
+2024-09-23 12:44:31,141,INFO,Found a MultiClamp 700B (Serial number: b'00832526'  Channel: 1),root,42980
+2024-09-23 12:44:31,141,INFO,Found a MultiClamp 700B (Serial number: b'00832526'  Channel: 2),root,42980
+2024-09-23 12:44:31,158,INFO,Switching to Pressure,root,42980
+2024-09-23 12:44:31,158,INFO,Setting pressure to 0.0 mbar (raw: 1962),root,42980
+2024-09-23 12:44:31,158,INFO,"Sending command: set 1 1962
+",root,42980
+2024-09-23 12:44:31,165,INFO,"SenT command: set 1 1962
+",root,42980
+2024-09-23 12:44:31,550,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_44/,root,42980
+2024-09-23 12:44:31,555,DEBUG,Adding config GUI for Calibration,root,42980
+2024-09-23 12:44:31,557,WARNING,Use method 'params' via param namespace ,param.CalibrationConfig,42980
+2024-09-23 12:44:31,563,DEBUG,Config GUI added,root,42980
+2024-09-23 12:44:31,563,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_44/,root,42980
+2024-09-23 12:44:31,565,DEBUG,Adding config GUI for Patch,root,42980
+2024-09-23 12:44:31,566,WARNING,Use method 'params' via param namespace ,param.PatchConfig,42980
+2024-09-23 12:44:31,569,DEBUG,Config GUI added,root,42980
+2024-09-23 12:44:31,569,DEBUG,Added config GUI.,root,42980
+2024-09-23 12:44:31,569,DEBUG,Added 'Auto Patching' tab.,root,42980
+2024-09-23 12:44:31,570,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_44/,root,42980
+2024-09-23 12:44:31,571,INFO,Setting pressure to 19.758327890267797 mbar (raw: 2017),root,42980
+2024-09-23 12:44:31,572,INFO,"Sending command: set 1 2017
+",root,42980
+2024-09-23 12:44:31,573,INFO,"SenT command: set 1 2017
+",root,42980
+2024-09-23 12:44:31,610,WARNING,No data received from pressure sensor,root,42980
+2024-09-23 12:44:31,611,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_44/,root,42980
+2024-09-23 12:46:03,552,INFO,closing GUI,root,42980
+2024-09-23 12:46:04,362,ERROR,Uncaught exception,root,"42980
+Traceback (most recent call last):
+  File ""c:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\gui\graph.py""", line 442," in closeEvent
+    self.recorder.close()
+  File ""c:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\utils\FileLogger.py""", line 169," in close
+    self.write_frame.wait()
+    ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'wait'"
+2024-09-23 12:52:41,813,INFO,Program Started,root,15916
+2024-09-23 12:52:42,608,DEBUG,matplotlib data path: C:\Users\sa-forest\.conda\envs\moscow3\Lib\site-packages\matplotlib\mpl-data,matplotlib,15916
+2024-09-23 12:52:42,608,DEBUG,CONFIGDIR=C:\Users\sa-forest\.matplotlib,matplotlib,15916
+2024-09-23 12:52:42,608,DEBUG,interactive is False,matplotlib,15916
+2024-09-23 12:52:42,608,DEBUG,platform is win32,matplotlib,15916
+2024-09-23 12:52:42,640,DEBUG,CACHEDIR=C:\Users\sa-forest\.matplotlib,matplotlib,15916
+2024-09-23 12:52:42,642,DEBUG,Using fontManager instance from C:\Users\sa-forest\.matplotlib\fontlist-v330.json,matplotlib.font_manager,15916
+2024-09-23 12:52:42,748,INFO,PatchConfig initialized successfully.,root,15916
+2024-09-23 12:52:43,432,INFO,Using cDAQ1Mod1/ai0 for reading the output of cDaq1Mod4/ao0 and cDaq1Mod1/ai3 for response.,root,15916
+2024-09-23 12:52:44,435,INFO,Found a MultiClamp 700B (Serial number: b'00832526'  Channel: 1),root,15916
+2024-09-23 12:52:44,435,INFO,Found a MultiClamp 700B (Serial number: b'00832526'  Channel: 2),root,15916
+2024-09-23 12:52:44,445,INFO,Switching to Pressure,root,15916
+2024-09-23 12:52:44,445,INFO,Setting pressure to 0.0 mbar (raw: 1962),root,15916
+2024-09-23 12:52:44,445,INFO,"Sending command: set 1 1962
+",root,15916
+2024-09-23 12:52:44,459,INFO,"SenT command: set 1 1962
+",root,15916
+2024-09-23 12:52:44,848,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_52/,root,15916
+2024-09-23 12:52:44,848,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_52/,root,15916
+2024-09-23 12:52:44,853,DEBUG,Adding config GUI for Calibration,root,15916
+2024-09-23 12:52:44,853,DEBUG,Adding config GUI for Calibration,root,15916
+2024-09-23 12:52:44,856,WARNING,Use method 'params' via param namespace ,param.CalibrationConfig,15916
+2024-09-23 12:52:44,856,WARNING,Use method 'params' via param namespace ,param.CalibrationConfig,15916
+2024-09-23 12:52:44,862,DEBUG,Config GUI added,root,15916
+2024-09-23 12:52:44,862,DEBUG,Config GUI added,root,15916
+2024-09-23 12:52:44,863,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_52/,root,15916
+2024-09-23 12:52:44,863,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_52/,root,15916
+2024-09-23 12:52:44,864,DEBUG,Adding config GUI for Patch,root,15916
+2024-09-23 12:52:44,864,DEBUG,Adding config GUI for Patch,root,15916
+2024-09-23 12:52:44,865,WARNING,Use method 'params' via param namespace ,param.PatchConfig,15916
+2024-09-23 12:52:44,865,WARNING,Use method 'params' via param namespace ,param.PatchConfig,15916
+2024-09-23 12:52:44,870,DEBUG,Config GUI added,root,15916
+2024-09-23 12:52:44,870,DEBUG,Config GUI added,root,15916
+2024-09-23 12:52:44,871,DEBUG,Added config GUI.,root,15916
+2024-09-23 12:52:44,871,DEBUG,Added config GUI.,root,15916
+2024-09-23 12:52:44,871,DEBUG,Added 'Auto Patching' tab.,root,15916
+2024-09-23 12:52:44,871,DEBUG,Added 'Auto Patching' tab.,root,15916
+2024-09-23 12:52:44,872,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_52/,root,15916
+2024-09-23 12:52:44,872,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_52/,root,15916
+2024-09-23 12:52:44,873,INFO,Setting pressure to 19.758327890267797 mbar (raw: 2017),root,15916
+2024-09-23 12:52:44,873,INFO,Setting pressure to 19.758327890267797 mbar (raw: 2017),root,15916
+2024-09-23 12:52:44,873,INFO,"Sending command: set 1 2017
+",root,15916
+2024-09-23 12:52:44,873,INFO,"Sending command: set 1 2017
+",root,15916
+2024-09-23 12:52:44,874,INFO,"SenT command: set 1 2017
+",root,15916
+2024-09-23 12:52:44,874,INFO,"SenT command: set 1 2017
+",root,15916
+2024-09-23 12:52:44,914,WARNING,No data received from pressure sensor,root,15916
+2024-09-23 12:52:44,914,WARNING,No data received from pressure sensor,root,15916
+2024-09-23 12:52:44,915,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_52/,root,15916
+2024-09-23 12:52:44,915,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_52/,root,15916
+2024-09-23 12:53:01,290,INFO,Program Started,root,35664
+2024-09-23 12:53:02,026,DEBUG,matplotlib data path: C:\Users\sa-forest\.conda\envs\moscow3\Lib\site-packages\matplotlib\mpl-data,matplotlib,35664
+2024-09-23 12:53:02,029,DEBUG,CONFIGDIR=C:\Users\sa-forest\.matplotlib,matplotlib,35664
+2024-09-23 12:53:02,029,DEBUG,interactive is False,matplotlib,35664
+2024-09-23 12:53:02,030,DEBUG,platform is win32,matplotlib,35664
+2024-09-23 12:53:02,056,DEBUG,CACHEDIR=C:\Users\sa-forest\.matplotlib,matplotlib,35664
+2024-09-23 12:53:02,058,DEBUG,Using fontManager instance from C:\Users\sa-forest\.matplotlib\fontlist-v330.json,matplotlib.font_manager,35664
+2024-09-23 12:53:02,167,INFO,PatchConfig initialized successfully.,root,35664
+2024-09-23 12:53:02,818,INFO,Using cDAQ1Mod1/ai0 for reading the output of cDaq1Mod4/ao0 and cDaq1Mod1/ai3 for response.,root,35664
+2024-09-23 12:53:03,841,INFO,Found a MultiClamp 700B (Serial number: b'00832526'  Channel: 1),root,35664
+2024-09-23 12:53:03,841,INFO,Found a MultiClamp 700B (Serial number: b'00832526'  Channel: 2),root,35664
+2024-09-23 12:53:03,857,INFO,Switching to Pressure,root,35664
+2024-09-23 12:53:03,858,INFO,Setting pressure to 0.0 mbar (raw: 1962),root,35664
+2024-09-23 12:53:03,858,INFO,"Sending command: set 1 1962
+",root,35664
+2024-09-23 12:53:03,866,INFO,"SenT command: set 1 1962
+",root,35664
+2024-09-23 12:53:04,315,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_53/,root,35664
+2024-09-23 12:53:04,315,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_53/,root,35664
+2024-09-23 12:53:04,321,DEBUG,Adding config GUI for Calibration,root,35664
+2024-09-23 12:53:04,321,DEBUG,Adding config GUI for Calibration,root,35664
+2024-09-23 12:53:04,322,WARNING,Use method 'params' via param namespace ,param.CalibrationConfig,35664
+2024-09-23 12:53:04,322,WARNING,Use method 'params' via param namespace ,param.CalibrationConfig,35664
+2024-09-23 12:53:04,330,DEBUG,Config GUI added,root,35664
+2024-09-23 12:53:04,330,DEBUG,Config GUI added,root,35664
+2024-09-23 12:53:04,330,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_53/,root,35664
+2024-09-23 12:53:04,330,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_53/,root,35664
+2024-09-23 12:53:04,332,DEBUG,Adding config GUI for Patch,root,35664
+2024-09-23 12:53:04,332,DEBUG,Adding config GUI for Patch,root,35664
+2024-09-23 12:53:04,333,WARNING,Use method 'params' via param namespace ,param.PatchConfig,35664
+2024-09-23 12:53:04,333,WARNING,Use method 'params' via param namespace ,param.PatchConfig,35664
+2024-09-23 12:53:04,336,DEBUG,Config GUI added,root,35664
+2024-09-23 12:53:04,336,DEBUG,Config GUI added,root,35664
+2024-09-23 12:53:04,337,DEBUG,Added config GUI.,root,35664
+2024-09-23 12:53:04,337,DEBUG,Added config GUI.,root,35664
+2024-09-23 12:53:04,337,DEBUG,Added 'Auto Patching' tab.,root,35664
+2024-09-23 12:53:04,337,DEBUG,Added 'Auto Patching' tab.,root,35664
+2024-09-23 12:53:04,339,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_53/,root,35664
+2024-09-23 12:53:04,339,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_53/,root,35664
+2024-09-23 12:53:04,340,INFO,Setting pressure to 19.758327890267797 mbar (raw: 2017),root,35664
+2024-09-23 12:53:04,340,INFO,Setting pressure to 19.758327890267797 mbar (raw: 2017),root,35664
+2024-09-23 12:53:04,341,INFO,"Sending command: set 1 2017
+",root,35664
+2024-09-23 12:53:04,341,INFO,"Sending command: set 1 2017
+",root,35664
+2024-09-23 12:53:04,341,INFO,"SenT command: set 1 2017
+",root,35664
+2024-09-23 12:53:04,341,INFO,"SenT command: set 1 2017
+",root,35664
+2024-09-23 12:53:04,385,WARNING,No data received from pressure sensor,root,35664
+2024-09-23 12:53:04,385,WARNING,No data received from pressure sensor,root,35664
+2024-09-23 12:53:04,387,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_53/,root,35664
+2024-09-23 12:53:04,387,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2024_09_23-12_53/,root,35664

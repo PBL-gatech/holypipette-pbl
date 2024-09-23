@@ -1,13 +1,15 @@
-
-
 import logging
 import csv
 import os
+from datetime import datetime
 
 class CSVLogHandler(logging.Handler):
     """Custom logging handler that logs to a CSV file."""
 
-    def __init__(self, filename, mode='a'):
+    def __init__(self, base_filename, mode='a'):
+        # Generate a filename with only the date
+        timestamp = datetime.now().strftime("%Y_%m_%d")
+        filename = f"{base_filename}_{timestamp}.csv"
         super().__init__()
         self.filename = filename
         self.mode = mode
@@ -16,7 +18,7 @@ class CSVLogHandler(logging.Handler):
         
         # Write headers if the file is new/empty
         if os.stat(self.filename).st_size == 0:
-            headers = ["Time(HH:MM:SS)","Time(ms)","Level", "Message", "Logger Name", "Thread ID"]
+            headers = ["Time(HH:MM:SS)", "Time(ms)", "Level", "Message", "Logger Name", "Thread ID"]
             self.csv_writer.writerow(headers)
 
         self.setFormatter(logging.Formatter('%(asctime)s,%(levelname)s,%(message)s,%(name)s,%(thread)d'))
@@ -25,13 +27,17 @@ class CSVLogHandler(logging.Handler):
         try:
             log_entry = self.format(record)
             self.csv_writer.writerow(log_entry.split(","))
+            # Ensure the log is flushed after every write to prevent data loss
+            self.output_file.flush()
         except Exception as e:
             self.handleError(record)
 
     def close(self):
-        self.output_file.close()
+        if not self.output_file.closed:
+            # Flush and close the file properly when done
+            self.output_file.flush()
+            self.output_file.close()
         super().close()
-
 
 class LoggingObject(object):
     @property
@@ -57,22 +63,24 @@ class LoggingObject(object):
     def exception(self, message, *args, **kwds):
         self.logger.exception(message, *args, **kwds)
 
-
 def setup_logging():
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-
+    
     # Console handler
     console_handler = logging.StreamHandler()
     console_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s [%(name)s - thread %(thread)d]')
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
-    path = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Analysis\Rig_Recorder'
-    # CSV file handler
-    csv_handler = CSVLogHandler(path+'\logs.csv')
+    
+    # Path for logs
+    path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\log_data"
+    
+    # CSV file handler with a daily timestamped filename
+    csv_handler = CSVLogHandler(base_filename=path + r'\logs')
     root_logger.addHandler(csv_handler)
 
+# Initialize the logging
 setup_logging()
 
 logging.info("Program Started")
-
