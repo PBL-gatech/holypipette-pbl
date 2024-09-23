@@ -11,7 +11,7 @@ import threading
 import logging
 import matplotlib.pyplot as plt
 from holypipette.devices.amplifier.amplifier import Amplifier
-from holypipette.interface.patchConfig import PatchConfig
+
 
 __all__ = ['DAQ', 'FakeDAQ']
 
@@ -23,6 +23,7 @@ class DAQ:
     V_CLAMP_VOLT_PER_AMP = (2*1e-9) #0.5V DAQ out (DAQ input) / pA (cell out)
 
     def __init__(self, readDev, readChannel, cmdDev, cmdChannel, respDev, respChannel):
+
         self.pulses = None
         self.pulseRange = None
         self.readDev = readDev
@@ -121,7 +122,7 @@ class DAQ:
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
 
-    def getDataFromCurrentProtocol(self, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, highTimeMs=400):
+    def getDataFromCurrentProtocol(self, custom = False,factor = None,startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, highTimeMs=400):
         '''Sends a series of square waves from startCurrentPicoAmp to endCurrentPicoAmp (inclusive) with stepCurrentPicoAmp pA increments.
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
 
@@ -133,11 +134,16 @@ class DAQ:
             # logging.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
             # logging.error("Returning None,Current clamp protocol cannot be run.")
             return None, None, None
-        # if not self.config.custom_protocol:
-        factor = 2
-        startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
-        endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
+        
+        if not custom:
+            factor = 2
+            startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
+            endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
+        else:
+            if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
+                raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided when custom is True.")
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
+        logging.info(f'Starting Current Protocol with start: {startCurrentPicoAmp}, end: {endCurrentPicoAmp}, step: {stepCurrentPicoAmp}.')
         self.pulses = np.arange(startCurrentPicoAmp, endCurrentPicoAmp + stepCurrentPicoAmp, stepCurrentPicoAmp)
         if 0 not in self.pulses:
             self.pulses = np.insert(self.pulses, len(self.pulses) // 2, 0)
@@ -260,10 +266,6 @@ class DAQ:
             self.isRunningProtocol = False
         return self.voltageMembraneCapacitance
 
-    
-
-
-
     def getDataFromSquareWave(self, wave_freq, samplesPerSec: int, dutyCycle, amplitude, recordingTime) -> tuple:
         self.equalizer = False
         
@@ -343,8 +345,6 @@ class DAQ:
                 
                 return None, None, None, None, None, None
 
-
-    
     def resistance(self):
         # logging.warn("totalResistance", self.totalResistance)
         return self.totalResistance
@@ -428,7 +428,6 @@ class DAQ:
             return 0,0,0
         # logging.info("Returning parameters")
         return R_a_MOhms, R_m_MOhms, C_m_pF
-
 
     def filter_data(self, data):
         #calculate derivative of X_mV and add it to the data frame

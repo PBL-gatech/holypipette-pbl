@@ -9,6 +9,7 @@ from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, Calib
 from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.pressurecontroller import PressureController
 import collections
+import logging
 
 from holypipette.interface.patchConfig import PatchConfig
 
@@ -53,6 +54,10 @@ class AutoPatcher(TaskController):
         if self.config.current_protocol:
             self.iholding = self.daq.holding_current
             # self.iholding = 0
+            logging.debug(f"custom_current_protocol state: {self.config.custom_protocol}")
+            logging.debug(f"start cclamp current: {self.config.cclamp_start}")
+            logging.debug(f"end cclamp current: {self.config.cclamp_end}")
+            logging.debug(f"step cclamp current: {self.config.cclamp_step}")
             self.run_current_protocol()
             self.sleep(0.25)
         if self.config.holding_protocol:
@@ -92,14 +97,14 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         self.amplifier.current_clamp()
         self.sleep(0.1)
-        # self.amplifier.set_bridge_balance(True)
-        # self.info('auto bridge balance')
-        # self.amplifier.auto_bridge_balance()
-        # self.sleep(0.1)
-        # self.amplifier.set_neutralization_capacitance(cap)
-        # self.info('set neutralization capacitance')
-        # self.amplifier.set_neutralization_enable(True)
-        # self.info('enabled neutralization')
+        self.amplifier.set_bridge_balance(True)
+        self.info('auto bridge balance')
+        self.amplifier.auto_bridge_balance()
+        self.sleep(0.1)
+        self.amplifier.set_neutralization_capacitance(cap)
+        self.info('set neutralization capacitance')
+        self.amplifier.set_neutralization_enable(True)
+        self.info('enabled neutralization')
         if self.iholding is None:
             current = -50
 
@@ -112,7 +117,12 @@ class AutoPatcher(TaskController):
         self.amplifier.switch_holding(True)
         self.info('enabled holding')
         self.sleep(0.1)
-        self.daq.getDataFromCurrentProtocol()
+        if self.config.custom_protocol:
+            self.debug('running custom current protocol')
+            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), highTimeMs=400)                                            
+        else:
+            self.debug('running default current protocol')
+            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_protocol, factor=2, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, highTimeMs=400)
         self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')

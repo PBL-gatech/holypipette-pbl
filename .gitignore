@@ -27,3 +27,5 @@ holypipette/deepLearning/pipetteModelTrainer/Dataset/.*
 /experiments/Analysis/Rig_Recorder/recontruct/*.csv
 
 
+/holypipette/deepLearning/pipetteModelTrainer/Dataset
+/experiments/Analysis/Rig_Recorder/Reconstruct/sample_data

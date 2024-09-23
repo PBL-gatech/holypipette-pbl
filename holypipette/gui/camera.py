@@ -910,8 +910,10 @@ class CameraGui(QtWidgets.QMainWindow):
             self.config_button.setChecked(True)
 
     def add_config_gui(self, config):
+        logging.debug('Adding config GUI for {}'.format(config.name))
         config_gui = ConfigGui(config)
         self.config_tab.addTab(config_gui, config.name)
+        logging.debug('Config GUI added')
 
     def add_tab(self, tab, name, index=None):
         if index is None:
@@ -1037,11 +1039,12 @@ class ConfigGui(QtWidgets.QWidget):
 
     @QtCore.pyqtSlot('QString', object)
     def display_changed_value(self, key, value):
-        widget = self.value_widgets[key]
-        if isinstance(widget, QtWidgets.QCheckBox):
-            widget.setChecked(value)
-        else:
-            widget.setValue(value)
+        widget = self.findChild(QtWidgets.QCheckBox, key)
+        if widget:
+            if isinstance(value, bool):
+                widget.setChecked(value)
+            else:
+                logging.error(f"Expected boolean, got {type(value)}: {value}")
 
     def set_numerical_value(self, name, value):
         setattr(self.config, name, value)
@@ -1050,7 +1053,9 @@ class ConfigGui(QtWidgets.QWidget):
         setattr(self.config, name, value*magnitude)
 
     def set_boolean_value(self, name, widget):
-        setattr(self.config, name, widget.isChecked())
+        new_value = widget.isChecked()
+        logging.debug(f"Setting {name} to {new_value}")
+        setattr(self.config, name, new_value)
 
     def save_config(self):
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save configuration",

@@ -1,6 +1,16 @@
+# patch_gui.py
+import faulthandler
+faulthandler.enable()
+faulthandler.dump_traceback_later(5)
+
 import sys
 from PyQt5.QtWidgets import QApplication
 import traceback
+from holypipette.exception_handler import set_global_exception_hook
+
+# Set the global exception hook
+set_global_exception_hook()
+
 
 from holypipette.log_utils import setup_logging
 from holypipette.utils.RecordingStateManager import RecordingStateManager
@@ -8,6 +18,7 @@ from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
 from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 from holypipette.gui.patch import PatchGui
+
 
 # from setup_IBB_rig import *
 # from setup_fake_rig import *

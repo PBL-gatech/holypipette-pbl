@@ -42,11 +42,19 @@ class PatchGui(ManipulatorGui):
         self.interface_signals[self.patch_interface] = (self.patch_command_signal,
                                                         self.patch_reset_signal)
         
-        #add patching button tab
-        button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
-        self.add_config_gui(self.patch_interface.config)
-        self.add_tab(button_tab, 'Auto Patching', index = 0)
 
+
+    
+        try:
+            # Add patching button tab
+            button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
+            self.add_config_gui(self.patch_interface.config)
+            logging.debug("Added config GUI.")
+            self.add_tab(button_tab, 'Auto Patching', index=0)
+            logging.debug("Added 'Auto Patching' tab.")
+        except Exception as e:
+            logging.error("Exception during PatchGui initialization: %s", e, exc_info=True)
+            raise
         # #add cell sorter button tab
         # cellsorter_tab = CellSorterButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals)
         # self.add_tab(cellsorter_tab, 'Cell Sorter', index = 0)

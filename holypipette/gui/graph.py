@@ -246,60 +246,87 @@ class HoldingProtocolGraph(QWidget):
         self.daq.holding_protocol_data = None
 
         # self.latestDisplayedData = self.daq.holding_protocol_data.copy()
+import logging
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QSlider, QPushButton, QToolButton, QDesktopWidget, QApplication
+)
+from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+
+from pyqtgraph import PlotWidget
+from pyqtgraph.exporters import ImageExporter
+import io
+from PIL import Image
+
+import threading
+
+import numpy as np
+from collections import deque
+from holypipette.devices.amplifier import DAQ
+from holypipette.devices.pressurecontroller import PressureController
+from holypipette.utils.RecordingStateManager import RecordingStateManager
+from holypipette.utils import FileLogger
+from holypipette.utils import EPhysLogger
+import time
+
+from datetime import datetime
+
+__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "HoldingProtocolGraph"]
+
+
 class EPhysGraph(QWidget):
     """
     A window that plots electrophysiology data from the DAQ
     """
 
+    # Define a signal that can accept None values for certain parameters
+    data_updated = pyqtSignal(object, object, object, object, object, object)
+
     pressureLowerBound = -450
     pressureUpperBound = 730
 
-    def __init__(self, daq : DAQ, pressureController : PressureController, recording_state_manager: RecordingStateManager):
+    def __init__(self, daq: DAQ, pressureController: PressureController, recording_state_manager: RecordingStateManager):
         super().__init__()
 
-        #stop matplotlib font warnings
+        # Stop matplotlib font warnings
         logging.getLogger("matplotlib.font_manager").disabled = True
         self.atmtoggle = True
         self.daq = daq
 
-        # I'm scared of pointers and .copy() doesn't work on bools :/
-        self.cellMode = False
-        # self.cellMode = self.daq.cellMode
+        # Initialize mode
+        self.cellMode = False  # Initially set to Bath Mode
 
         self.pressureController = pressureController
         self.recording_state_manager = recording_state_manager  # Include the state manager in the graph
         self.setpoint = 0
 
-        #constants for Multi Clamp
-        self.externalCommandSensitivity = 20 # mv/V
-        self.triggerLevel = 0.05 # V
+        # Constants for Multi Clamp
+        self.externalCommandSensitivity = 20  # mV/V
+        self.triggerLevel = 0.05  # V
 
-        #setup window
+        # Setup window
         self.setWindowTitle("Electrophysiology")
 
+        # Initialize plots
         self.cmdPlot = PlotWidget()
         self.respPlot = PlotWidget()
-        # * numerator below is ms!
-        # self.squareWavePlot.setXRange(0, 10/1000, padding=0)
         self.pressurePlot = PlotWidget()
         self.resistancePlot = PlotWidget()
 
-        #set background color of plots
+        # Set background color of plots
         self.cmdPlot.setBackground("w")
         self.respPlot.setBackground("w")
         self.pressurePlot.setBackground("w")
         self.resistancePlot.setBackground("w")
 
-        #set axis colors to black
+        # Set axis colors to black
         for plot in [self.cmdPlot, self.respPlot, self.resistancePlot, self.pressurePlot]:
             plot.setBackground("w")
             plot.getAxis("left").setPen("k")
             plot.getAxis("bottom").setPen("k")
 
-        # set labels
-        # * This "A" makes things annoying for the recorder and Daq, but its serves as a base unit. If set to pA, then if the data is 3 orders of magnitude higher,
-        # * it will show the label as kpA instead of nA.
-        # * This means we have to keep doing some "conversions" to make the graph happy
+        # Set labels
         self.cmdPlot.setLabel("left", "Command Voltage", units="V")
         self.cmdPlot.setLabel("bottom", "Time", units="s")
         self.respPlot.setLabel("left", "Current (resp)", units="A")
@@ -309,54 +336,52 @@ class EPhysGraph(QWidget):
         self.resistancePlot.setLabel("left", "Resistance", units="Ohms")
         self.resistancePlot.setLabel("bottom", "Samples", units="")
 
-
-        # self.pressureData = deque([0.0]*100, maxlen=100)
+        # Initialize data containers
         self.pressureData = deque(maxlen=100)
         self.resistanceDeque = deque(maxlen=100)
-        # print(self.pressureData)
 
-        #create a quarter layout for 4 graphs
+        # Create layout and add plots
         layout = QVBoxLayout()
         for plot in [self.cmdPlot, self.respPlot, self.pressurePlot, self.resistancePlot]:
             layout.addWidget(plot)
 
-
-        #make resistance plot show current resistance in text
+        # Create bottom bar for controls and labels
         self.bottomBar = QWidget()
         self.bottomBarLayout = QHBoxLayout()
         self.bottomBar.setLayout(self.bottomBarLayout)
-        
+
         self.resistanceLabel = QLabel("Resistance:")
         self.bottomBarLayout.addWidget(self.resistanceLabel)
 
         self.modelType = QPushButton(f"{'Cell' if self.cellMode else 'Bath'} Mode")
         self.modelType.setStyleSheet(f"background-color: {'green' if self.cellMode else 'blue'}; color: white; border-radius: 5px; padding: 5px;")
-
         self.bottomBarLayout.addWidget(self.modelType)
-        self.accessResistanceLabel = QLabel("Access Resistance: NA")
+
+        self.accessResistanceLabel = QLabel("Access Resistance: N/A")
         self.bottomBarLayout.addWidget(self.accessResistanceLabel)
-        self.membraneResistanceLabel = QLabel("Membrane Resistance: NA")
+        self.membraneResistanceLabel = QLabel("Membrane Resistance: N/A")
         self.bottomBarLayout.addWidget(self.membraneResistanceLabel)
-        self.membraneCapacitanceLabel = QLabel("Membrane Capacitance: NA")
+        self.membraneCapacitanceLabel = QLabel("Membrane Capacitance: N/A")
         self.bottomBarLayout.addWidget(self.membraneCapacitanceLabel)
 
-        #make bottom bar height 20px
+        # Make bottom bar height 20px
         self.bottomBar.setMaximumHeight(20)
         self.bottomBar.setMinimumHeight(20)
         self.bottomBarLayout.setContentsMargins(0, 0, 0, 0)
 
-        # add a pressure label
+        # Add a pressure label
         self.pressureLabel = QLabel("Pressure:")
         self.bottomBarLayout.addWidget(self.pressureLabel)
-        layout.addWidget(self.bottomBar)
 
-        #add pressure command box
+        # Add pressure command box
         self.pressureCommandBox = QLineEdit()
         self.pressureCommandBox.setMaxLength(5)
         self.pressureCommandBox.setFixedWidth(100)
         self.pressureCommandBox.setPlaceholderText(f"{self.pressureController.measure()} mbar")
         self.pressureCommandBox.setValidator(QtGui.QIntValidator(EPhysGraph.pressureLowerBound, EPhysGraph.pressureUpperBound))
+        self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
 
+        # Add pressure command slider
         self.pressureCommandSlider = QSlider(Qt.Horizontal)
         self.pressureCommandSlider.setValue(int(self.pressureController.measure()))
         self.pressureCommandSlider.setMinimum(EPhysGraph.pressureLowerBound)
@@ -366,6 +391,7 @@ class EPhysGraph(QWidget):
         self.pressureCommandSlider.valueChanged.connect(self.updatePressureLabel)
         self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
 
+        # Add up and down buttons for pressure adjustment
         self.upButton = QToolButton()
         self.upButton.setArrowType(Qt.UpArrow)
         self.downButton = QToolButton()
@@ -379,218 +405,288 @@ class EPhysGraph(QWidget):
         self.bottomBarLayout.addWidget(self.pressureCommandBox)
         self.bottomBarLayout.addWidget(self.upButton)
         self.bottomBarLayout.addWidget(self.downButton)
-        # add an Atmospheric Pressure toggle button
+
+        # Add an Atmospheric Pressure toggle button
         self.atmosphericPressureButton = QPushButton("ATM Pressure OFF")
         self.bottomBarLayout.addWidget(self.atmosphericPressureButton)
 
-        #add spacer to push everything to the left
+        # Add spacer to push everything to the left
         self.bottomBarLayout.addStretch(1)
 
+        # Add bottom bar to the main layout
+        layout.addWidget(self.bottomBar)
+
+        # Set the main layout
         self.setLayout(layout)
-        
+
+        # Initialize timers
         self.updateTimer = QtCore.QTimer()
-        # this has to match the arduino sensor delay
-        self.updateDt = 20 # ms roughly 33 Hz with lag added
+        self.updateDt = 20  # ms (~50 Hz)
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
-        # start async daq data update
+        # Initialize data variables
         self.latestReadData = None
         self.latestrespData = None
-        self.daqUpdateThread = threading.Thread(target=self.updateDAQDataAsync, daemon=True)
-        self.daqUpdateThread.start()
-    
-
-        self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="graph_recording")
         self.lastrespData = []
         self.lastReadData = []
 
+        # Initialize recorder
+        self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="graph_recording")
+
+        # Connect buttons
         self.atmosphericPressureButton.clicked.connect(self.togglePressure)
         self.modelType.clicked.connect(self.toggleModelType)
-        #show window and bring to front
+
+        # Connect the signal to the slot
+        self.data_updated.connect(self.handle_data_update)
+
+        # Start the background thread for DAQ data acquisition
+        self.daqUpdateThread = threading.Thread(target=self.updateDAQDataAsync, daemon=True)
+        self.daqUpdateThread.start()
+
+        # Show window and bring to front
         self.raise_()
         self.show()
 
     def location_on_the_screen(self):
         ag = QDesktopWidget().availableGeometry()
         sg = QDesktopWidget().screenGeometry()
-        # print(f"Available geometry: {ag.width()} x {ag.height()}")
-        # print(ag.width(), ag.height())
-        # print(f"Screen geometry: {sg.width()} x {sg.height()}")
-        # print(sg.width(), sg.height())
-    
+
         x = ag.width() // 2    # Adjusted calculation for x coordinate
         y = 30  # Adjusted calculation for y coordinate
         width = ag.width() // 2
-        height = ag.height() - 30    # Subtract 50 from the total height
-        # print(f"x: {x}, y: {y}")
-        # print(x, y)
+        height = ag.height() - 30    # Subtract 30 from the total height
+
         self.setGeometry(x, y, width, height)
 
-    def close(self):
+    def closeEvent(self, event):
+        """
+        Override the close event to properly close the recorder and hide the window.
+        """
         self.recorder.close()
-        logging.info("closing graph")
-        super(EPhysGraph, self).hide()
+        logging.info("Closing EPhysGraph window")
+        event.ignore()
+        self.hide()
 
     def updateDAQDataAsync(self):
+        """
+        Background thread that continuously fetches data from the DAQ and emits signals for GUI updates.
+        """
         while True:
-            # This slows down the rate your graph gets updated (bc the graph only gets updated if there is NEW data)
+            # Sleep to control the data acquisition rate
             time.sleep(0.01)
 
             if self.daq.isRunningProtocol:
-                continue # don't run membrane test while running a current protocol
+                continue  # Don't run membrane test while running a current protocol
 
-            # * setting frequency to 100Hz fixed the resistance chart on bath mode but isn't needed on cell mode (it can be 10Hz??)
-            # * best option so far is below, should we make it more flexible? --> sometimes the min appears before the max, messing up the gradient calculation and
-            # * subsequent shift in in daq.getDataFromSquareWave
-            # 1 = 20mV  -> 5V on the oscilloscope
-            # 0.5 = 10mV -> 2.5V on the oscilloscope
-            # wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime
-            self.latestrespData, self.latestReadData, totalResistance, MembraneResistance, AccessResistance, MembraneCapacitance = self.daq.getDataFromSquareWave(wave_freq = 20, samplesPerSec = 50000, dutyCycle = 0.5, amplitude = 0.5, recordingTime= 0.05)
+            try:
+                # Fetch data from DAQ
+                data = self.daq.getDataFromSquareWave(
+                    wave_freq=20,
+                    samplesPerSec=50000,
+                    dutyCycle=0.5,
+                    amplitude=0.5,
+                    recordingTime=0.05
+                )
+            except Exception as e:
+                logging.error(f"Error fetching data from DAQ: {e}")
+                continue
 
+            if data:
+                latestrespData, latestReadData, totalResistance, MembraneResistance, AccessResistance, MembraneCapacitance = data
 
-            # logging.debug("DAQ data updated")
-            # print("Total Resistance: ", totalResistance)
-            # print("Access Resistance: ", AccessResistance)
-            # print("Membrane Resistance: ", MembraneResistance)
-            # print("Membrane Capacitance: ", MembraneCapacitance)
+                # Emit the signal with the fetched data (allowing None for specific parameters)
+                self.data_updated.emit(
+                    totalResistance,
+                    AccessResistance,
+                    MembraneResistance,
+                    MembraneCapacitance,
+                    latestrespData,
+                    latestReadData
+                )
 
-
+    @pyqtSlot(object, object, object, object, object, object)
+    def handle_data_update(self, totalResistance, AccessResistance, MembraneResistance, MembraneCapacitance, latestrespData, latestReadData):
+        """
+        Slot to handle data updates emitted from the background thread.
+        Updates GUI elements safely in the main thread.
+        """
+        try:
+            # Update resistance labels
             if totalResistance is not None:
                 self.resistanceDeque.append(totalResistance)
-                self.resistanceLabel.setText("Total Resistance: {:.2f} M Ohms\t".format(totalResistance))
-                # print("Total Resistance: ", totalResistance)
-                # print("Access Resistance: ", AccessResistance)
-                # print("Membrane Resistance: ", MembraneResistance)
-                # print("Membrane Capacitance: ", MembraneCapacitance)
+                self.resistanceLabel.setText(f"Total Resistance: {totalResistance:.2f} MΩ\t")
+            else:
+                self.resistanceLabel.setText("Total Resistance: N/A\t")
+
             if AccessResistance is not None:
-                self.accessResistanceLabel.setText("Access Resistance: {:.2f} MΩ\t".format(AccessResistance))
+                self.accessResistanceLabel.setText(f"Access Resistance: {AccessResistance:.2f} MΩ\t")
+            else:
+                self.accessResistanceLabel.setText("Access Resistance: N/A\t")
+
             if MembraneResistance is not None:
-                self.membraneResistanceLabel.setText("Membrane Resistance: {:.2f} MΩ\t".format(MembraneResistance))
+                self.membraneResistanceLabel.setText(f"Membrane Resistance: {MembraneResistance:.2f} MΩ\t")
+            else:
+                self.membraneResistanceLabel.setText("Membrane Resistance: N/A\t")
+
             if MembraneCapacitance is not None:
-                self.membraneCapacitanceLabel.setText("Membrane Capacitance: {:.2f} pF\t".format(MembraneCapacitance))
+                self.membraneCapacitanceLabel.setText(f"Membrane Capacitance: {MembraneCapacitance:.2f} pF\t")
+            else:
+                self.membraneCapacitanceLabel.setText("Membrane Capacitance: N/A\t")
+
+            # Update plotting data
+            if latestReadData is not None:
+                self.cmdPlot.clear()
+                self.cmdPlot.plot(latestReadData[0, :], latestReadData[1, :])  # Removed pen color
+                self.lastReadData = latestReadData
+
+            if latestrespData is not None:
+                self.respPlot.clear()
+                self.respPlot.plot(latestrespData[0, :], latestrespData[1, :])  # Removed pen color
+                self.lastrespData = latestrespData
+
+            # Update pressure plot
+            currentPressureReading = int(self.pressureController.measure())
+            self.pressureData.append(currentPressureReading)
+
+            self.pressurePlot.clear()
+            pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
+            self.pressurePlot.plot(pressureX, list(self.pressureData))
+
+            # Update resistance plot
+            self.resistancePlot.clear()
+            displayDequeY = list(self.resistanceDeque)
+            displayDequeX = list(range(len(displayDequeY)))
+            self.resistancePlot.plot(displayDequeX, displayDequeY)
+
+            # Handle recording
+            if self.recording_state_manager.is_recording_enabled():
+                try:
+                    self.recorder.write_graph_data(
+                        datetime.now().timestamp(),
+                        currentPressureReading,
+                        displayDequeY[-1] if displayDequeY else None,
+                        list(self.lastrespData[1, :]) if self.lastrespData is not None else [],
+                        list(self.lastReadData[1, :]) if self.lastReadData is not None else []
+                    )
+                except Exception as e:
+                    logging.error(f"Error in writing graph data to file: {e}, {self.lastrespData}")
+
+        except Exception as e:
+            logging.error(f"Error in handle_data_update: {e}", exc_info=True)
 
     def update_plot(self):
-        # update current graph
-
-        if self.latestReadData is not None:
-            # print("Latest Read Data: ", self.latestReadData[1, :])
-            self.cmdPlot.clear()
-            self.cmdPlot.plot(self.latestReadData[0, :], self.latestReadData[1, :])
-            self.lastReadData = self.latestReadData
-            self.latestReadData = None
-
-        if self.latestrespData is not None:
-            self.respPlot.clear()
-            self.respPlot.plot(self.latestrespData[0, :], self.latestrespData[1, :])
-            self.lastrespData = self.latestrespData
-            self.latestrespData = None
-     
-        
-        #update pressure graph
-        currentPressureReading = int(self.pressureController.measure())
-        self.pressureData.append(currentPressureReading)
-
-        # print(pressureX)
-        # print(len(pressureX))
-        self.pressurePlot.clear()
-        pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
-        self.pressurePlot.plot(pressureX, self.pressureData, pen="k")
-
-        # update resistance graph
-        self.resistancePlot.clear()
-        displayDequeY = self.resistanceDeque.copy()
-        displayDequeX = [i for i in range(len(displayDequeY))]
-        # resistanceDeque = [i for i in range(len(self.resistanceDeque))]
-        self.resistancePlot.plot(displayDequeX, displayDequeY, pen="k")
-
-        # self.pressureCommandBox.setPlaceholderText("{:.2f} (mbar)".format(currentPressureReading))
-        self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
-        # self.atmosphericPressureButton.clicked.connect(self.togglePressure)
-
-        # logging.debug("graph updated") # uncomment for debugging in log.csv file
-        if self.recording_state_manager.is_recording_enabled():
-            try:
-                self.recorder.write_graph_data(datetime.now().timestamp(), currentPressureReading, displayDequeY[-1], list(self.lastrespData[1, :]), list(self.lastReadData[1, :]))
-            except Exception as e:
-                logging.error(f"Error in writing graph data to file: {e}, {self.lastrespData}")
+        """
+        Periodically called by a QTimer to update the GUI plots.
+        Currently updates only pressure command box placeholder.
+        """
+        try:
+            # Update pressure label based on slider value
+            currentSliderValue = self.pressureCommandSlider.value()
+            self.pressureCommandBox.setPlaceholderText(f"Set to: {currentSliderValue} mbar")
+        except Exception as e:
+            logging.error(f"Error in update_plot: {e}", exc_info=True)
 
     def incrementPressure(self):
-        current_value = self.pressureCommandSlider.value()
-        new_value = current_value + 5
-        if new_value <= EPhysGraph.pressureUpperBound:
-            self.pressureCommandSlider.setValue(new_value)
-            self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
+        """
+        Increments the pressure setpoint by 5 mbar.
+        """
+        try:
+            current_value = self.pressureCommandSlider.value()
+            new_value = current_value + 5
+            if new_value <= EPhysGraph.pressureUpperBound:
+                self.pressureCommandSlider.setValue(new_value)
+                self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
+        except Exception as e:
+            logging.error(f"Error in incrementPressure: {e}", exc_info=True)
 
     def decrementPressure(self):
-        current_value = self.pressureCommandSlider.value()
-        new_value = current_value - 5
-        if new_value >= EPhysGraph.pressureLowerBound:
-            self.pressureCommandSlider.setValue(new_value)
-            self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
+        """
+        Decrements the pressure setpoint by 5 mbar.
+        """
+        try:
+            current_value = self.pressureCommandSlider.value()
+            new_value = current_value - 5
+            if new_value >= EPhysGraph.pressureLowerBound:
+                self.pressureCommandSlider.setValue(new_value)
+                self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
+        except Exception as e:
+            logging.error(f"Error in decrementPressure: {e}", exc_info=True)
 
     def togglePressure(self):
-        if self.atmtoggle:
-            self.atmosphericPressureButton.setStyleSheet("background-color: green; color: white;border-radius: 5px; padding: 5px;")
-            self.atmosphericPressureButton.setText("ATM Pressure ON")
-            self.pressureController.set_ATM(True)
-        else:
-            self.atmosphericPressureButton.setStyleSheet("")
-            self.atmosphericPressureButton.setText("ATM Pressure OFF")
-            self.pressureController.set_ATM(False)
-        self.atmtoggle = not self.atmtoggle
-        # self.atmtogglecount += 1
-        # self.pressureCommandBox.setPlaceholderText(f"{pressure} mbar")
+        """
+        Toggles the atmospheric pressure setting.
+        """
+        try:
+            if self.atmtoggle:
+                self.atmosphericPressureButton.setStyleSheet("background-color: green; color: white; border-radius: 5px; padding: 5px;")
+                self.atmosphericPressureButton.setText("ATM Pressure ON")
+                self.pressureController.set_ATM(True)
+            else:
+                self.atmosphericPressureButton.setStyleSheet("")
+                self.atmosphericPressureButton.setText("ATM Pressure OFF")
+                self.pressureController.set_ATM(False)
+            self.atmtoggle = not self.atmtoggle
+        except Exception as e:
+            logging.error(f"Error in togglePressure: {e}", exc_info=True)
 
-        # logging.info(f"toggle pressure called: {self.atmtogglecount} times")
-    
     def toggleModelType(self):
-        if self.daq.cellMode:
-            self.modelType.setStyleSheet("background-color: blue; color: white;border-radius: 5px; padding: 5px;")
-            self.modelType.setText("Bath Mode")
-            self.daq.setCellMode(False)
-        else:
-            self.modelType.setStyleSheet("background-color: green; color: white; border-radius: 5px; padding: 5px;")
-            self.modelType.setText("Cell Mode")
-            self.daq.setCellMode(True)
+        """
+        Toggles between Cell Mode and Bath Mode.
+        """
+        try:
+            if self.daq.cellMode:
+                self.modelType.setStyleSheet("background-color: blue; color: white; border-radius: 5px; padding: 5px;")
+                self.modelType.setText("Bath Mode")
+                self.daq.setCellMode(False)
+            else:
+                self.modelType.setStyleSheet("background-color: green; color: white; border-radius: 5px; padding: 5px;")
+                self.modelType.setText("Cell Mode")
+                self.daq.setCellMode(True)
 
-        logging.info(f"Cell Mode: {self.daq.cellMode}")
-        self.cellMode = self.daq.cellMode
-    
+            logging.info(f"Cell Mode: {self.daq.cellMode}")
+            self.cellMode = self.daq.cellMode
+        except Exception as e:
+            logging.error(f"Error in toggleModelType: {e}", exc_info=True)
 
     def updatePressureLabel(self, value):
-        self.pressureCommandBox.setPlaceholderText(f"Set to: {value} mbar")
+        """
+        Updates the pressure command box placeholder text based on the slider value.
+        """
+        try:
+            self.pressureCommandBox.setPlaceholderText(f"Set to: {value} mbar")
+        except Exception as e:
+            logging.error(f"Error in updatePressureLabel: {e}", exc_info=True)
 
     def pressureCommandSliderChanged(self):
-        '''
-        Manually change pressure setpoint
-        '''
-        # get text from box
-        text = self.pressureCommandSlider.value()
-
+        """
+        Manually change pressure setpoint based on slider position.
+        """
         try:
-            pressure = float(text)
-        except ValueError:
-            return
-
-        #set pressure
-        self.pressureController.set_pressure(pressure)
-        self.pressureCommandBox.setPlaceholderText(f"{pressure} mbar")
+            pressure = self.pressureCommandSlider.value()
+            self.pressureController.set_pressure(pressure)
+            self.pressureCommandBox.setPlaceholderText(f"{pressure} mbar")
+        except Exception as e:
+            logging.error(f"Error in pressureCommandSliderChanged: {e}", exc_info=True)
 
     def pressureCommandBoxReturnPressed(self):
-        '''
-        Manually change pressure setpoint
-        '''
-        # get text from box
-        text = self.pressureCommandBox.text()
-        self.pressureCommandBox.clear()
-
+        """
+        Manually change pressure setpoint based on user input in the command box.
+        """
         try:
+            text = self.pressureCommandBox.text()
+            self.pressureCommandBox.clear()
+
             pressure = float(text)
-            # set pressure
+            # Clamp the pressure within bounds
+            pressure = max(EPhysGraph.pressureLowerBound, min(EPhysGraph.pressureUpperBound, pressure))
+
             self.pressureController.set_pressure(pressure)
             self.setpoint = pressure
             self.pressureCommandSlider.setValue(int(pressure))
             self.pressureCommandSlider.sliderReleased.emit()  # Simulate slider release
         except ValueError:
-            return
+            logging.warning("Invalid pressure input. Please enter a valid number.")
+        except Exception as e:
+            logging.error(f"Error in pressureCommandBoxReturnPressed: {e}", exc_info=True)
