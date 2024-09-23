@@ -81,6 +81,7 @@ class CurrentProtocolGraph(QWidget):
         # logging.info('length of current protocol data: ' + str(len(curr[0])) + ' ' + str(len(curr[1])))
         # make a color gradient based on a list
         color_range = self.daq.pulseRange
+        logging.debug(f"color range: {color_range}")
         #make a gradient of colors based off of color_range, a value that should describe the number of pulses (as letters)
         colors = [format((i / color_range), ".2f") for i in range(color_range)]
         start_color = "#003153" #Prussian Blue
@@ -102,11 +103,14 @@ class CurrentProtocolGraph(QWidget):
             marker = colors[i] + "_" + pulse
             self.ephys_logger.write_ephys_data(index, timeData, readData, respData, marker)
             
-            if i == color_range:
+            if i == color_range-1:
+
                 logging.info ("saving current ephys plot")
                 # self.ephys_logger.write_ephys_data(timestamp, index, timeData, readData, respData, marker)
                 self.ephys_logger.save_ephys_plot(index, self.cprotocolPlot)
                 self.daq.current_protocol_data = None
+            else:
+                logging.error("Ephys Plot Not saved")
 
         self.latestDisplayedData = self.daq.current_protocol_data.copy()
         
