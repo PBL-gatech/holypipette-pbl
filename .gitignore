@@ -33,3 +33,6 @@ holypipette/deepLearning/pipetteModelTrainer/Dataset/.*
 /experiments/Data/log_data
 /experiments/Data/log_data
 experiments/Data/log_data/logs_2024_09_23.csv
+experiments/Analysis/Rig_Recorder/Reconstruct/sample_data/2024_08_06-18_11/graph_recording.csv
+/experiments/Analysis/Rig_Recorder/Reconstruct/sample_data/2024_08_06-18_11
+/experiments/Analysis/Rig_Recorder/Reconstruct/sample_data
