@@ -250,12 +250,14 @@ class HoldingProtocolGraph(QWidget):
 
         # self.latestDisplayedData = self.daq.holding_protocol_data.copy()
 
+
+
 class EPhysGraph(QWidget):
     """
     A window that plots electrophysiology data from the DAQ
     """
 
-    # Define a signal that can accept None values for certain parameters
+    # Define a signal that can accept DAQ data
     data_updated = pyqtSignal(object, object, object, object, object, object)
 
     pressureLowerBound = -450
@@ -314,6 +316,10 @@ class EPhysGraph(QWidget):
         # Initialize data containers
         self.pressureData = deque(maxlen=100)
         self.resistanceDeque = deque(maxlen=100)
+
+        # Thread-safe storage for the latest pressure value
+        self.latest_pressure = 0
+        self.pressure_lock = threading.Lock()
 
         # Create layout and add plots
         layout = QVBoxLayout()
@@ -400,6 +406,11 @@ class EPhysGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
+        # Initialize a separate timer for pressure updates
+        self.pressureUpdateTimer = QtCore.QTimer()
+        self.pressureUpdateTimer.timeout.connect(self.update_pressure)
+        self.pressureUpdateTimer.start(20)  # 50 Hz
+
         # Initialize data variables
         self.latestReadData = None
         self.latestrespData = None
@@ -407,7 +418,11 @@ class EPhysGraph(QWidget):
         self.lastReadData = []
 
         # Initialize recorder
-        self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="graph_recording")
+        self.recorder = FileLogger(
+            recording_state_manager,
+            folder_path="experiments/Data/rig_recorder_data/",
+            recorder_filename="graph_recording"
+        )
 
         # Connect buttons
         self.atmosphericPressureButton.clicked.connect(self.togglePressure)
@@ -471,7 +486,7 @@ class EPhysGraph(QWidget):
             if data:
                 latestrespData, latestReadData, totalResistance, MembraneResistance, AccessResistance, MembraneCapacitance = data
 
-                # Emit the signal with the fetched data (allowing None for specific parameters)
+                # Emit the signal with the fetched DAQ data
                 self.data_updated.emit(
                     totalResistance,
                     AccessResistance,
@@ -484,7 +499,7 @@ class EPhysGraph(QWidget):
     @pyqtSlot(object, object, object, object, object, object)
     def handle_data_update(self, totalResistance, AccessResistance, MembraneResistance, MembraneCapacitance, latestrespData, latestReadData):
         """
-        Slot to handle data updates emitted from the background thread.
+        Slot to handle DAQ data updates emitted from the background thread.
         Updates GUI elements safely in the main thread.
         """
         try:
@@ -505,12 +520,7 @@ class EPhysGraph(QWidget):
             else:
                 self.membraneResistanceLabel.setText("Membrane Resistance: N/A\t")
 
-            if MembraneCapacitance is not None:
-                self.membraneCapacitanceLabel.setText(f"Membrane Capacitance: {MembraneCapacitance:.2f} pF\t")
-            else:
-                self.membraneCapacitanceLabel.setText("Membrane Capacitance: N/A\t")
-
-            # Update plotting data
+            # Update plotting data for cmdPlot and respPlot
             if latestReadData is not None:
                 self.cmdPlot.clear()
                 self.cmdPlot.plot(latestReadData[0, :], latestReadData[1, :])  # Removed pen color
@@ -521,27 +531,16 @@ class EPhysGraph(QWidget):
                 self.respPlot.plot(latestrespData[0, :], latestrespData[1, :])  # Removed pen color
                 self.lastrespData = latestrespData
 
-            # Update pressure plot
-            currentPressureReading = int(self.pressureController.measure())
-            self.pressureData.append(currentPressureReading)
-
-            self.pressurePlot.clear()
-            pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
-            self.pressurePlot.plot(pressureX, list(self.pressureData))
-
-            # Update resistance plot
-            self.resistancePlot.clear()
-            displayDequeY = list(self.resistanceDeque)
-            displayDequeX = list(range(len(displayDequeY)))
-            self.resistancePlot.plot(displayDequeX, displayDequeY)
-
             # Handle recording
             if self.recording_state_manager.is_recording_enabled():
+                with self.pressure_lock:
+                    currentPressureReading = self.latest_pressure
+                timestamp = datetime.now().timestamp()
                 try:
                     self.recorder.write_graph_data(
-                        datetime.now().timestamp(),
+                        timestamp,
                         currentPressureReading,
-                        displayDequeY[-1] if displayDequeY else None,
+                        totalResistance,
                         list(self.lastrespData[1, :]) if self.lastrespData is not None else [],
                         list(self.lastReadData[1, :]) if self.lastReadData is not None else []
                     )
@@ -554,14 +553,40 @@ class EPhysGraph(QWidget):
     def update_plot(self):
         """
         Periodically called by a QTimer to update the GUI plots.
-        Currently updates only pressure command box placeholder.
+        Updates pressure command box placeholder and resistance plot.
         """
         try:
             # Update pressure label based on slider value
             currentSliderValue = self.pressureCommandSlider.value()
             self.pressureCommandBox.setPlaceholderText(f"Set to: {currentSliderValue} mbar")
+
+            # Update resistance plot
+            self.resistancePlot.clear()
+            displayDequeY = list(self.resistanceDeque)
+            displayDequeX = list(range(len(displayDequeY)))
+            self.resistancePlot.plot(displayDequeX, displayDequeY, pen="k")
+
         except Exception as e:
             logging.error(f"Error in update_plot: {e}", exc_info=True)
+
+    def update_pressure(self):
+        """
+        Periodically called by a separate QTimer to update the pressure graph.
+        """
+        try:
+            currentPressureReading = int(self.pressureController.measure())
+
+            with self.pressure_lock:
+                self.latest_pressure = currentPressureReading
+
+            self.pressureData.append(currentPressureReading)
+
+            self.pressurePlot.clear()
+            pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
+            self.pressurePlot.plot(pressureX, list(self.pressureData))
+
+        except Exception as e:
+            logging.error(f"Error in update_pressure: {e}", exc_info=True)
 
     def incrementPressure(self):
         """
