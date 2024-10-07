@@ -34,6 +34,7 @@ class AutoPatcher(TaskController):
         self.calibrated_unit = calibrated_unit
         self.calibrated_stage = calibrated_stage
         self.microscope = microscope
+        self.safe_position = None
         self.cleaning_bath_position = None
         self.rinsing_bath_position = None
         self.contact_position = None
@@ -393,6 +394,32 @@ class AutoPatcher(TaskController):
 
         # Phase 3: break into cell
         self.break_in()
+
+    def move_to_safe_space(self):
+        '''
+        Moves the pipette to the safe space.
+        '''
+        if self.safe_position is None:
+            raise ValueError('Safe position has not been set')
+
+        try:
+            # Extract individual coordinates from the safe position
+            safe_x, safe_y, safe_z = self.safe_position
+           
+
+            # Step 1: Move Y axis first to align with the safe position value
+            logging.debug(f'Moving Y axis to safe position value: {safe_y}')
+            self.calibrated_unit.absolute_move(safe_y, axis=1)
+            self.calibrated_unit.wait_until_still()  # Ensure movement completes
+
+            # Step 2: Simultaneously move X and Z axes to reach the safe position
+            logging.debug(f'Moving X and Z axes to safe position values: X={safe_x}, Z={safe_z}')
+            self.calibrated_unit.absolute_move_group([safe_x,safe_y,safe_z], [0,1,2])
+            self.calibrated_unit.wait_until_still()  # Ensure movement completes
+
+        finally:
+            pass
+
 
     def clean_pipette(self):
         if self.cleaning_bath_position is None:

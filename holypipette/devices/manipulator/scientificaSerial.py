@@ -16,6 +16,9 @@ class SerialCommands():
 
     SET_X_Y_POS_ABS = 'abs {} {}\r'
     SET_X_Y_POS_REL = 'rel {} {}\r'
+    SET_X_Y_Z_POS_ABS = 'abs {} {} {}\r'
+    SET_X_Z_POS_REL = 'rel {} {}\r'
+    
 
     SET_Z_POS = 'absz {}\r'
     SET_MAX_SPEED = 'TOP {}\r'
@@ -129,13 +132,25 @@ class ScientificaSerialEncoder(Manipulator):
     def absolute_move_group(self, x, axes, speed=None):
         x = list(x)
         axes = list(axes)
+
         if 1 in axes and 2 in axes:
+            # Move X and Y axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             print("sent cmd", xPos, yPos)
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
+
+        elif 1 in axes and 2 in axes and 3 in axes:
+            # Move X, Y and Z axes together
+            xPos = x[axes.index(1)]
+            yPos = x[axes.index(2)]
+            zPos = x[axes.index(3)]
+            print("sent cmd", xPos, yPos, zPos)
+            self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
+
         else:
             print(f'unimplemented move group {x} {axes}')
+
     
     def relative_move_group(self, pos, axis, speed=None):
         if axis == 1:
@@ -254,11 +269,22 @@ class ScientificaSerialNoEncoder(Manipulator):
     def absolute_move_group(self, x, axes, speed=None):
         x = list(x)
         axes = list(axes)
-        if 1 in axes and 2 in axes:
+
+        if 1 in axes and 2 in axes and 3 not in axes:
+            # Move X and Y axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             print("sent cmd", xPos, yPos)
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
+
+        elif 1 in axes and 2 in axes and 3 in axes:
+            # Move X, Y and Z axes together
+            xPos = x[axes.index(1)]
+            yPos = x[axes.index(2)]
+            zPos = x[axes.index(3)]
+            print("sent cmd", xPos, yPos, zPos)
+            self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
+
         else:
             print(f'unimplemented move group {x} {axes}')
     

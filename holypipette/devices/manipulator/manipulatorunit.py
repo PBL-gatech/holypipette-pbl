@@ -69,6 +69,10 @@ class ManipulatorUnit(Manipulator):
         self.sleep(.05)
 
     def absolute_move_group(self, x, axes, speed=None):
+        '''
+        Moves the device axes to positions x in um.
+        '''
+        
         self.dev.absolute_move_group(x, np.array(self.axes)[axes], speed)
         self.sleep(.05)
 

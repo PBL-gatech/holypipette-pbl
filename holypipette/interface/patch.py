@@ -126,6 +126,14 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.cleaning_bath_position = self.pipette_controller.calibrated_unit.position()
 
     @command(category='Patch',
+                description='Store the position of the safe space',
+                success_message='Safe space position stored')
+    def store_safe_position(self) -> None:
+        
+        self.current_autopatcher.safe_position = self.pipette_controller.calibrated_unit.position()
+        self.info(f'safe space position stored: {self.current_autopatcher.safe_position}')
+
+    @command(category='Patch',
              description='Store the position of the rinsing bath',
              success_message='Rinsing bath position stored')
     def store_rinsing_position(self) -> None:
@@ -136,6 +144,12 @@ class AutoPatchInterface(TaskInterface):
                       task_description='Cleaning the pipette')
     def clean_pipette(self):
         self.execute(self.current_autopatcher.clean_pipette)
+
+    @blocking_command(category='Patch',
+                      description= 'Move to safe space',
+                      task_description='Moving to safe space')
+    def move_to_safe_space(self):
+        self.execute(self.current_autopatcher.move_to_safe_space)
 
     @blocking_command(category='Patch',
                       description='Sequential patching and cleaning for multiple cells',
