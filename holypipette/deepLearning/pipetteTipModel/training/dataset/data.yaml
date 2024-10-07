@@ -1,0 +1,5 @@
+train: dataset/train/images  # Path to training images
+val: dataset/val/images      # Path to validation images
+
+nc: 1  # Number of classes (change this if you have more than one class)
+names: ['tip']  # Class names (replace with your class names)
