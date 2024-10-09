@@ -1,0 +1,6 @@
+path: training/dataset
+train: /holypipette/deepLearning/pipetteTipModel/training/dataset/train/images
+val: /holypipette-pbl/holypipette/deepLearning/pipetteTipModel/training/dataset/val
+
+nc: 1
+names: ['pipette']
