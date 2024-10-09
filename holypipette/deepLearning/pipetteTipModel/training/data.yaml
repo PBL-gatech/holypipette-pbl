@@ -1,6 +1,6 @@
-path: training/dataset
-train: /holypipette/deepLearning/pipetteTipModel/training/dataset/train/images
-val: /holypipette-pbl/holypipette/deepLearning/pipetteTipModel/training/dataset/val
+path: C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\pipetteTipModel\\training\\dataset
+train: C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\pipetteTipModel\\training\\dataset\\train\\images
+val: C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\pipetteTipModel\\training\\dataset\\val\\images
 
 nc: 1
 names: ['pipette']
