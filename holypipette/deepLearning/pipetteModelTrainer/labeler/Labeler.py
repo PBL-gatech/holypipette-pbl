@@ -445,25 +445,42 @@ class ImageLabeler(QMainWindow):
                     'width': round(width, 6),
                     'height': round(height, 6)
                 })
-        if format == "json":
-            extension = '.json' 
-        else:
-            extension = '.txt'
+
+        extension = '.json' if format == "json" else '.txt'
         label_file = os.path.join(self.labels_path, os.path.basename(image_path).rsplit('.', 1)[0] + extension)
+        
+        print(f"Saving to file: {label_file}")
+        print(f"Number of bounding boxes: {len(bounding_boxes)}")
 
         try:
-            with open(label_file, 'w') as f:
+            with open(label_file, 'w') as f:  # Changed 'a' to 'w' to overwrite existing content
                 if format == "json":
                     json.dump({'bounding_boxes': bounding_boxes}, f, indent=4)
+                    print("Saved in JSON format")
                 else:
                     for box in bounding_boxes:
-                        label_number = self.label_ID.get(box['label'], -1)
+                        label_number = box['label']
+                        print("hello again")
+                        print('label_num: ' + str(label_number))
                         if label_number != -1:
-                            f.write(f"{label_number} {box['x_center']} {box['y_center']} {box['width']} {box['height']}\n")
+                            line = f"{label_number} {box['x_center']} {box['y_center']} {box['width']} {box['height']}\n"
+                            f.write(line)
+                            print(f"Writing line: {line.strip()}")
+                    print("Saved in TXT format")
 
             self.info_label.setText(f"Saved labels for {os.path.basename(image_path)}")
+            print(f"File saved successfully: {label_file}")
         except IOError as e:
             QMessageBox.warning(self, "Save Error", f"Failed to save labels: {e}")
+            print(f"Error saving file: {e}")
+
+        # Verify file contents after saving
+        try:
+            with open(label_file, 'r') as f:
+                content = f.read()
+                print(f"File contents after saving:\n{content}")
+        except IOError as e:
+            print(f"Error reading file after save: {e}")
 
     def show_previous_image(self):
         """Show the previous image and load its bounding boxes."""
