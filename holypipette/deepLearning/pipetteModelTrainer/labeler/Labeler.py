@@ -63,11 +63,12 @@ class ResizableRectItem(QGraphicsRectItem):
 
     def mousePressEvent(self, event):
         """Determine if a resize handle is pressed."""
-        for key, handle in self.handles.items():
-            if handle.contains(event.pos()):
-                self._current_handle = key
-                self._resizing = True
-                break
+        if event.button() == Qt.LeftButton:
+            for key, handle in self.handles.items():
+                if handle.contains(event.pos()):
+                    self._current_handle = key
+                    self._resizing = True
+                    break
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -97,6 +98,10 @@ class ResizableRectItem(QGraphicsRectItem):
                 rect.setBottom(new_bottom)
             self.setRect(rect)
             self.update_handles()
+            # Since we're not emitting a signal, mark the main application as changed
+            parent = self.scene().parent()  # Reference to ImageLabeler
+            if hasattr(parent, 'changes_made'):
+                parent.changes_made = True
         else:
             super().mouseMoveEvent(event)
 
@@ -105,6 +110,15 @@ class ResizableRectItem(QGraphicsRectItem):
         self._resizing = False
         self._current_handle = None
         super().mouseReleaseEvent(event)
+
+    def itemChange(self, change, value):
+        """Detect changes to the item's position."""
+        if change == QGraphicsRectItem.ItemPositionChange:
+            # Mark the main application as having changes
+            parent = self.scene().parent()  # Reference to ImageLabeler
+            if hasattr(parent, 'changes_made'):
+                parent.changes_made = True
+        return super().itemChange(change, value)
 
 class CustomGraphicsScene(QGraphicsScene):
     """Custom QGraphicsScene to handle drawing of bounding boxes."""
@@ -151,16 +165,24 @@ class CustomGraphicsScene(QGraphicsScene):
                         self.current_rect_item.label = label
                         self.current_rect_item.setToolTip(label)
                         parent.add_label_to_list(self.current_rect_item)
+                        parent.changes_made = True  # Mark that changes have been made
                         parent.save_bounding_boxes(parent.image_paths[parent.current_index])  # Save immediately
                     else:
                         # Prompt for label if no default_label is set
                         label, ok = QInputDialog.getText(None, "Input Label", "Enter label for the bounding box:")
                         if ok and label.strip():
-                            self.current_rect_item.label = label.strip()
-                            self.current_rect_item.setToolTip(label.strip())
-                            parent.default_label = label.strip()  # Save as default label
-                            parent.add_label_to_list(self.current_rect_item)
-                            parent.save_bounding_boxes(parent.image_paths[parent.current_index])  # Save immediately
+                            label = label.strip()
+                            # Check if label exists in label_ID
+                            if label in parent.label_ID:
+                                self.current_rect_item.label = label
+                                self.current_rect_item.setToolTip(label)
+                                parent.default_label = label  # Save as default label
+                                parent.add_label_to_list(self.current_rect_item)
+                                parent.changes_made = True  # Mark that changes have been made
+                                parent.save_bounding_boxes(parent.image_paths[parent.current_index])  # Save immediately
+                            else:
+                                QMessageBox.warning(None, "Invalid Label", f"Label '{label}' is not defined.")
+                                self.removeItem(self.current_rect_item)
                         else:
                             # If no label is provided, remove the box
                             self.removeItem(self.current_rect_item)
@@ -171,7 +193,7 @@ class ImageLabeler(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Image Labeler")
-        self.setGeometry(50, 50, 1000, 800)  # Increased width to accommodate new button
+        self.setGeometry(50, 50, 1000, 800)
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -247,11 +269,20 @@ class ImageLabeler(QMainWindow):
         self.default_label = None  # To store the default label after first input
 
         self.label_ID = {
-            "in_focus" : 0,
+            "in_focus": 0,
             "above_plane": 1,
             "below_plane": 2,
             "not_detected": 3
-        } # parameterise the labels from words to numbers
+        }  # parameterize the labels from words to numbers
+
+        # Create reverse mapping
+        self.id_to_label = {v: k for k, v in self.label_ID.items()}
+
+        # Debug: Print mappings to verify
+        print(f"Label to ID mapping: {self.label_ID}")
+        print(f"ID to Label mapping: {self.id_to_label}")
+
+        self.changes_made = False  # Flag to track changes
 
         # Keyboard shortcuts
         self.shortcut_left = QShortcut(QKeySequence(Qt.Key_Left), self)
@@ -274,6 +305,7 @@ class ImageLabeler(QMainWindow):
                      f"w: {rect_item.rect().width():.4f}, " \
                      f"h: {rect_item.rect().height():.4f}"
         self.list_widget.addItem(label_text)
+        self.changes_made = True  # Mark that changes have been made
 
     def remove_label_from_list(self, rect_item):
         """Remove a labeled bounding box from the side list."""
@@ -286,6 +318,7 @@ class ImageLabeler(QMainWindow):
                 f"w: {rect_item.rect().width():.4f}," in item.text() and
                 f"h: {rect_item.rect().height():.4f}" in item.text()):
                 self.list_widget.takeItem(index)
+                self.changes_made = True  # Mark that changes have been made
                 break
 
     def open_directory(self):
@@ -343,7 +376,9 @@ class ImageLabeler(QMainWindow):
             self.info_label.setText(f"Displaying {os.path.basename(image_path)}")
 
             # Load bounding boxes for the image
-            self.load_bounding_boxes(image_path)
+            load_success = self.load_bounding_boxes(image_path)
+            if load_success:
+                self.changes_made = False  # Reset changes flag after successful load
 
     def load_bounding_boxes(self, image_path, format="txt"):
         """Load bounding boxes from the corresponding label file."""
@@ -354,77 +389,111 @@ class ImageLabeler(QMainWindow):
         )
 
         self.list_widget.clear()  # Clear the side list
+        load_success = False  # Initialize load success flag
 
         if os.path.exists(label_file):
+            print(f"Loading labels from file: {label_file}")
             try:
                 if format == "json":
                     with open(label_file, 'r') as f:
                         data = json.load(f)
                         bounding_boxes = data.get('bounding_boxes', [])
-                        # Update labels to use the label_ID dictionary
+                        # Update labels to use the id_to_label dictionary
+                        valid_bounding_boxes = []
                         for box in bounding_boxes:
-                            label = box.get('label', '')
-                            if label in self.label_ID:
-                                box['label'] = self.label_ID[label]  # Replace string label with numeric ID
+                            label_num = box.get('label', -1)
+                            label = self.id_to_label.get(label_num, "")
+                            if label:
+                                box['label'] = label  # Replace numeric ID with string label
+                                valid_bounding_boxes.append(box)
+                            else:
+                                print(f"Warning: Label ID {label_num} not found in id_to_label. Skipping.")
 
                 else:
                     bounding_boxes = []
                     with open(label_file, 'r') as f:
-                        for line in f:
+                        for line_number, line in enumerate(f, 1):
                             parts = line.strip().split()
-                            if len(parts) == 5:
-                                label_num, x_center, y_center, width, height = map(float, parts[1:])
-                                label = next((key for key, val in self.label_ID.items() if val == int(parts[0])), "")
-                                bounding_boxes.append({
-                                    'label': label,
-                                    'x_center': x_center,
-                                    'y_center': y_center,
-                                    'width': width,
-                                    'height': height
-                                })
+                            if len(parts) != 5:
+                                print(f"Invalid number of elements on line {line_number}: {line.strip()}")
+                                continue
+                            try:
+                                label_num = int(parts[0])
+                                x_center, y_center, width, height = map(float, parts[1:])
+                            except ValueError as ve:
+                                print(f"ValueError on line {line_number}: {ve}")
+                                continue
 
-                # Handle the default label (preserving across images)
-                if not self.default_label:
-                    for box in bounding_boxes:
+                            label = self.id_to_label.get(label_num, "")
+                            if not label:
+                                print(f"Unknown label ID {label_num} on line {line_number}. Skipping.")
+                                continue
+
+                            bounding_boxes.append({
+                                'label': label,
+                                'x_center': x_center,
+                                'y_center': y_center,
+                                'width': width,
+                                'height': height
+                            })
+
+                    valid_bounding_boxes = bounding_boxes
+
+                if valid_bounding_boxes:
+                    load_success = True  # Set flag if at least one bounding box is loaded
+
+                    # Handle the default label (preserving across images)
+                    if not self.default_label:
+                        for box in valid_bounding_boxes:
+                            label = box.get('label', '')
+                            if label:
+                                self.default_label = label
+                                break
+
+                    # Convert YOLO format to pixel coordinates and add to the scene
+                    pixmap = QPixmap(image_path)
+                    image_width = pixmap.width()
+                    image_height = pixmap.height()
+
+                    for box in valid_bounding_boxes:
                         label = box.get('label', '')
-                        if label:
-                            self.default_label = label
-                            break
+                        x_center = box.get('x_center', 0)
+                        y_center = box.get('y_center', 0)
+                        width = box.get('width', 0)
+                        height = box.get('height', 0)
 
-                # Convert YOLO format to pixel coordinates and add to the scene
-                pixmap = QPixmap(image_path)
-                image_width = pixmap.width()
-                image_height = pixmap.height()
+                        x = (x_center - width / 2) * image_width
+                        y = (y_center - height / 2) * image_height
+                        w = width * image_width
+                        h = height * image_height
 
-                for box in bounding_boxes:
-                    label = box.get('label', '')
-                    x_center = box.get('x_center', 0)
-                    y_center = box.get('y_center', 0)
-                    width = box.get('width', 0)
-                    height = box.get('height', 0)
+                        rect = QRectF(x, y, w, h)
+                        rect_item = ResizableRectItem(rect, label)
+                        rect_item.setPen(QPen(QColor(255, 0, 0), 2))
+                        self.scene.addItem(rect_item)
+                        self.add_label_to_list(rect_item)
 
-                    x = (x_center - width / 2) * image_width
-                    y = (y_center - height / 2) * image_height
-                    w = width * image_width
-                    h = height * image_height
+                    self.info_label.setText(f"Loaded labels for {os.path.basename(image_path)}")
+                    print(f"Loaded {len(valid_bounding_boxes)} bounding boxes.")
 
-                    rect = QRectF(x, y, w, h)
-                    rect_item = ResizableRectItem(rect, label)
-                    rect_item.setPen(QPen(QColor(255, 0, 0), 2))
-                    self.scene.addItem(rect_item)
-                    self.add_label_to_list(rect_item)
-
-                self.info_label.setText(f"Loaded labels for {os.path.basename(image_path)}")
-
-            except (json.JSONDecodeError, ValueError):
-                QMessageBox.warning(self, "Error", f"Invalid format in {label_file}.")
+            except (json.JSONDecodeError, ValueError) as e:
+                QMessageBox.warning(self, "Error", f"Invalid format in {label_file}: {e}")
+                print(f"Invalid format in {label_file}: {e}")
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Failed to load bounding boxes: {e}")
+                print(f"Failed to load bounding boxes: {e}")
         else:
             self.info_label.setText(f"No labels found for {os.path.basename(image_path)}")
+            print(f"No labels found for {os.path.basename(image_path)}")
+
+        return load_success  # Return the load status
 
     def save_bounding_boxes(self, image_path, format="txt"):
         """Save bounding boxes to the corresponding label file in YOLO format."""
+        if not self.changes_made:
+            print("No changes detected. Skipping save.")
+            return  # Do not save if no changes have been made
+
         bounding_boxes = []
         pixmap = QPixmap(image_path)
         image_width = pixmap.width()
@@ -448,28 +517,34 @@ class ImageLabeler(QMainWindow):
 
         extension = '.json' if format == "json" else '.txt'
         label_file = os.path.join(self.labels_path, os.path.basename(image_path).rsplit('.', 1)[0] + extension)
-        
+
+        # Backup existing label file
+        self.backup_label_file(label_file)
+
         print(f"Saving to file: {label_file}")
         print(f"Number of bounding boxes: {len(bounding_boxes)}")
 
         try:
-            with open(label_file, 'w') as f:  # Changed 'a' to 'w' to overwrite existing content
+            with open(label_file, 'w') as f:  # Ensure 'w' mode to overwrite existing content
                 if format == "json":
                     json.dump({'bounding_boxes': bounding_boxes}, f, indent=4)
                     print("Saved in JSON format")
                 else:
                     for box in bounding_boxes:
-                        label_number = box['label']
-                        print("hello again")
-                        print('label_num: ' + str(label_number))
+                        # Convert string label to integer ID
+                        label_number = self.label_ID.get(box['label'], -1)
+                        print(f"Processing label: {box['label']} with ID: {label_number}")
                         if label_number != -1:
                             line = f"{label_number} {box['x_center']} {box['y_center']} {box['width']} {box['height']}\n"
                             f.write(line)
                             print(f"Writing line: {line.strip()}")
+                        else:
+                            print(f"Warning: Label '{box['label']}' not found in label_ID. Skipping this box.")
                     print("Saved in TXT format")
 
             self.info_label.setText(f"Saved labels for {os.path.basename(image_path)}")
             print(f"File saved successfully: {label_file}")
+            self.changes_made = False  # Reset changes flag after successful save
         except IOError as e:
             QMessageBox.warning(self, "Save Error", f"Failed to save labels: {e}")
             print(f"Error saving file: {e}")
@@ -512,6 +587,7 @@ class ImageLabeler(QMainWindow):
             if isinstance(item, ResizableRectItem):
                 self.remove_label_from_list(item)
                 self.scene.removeItem(item)
+                self.changes_made = True  # Mark that changes have been made
         # Save changes after deletion
         if self.image_paths:
             current_image = self.image_paths[self.current_index]
@@ -527,6 +603,7 @@ class ImageLabeler(QMainWindow):
         for item in items_to_remove:
             self.remove_label_from_list(item)
             self.scene.removeItem(item)
+            self.changes_made = True  # Mark that changes have been made
         # Save changes after deletion
         if self.image_paths:
             current_image = self.image_paths[self.current_index]
@@ -540,13 +617,12 @@ class ImageLabeler(QMainWindow):
             QMessageBox.information(self, "No Selection", "Please select a box to change its label.")
             return
 
-        # Prompt the user to enter a new label
-        new_label, ok = QInputDialog.getText(self, "Change Label Name", "Enter new label name:")
-        if not ok or not new_label.strip():
-            QMessageBox.information(self, "No Input", "No label name was entered.")
+        # Provide a dropdown of existing labels
+        labels = list(self.label_ID.keys())
+        new_label, ok = QInputDialog.getItem(self, "Change Label Name", "Select new label name:", labels, 0, False)
+        if not ok or not new_label:
+            QMessageBox.information(self, "No Selection", "No label was selected.")
             return
-
-        new_label = new_label.strip()
 
         # Get the selected box
         selected_item = selected_items[0]
@@ -582,31 +658,15 @@ class ImageLabeler(QMainWindow):
 
         self.info_label.setText(f"Label changed to '{new_label}' for selected and subsequent boxes.")
 
-    def update_list_widget(self, rect_item):
-        """Update the corresponding list widget entry for a rect_item."""
-        for index in range(self.list_widget.count()):
-            item = self.list_widget.item(index)
-            # To ensure accurate matching, split the text and compare positions
-            item_parts = item.text().split(", ")
-            if len(item_parts) >= 1 and item_parts[0].startswith("Label:"):
-                current_label = item_parts[0].split("Label:")[1].strip()
-                x = float(item_parts[1].split("x:")[1].strip())
-                y = float(item_parts[2].split("y:")[1].strip())
-                w = float(item_parts[3].split("w:")[1].strip())
-                h = float(item_parts[4].split("h:")[1].strip())
-                if (current_label == rect_item.label and
-                    abs(x - rect_item.rect().x()) < 0.0001 and
-                    abs(y - rect_item.rect().y()) < 0.0001 and
-                    abs(w - rect_item.rect().width()) < 0.0001 and
-                    abs(h - rect_item.rect().height()) < 0.0001):
-                    # Reconstruct the label text with updated label
-                    label_text = f"Label: {rect_item.label}, " \
-                                 f"x: {rect_item.rect().x():.4f}, " \
-                                 f"y: {rect_item.rect().y():.4f}, " \
-                                 f"w: {rect_item.rect().width():.4f}, " \
-                                 f"h: {rect_item.rect().height():.4f}"
-                    self.list_widget.item(index).setText(label_text)
-                    break
+    def backup_label_file(self, label_file):
+        """Create a backup of the label file before saving."""
+        backup_file = label_file + ".bak"
+        try:
+            if os.path.exists(label_file):
+                shutil.copy(label_file, backup_file)
+                print(f"Backup created: {backup_file}")
+        except Exception as e:
+            print(f"Failed to create backup for {label_file}: {e}")
 
     def closeEvent(self, event):
         """Prompt to save bounding boxes on exit."""

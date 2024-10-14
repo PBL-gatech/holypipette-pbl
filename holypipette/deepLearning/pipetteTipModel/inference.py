@@ -47,9 +47,9 @@ def display_and_save_results(results, save_path='annotated_image.jpg'):
 
 if __name__ == '__main__':
     # Define the paths
-    model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\runs\detect\train15\weights\best.pt"
-    # image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteTipModel\training\dataset\test\34407_1725465243.506708.webp"
-    image_path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654099075.png"
+    model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\runs\detect\train18\weights\best.pt"
+    image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\Dataset\SplitDataset\test\images\34383_1725465243.164887_original.webp"
+    # image_path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654099075.png"
     # image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteTipModel\training\dataset\test\3654098892.png"
 
     # Load the model

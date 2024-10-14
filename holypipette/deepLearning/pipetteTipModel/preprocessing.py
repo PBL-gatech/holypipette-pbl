@@ -128,8 +128,8 @@ def process_and_save_images(input_folder, label_folder, output_folder, output_la
                 print(f"Failed to load image: {filename}")
 
 if __name__ == "__main__":
-    input_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\preprocesstestdataset\images"
-    label_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\preprocesstestdataset\labels"
-    output_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\preprocesstestdataset\images_output"
-    output_label_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\preprocesstestdataset\labels_output"
+    input_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\Dataset\newdataset\images"
+    label_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\Dataset\newdataset\labels"
+    output_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\Dataset\newdataset\P_DET_IMAGES"
+    output_label_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\Dataset\newdataset\P_DET_LABELS"
     process_and_save_images(input_folder, label_folder, output_folder, output_label_folder)

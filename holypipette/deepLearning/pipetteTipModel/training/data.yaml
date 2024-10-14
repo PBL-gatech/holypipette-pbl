@@ -1,6 +1,14 @@
-path: C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\pipetteTipModel\\training\\dataset
-train: C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\pipetteTipModel\\training\\dataset\\train\\images
-val: C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\pipetteTipModel\\training\\dataset\\val\\images
+# Base path (optional, can be omitted if using absolute paths)
+path: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/Dataset/SplitDataset
 
+# Training images
+train: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/Dataset/SplitDataset/train/images
+
+# Validation images
+val: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/Dataset/SplitDataset/validate/images
+
+# Number of classes
 nc: 1
+
+# Class names
 names: ['pipette']
