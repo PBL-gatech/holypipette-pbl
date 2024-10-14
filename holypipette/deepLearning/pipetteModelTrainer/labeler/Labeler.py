@@ -8,6 +8,8 @@ from PyQt5.QtGui import QPixmap, QPen, QColor, QKeySequence
 import os
 import json
 import sys
+import shutil  # *** Ensure this import is present ***
+
 
 class ResizableRectItem(QGraphicsRectItem):
     """Custom QGraphicsRectItem that can be resized and holds a label. Used to make a bounding box."""
@@ -83,8 +85,8 @@ class ResizableRectItem(QGraphicsRectItem):
                 rect.setLeft(new_left)
             if 'right' in self._current_handle:
                 new_right = rect.right() + delta.x()
-                if new_right > self.scene().width():
-                    new_right = self.scene().width()
+                if new_right > self.scene().sceneRect().width():  # *** Fixed here ***
+                    new_right = self.scene().sceneRect().width()
                 rect.setRight(new_right)
             if 'top' in self._current_handle:
                 new_top = rect.top() + delta.y()
@@ -93,8 +95,8 @@ class ResizableRectItem(QGraphicsRectItem):
                 rect.setTop(new_top)
             if 'bottom' in self._current_handle:
                 new_bottom = rect.bottom() + delta.y()
-                if new_bottom > self.scene().height():
-                    new_bottom = self.scene().height()
+                if new_bottom > self.scene().sceneRect().height():  # *** Fixed here ***
+                    new_bottom = self.scene().sceneRect().height()
                 rect.setBottom(new_bottom)
             self.setRect(rect)
             self.update_handles()
@@ -120,6 +122,7 @@ class ResizableRectItem(QGraphicsRectItem):
                 parent.changes_made = True
         return super().itemChange(change, value)
 
+
 class CustomGraphicsScene(QGraphicsScene):
     """Custom QGraphicsScene to handle drawing of bounding boxes."""
     def __init__(self, parent=None):
@@ -129,8 +132,9 @@ class CustomGraphicsScene(QGraphicsScene):
         self.current_rect_item = None
 
     def mousePressEvent(self, event):
-        """Start drawing a new rectangle only if click is not on an existing item."""
+        """Handle mouse press events for drawing and adding predefined boxes."""
         if event.button() == Qt.LeftButton:
+            # Existing left-click-and-drag functionality
             items = self.items(event.scenePos())
             if not any(isinstance(item, ResizableRectItem) for item in items):
                 self.drawing = True
@@ -139,6 +143,61 @@ class CustomGraphicsScene(QGraphicsScene):
                 pen = QPen(QColor(255, 0, 0), 2)
                 self.current_rect_item.setPen(pen)
                 self.addItem(self.current_rect_item)
+        elif event.button() == Qt.RightButton:
+            # *** Added right-click functionality ***
+            predefined_width = 100  # Predefined width in pixels
+            predefined_height = 100  # Predefined height in pixels
+
+            click_pos = event.scenePos()
+            x = click_pos.x() - predefined_width / 2
+            y = click_pos.y() - predefined_height / 2
+
+            # Ensure the box stays within the image boundaries
+            if x < 0:
+                x = 0
+            if y < 0:
+                y = 0
+
+            # Use sceneRect() to get the dimensions
+            if x + predefined_width > self.sceneRect().width():
+                x = self.sceneRect().width() - predefined_width
+            if y + predefined_height > self.sceneRect().height():
+                y = self.sceneRect().height() - predefined_height
+
+            rect = QRectF(x, y, predefined_width, predefined_height)
+            new_rect_item = ResizableRectItem(rect)
+            new_rect_item.setPen(QPen(QColor(0, 0, 255), 2))  # Different color for predefined boxes if desired
+            self.addItem(new_rect_item)
+
+            # Assign label
+            parent = self.parent()  # Reference to ImageLabeler
+            if parent.default_label:
+                label = parent.default_label
+                new_rect_item.label = label
+                new_rect_item.setToolTip(label)
+                parent.add_label_to_list(new_rect_item)
+                parent.changes_made = True  # Mark that changes have been made
+                parent.save_bounding_boxes(parent.image_paths[parent.current_index])  # Save immediately
+            else:
+                # Prompt for label if no default_label is set
+                label, ok = QInputDialog.getText(None, "Input Label", "Enter label for the bounding box:")
+                if ok and label.strip():
+                    label = label.strip()
+                    # Check if label exists in label_ID
+                    if label in parent.label_ID:
+                        new_rect_item.label = label
+                        new_rect_item.setToolTip(label)
+                        parent.default_label = label  # Save as default label
+                        parent.add_label_to_list(new_rect_item)
+                        parent.changes_made = True  # Mark that changes have been made
+                        parent.save_bounding_boxes(parent.image_paths[parent.current_index])  # Save immediately
+                    else:
+                        QMessageBox.warning(None, "Invalid Label", f"Label '{label}' is not defined.")
+                        self.removeItem(new_rect_item)
+                else:
+                    # If no label is provided, remove the box
+                    self.removeItem(new_rect_item)
+            # *** End of added right-click functionality ***
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -188,6 +247,7 @@ class CustomGraphicsScene(QGraphicsScene):
                             self.removeItem(self.current_rect_item)
             self.current_rect_item = None
         super().mouseReleaseEvent(event)
+
 
 class ImageLabeler(QMainWindow):
     def __init__(self):
@@ -370,6 +430,10 @@ class ImageLabeler(QMainWindow):
             # Add the image to the QGraphicsScene
             pixmap_item = self.scene.addPixmap(pixmap)
             pixmap_item.setZValue(-1)  # Ensure the image is at the back
+
+            # *** Set the sceneRect to match the pixmap's dimensions ***
+            self.scene.setSceneRect(QRectF(pixmap.rect()))
+            # *** End of setting sceneRect ***
 
             # Fit the image to the view
             self.view.fitInView(pixmap_item, Qt.KeepAspectRatio)
@@ -683,6 +747,7 @@ class ImageLabeler(QMainWindow):
             event.accept()
         else:
             event.ignore()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
