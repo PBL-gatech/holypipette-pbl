@@ -40,3 +40,4 @@ annotated_image.jpg
 /runs
 /holypipette/deepLearning/pipetteModelTrainer/preprocesstestdataset
 /holypipette/deepLearning/pipetteTipModel
+patch_analyzer.log

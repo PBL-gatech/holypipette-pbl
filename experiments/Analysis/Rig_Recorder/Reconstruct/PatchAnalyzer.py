@@ -1,31 +1,106 @@
 import os
 import sys
-import pandas as pd
+import csv
+import numpy as np
 import pyqtgraph as pg
 import logging
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton,
-    QFileDialog, QShortcut, QHBoxLayout, QFrame, QSlider, QMessageBox, QSizePolicy, QComboBox
+    QFileDialog, QShortcut, QHBoxLayout, QFrame, QSlider, QMessageBox,
+    QSizePolicy, QComboBox, QProgressBar
 )
-from PyQt5.QtGui import QColor
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QColor, QIcon
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 # Configure logging
 logging.basicConfig(
-    filename='patch_analyzer.log',            # Log file name
-    filemode='a',                             # Append mode
+    filename='patch_analyzer.log',
+    filemode='a',  # Append mode
     format='%(asctime)s - %(levelname)s - %(message)s',  # Log message format
-    level=logging.DEBUG                       # Logging level
+    level=logging.INFO  # Logging level
 )
+
+# Conversion factor for CurrentProtocol command to current
+C_CLAMP_AMP_PER_VOLT = 400 * 1e-12  # 400 pA / V
+
+class DataLoaderThread(QThread):
+    """Thread to load CSV data without blocking the UI."""
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(dict)  # Emit a dictionary containing all loaded data
+
+    def __init__(self, protocol, protocol_dir, run_groups=None):
+        super().__init__()
+        self.protocol = protocol
+        self.protocol_dir = protocol_dir
+        self.run_groups = run_groups  # Only for CurrentProtocol
+
+    def run(self):
+        loaded_data = {}
+        try:
+            if self.protocol == "CurrentProtocol" and self.run_groups:
+                for run_number, csv_files in self.run_groups.items():
+                    loaded_data[run_number] = {}
+                    total_files = len(csv_files)
+                    for idx, csv_file in enumerate(csv_files):
+                        csv_path = os.path.join(self.protocol_dir, csv_file)
+                        try:
+                            with open(csv_path, 'r') as f:
+                                reader = csv.reader(f, delimiter=' ')
+                                time, command, response = [], [], []
+                                for row in reader:
+                                    if len(row) < 3:
+                                        continue
+                                    time.append(float(row[0]))
+                                    command.append(float(row[1]) * C_CLAMP_AMP_PER_VOLT)
+                                    response.append(float(row[2]))
+                                loaded_data[run_number][csv_file] = {
+                                    'time': np.array(time),
+                                    'command': np.array(command),
+                                    'response': np.array(response)
+                                }
+                        except Exception as e:
+                            logging.error(f"Error loading {csv_file}: {e}")
+                            loaded_data[run_number][csv_file] = None
+                        progress_percent = int(((idx + 1) / total_files) * 100)
+                        self.progress.emit(progress_percent)
+            else:
+                # For VoltageProtocol and HoldingProtocol
+                csv_files = [f for f in os.listdir(self.protocol_dir) if f.endswith('.csv')]
+                loaded_data['files'] = {}
+                total_files = len(csv_files)
+                for idx, csv_file in enumerate(csv_files):
+                    csv_path = os.path.join(self.protocol_dir, csv_file)
+                    try:
+                        with open(csv_path, 'r') as f:
+                            reader = csv.reader(f, delimiter=' ')
+                            time, command, response = [], [], []
+                            for row in reader:
+                                if len(row) < 3:
+                                    continue
+                                time.append(float(row[0]))
+                                command.append(float(row[1]))
+                                response.append(float(row[2]))
+                            loaded_data['files'][csv_file] = {
+                                'time': np.array(time),
+                                'command': np.array(command),
+                                'response': np.array(response)
+                            }
+                    except Exception as e:
+                        logging.error(f"Error loading {csv_file}: {e}")
+                        loaded_data['files'][csv_file] = None
+                    progress_percent = int(((idx + 1) / total_files) * 100)
+                    self.progress.emit(progress_percent)
+        except Exception as e:
+            logging.error(f"Unexpected error during data loading: {e}")
+        self.finished.emit(loaded_data)
 
 class PatchAnalyzer(QMainWindow):
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle('PatchAnalyzer')
-        self.setGeometry(100, 100, 800, 800)
-        self.setWindowIcon(QIcon())  # You can set an icon if available
+        self.setGeometry(100, 100, 1200, 800)
+        self.setWindowIcon(QIcon())  # Set an icon if available
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -43,7 +118,7 @@ class PatchAnalyzer(QMainWindow):
         self.graph_frame.setFrameShape(QFrame.StyledPanel)
         self.graph_frame.setFrameShadow(QFrame.Sunken)
         self.graph_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.graph_frame.setMinimumSize(600, 400)
+        self.graph_frame.setMinimumSize(800, 400)
 
         # Create a layout to hold the 2x1 graphs
         self.graph_layout = QVBoxLayout(self.graph_frame)
@@ -57,20 +132,25 @@ class PatchAnalyzer(QMainWindow):
 
         # Create 2x1 grid of plots
         self.plots = [
-            self.graphics_layout.addPlot(row=0, col=0, title="Command Voltage"),
-            self.graphics_layout.addPlot(row=1, col=0, title="Current Response")
+            self.graphics_layout.addPlot(row=0, col=0, title="Command Data"),
+            self.graphics_layout.addPlot(row=1, col=0, title="Response Data")
         ]
 
         # Set labels
-        self.plots[0].setLabel('left', 'Command Voltage', units='V')
         self.plots[0].setLabel('bottom', 'Time', units='s')
-        self.plots[1].setLabel('left', 'Current Response', units='A')
         self.plots[1].setLabel('bottom', 'Time', units='s')
+
+        # Initialize plot data items for efficient updates
+        self.command_plot = self.plots[0].plot([], [], pen=pg.mkPen(color='b', width=2))
+        self.response_plot = self.plots[1].plot([], [], pen=pg.mkPen(color='r', width=2))
 
         # Set up vertical slider
         self.vertical_slider = QSlider(Qt.Vertical)
         self.vertical_slider.setTickPosition(QSlider.NoTicks)
         self.vertical_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.vertical_slider.valueChanged.connect(self.on_slider_value_changed)
+        self.vertical_slider.setMinimum(0)
+        self.vertical_slider.setMaximum(0)  # Will be updated after data loading
 
         # Create a horizontal layout to hold the graph frame and the vertical slider
         self.horizontal_layout = QHBoxLayout()
@@ -137,10 +217,16 @@ class PatchAnalyzer(QMainWindow):
         self.run_dropdown = QComboBox()
         self.run_dropdown.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.run_dropdown.currentIndexChanged.connect(self.on_run_selected)
+        self.run_dropdown.setEnabled(False)  # Disabled until data is loaded
         self.buttons_layout.addWidget(self.run_dropdown)
 
         # Add the buttons layout to the main layout
         self.main_layout.addLayout(self.buttons_layout)
+
+        # Progress Bar for Data Loading
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)  # Hidden by default
+        self.main_layout.addWidget(self.progress_bar)
 
         # Keyboard shortcuts
         self.shortcut_left = QShortcut(Qt.Key_Left, self)
@@ -149,13 +235,19 @@ class PatchAnalyzer(QMainWindow):
         self.shortcut_right.activated.connect(self.show_next_protocol)
 
         # Initialize protocol variables
-        self.protocols = []
+        self.protocols = []  # List of tuples: (protocol_name, protocol_dir)
         self.current_protocol_index = 0
-        self.current_csv_files = []  # Initialize as empty list
-        self.current_protocol_dir = ""
         self.current_protocol_name = ""
+        self.current_protocol_dir = ""
+        self.current_run_number = ""
+        self.current_csv_files = []  # List of CSV file names for non-CurrentProtocol
+        self.current_run_files = []  # List of CSV file names for CurrentProtocol
+
+        # Data storage
+        self.loaded_data = {}  # Nested dictionary to store all loaded data
 
     def open_directory(self):
+        """Open a directory and load all data."""
         directory = QFileDialog.getExistingDirectory(self, "Open Directory", "")
         if directory:
             logging.info(f"Selected directory: {directory}")
@@ -167,18 +259,18 @@ class PatchAnalyzer(QMainWindow):
             if os.path.exists(volt_dir):
                 self.protocols.append(('VoltageProtocol', volt_dir))
                 logging.info(f"Found VoltageProtocol at: {volt_dir}")
-            else:
-                self.info.setText("No Voltage Protocol Data Found")
-                logging.warning("No Voltage Protocol Data Found")
 
             # Check for HoldingProtocol
             hold_dir = os.path.join(directory, 'HoldingProtocol')
             if os.path.exists(hold_dir):
                 self.protocols.append(('HoldingProtocol', hold_dir))
                 logging.info(f"Found HoldingProtocol at: {hold_dir}")
-            else:
-                self.info.setText("No Holding Protocol Data Found")
-                logging.warning("No Holding Protocol Data Found")
+
+            # Check for CurrentProtocol
+            curr_dir = os.path.join(directory, 'CurrentProtocol')
+            if os.path.exists(curr_dir):
+                self.protocols.append(('CurrentProtocol', curr_dir))
+                logging.info(f"Found CurrentProtocol at: {curr_dir}")
 
             if self.protocols:
                 logging.info(f"Available protocols: {self.protocols}")
@@ -188,93 +280,207 @@ class PatchAnalyzer(QMainWindow):
                 logging.error("No valid protocols found in the selected directory.")
 
     def load_protocol(self, protocol):
+        """Load all CSV data for the selected protocol."""
         protocol_name, protocol_dir = protocol
-        logging.info(f"Loading protocol: {protocol_name} from {protocol_dir}")
-        csv_files = [f for f in os.listdir(protocol_dir) if f.endswith('.csv')]
-
-        logging.info(f"Found CSV files: {csv_files}")
-
-        if not csv_files:
-            self.info.setText(f"No valid CSV files found in {protocol_name} folder.")
-            logging.error(f"No valid CSV files found in {protocol_name} folder.")
-            return
-
-        # Store protocol details before updating the dropdown
-        self.current_csv_files = csv_files
-        self.current_protocol_dir = protocol_dir
         self.current_protocol_name = protocol_name
-
-        # Block signals to prevent on_run_selected from being called during initialization
-        self.run_dropdown.blockSignals(True)
-        self.run_dropdown.clear()
-        for i in range(len(csv_files)):
-            self.run_dropdown.addItem(f"Run {i + 1}")
-        self.run_dropdown.setCurrentIndex(0)  # This will trigger on_run_selected
-        self.run_dropdown.blockSignals(False)
+        self.current_protocol_dir = protocol_dir
+        self.loaded_data = {}  # Reset loaded data
 
         self.info.setText(f"Loading {protocol_name}...")
-        logging.info(f"Loading {protocol_name} protocol...")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
 
-        # Now that current_csv_files is set, manually load the first run
-        self.load_run(0)
+        csv_files = [f for f in os.listdir(protocol_dir) if f.endswith('.csv')]
+        total_files = len(csv_files)
 
-    def load_run(self, run_index):
-        if not self.current_csv_files:
-            self.info.setText("No protocols loaded. Please select a data directory.")
-            logging.error("No CSV files available to load.")
+        if protocol_name == "CurrentProtocol":
+            # Group CSV files by run number
+            run_groups = {}
+            for csv_file in csv_files:
+                parts = csv_file.split('_')
+                if len(parts) >= 3:
+                    run_number = parts[1]
+                    if run_number not in run_groups:
+                        run_groups[run_number] = []
+                    run_groups[run_number].append(csv_file)
+            self.loaded_data['runs'] = {}
+            run_count = len(run_groups)
+            for idx, (run_number, files) in enumerate(sorted(run_groups.items())):
+                self.loaded_data['runs'][run_number] = {}
+                for file_idx, csv_file in enumerate(sorted(files)):
+                    csv_path = os.path.join(protocol_dir, csv_file)
+                    try:
+                        with open(csv_path, 'r') as f:
+                            reader = csv.reader(f, delimiter=' ')
+                            time, command, response = [], [], []
+                            for row in reader:
+                                if len(row) < 3:
+                                    continue
+                                time.append(float(row[0]))
+                                command.append(float(row[1]) * C_CLAMP_AMP_PER_VOLT)
+                                response.append(float(row[2]))
+                            self.loaded_data['runs'][run_number][csv_file] = {
+                                'time': np.array(time),
+                                'command': np.array(command),
+                                'response': np.array(response)
+                            }
+                    except Exception as e:
+                        logging.error(f"Error loading {csv_file}: {e}")
+                        self.loaded_data['runs'][run_number][csv_file] = None
+                    progress_percent = int(((idx * len(files) + file_idx + 1) / total_files) * 100)
+                    self.progress_bar.setValue(progress_percent)
+            # Populate run dropdown
+            self.run_dropdown.blockSignals(True)
+            self.run_dropdown.clear()
+            for run_number in sorted(self.loaded_data['runs'].keys()):
+                self.run_dropdown.addItem(f"Run {run_number}")
+            self.run_dropdown.setCurrentIndex(0)
+            self.run_dropdown.blockSignals(False)
+            self.run_dropdown.setEnabled(True)
+            # Set current run
+            self.current_run_number = sorted(self.loaded_data['runs'].keys())[0]
+            self.current_run_files = sorted(self.loaded_data['runs'][self.current_run_number].keys())
+            # Configure slider
+            self.vertical_slider.setMinimum(0)
+            self.vertical_slider.setMaximum(len(self.current_run_files) - 1)
+            self.vertical_slider.setValue(0)
+            # Plot the first file
+            self.plot_current_file(0)
+        else:
+            # For VoltageProtocol and HoldingProtocol
+            self.loaded_data['files'] = {}
+            for idx, csv_file in enumerate(sorted(csv_files)):
+                csv_path = os.path.join(protocol_dir, csv_file)
+                try:
+                    with open(csv_path, 'r') as f:
+                        reader = csv.reader(f, delimiter=' ')
+                        time, command, response = [], [], []
+                        for row in reader:
+                            if len(row) < 3:
+                                continue
+                            time.append(float(row[0]))
+                            command.append(float(row[1]))
+                            response.append(float(row[2]))
+                        self.loaded_data['files'][csv_file] = {
+                            'time': np.array(time),
+                            'command': np.array(command),
+                            'response': np.array(response)
+                        }
+                except Exception as e:
+                    logging.error(f"Error loading {csv_file}: {e}")
+                    self.loaded_data['files'][csv_file] = None
+                progress_percent = int(((idx + 1) / total_files) * 100)
+                self.progress_bar.setValue(progress_percent)
+            # Populate run dropdown
+            self.run_dropdown.blockSignals(True)
+            self.run_dropdown.clear()
+            for idx, csv_file in enumerate(sorted(self.loaded_data['files'].keys())):
+                self.run_dropdown.addItem(f"Run {idx + 1}")
+            self.run_dropdown.setCurrentIndex(0)
+            self.run_dropdown.blockSignals(False)
+            self.run_dropdown.setEnabled(True)
+            # Set current run files
+            self.current_run_files = sorted(self.loaded_data['files'].keys())
+            # Configure slider
+            self.vertical_slider.setMinimum(0)
+            self.vertical_slider.setMaximum(len(self.current_run_files) - 1)
+            self.vertical_slider.setValue(0)
+            # Plot the first file
+            self.plot_csv_file(0)
+
+        self.progress_bar.setVisible(False)
+        self.info.setText(f"Loaded {protocol_name} protocol.")
+
+    def plot_csv_file(self, index):
+        """Plot data for non-CurrentProtocol protocols."""
+        if not self.current_protocol_name or self.current_protocol_name == "CurrentProtocol":
             return
-        if run_index < 0 or run_index >= len(self.current_csv_files):
-            self.info.setText(f"Run {run_index + 1} not available in {self.current_protocol_name}.")
-            logging.error(f"Run index {run_index} is out of range.")
+
+        if index < 0 or index >= len(self.current_run_files):
+            logging.error(f"File index {index} is out of range.")
             return
 
-        csv_file = self.current_csv_files[run_index]
-        csv_path = os.path.join(self.current_protocol_dir, csv_file)
-        logging.info(f"Loading CSV file: {csv_path}")
+        csv_file = self.current_run_files[index]
+        data = self.loaded_data['files'].get(csv_file)
 
-        try:
-            # Read the CSV using pandas with any whitespace as delimiter
-            df = pd.read_csv(csv_path, sep='\s+', header=None, names=['Time', 'CommandVoltage', 'CurrentResponse'])
+        if data is None:
+            self.info.setText(f"No data loaded from {csv_file}.")
+            logging.warning(f"No data loaded from {csv_file}.")
+            return
 
-            if df.empty:
-                self.info.setText(f"No data loaded from {csv_file}.")
-                logging.warning(f"No data loaded from {csv_file}.")
-                return
+        time = data['time']
+        command = data['command']
+        response = data['response']
 
-            # Convert columns to lists
-            time = df['Time'].astype(float).tolist()
-            command_voltage = df['CommandVoltage'].astype(float).tolist()
-            current_response = df['CurrentResponse'].astype(float).tolist()
+        # Set appropriate labels based on protocol type
+        if self.current_protocol_name == "VoltageProtocol":
+            self.plots[0].setLabel('left', 'Command Voltage', units='V')
+            self.plots[1].setLabel('left', 'Current Response', units='A')
+        elif self.current_protocol_name == "HoldingProtocol":
+            self.plots[0].setLabel('left', 'Command Voltage', units='V')
+            self.plots[1].setLabel('left', 'Current Response', units='A')
 
-            logging.info(f"Total data points loaded: {len(time)}")
-            logging.debug(f"First 5 data points:\n{df.head()}")
+        # Update plot data
+        self.command_plot.setData(time, command)
+        self.response_plot.setData(time, response)
 
-            # Plot the data
-            self.plots[0].clear()
-            self.plots[1].clear()
-            self.plots[0].plot(time, command_voltage, pen=pg.mkPen(color='b'), name="Command Voltage")
-            self.plots[1].plot(time, current_response, pen=pg.mkPen(color='r'), name="Current Response")
+        # Auto-scale the plots to fit the data
+        self.plots[0].enableAutoRange()
+        self.plots[1].enableAutoRange()
 
-            # Auto-scale the plots to fit the data
-            self.plots[0].enableAutoRange()
-            self.plots[1].enableAutoRange()
+        self.info.setText(f"Loaded data from {csv_file}")
+        logging.info(f"Data from {csv_file} plotted successfully.")
 
-            self.info.setText(f"Loaded data from {csv_file}")
-            logging.info(f"Data from {csv_file} plotted successfully.")
-        except pd.errors.EmptyDataError:
-            self.info.setText(f"No data found in {csv_file}.")
-            logging.error(f"No data found in {csv_file}.")
-        except pd.errors.ParserError as e:
-            self.info.setText(f"Parsing error in {csv_file}: {e}")
-            logging.error(f"Parsing error in {csv_file}: {e}")
-        except ValueError as e:
-            self.info.setText(f"Data conversion error in {csv_file}: {e}")
-            logging.error(f"Data conversion error in {csv_file}: {e}")
-        except Exception as e:
-            self.info.setText(f"Unexpected error loading {csv_file}: {e}")
-            logging.error(f"Unexpected error loading {csv_file}: {e}")
+    def plot_current_file(self, index):
+        """Plot data for CurrentProtocol."""
+        if self.current_protocol_name != "CurrentProtocol":
+            return
+
+        if not self.current_run_files:
+            logging.error("No run files available to plot.")
+            return
+
+        if index < 0 or index >= len(self.current_run_files):
+            logging.error(f"File index {index} is out of range.")
+            return
+
+        csv_file = self.current_run_files[index]
+        data = self.loaded_data['runs'][self.current_run_number].get(csv_file)
+
+        if data is None:
+            self.info.setText(f"No data loaded from {csv_file}.")
+            logging.warning(f"No data loaded from {csv_file}.")
+            return
+
+        time = data['time']
+        command = data['command']
+        response = data['response']
+
+        # Set labels for CurrentProtocol
+        self.plots[0].setLabel('left', 'Command Current', units='A')
+        self.plots[1].setLabel('left', 'Voltage Response', units='V')
+
+        # Update plot data
+        self.command_plot.setData(time, command)
+        self.response_plot.setData(time, response)
+
+        # Auto-scale the plots to fit the data
+        self.plots[0].enableAutoRange()
+        self.plots[1].enableAutoRange()
+
+        self.info.setText(f"Loaded data from {csv_file}")
+        logging.info(f"Data from {csv_file} plotted successfully.")
+
+    def on_slider_value_changed(self, value):
+        """Handle the slider value change event to load a specific file."""
+        logging.info(f"Slider value changed: {value}")
+        if self.current_protocol_name == "CurrentProtocol":
+            self.plot_current_file(value)
+        else:
+            self.plot_csv_file(value)
 
     def show_previous_protocol(self):
+        """Navigate to the previous protocol."""
         if not self.protocols:
             self.info.setText("No protocols loaded. Please select a data directory.")
             logging.error("No protocols loaded. Cannot navigate to previous protocol.")
@@ -286,6 +492,7 @@ class PatchAnalyzer(QMainWindow):
         self.load_protocol(self.protocols[self.current_protocol_index])
 
     def show_next_protocol(self):
+        """Navigate to the next protocol."""
         if not self.protocols:
             self.info.setText("No protocols loaded. Please select a data directory.")
             logging.error("No protocols loaded. Cannot navigate to next protocol.")
@@ -297,31 +504,47 @@ class PatchAnalyzer(QMainWindow):
         self.load_protocol(self.protocols[self.current_protocol_index])
 
     def show_previous_timepoint(self):
-        # Implement logic to show previous timepoint
+        """Navigate to the previous timepoint (not implemented)."""
         self.info.setText("Previous timepoint functionality not implemented yet.")
         logging.info("Previous timepoint button clicked.")
 
     def show_next_timepoint(self):
-        # Implement logic to show next timepoint
+        """Navigate to the next timepoint (not implemented)."""
         self.info.setText("Next timepoint functionality not implemented yet.")
         logging.info("Next timepoint button clicked.")
 
     def toggle_video(self):
-        # Implement logic to toggle video playback
+        """Toggle play/pause video functionality (not implemented)."""
         self.info.setText("Play/Pause video functionality not implemented yet.")
         logging.info("Toggle video button clicked.")
 
     def on_run_selected(self, run_index):
+        """Handle run selection from the dropdown."""
         logging.info(f"Run selected: {run_index}")
-        # Ensure that run_index is within bounds
-        if 0 <= run_index < len(self.current_csv_files):
-            self.load_run(run_index)
+        if self.current_protocol_name == "CurrentProtocol":
+            run_number = sorted(self.loaded_data['runs'].keys())[run_index]
+            self.current_run_number = run_number
+            self.current_run_files = sorted(self.loaded_data['runs'][run_number].keys())
+            # Configure slider
+            self.vertical_slider.setMinimum(0)
+            self.vertical_slider.setMaximum(len(self.current_run_files) - 1)
+            self.vertical_slider.setValue(0)
+            # Plot the first file of the selected run
+            self.plot_current_file(0)
         else:
-            self.info.setText("Selected run index is out of range.")
-            logging.error("Selected run index is out of range.")
+            self.current_run_files = sorted(self.loaded_data['files'].keys())
+            # Configure slider
+            self.vertical_slider.setMinimum(0)
+            self.vertical_slider.setMaximum(len(self.current_run_files) - 1)
+            self.vertical_slider.setValue(0)
+            # Plot the first file
+            self.plot_csv_file(0)
 
-if __name__ == '__main__':
+def main():
     app = QApplication(sys.argv)
     window = PatchAnalyzer()
     window.show()
     sys.exit(app.exec_())
+
+if __name__ == '__main__':
+    main()
