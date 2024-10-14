@@ -10,7 +10,7 @@ import json
 import sys
 
 class ResizableRectItem(QGraphicsRectItem):
-    """Custom QGraphicsRectItem that can be resized and holds a label."""
+    """Custom QGraphicsRectItem that can be resized and holds a label. Used to make a bounding box."""
     def __init__(self, rect, label="", parent=None):
         super().__init__(rect, parent)
         self.setFlags(
@@ -246,12 +246,18 @@ class ImageLabeler(QMainWindow):
         self.current_index = 0
         self.default_label = None  # To store the default label after first input
 
+        self.label_ID = {
+            "in_focus" : 0,
+            "above_plane": 1,
+            "below_plane": 2,
+            "not_detected": 3
+        } # parameterise the labels from words to numbers
+
         # Keyboard shortcuts
         self.shortcut_left = QShortcut(QKeySequence(Qt.Key_Left), self)
         self.shortcut_left.activated.connect(self.show_previous_image)
         self.shortcut_right = QShortcut(QKeySequence(Qt.Key_Right), self)
         self.shortcut_right.activated.connect(self.show_next_image)
-
 
     def refresh_list_widget(self):
         """Refresh the sidebar list_widget to reflect current labels."""
@@ -259,7 +265,6 @@ class ImageLabeler(QMainWindow):
         for item in self.scene.items():
             if isinstance(item, ResizableRectItem):
                 self.add_label_to_list(item)
-
 
     def add_label_to_list(self, rect_item):
         """Add a labeled bounding box to the side list."""
@@ -340,59 +345,85 @@ class ImageLabeler(QMainWindow):
             # Load bounding boxes for the image
             self.load_bounding_boxes(image_path)
 
-    def load_bounding_boxes(self, image_path):
+    def load_bounding_boxes(self, image_path, format="txt"):
         """Load bounding boxes from the corresponding label file."""
+        extension = '.json' if format == "json" else '.txt'
         label_file = os.path.join(
             self.labels_path,
-            os.path.basename(image_path).rsplit('.', 1)[0] + '.json'
+            os.path.basename(image_path).rsplit('.', 1)[0] + extension
         )
 
         self.list_widget.clear()  # Clear the side list
 
         if os.path.exists(label_file):
             try:
-                with open(label_file, 'r') as f:
-                    data = json.load(f)
-                    bounding_boxes = data.get('bounding_boxes', [])
-                    # Do not reset default_label here to preserve it across images
-                    if not self.default_label:
+                if format == "json":
+                    with open(label_file, 'r') as f:
+                        data = json.load(f)
+                        bounding_boxes = data.get('bounding_boxes', [])
+                        # Update labels to use the label_ID dictionary
                         for box in bounding_boxes:
                             label = box.get('label', '')
-                            if label:
-                                self.default_label = label
-                                break
+                            if label in self.label_ID:
+                                box['label'] = self.label_ID[label]  # Replace string label with numeric ID
+
+                else:
+                    bounding_boxes = []
+                    with open(label_file, 'r') as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if len(parts) == 5:
+                                label_num, x_center, y_center, width, height = map(float, parts[1:])
+                                label = next((key for key, val in self.label_ID.items() if val == int(parts[0])), "")
+                                bounding_boxes.append({
+                                    'label': label,
+                                    'x_center': x_center,
+                                    'y_center': y_center,
+                                    'width': width,
+                                    'height': height
+                                })
+
+                # Handle the default label (preserving across images)
+                if not self.default_label:
                     for box in bounding_boxes:
                         label = box.get('label', '')
-                        x_center = box.get('x_center', 0)
-                        y_center = box.get('y_center', 0)
-                        width = box.get('width', 0)
-                        height = box.get('height', 0)
+                        if label:
+                            self.default_label = label
+                            break
 
-                        # Convert YOLO format back to pixel coordinates
-                        pixmap = QPixmap(image_path)
-                        image_width = pixmap.width()
-                        image_height = pixmap.height()
+                # Convert YOLO format to pixel coordinates and add to the scene
+                pixmap = QPixmap(image_path)
+                image_width = pixmap.width()
+                image_height = pixmap.height()
 
-                        x = (x_center - width / 2) * image_width
-                        y = (y_center - height / 2) * image_height
-                        w = width * image_width
-                        h = height * image_height
+                for box in bounding_boxes:
+                    label = box.get('label', '')
+                    x_center = box.get('x_center', 0)
+                    y_center = box.get('y_center', 0)
+                    width = box.get('width', 0)
+                    height = box.get('height', 0)
 
-                        rect = QRectF(x, y, w, h)
-                        rect_item = ResizableRectItem(rect, label)
-                        rect_item.setPen(QPen(QColor(255, 0, 0), 2))
-                        self.scene.addItem(rect_item)
-                        self.add_label_to_list(rect_item)
+                    x = (x_center - width / 2) * image_width
+                    y = (y_center - height / 2) * image_height
+                    w = width * image_width
+                    h = height * image_height
 
-                        self.info_label.setText(f"Loaded labels for {os.path.basename(image_path)}")
-            except json.JSONDecodeError:
-                        QMessageBox.warning(self, "Error", f"Invalid JSON format in {label_file}.")
+                    rect = QRectF(x, y, w, h)
+                    rect_item = ResizableRectItem(rect, label)
+                    rect_item.setPen(QPen(QColor(255, 0, 0), 2))
+                    self.scene.addItem(rect_item)
+                    self.add_label_to_list(rect_item)
+
+                self.info_label.setText(f"Loaded labels for {os.path.basename(image_path)}")
+
+            except (json.JSONDecodeError, ValueError):
+                QMessageBox.warning(self, "Error", f"Invalid format in {label_file}.")
             except Exception as e:
-                    QMessageBox.warning(self, "Error", f"Failed to load bounding boxes: {e}")
-            else:
-                self.info_label.setText(f"No labels found for {os.path.basename(image_path)}")
+                QMessageBox.warning(self, "Error", f"Failed to load bounding boxes: {e}")
+        else:
+            self.info_label.setText(f"No labels found for {os.path.basename(image_path)}")
 
-    def save_bounding_boxes(self, image_path):
+    def save_bounding_boxes(self, image_path, format="txt"):
         """Save bounding boxes to the corresponding label file in YOLO format."""
         label_file = os.path.join(
             self.labels_path,
@@ -418,10 +449,22 @@ class ImageLabeler(QMainWindow):
                     'width': round(width, 6),
                     'height': round(height, 6)
                 })
+        if format == "json":
+            extension = '.json' 
+        else:
+            extension = '.txt'
+        label_file = os.path.join(self.labels_path, os.path.basename(image_path).rsplit('.', 1)[0] + extension)
 
         try:
             with open(label_file, 'w') as f:
-                json.dump({'bounding_boxes': bounding_boxes}, f, indent=4)
+                if format == "json":
+                    json.dump({'bounding_boxes': bounding_boxes}, f, indent=4)
+                else:
+                    for box in bounding_boxes:
+                        label_number = self.label_ID.get(box['label'], -1)
+                        if label_number != -1:
+                            f.write(f"{label_number} {box['x_center']} {box['y_center']} {box['width']} {box['height']}\n")
+
             self.info_label.setText(f"Saved labels for {os.path.basename(image_path)}")
         except IOError as e:
             QMessageBox.warning(self, "Save Error", f"Failed to save labels: {e}")
@@ -526,7 +569,6 @@ class ImageLabeler(QMainWindow):
 
         self.info_label.setText(f"Label changed to '{new_label}' for selected and subsequent boxes.")
 
-
     def update_list_widget(self, rect_item):
         """Update the corresponding list widget entry for a rect_item."""
         for index in range(self.list_widget.count()):
@@ -552,7 +594,6 @@ class ImageLabeler(QMainWindow):
                                  f"h: {rect_item.rect().height():.4f}"
                     self.list_widget.item(index).setText(label_text)
                     break
-
 
     def closeEvent(self, event):
         """Prompt to save bounding boxes on exit."""
