@@ -7,7 +7,7 @@ class PipetteFinder():
 
 	def __init__(self):
 		curFile = str(Path(__file__).parent.absolute())
-		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipette-nano.onnx')
+		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipetteFinderNet.onnx')
 
 		layer_names = self.yoloNet.getLayerNames()
 		self.output_layers = [layer_names[i-1] for i in self.yoloNet.getUnconnectedOutLayers()]
@@ -58,14 +58,15 @@ class PipetteFinder():
 		best_y = (best_y / 640) * img.shape[0]
 
 		#convert to int (for opencv drawing functions)
-		best_x = int(best_x)
-		best_y = int(best_y)
+		best_x = int(best_x) #+ 45 #shift left a bit to center on pipette tip
+		best_y = int(best_y) #- 90  #shift up a bit to center on pipette tip
 
 		return best_x, best_y
 	
 if __name__ == '__main__':
 	finder = PipetteFinder()
-	img = cv2.imread('/home/nathan/Desktop/82.png')
+	path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098890.png"
+	img = cv2.imread(path)
 
 	#find pipette, draw location to img
 	start = time.time()
