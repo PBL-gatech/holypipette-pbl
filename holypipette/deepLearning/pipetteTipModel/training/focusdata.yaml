@@ -1,0 +1,14 @@
+# Base path (optional, can be omitted if using absolute paths)
+path: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/focus_dataset/focus_training_set/SplitDatasetnoaug
+
+# Training images
+train: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/focus_dataset/focus_training_set/SplitDatasetnoaug/train/images
+
+# Validation images
+val: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/focus_dataset/focus_training_set/SplitDatasetnoaug/validate/images
+
+# Number of classes
+nc: 3
+
+# Class names
+names: ['in_focus', 'above_plane', 'below_plane']
