@@ -130,11 +130,54 @@ class TrackingPatchGui(PatchGui):
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
     def __init__(self, title="", parent=None):
         super(CollapsibleGroupBox, self).__init__(parent)
-        self.setTitle(title)
+        self.setTitle("")  # Set the group box title to be blank to allow custom styling
 
-        # Create a toggle button
+        # Apply styles for rounded corners, grey borders, and consistent font
+        self.setStyleSheet("""
+            QGroupBox {
+                border: 1px solid lightgray;  /* Light grey border */
+                border-radius: 8px;           /* Rounded corners with 8px radius */
+                margin-top: 10px;             /* Adjust top margin for visual separation */
+                font-family: Arial, Helvetica, sans-serif;  /* Consistent font family */
+                font-size: 14px;              /* Consistent font size for the group box */
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top center;
+                padding: 0 3px;
+                font-weight: bold;            /* Bold for the group box title */
+            }
+            QWidget {
+                background-color: #f9f9f9;    /* Light grey background for the content area */
+                border-radius: 8px;
+                font-family: Arial, Helvetica, sans-serif;  /* Consistent font family */
+                font-size: 14px;              /* Consistent font size for content area */
+            }
+            QPushButton {
+                background-color: #ffffff;     /* White background for buttons */
+                border: 1px solid lightgray;   /* Light grey border for buttons */
+                border-radius: 6px;            /* Slightly rounded corners for buttons */
+                padding: 6px;                  /* Padding for a better button look */
+                font-family: Arial, Helvetica, sans-serif;  /* Consistent font family */
+                font-size: 14px;               /* Adjusted font size for buttons */
+                outline: none;                 /* Remove default focus outline */
+            }
+            QPushButton:hover {
+                background-color: rgba(173, 216, 230, 0.5);  /* Light blue with 50% transparency on hover */
+                border: 1px solid #87CEEB;       /* Soft blue border on hover */
+            }
+            QPushButton:pressed {
+                background-color: #d1e7ff;     /* Light blue when pressed for a subtle effect */
+            }
+            QPushButton:focus {
+                border: 1px solid #87CEEB;      /* Consistent border color on focus (soft blue) */
+                outline: none;                  /* Remove blue edge or highlight on focus */
+            }
+        """)
+
+        # Create a toggle button (arrow) for expanding/collapsing
         self.toggle_button = QtWidgets.QToolButton()
-        self.toggle_button.setStyleSheet("QToolButton { border: none; }")
+        self.toggle_button.setStyleSheet("QToolButton { border: none; font-family: Arial, Helvetica, sans-serif; font-size: 14px; }")
         self.toggle_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.toggle_button.setArrowType(Qt.DownArrow)
         self.toggle_button.setText(title)
@@ -144,7 +187,7 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
 
         # Layout for the toggle button
         self.header_layout = QtWidgets.QHBoxLayout()
-        self.header_layout.addWidget(self.toggle_button)
+        self.header_layout.addWidget(self.toggle_button, alignment=Qt.AlignLeft)
         self.header_layout.addStretch()
 
         # Content area
@@ -152,10 +195,11 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
         self.content_layout = QtWidgets.QVBoxLayout()
         self.content_area.setLayout(self.content_layout)
 
-        # Main layout
+        # Main layout of the collapsible group box
         self.main_layout = QtWidgets.QVBoxLayout()
         self.main_layout.addLayout(self.header_layout)
         self.main_layout.addWidget(self.content_area)
+        self.main_layout.setContentsMargins(5, 5, 5, 5)  # Add some margin to create spacing inside
         self.setLayout(self.main_layout)
 
     def on_toggle(self):
@@ -173,6 +217,8 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
             if child.widget():
                 child.widget().setParent(None)
         self.content_layout.addLayout(layout)
+
+
 
 class ButtonTabWidget(QtWidgets.QWidget):
     def __init__(self):
@@ -556,18 +602,28 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         self.addButtonList('patching states', layout, buttonList, cmds)
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Pipette', 'Calibrate Stage'], ['Store Safe Position', 'Move to Safe Position']]
-        cmds = [
-            [self.pipette_interface.record_cal_point, self.pipette_interface.calibrate_stage],
-            [self.patch_interface.store_safe_position, self.patch_interface.move_to_safe_space]
+        buttonList = [['Calibrate Stage'],['Save cell plane origin'],['Calibrate Pipette'],['Store Safe Position'],['Store Rinse Position'],['Store Cleaning Position']]
+        cmds = [[self.pipette_interface.calibrate_stage],
+                [self.pipette_interface.set_floor],
+                [self.pipette_interface.record_cal_point],
+                [self.patch_interface.store_safe_position],
+                [self.patch_interface.store_rinsing_position],
+                [self.patch_interface.store_cleaning_position]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds)
+        # Add a box for movement commands
+        buttonList = [['Move to Safe Position', 'Move to Cell Plane'],['Clean pipette']]
+        cmds = [
+            [self.patch_interface.move_to_safe_space, self.pipette_interface.go_to_floor],
+            [self.patch_interface.clean_pipette]
+        ]
+        self.addButtonList('movement', layout, buttonList, cmds)
 
         # Add a box for patching commands
-        buttonList = [['Run Protocols'], ['Store Cleaning Position', 'Store Rinse Position', 'Clean Pipette']]
-        cmds = [
-            [[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]],
-            [self.patch_interface.store_cleaning_position, self.patch_interface.store_rinsing_position, self.patch_interface.clean_pipette]
+        buttonList = [['Break In'],['Run Protocols']]
+        cmds = [[self.patch_interface.break_in],
+            [[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]]
+            
         ]
         self.addButtonList('patching', layout, buttonList, cmds)
 
@@ -580,7 +636,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         layout.addWidget(self.record_button)
 
         self.setLayout(layout)
-
+    
     def save_stage_pos(self):
         stage_position = {
             'stage_xy': self.stage_xy.tolist() if isinstance(self.stage_xy, np.ndarray) else self.stage_xy,

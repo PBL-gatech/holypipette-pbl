@@ -426,20 +426,31 @@ class AutoPatcher(TaskController):
             raise ValueError('Cleaning bath position has not been set')
         # if self.rinsing_bath_position is None:
         #     raise ValueError('Rinsing bath position has not been set')
+        if self.safe_position is None:
+            raise ValueError('Safe position has not been set')
         try:
-            start_position = self.calibrated_unit.position()
-            # Move the pipette to the washing bath.
-            self.calibrated_unit.absolute_move(0, 2)
-            print('moving up to 0...')
+            start_x, start_y, start_z = self.calibrated_unit.position()
+            safe_x, safe_y, safe_z = self.safe_position
+
+            # Step 0: move stage and pipette up 500um 
+            self.calibrated_stage.safe_move(np.array([0, 0, -500]))
+            self.calibrated_stage.wait_until_still()
+            self.calibrated_unit.relative_move(500, axis=2)
             self.calibrated_unit.wait_until_still(2)
-            self.calibrated_unit.absolute_move(self.cleaning_bath_position[0], 0)
-            print('moving to cleaning bath x, y...')
-            self.calibrated_unit.wait_until_still(0)
-            self.calibrated_unit.absolute_move(self.cleaning_bath_position[1], 1)
+
+            # Step 1: Move to the safe space
+            self.move_to_safe_space()
+            clean_x, clean_y, clean_z = self.cleaning_bath_position
+            # Step 2: Move the pipette above the cleaning bath in the x and y directions
+            self.calibrated_unit.absolute_move(clean_y, axis=1)
             self.calibrated_unit.wait_until_still(1)
-            print('moving to cleaning bath z...')
-            self.calibrated_unit.absolute_move(self.cleaning_bath_position[2], 2)
+            self.calibrated_unit.absolute_move(clean_x, axis=0)
+            self.calibrated_unit.wait_until_still(0)
+            # Step 3: Move the pipette down to the cleaning bath
+            self.calibrated_unit.absolute_move(clean_z, axis=2)
             self.calibrated_unit.wait_until_still(2)
+
+            # Step 4: Cleaning
             # Fill up with the Alconox
             self.pressure.set_pressure(-600)
             self.sleep(1)
@@ -450,30 +461,35 @@ class AutoPatcher(TaskController):
                 self.pressure.set_pressure(1000)
                 self.sleep(0.375)
 
-            # # Step 2: Rinsing.
-            # # Move the pipette to the rinsing bath.
-            # self.calibrated_unit.absolute_move(self.rinsing_bath_position[2] - 5000, 2)
-            # self.calibrated_unit.wait_until_still(2)
-            # self.calibrated_unit.absolute_move(self.rinsing_bath_position[1], 1)
-            # self.calibrated_unit.wait_until_still(1)
-            # self.calibrated_unit.absolute_move(self.rinsing_bath_position[0], 0)
-            # self.calibrated_unit.wait_until_still(0)
-            # self.calibrated_unit.absolute_move(self.rinsing_bath_position[2], 2)
-            # self.calibrated_unit.wait_until_still(2)
-            # # Expel the remaining Alconox
-            # self.pressure.set_pressure(1000)
-            # self.sleep(6)
-
-            # Step 3: Move back.
-            self.calibrated_unit.absolute_move(0, 2)
+            # Step 5: Drying
+            # move pipette back to safe space in reverse
+            self.calibrated_unit.absolute_move(safe_z, axis=2)
             self.calibrated_unit.wait_until_still(2)
-            self.calibrated_unit.absolute_move(start_position[1], 1)
-            self.calibrated_unit.wait_until_still(1)
-            self.calibrated_unit.absolute_move(start_position[0], 0)
+            self.calibrated_unit.absolute_move(safe_x, axis=0)
             self.calibrated_unit.wait_until_still(0)
-            self.pressure.set_pressure(self.config.pressure_near)
-            self.calibrated_unit.absolute_move(start_position[2], 2)
-            self.calibrated_unit.wait_until_still(2)
+            self.calibrated_unit.absolute_move(safe_y, axis=1)
+            self.calibrated_unit.wait_until_still(1)
+
+            self.pressure.set_pressure(-600)
+            self.sleep(1)
+            # 5 cycles of tip cleaning
+            for i in range(1, 5):
+                self.pressure.set_pressure(-600)
+                self.sleep(0.625)
+                self.pressure.set_pressure(1000)
+                self.sleep(0.375)
+            self.pressure.set_pressure(200)
+  
+
+            # Step 6: Move back to start from safespace
+            self.calibrated_unit.absolute_move_group([start_x,safe_y,(start_z-500)], [0,1,2])
+            self.calibrated_unit.wait_until_still()
+            self.calibrated_unit.absolute_move(start_y, axis=1)
+            self.calibrated_unit.wait_until_still() # Ensure movement completes
+            self.calibrated_unit.absolute_move(start_z, axis=2)
+            self.calibrated_stage.safe_move(np.array([0, 0, 500]))
+
+        
             
         finally:
             pass
