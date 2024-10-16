@@ -1,11 +1,11 @@
 # Base path (optional, can be omitted if using absolute paths)
-path: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/Dataset/SplitDataset
+path: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/finder_training_set/SplitDatasetnoaug
 
 # Training images
-train: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/Dataset/SplitDataset/train/images
+train: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/finder_training_set/SplitDatasetnoaug/train/images
 
 # Validation images
-val: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/Dataset/SplitDataset/validate/images
+val: C:/Users/sa-forest/Documents/GitHub/holypipette-pbl/holypipette/deepLearning/pipetteModelTrainer/finder_training_set/SplitDatasetnoaug/validate/images
 
 # Number of classes
 nc: 1

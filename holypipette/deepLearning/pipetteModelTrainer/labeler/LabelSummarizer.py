@@ -10,7 +10,7 @@ def main():
     CONDENSE = True  # Set to False to disable condensing
 
     # Define the main directory containing the classified images
-    main_dir = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\classified_images"
+    main_dir = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\classified_images\general"
 
     # Define the class folders
     class_folders = ['focused', 'above', 'below']
@@ -38,7 +38,7 @@ def main():
 
     # If condensing is enabled, set up the destination directories
     if CONDENSE:
-        focus_training_set_dir = os.path.join(main_dir, 'focus_training_set')
+        focus_training_set_dir = os.path.join(main_dir, 'finder_training_set')
         focus_images_dir = os.path.join(focus_training_set_dir, p_det_images)
         focus_labels_dir = os.path.join(focus_training_set_dir, p_det_labels)
 
@@ -46,7 +46,7 @@ def main():
         os.makedirs(focus_images_dir, exist_ok=True)
         os.makedirs(focus_labels_dir, exist_ok=True)
 
-        print(f"Condensing is enabled. 'focus_training_set' directories created at:")
+        print(f"Condensing is enabled. 'finder_training_set' directories created at:")
         print(f"Images: {focus_images_dir}")
         print(f"Labels: {focus_labels_dir}\n")
 
@@ -94,9 +94,10 @@ def main():
                     images_with_labels[filename] = sorted(labels)
 
                     # If condensing is enabled, copy the image and label file
+                    target_labels = [0]
                     if CONDENSE:
                         # Check if at least one label is 0, 1, or 2
-                        if any(label in [0, 1, 2] for label in labels):
+                        if any(label in target_labels for label in labels):
                             src_image_path = os.path.join(images_dir, filename)
                             src_label_path = label_file
 
@@ -151,7 +152,7 @@ def main():
     # Condense Summary
     if CONDENSE:
         print("\n=== Focus Training Set Summary ===")
-        print(f"Total images added to 'focus_training_set': {focus_training_set_images}")
+        print(f"Total images added to 'finder_training_set': {focus_training_set_images}")
         print(f"Images copied to '{focus_images_dir}'")
         print(f"Labels copied to '{focus_labels_dir}'\n")
     else:
