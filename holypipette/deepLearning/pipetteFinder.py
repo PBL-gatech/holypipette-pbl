@@ -7,7 +7,7 @@ class PipetteFinder():
 
 	def __init__(self):
 		curFile = str(Path(__file__).parent.absolute())
-		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipetteFinderNet.onnx')
+		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipetteFinderNetnano2.onnx')
 
 		layer_names = self.yoloNet.getLayerNames()
 		self.output_layers = [layer_names[i-1] for i in self.yoloNet.getUnconnectedOutLayers()]
@@ -65,7 +65,10 @@ class PipetteFinder():
 	
 if __name__ == '__main__':
 	finder = PipetteFinder()
-	path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098890.png"
+	# path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098890.png"
+	# path = r"c:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\classified_images\below\P_DET_IMAGES\10454_1726847645.853619.jpg"
+	# path  = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654099464.png"
+	path =  r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
 	img = cv2.imread(path)
 
 	#find pipette, draw location to img
