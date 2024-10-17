@@ -2,28 +2,33 @@ import logging
 from datetime import datetime
 import threading
 import os
-import logging
 from PyQt5 import QtGui
 
 class EPhysLogger(threading.Thread):
     def __init__(self, recording_state_manager, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
+        super().__init__()
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
         testMode = False
         if testMode:
             folder_path = folder_path.replace("Data/", "Data/TEST_")
-        self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/" +  f"{ephys_filename}" + "/"
+        self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/" + f"{ephys_filename}" + "/"
         self.filename = self.folder_path + f"{ephys_filename}"
         self.file = None
 
-        self.folder_created = False  # Add flag to track folder creation
+        self.folder_created = False
         self.write_event = threading.Event()
 
+        # Dictionary to track unique index and color combinations
+        self.index_color_dict = {}
+        # Lock for thread-safe access to the dictionary
+        self.index_color_lock = threading.Lock()
+
     def create_folder(self):
-        if not self.folder_created:  # Check if the folder has been created
+        if not self.folder_created:
             try:
                 os.makedirs(os.path.dirname(self.folder_path), exist_ok=True)
-                self.folder_created = True  # Set flag once folder is created
+                self.folder_created = True
                 logging.info(f"Created folder at: {self.folder_path}")
             except OSError as exc:
                 logging.error("Error creating folder for recording: %s", exc)
@@ -31,7 +36,23 @@ class EPhysLogger(threading.Thread):
             logging.info("Folder already created. Skipping creation.")
 
     def _write_to_file(self, index, timeData, readData, respData, color):
-        # Create a string for each pair of values in the desired format
+        # Check if "CurrentProtocol" is in filename
+        if "CurrentProtocol" in self.filename:
+            with self.index_color_lock:
+                if index not in self.index_color_dict:
+                    # Index is unique, create a new entry with an empty list for colors
+                    self.index_color_dict[index] = []
+
+                # Proceed only if the color is unique for the given index
+                if color not in self.index_color_dict[index]:
+                    # Append the color to the list for this index
+                    self.index_color_dict[index].append(color)
+                else:
+                    # Color is not unique for this index, skip writing
+                    logging.debug("Skipping write: Index %s and color %s are not unique", index, color)
+                    return
+
+        # If "CurrentProtocol" is not in filename, proceed as the original method
         lines = [f"{timeData[i]} {readData[i]} {respData[i]}\n" for i in range(len(timeData))]
         # Open the file in append mode and write the formatted strings
         logging.debug("Writing to file %s", self.filename)
@@ -41,7 +62,6 @@ class EPhysLogger(threading.Thread):
 
     def write_ephys_data(self, index, timeData, readData, respData, color):
         self.create_folder()  # Ensure folder is created if it hasn't been
-        
         self.write_event.clear()
         threading.Thread(target=self._write_to_file, args=(index, timeData, readData, respData, color)).start()
 
@@ -53,7 +73,7 @@ class EPhysLogger(threading.Thread):
         painter = QtGui.QPainter(exporter)
         plot.render(painter)
         painter.end()
-        
+
         if exporter.save(image_path):
             logging.info("Saved plot to %s", image_path)
         else:
@@ -61,7 +81,7 @@ class EPhysLogger(threading.Thread):
 
     def close(self):
         if self.file is not None:
-            logging.info("CLOSING FILE: ", self.filename)
+            logging.info("CLOSING FILE: %s", self.filename)
             self.write_event.wait()  # Wait for the last task to complete
             self.file.close()
             self.file = None

@@ -18,7 +18,6 @@ __all__ = ['DAQ', 'FakeDAQ']
 class DAQ:
     C_CLAMP_AMP_PER_VOLT = 400 * 1e-12 #400 pA (supplied cell) / V (DAQ out)
     C_CLAMP_VOLT_PER_VOLT = (10 * 1e-3) / (1e-3) #10 mV (DAQ input) / V (cell out)
-
     V_CLAMP_VOLT_PER_VOLT = (20 * 1e-3) #20 mV (supplied cell) / V (DAQ out)
     V_CLAMP_VOLT_PER_AMP = (2*1e-9) #0.5V DAQ out (DAQ input) / pA (cell out)
 
@@ -161,7 +160,7 @@ class DAQ:
         wave_freq = 1 / (2 * highTimeMs * 1e-3)
 
         #general constants for square waves
-        samplesPerSec = 50000
+        samplesPerSec = 20000
         recordingTime = 4 * highTimeMs * 1e-3
 
         for i in range(num_waves-1):
@@ -217,7 +216,7 @@ class DAQ:
                 self.current_protocol_data = [[timeData, respData, readData]]
             else:
                 self.current_protocol_data.append([timeData, respData, readData])
-        
+
         self.isRunningProtocol = False
 
         # print("Current Protocol Data", self.current_protocol_data)
