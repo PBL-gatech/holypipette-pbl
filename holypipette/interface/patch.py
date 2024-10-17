@@ -152,6 +152,19 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.current_autopatcher.move_to_safe_space)
 
     @blocking_command(category='Patch',
+                        description='Move the group down',
+                        task_description='Moving the group down')
+    def move_group_down(self):
+        self.execute(self.current_autopatcher.move_group_down)
+
+    @blocking_command(category='Patch',
+                        description='Move the group up',
+                        task_description='Moving the group up')
+    def move_group_up(self):
+        self.execute(self.current_autopatcher.move_group_up)
+
+
+    @blocking_command(category='Patch',
                       description='Sequential patching and cleaning for multiple cells',
                       task_description='Sequential patch clamping')
     def sequential_patching(self):

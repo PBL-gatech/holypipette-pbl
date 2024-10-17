@@ -612,9 +612,10 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         ]
         self.addButtonList('calibration', layout, buttonList, cmds)
         # Add a box for movement commands
-        buttonList = [['Move to Safe Position', 'Move to Cell Plane'],['Clean pipette']]
+        buttonList = [['move group down','move group up'],['Move to Safe Position'],['Clean pipette']]
         cmds = [
-            [self.patch_interface.move_to_safe_space, self.pipette_interface.go_to_floor],
+            [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
+            [self.patch_interface.move_to_safe_space ],
             [self.patch_interface.clean_pipette]
         ]
         self.addButtonList('movement', layout, buttonList, cmds)

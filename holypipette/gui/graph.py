@@ -27,7 +27,6 @@ from datetime import datetime
 __all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "HoldingProtocolGraph"]
 
 
-
 class CurrentProtocolGraph(QWidget):
     def __init__(self, daq: DAQ, rescording_state_manager: RecordingStateManager):
         super().__init__()

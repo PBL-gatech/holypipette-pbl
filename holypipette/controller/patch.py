@@ -420,7 +420,31 @@ class AutoPatcher(TaskController):
         finally:
             pass
 
-
+    def move_group_down(self):
+        '''
+        Moves the microsope and manipulator down by input distance in the z axis
+        '''
+        dist = 100 # distance to move down in um
+        try:
+            self.calibrated_unit.relative_move(dist, axis=2)
+            self.calibrated_unit.wait_until_still(2)
+            self.microscope.relative_move(dist)
+            self.microscope.wait_until_still()
+        finally:
+            pass
+    def move_group_up(self):
+        '''
+        Moves the microscope and manipulator up by input distance in the z axis
+        '''
+        dist = 100
+        try:
+            self.calibrated_unit.relative_move(-dist, axis=2)
+            self.calibrated_unit.wait_until_still(2)
+            self.microscope.relative_move(-dist)
+            self.microscope.wait_until_still()
+        finally:
+            pass
+    
     def clean_pipette(self):
         if self.cleaning_bath_position is None:
             raise ValueError('Cleaning bath position has not been set')
@@ -432,11 +456,7 @@ class AutoPatcher(TaskController):
             start_x, start_y, start_z = self.calibrated_unit.position()
             safe_x, safe_y, safe_z = self.safe_position
 
-            # Step 0: move stage and pipette up 500um 
-            self.calibrated_stage.safe_move(np.array([0, 0, -500]))
-            self.calibrated_stage.wait_until_still()
-            self.calibrated_unit.relative_move(500, axis=2)
-            self.calibrated_unit.wait_until_still(2)
+
 
             # Step 1: Move to the safe space
             self.move_to_safe_space()
@@ -480,16 +500,10 @@ class AutoPatcher(TaskController):
                 self.sleep(0.375)
             self.pressure.set_pressure(200)
   
-
             # Step 6: Move back to start from safespace
-            self.calibrated_unit.absolute_move_group([start_x,safe_y,(start_z-500)], [0,1,2])
+            self.calibrated_unit.absolute_move_group([start_x,safe_y,start_z], [0,1,2])
             self.calibrated_unit.wait_until_still()
             self.calibrated_unit.absolute_move(start_y, axis=1)
             self.calibrated_unit.wait_until_still() # Ensure movement completes
-            self.calibrated_unit.absolute_move(start_z, axis=2)
-            self.calibrated_stage.safe_move(np.array([0, 0, 500]))
-
-        
-            
         finally:
             pass
