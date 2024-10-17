@@ -428,7 +428,7 @@ class AutoPatcher(TaskController):
         try:
             self.calibrated_unit.relative_move(dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
-            self.microscope.relative_move(dist)
+            self.microscope.relative_move(dist*5)
             self.microscope.wait_until_still()
         finally:
             pass
@@ -440,7 +440,7 @@ class AutoPatcher(TaskController):
         try:
             self.calibrated_unit.relative_move(-dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
-            self.microscope.relative_move(-dist)
+            self.microscope.relative_move(-dist*5)
             self.microscope.wait_until_still()
         finally:
             pass

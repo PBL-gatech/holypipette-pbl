@@ -294,6 +294,8 @@ class PatchAnalyzer(QMainWindow):
         total_files = len(csv_files)
 
         if protocol_name == "CurrentProtocol":
+            self.vertical_slider.setEnabled(True)  # Enable the slider for CurrentProtocol
+            self.run_dropdown.setEnabled(True)
             # Group CSV files by run number
             run_groups = {}
             for csv_file in csv_files:
@@ -304,7 +306,6 @@ class PatchAnalyzer(QMainWindow):
                         run_groups[run_number] = []
                     run_groups[run_number].append(csv_file)
             self.loaded_data['runs'] = {}
-            run_count = len(run_groups)
             for idx, (run_number, files) in enumerate(sorted(run_groups.items())):
                 self.loaded_data['runs'][run_number] = {}
                 for file_idx, csv_file in enumerate(sorted(files)):
@@ -347,7 +348,9 @@ class PatchAnalyzer(QMainWindow):
             # Plot the first file
             self.plot_current_file(0)
         else:
-            # For VoltageProtocol and HoldingProtocol
+            # For VoltageProtocol and HoldingProtocol, disable the slider
+            self.vertical_slider.setEnabled(False)  # Disable the slider
+            self.run_dropdown.setEnabled(True)  # Enable the dropdown menu
             self.loaded_data['files'] = {}
             for idx, csv_file in enumerate(sorted(csv_files)):
                 csv_path = os.path.join(protocol_dir, csv_file)
@@ -381,15 +384,12 @@ class PatchAnalyzer(QMainWindow):
             self.run_dropdown.setEnabled(True)
             # Set current run files
             self.current_run_files = sorted(self.loaded_data['files'].keys())
-            # Configure slider
-            self.vertical_slider.setMinimum(0)
-            self.vertical_slider.setMaximum(len(self.current_run_files) - 1)
-            self.vertical_slider.setValue(0)
             # Plot the first file
             self.plot_csv_file(0)
 
         self.progress_bar.setVisible(False)
         self.info.setText(f"Loaded {protocol_name} protocol.")
+
 
     def plot_csv_file(self, index):
         """Plot data for non-CurrentProtocol protocols."""
@@ -522,23 +522,25 @@ class PatchAnalyzer(QMainWindow):
         """Handle run selection from the dropdown."""
         logging.info(f"Run selected: {run_index}")
         if self.current_protocol_name == "CurrentProtocol":
+            # Handle CurrentProtocol run selection
             run_number = sorted(self.loaded_data['runs'].keys())[run_index]
             self.current_run_number = run_number
             self.current_run_files = sorted(self.loaded_data['runs'][run_number].keys())
-            # Configure slider
+            # Configure slider for CurrentProtocol
             self.vertical_slider.setMinimum(0)
             self.vertical_slider.setMaximum(len(self.current_run_files) - 1)
             self.vertical_slider.setValue(0)
             # Plot the first file of the selected run
             self.plot_current_file(0)
         else:
+            # For VoltageProtocol and HoldingProtocol, load data based on run index
             self.current_run_files = sorted(self.loaded_data['files'].keys())
-            # Configure slider
-            self.vertical_slider.setMinimum(0)
-            self.vertical_slider.setMaximum(len(self.current_run_files) - 1)
-            self.vertical_slider.setValue(0)
-            # Plot the first file
-            self.plot_csv_file(0)
+            if run_index < 0 or run_index >= len(self.current_run_files):
+                logging.error(f"Run index {run_index} is out of range.")
+                return
+            # Plot the selected run (file) from the dropdown
+            self.plot_csv_file(run_index)
+
 
 def main():
     app = QApplication(sys.argv)
