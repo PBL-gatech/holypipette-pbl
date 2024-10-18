@@ -16,7 +16,7 @@ class FocusLevels(Enum):
 class PipetteFocuser:
     def __init__(self):
         curFile = Path(__file__).parent.absolute()
-        model_path = os.path.join(curFile, 'pipetteModel', 'pipetteFocusNet2.onnx')
+        model_path = os.path.join(curFile, 'pipetteModel', 'pipetteFocusNet3.onnx')
         
         # Initialize ONNX Runtime session
         self.session = ort.InferenceSession(model_path)
