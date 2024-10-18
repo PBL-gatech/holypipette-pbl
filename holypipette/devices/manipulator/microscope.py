@@ -47,7 +47,9 @@ class Microscope(Manipulator):
         -------
         The current position of the device axis in um.
         '''
-        return self.dev.position(self.axis)
+        true_position = float(5.0* self.dev.position(self.axis))
+        
+        return true_position
 
     def absolute_move(self, x):
         '''

@@ -47,10 +47,10 @@ class PatchGui(ManipulatorGui):
     
         try:
             # Add patching button tab
-            button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
+            # button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
             self.add_config_gui(self.patch_interface.config)
             logging.debug("Added config GUI.")
-            self.add_tab(button_tab, 'Auto Patching', index=0)
+            # self.add_tab(button_tab, 'Auto Patching', index=0)
             logging.debug("Added 'Auto Patching' tab.")
         except Exception as e:
             logging.error("Exception during PatchGui initialization: %s", e, exc_info=True)
@@ -60,8 +60,8 @@ class PatchGui(ManipulatorGui):
         # self.add_tab(cellsorter_tab, 'Cell Sorter', index = 0)
 
         # add manual patching button tab
-        manual_patching_tab = ManualPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
-        self.add_tab(manual_patching_tab, 'Manual Patching', index = 0)
+        # manual_patching_tab = ManualPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
+        # self.add_tab(manual_patching_tab, 'Manual Patching', index = 0)
         # add semi-auto patching button tab
         semi_auto_patching_tab = SemiAutoPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
         self.add_tab(semi_auto_patching_tab, 'Semi-Auto Patching', index = 0)
@@ -341,215 +341,215 @@ class ButtonTabWidget(QtWidgets.QWidget):
         box.setContentLayout(rows)
         layout.addWidget(box)
 
-class ManualPatchButtons(ButtonTabWidget):
-    def __init__(self, patch_interface: AutoPatchInterface, pipette_interface: PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
-        super().__init__()
-        self.patch_interface = patch_interface
-        self.pipette_interface = pipette_interface
+# class ManualPatchButtons(ButtonTabWidget):
+#     def __init__(self, patch_interface: AutoPatchInterface, pipette_interface: PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
+#         super().__init__()
+#         self.patch_interface = patch_interface
+#         self.pipette_interface = pipette_interface
 
-        self.start_task = start_task
-        self.interface_signals = interface_signals
+#         self.start_task = start_task
+#         self.interface_signals = interface_signals
 
-        self.recording_state_manager = recording_state_manager
+#         self.recording_state_manager = recording_state_manager
 
-        layout = QtWidgets.QVBoxLayout()
-        layout.setAlignment(Qt.AlignTop)
+#         layout = QtWidgets.QVBoxLayout()
+#         layout.setAlignment(Qt.AlignTop)
 
-        self.stage_xy = [0, 0]
-        self.stage_z = 0
-        self.pipette_xyz = [0, 0, 0]
-        self.init_stage_pos = None 
-        self.init_pipette_pos = None
+#         self.stage_xy = [0, 0]
+#         self.stage_z = 0
+#         self.pipette_xyz = [0, 0, 0]
+#         self.init_stage_pos = None 
+#         self.init_pipette_pos = None
 
-        self.currx_stage_pos = np.array([0, 0, 0])
-        self.curry_stage_pos = np.array([0, 0, 0])
-        self.currz_stage_pos = np.array([0, 0, 0])
-        self.stage_json_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\setup\stage_position.json"
-        self.load_stage_pos()
+#         self.currx_stage_pos = np.array([0, 0, 0])
+#         self.curry_stage_pos = np.array([0, 0, 0])
+#         self.currz_stage_pos = np.array([0, 0, 0])
+#         self.stage_json_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\setup\stage_position.json"
+#         self.load_stage_pos()
 
-        self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
+#         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
-        # Add position boxes using the updated methods (which use CollapsibleGroupBox)
-        self.positionAndTareBox('stage position (um)', layout, self.update_stage_pos_labels, tare_funcs=[self.tare_stage_x, self.tare_stage_y, self.tare_stage_z])
-        self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
+#         # Add position boxes using the updated methods (which use CollapsibleGroupBox)
+#         self.positionAndTareBox('stage position (um)', layout, self.update_stage_pos_labels, tare_funcs=[self.tare_stage_x, self.tare_stage_y, self.tare_stage_z])
+#         self.addPositionBox('pipette position (um)', layout, self.update_pipette_pos_labels, tare_func=self.tare_pipette)
 
-        # Add a box to emit patching states
-        buttonList = [['Cell Found', 'Gigaseal Reached', 'Whole Cell Achieved'], ['Patch Attempt Start', 'Patch Attempt Failed']]
-        cmds = [
-            [self.emit_cell_found, self.emit_gigaseal, self.emit_whole_cell],
-            [self.emit_patch_attempt_start, self.emit_patch_attempt_fail]
-        ]
-        self.addButtonList('patching states', layout, buttonList, cmds)
+#         # Add a box to emit patching states
+#         buttonList = [['Cell Found', 'Gigaseal Reached', 'Whole Cell Achieved'], ['Patch Attempt Start', 'Patch Attempt Failed']]
+#         cmds = [
+#             [self.emit_cell_found, self.emit_gigaseal, self.emit_whole_cell],
+#             [self.emit_patch_attempt_start, self.emit_patch_attempt_fail]
+#         ]
+#         self.addButtonList('patching states', layout, buttonList, cmds)
 
-        # Add a box for patching commands
-        buttonList = [['Run Protocols']]
-        cmds = [
-            [[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]]
-        ]
-        self.addButtonList('patching', layout, buttonList, cmds)
+#         # Add a box for patching commands
+#         buttonList = [['Run Protocols']]
+#         cmds = [
+#             [[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]]
+#         ]
+#         self.addButtonList('patching', layout, buttonList, cmds)
 
-        # Add a box for Rig Recorder
-        self.record_button = QtWidgets.QPushButton("Start Recording")
-        self.record_button.clicked.connect(self.toggle_recording)
-        self.record_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        self.record_button.setMinimumWidth(50)
-        self.record_button.setMinimumHeight(50)
-        layout.addWidget(self.record_button)
+#         # Add a box for Rig Recorder
+#         self.record_button = QtWidgets.QPushButton("Start Recording")
+#         self.record_button.clicked.connect(self.toggle_recording)
+#         self.record_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+#         self.record_button.setMinimumWidth(50)
+#         self.record_button.setMinimumHeight(50)
+#         layout.addWidget(self.record_button)
 
-        self.setLayout(layout)
+#         self.setLayout(layout)
 
-    def save_stage_pos(self):
-        stage_position = {
-            'stage_xy': self.stage_xy.tolist() if isinstance(self.stage_xy, np.ndarray) else self.stage_xy,
-            'stage_z': self.stage_z.tolist() if isinstance(self.stage_z, np.ndarray) else self.stage_z,
-            'pipette_xyz': self.pipette_xyz.tolist() if isinstance(self.pipette_xyz, np.ndarray) else self.pipette_xyz
-        }
+#     def save_stage_pos(self):
+#         stage_position = {
+#             'stage_xy': self.stage_xy.tolist() if isinstance(self.stage_xy, np.ndarray) else self.stage_xy,
+#             'stage_z': self.stage_z.tolist() if isinstance(self.stage_z, np.ndarray) else self.stage_z,
+#             'pipette_xyz': self.pipette_xyz.tolist() if isinstance(self.pipette_xyz, np.ndarray) else self.pipette_xyz
+#         }
 
-        with open(self.stage_json_path, 'w') as f:
-            json.dump(stage_position, f)
+#         with open(self.stage_json_path, 'w') as f:
+#             json.dump(stage_position, f)
 
-    def load_stage_pos(self):
-        # Ensure the directory exists
-        os.makedirs(os.path.dirname(self.stage_json_path), exist_ok=True)
+#     def load_stage_pos(self):
+#         # Ensure the directory exists
+#         os.makedirs(os.path.dirname(self.stage_json_path), exist_ok=True)
 
-        try:
-            with open(self.stage_json_path, 'r') as f:
-                stage_position = json.load(f)
+#         try:
+#             with open(self.stage_json_path, 'r') as f:
+#                 stage_position = json.load(f)
                 
-                # Load and convert back to ndarray
-                self.stage_xy = np.array(stage_position.get('stage_xy', [0, 0]))
-                self.stage_z = stage_position.get('stage_z', 0)
-                self.pipette_xyz = np.array(stage_position.get('pipette_xyz', [0, 0, 0]))
+#                 # Load and convert back to ndarray
+#                 self.stage_xy = np.array(stage_position.get('stage_xy', [0, 0]))
+#                 self.stage_z = stage_position.get('stage_z', 0)
+#                 self.pipette_xyz = np.array(stage_position.get('pipette_xyz', [0, 0, 0]))
 
-                # Apply loaded values to current stage positions
-                self.currx_stage_pos = np.array([self.stage_xy[0], 0, 0])
-                self.curry_stage_pos = np.array([0, self.stage_xy[1], 0])
-                self.currz_stage_pos = np.array([0, 0, self.stage_z])
+#                 # Apply loaded values to current stage positions
+#                 self.currx_stage_pos = np.array([self.stage_xy[0], 0, 0])
+#                 self.curry_stage_pos = np.array([0, self.stage_xy[1], 0])
+#                 self.currz_stage_pos = np.array([0, 0, self.stage_z])
 
-        except (FileNotFoundError, json.JSONDecodeError):
-            # Handle the case where the file doesn't exist or is corrupted
-            print(f"{self.stage_json_path} not found or corrupted. Initializing with default values.")
-            self.stage_xy = np.array([0, 0])
-            self.stage_z = 0
-            self.pipette_xyz = np.array([0, 0, 0])
+#         except (FileNotFoundError, json.JSONDecodeError):
+#             # Handle the case where the file doesn't exist or is corrupted
+#             print(f"{self.stage_json_path} not found or corrupted. Initializing with default values.")
+#             self.stage_xy = np.array([0, 0])
+#             self.stage_z = 0
+#             self.pipette_xyz = np.array([0, 0, 0])
 
-            # Ensure current stage positions are reset as well
-            self.currx_stage_pos = np.array([0, 0, 0])
-            self.curry_stage_pos = np.array([0, 0, 0])
-            self.currz_stage_pos = np.array([0, 0, 0])
+#             # Ensure current stage positions are reset as well
+#             self.currx_stage_pos = np.array([0, 0, 0])
+#             self.curry_stage_pos = np.array([0, 0, 0])
+#             self.currz_stage_pos = np.array([0, 0, 0])
 
-            # Save the default values to the JSON file
-            self.save_stage_pos()
+#             # Save the default values to the JSON file
+#             self.save_stage_pos()
 
-    def emit_cell_found(self):
-        self.patch_interface.state_emitter("NH Success")
+#     def emit_cell_found(self):
+#         self.patch_interface.state_emitter("NH Success")
 
-    def emit_gigaseal(self):
-        self.patch_interface.state_emitter("GS success")
+#     def emit_gigaseal(self):
+#         self.patch_interface.state_emitter("GS success")
 
-    def emit_whole_cell(self):
-        self.patch_interface.state_emitter("WC success")
+#     def emit_whole_cell(self):
+#         self.patch_interface.state_emitter("WC success")
 
-    def emit_patch_attempt_start(self):
-        self.patch_interface.state_emitter("patching started")
+#     def emit_patch_attempt_start(self):
+#         self.patch_interface.state_emitter("patching started")
 
-    def emit_patch_attempt_fail(self):
-        self.patch_interface.state_emitter("patching failed")
+#     def emit_patch_attempt_fail(self):
+#         self.patch_interface.state_emitter("patching failed")
 
-    def toggle_recording(self):
-        if self.recording_state_manager.is_recording_enabled():
-            self.stop_recording()
-        else:
-            self.start_recording()
+#     def toggle_recording(self):
+#         if self.recording_state_manager.is_recording_enabled():
+#             self.stop_recording()
+#         else:
+#             self.start_recording()
 
-    def start_recording(self):
-        self.recording_state_manager.set_recording(True)
-        self.record_button.setText("Stop Recording")
-        self.record_button.setStyleSheet("background-color: red; color: white;border-radius: 5px; padding: 5px;")
-        logging.info("Recording started")
+#     def start_recording(self):
+#         self.recording_state_manager.set_recording(True)
+#         self.record_button.setText("Stop Recording")
+#         self.record_button.setStyleSheet("background-color: red; color: white;border-radius: 5px; padding: 5px;")
+#         logging.info("Recording started")
 
-    def stop_recording(self):
-        self.recording_state_manager.set_recording(False)
-        self.record_button.setText("Start Recording")
-        self.record_button.setStyleSheet("")
-        logging.info("Recording stopped")
+#     def stop_recording(self):
+#         self.recording_state_manager.set_recording(False)
+#         self.record_button.setText("Start Recording")
+#         self.record_button.setStyleSheet("")
+#         logging.info("Recording stopped")
 
-    def close(self):
-        self.save_stage_pos()
-        self.recorder.close()
-        super(ManualPatchButtons, self).close()
+#     def close(self):
+#         self.save_stage_pos()
+#         self.recorder.close()
+#         super(ManualPatchButtons, self).close()
 
-    def closeEvent(self, event):
-        self.save_stage_pos()
-        self.recorder.close()
-        super(ManualPatchButtons, self).closeEvent(event)
+#     def closeEvent(self, event):
+#         self.save_stage_pos()
+#         self.recorder.close()
+#         super(ManualPatchButtons, self).closeEvent(event)
 
-    def tare_pipette(self):
-        currPos = self.pipette_interface.calibrated_unit.unit.position()
-        self.init_pipette_pos = currPos
+#     def tare_pipette(self):
+#         currPos = self.pipette_interface.calibrated_unit.unit.position()
+#         self.init_pipette_pos = currPos
 
-    def update_pipette_pos_labels(self, indices):
-        # Update the position labels
-        currPos = self.pipette_interface.calibrated_unit.unit.position()
-        if self.init_pipette_pos is None:
-            self.init_pipette_pos = currPos
-        currPos = currPos - self.init_pipette_pos
+#     def update_pipette_pos_labels(self, indices):
+#         # Update the position labels
+#         currPos = self.pipette_interface.calibrated_unit.unit.position()
+#         if self.init_pipette_pos is None:
+#             self.init_pipette_pos = currPos
+#         currPos = currPos - self.init_pipette_pos
 
-        self.recorder.setBatchMoves(True)
-        self.recorder.write_movement_data_batch(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, currPos[0], currPos[1], currPos[2])
+#         self.recorder.setBatchMoves(True)
+#         self.recorder.write_movement_data_batch(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, currPos[0], currPos[1], currPos[2])
 
-        self.pipette_xyz = currPos
+#         self.pipette_xyz = currPos
 
-        for i, ind in enumerate(indices):
-            label = self.pos_labels[ind]
-            label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
+#         for i, ind in enumerate(indices):
+#             label = self.pos_labels[ind]
+#             label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
 
-    def tare_stage(self):
-        xyPos = self.pipette_interface.calibrated_stage.position()
-        zPos = self.pipette_interface.microscope.position()
-        self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+#     def tare_stage(self):
+#         xyPos = self.pipette_interface.calibrated_stage.position()
+#         zPos = self.pipette_interface.microscope.position()
+#         self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
     
-    def tare_stage_x(self):
-        xPos = self.pipette_interface.calibrated_stage.position(0)
-        self.currx_stage_pos = np.array([xPos, 0, 0])
-        # print("Tare stage x: ", self.currx_stage_pos)
+#     def tare_stage_x(self):
+#         xPos = self.pipette_interface.calibrated_stage.position(0)
+#         self.currx_stage_pos = np.array([xPos, 0, 0])
+#         # print("Tare stage x: ", self.currx_stage_pos)
 
-    def tare_stage_y(self):
-        yPos = self.pipette_interface.calibrated_stage.position(1)
-        self.curry_stage_pos = np.array([0, yPos, 0])
-        # print("Tare stage y: ", self.curry_stage_pos)
+#     def tare_stage_y(self):
+#         yPos = self.pipette_interface.calibrated_stage.position(1)
+#         self.curry_stage_pos = np.array([0, yPos, 0])
+#         # print("Tare stage y: ", self.curry_stage_pos)
 
-    def tare_stage_z(self):
-        zPos = self.pipette_interface.microscope.position()
-        self.currz_stage_pos = np.array([0, 0, zPos])
-        # print("Tare stage z: ", self.currz_stage_pos)
+#     def tare_stage_z(self):
+#         zPos = self.pipette_interface.microscope.position()
+#         self.currz_stage_pos = np.array([0, 0, zPos])
+#         # print("Tare stage z: ", self.currz_stage_pos)
 
-    def update_stage_pos_labels(self, indices):
-        # Update the position labels
-        xyPos = self.pipette_interface.calibrated_stage.position()
-        zPos = self.pipette_interface.microscope.position()
+#     def update_stage_pos_labels(self, indices):
+#         # Update the position labels
+#         xyPos = self.pipette_interface.calibrated_stage.position()
+#         zPos = self.pipette_interface.microscope.position()
 
-        if self.init_stage_pos is None:
-            self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+#         if self.init_stage_pos is None:
+#             self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
 
-        rxyPos = xyPos - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
-        rzPos = zPos - self.currz_stage_pos[2]
+#         rxyPos = xyPos - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
+#         rzPos = zPos - self.currz_stage_pos[2]
 
-        self.stage_xy = rxyPos
-        self.stage_z = rzPos
-        # Uncomment the next line if you want to save stage positions automatically
-        # self.save_stage_pos()
+#         self.stage_xy = rxyPos
+#         self.stage_z = rzPos
+#         # Uncomment the next line if you want to save stage positions automatically
+#         # self.save_stage_pos()
 
-        self.recorder.setBatchMoves(True)
-        self.recorder.write_movement_data_batch(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
+#         self.recorder.setBatchMoves(True)
+#         self.recorder.write_movement_data_batch(datetime.now().timestamp(), self.stage_xy[0], self.stage_xy[1], self.stage_z, self.pipette_xyz[0], self.pipette_xyz[1], self.pipette_xyz[2])
 
-        for i, ind in enumerate(indices):
-            label = self.pos_labels[ind]
-            if i < 2:
-                label.setText(f'{label.text().split(":")[0]}: {rxyPos[i]:.2f}')
-            else:
-                # Note: divide by 5 here to account for z-axis gear ratio
-                label.setText(f'{label.text().split(":")[0]}: {rzPos/5:.2f}')
+#         for i, ind in enumerate(indices):
+#             label = self.pos_labels[ind]
+#             if i < 2:
+#                 label.setText(f'{label.text().split(":")[0]}: {rxyPos[i]:.2f}')
+#             else:
+#                 # Note: divide by 5 here to account for z-axis gear ratio
+#                 label.setText(f'{label.text().split(":")[0]}: {rzPos/5:.2f}')
  
 class SemiAutoPatchButtons(ButtonTabWidget):
     def __init__(self, patch_interface: AutoPatchInterface, pipette_interface: PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
@@ -602,20 +602,20 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         self.addButtonList('patching states', layout, buttonList, cmds)
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Stage'],['Save cell plane origin'],['Calibrate Pipette'],['Store Safe Position'],['Store Rinse Position'],['Store Cleaning Position']]
+        buttonList = [['Calibrate Stage'],['Save cell plane origin'],['Calibrate Pipette'],['Store Safe Position'],['Store Home Position'],['Store Cleaning Position']]
         cmds = [[self.pipette_interface.calibrate_stage],
                 [self.pipette_interface.set_floor],
                 [self.pipette_interface.record_cal_point],
                 [self.patch_interface.store_safe_position],
-                [self.patch_interface.store_rinsing_position],
+                [self.patch_interface.store_home_position],
                 [self.patch_interface.store_cleaning_position]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds)
         # Add a box for movement commands
-        buttonList = [['move group down','move group up'],['Move to Safe Position'],['Clean pipette']]
+        buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Clean pipette']]
         cmds = [
             [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
-            [self.patch_interface.move_to_safe_space ],
+            [self.patch_interface.move_to_safe_space, self.patch_interface.move_to_home_space],
             [self.patch_interface.clean_pipette]
         ]
         self.addButtonList('movement', layout, buttonList, cmds)
@@ -730,6 +730,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 
     def update_pipette_pos_labels(self, indices):
         # Update the position labels
+        
         currPos = self.pipette_interface.calibrated_unit.unit.position()
         if self.init_pipette_pos is None:
             self.init_pipette_pos = currPos
@@ -807,190 +808,190 @@ class SemiAutoPatchButtons(ButtonTabWidget):
                 # Note: divide by 5 here to account for z-axis gear ratio
                 label.setText(f'{label.text().split(":")[0]}: {rzPos/5:.2f}')
  
-class PatchButtons(ButtonTabWidget):
-    def __init__(self, patch_interface: AutoPatchInterface, pipette_interface: PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
-        super().__init__()
-        self.patch_interface = patch_interface
-        self.pipette_interface = pipette_interface
+# class PatchButtons(ButtonTabWidget):
+#     def __init__(self, patch_interface: AutoPatchInterface, pipette_interface: PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
+#         super().__init__()
+#         self.patch_interface = patch_interface
+#         self.pipette_interface = pipette_interface
 
-        self.start_task = start_task
-        self.interface_signals = interface_signals
+#         self.start_task = start_task
+#         self.interface_signals = interface_signals
 
-        self.recording_state_manager = recording_state_manager
+#         self.recording_state_manager = recording_state_manager
 
-        layout = QtWidgets.QVBoxLayout()
-        layout.setAlignment(Qt.AlignTop)
+#         layout = QtWidgets.QVBoxLayout()
+#         layout.setAlignment(Qt.AlignTop)
 
-        self.stage_xy = [0, 0]
-        self.stage_z = 0
-        self.pipette_xyz = [0, 0, 0]
+#         self.stage_xy = [0, 0]
+#         self.stage_z = 0
+#         self.pipette_xyz = [0, 0, 0]
 
-        self.recorder = FileLogger(
-            self.recording_state_manager,
-            folder_path="experiments/Data/rig_recorder_data/",
-            recorder_filename="movement_recording"
-        )
+#         self.recorder = FileLogger(
+#             self.recording_state_manager,
+#             folder_path="experiments/Data/rig_recorder_data/",
+#             recorder_filename="movement_recording"
+#         )
 
-        # Add position boxes using the updated methods (which use CollapsibleGroupBox)
-        self.addPositionBox(
-            'stage position (um)',
-            layout,
-            self.update_stage_pos_labels,
-            tare_func=self.tare_stage
-        )
-        self.addPositionBox(
-            'pipette position (um)',
-            layout,
-            self.update_pipette_pos_labels,
-            tare_func=self.tare_pipette
-        )
-        self.init_stage_pos = None  # Used to store bootup positions so we can reset to them
-        self.init_pipette_pos = None
+#         # Add position boxes using the updated methods (which use CollapsibleGroupBox)
+#         self.addPositionBox(
+#             'stage position (um)',
+#             layout,
+#             self.update_stage_pos_labels,
+#             tare_func=self.tare_stage
+#         )
+#         self.addPositionBox(
+#             'pipette position (um)',
+#             layout,
+#             self.update_pipette_pos_labels,
+#             tare_func=self.tare_pipette
+#         )
+#         self.init_stage_pos = None  # Used to store bootup positions so we can reset to them
+#         self.init_pipette_pos = None
 
-        # Add box for calibration
-        buttonList = [
-            ['Calibrate Stage', 'Set Cell Plane'],
-            ['Add Pipette Cal Point', 'Finish Pipette Cal'],
-            ['Save Calibration', 'Recalibrate Pipette']
-        ]
-        cmds = [
-            [self.pipette_interface.calibrate_stage, self.pipette_interface.set_floor],
-            [self.pipette_interface.record_cal_point, self.pipette_interface.finish_calibration],
-            [self.pipette_interface.write_calibration, self.pipette_interface.recalibrate_manipulator]
-        ]
-        self.addButtonList('calibration', layout, buttonList, cmds)
+#         # Add box for calibration
+#         buttonList = [
+#             ['Calibrate Stage', 'Set Cell Plane'],
+#             ['Add Pipette Cal Point', 'Finish Pipette Cal'],
+#             ['Save Calibration', 'Recalibrate Pipette']
+#         ]
+#         cmds = [
+#             [self.pipette_interface.calibrate_stage, self.pipette_interface.set_floor],
+#             [self.pipette_interface.record_cal_point, self.pipette_interface.finish_calibration],
+#             [self.pipette_interface.write_calibration, self.pipette_interface.recalibrate_manipulator]
+#         ]
+#         self.addButtonList('calibration', layout, buttonList, cmds)
 
-        # Add box for movement
-        buttonList = [
-            ['Focus Cell Plane', 'Focus Pipette Plane'],
-            ['Fix Backlash', 'Center Pipette'],
-            ['Run protocols']
-        ]
-        cmds = [
-            [self.pipette_interface.go_to_floor, self.pipette_interface.focus_pipette],
-            [self.pipette_interface.fix_backlash, self.pipette_interface.center_pipette],
-            [self.patch_interface.run_protocols]
-        ]
-        self.addButtonList('movement', layout, buttonList, cmds)
+#         # Add box for movement
+#         buttonList = [
+#             ['Focus Cell Plane', 'Focus Pipette Plane'],
+#             ['Fix Backlash', 'Center Pipette'],
+#             ['Run protocols']
+#         ]
+#         cmds = [
+#             [self.pipette_interface.go_to_floor, self.pipette_interface.focus_pipette],
+#             [self.pipette_interface.fix_backlash, self.pipette_interface.center_pipette],
+#             [self.patch_interface.run_protocols]
+#         ]
+#         self.addButtonList('movement', layout, buttonList, cmds)
 
-        # Add box for patching commands
-        buttonList = [
-            ['Select Cell', 'Remove Last Cell'],
-            ['Start Patch', 'Break In'],
-            ['Store Cleaning Position'],
-            ['Clean Pipette']
-        ]
-        cmds = [
-            [self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell],
-            [self.patch_interface.patch, self.patch_interface.break_in],
-            [self.patch_interface.store_cleaning_position],
-            [self.patch_interface.clean_pipette]
-        ]
-        self.addButtonList('patching', layout, buttonList, cmds)
+#         # Add box for patching commands
+#         buttonList = [
+#             ['Select Cell', 'Remove Last Cell'],
+#             ['Start Patch', 'Break In'],
+#             ['Store Cleaning Position'],
+#             ['Clean Pipette']
+#         ]
+#         cmds = [
+#             [self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell],
+#             [self.patch_interface.patch, self.patch_interface.break_in],
+#             [self.patch_interface.store_cleaning_position],
+#             [self.patch_interface.clean_pipette]
+#         ]
+#         self.addButtonList('patching', layout, buttonList, cmds)
 
-        # Add box for Rig Recorder
-        self.record_button = QtWidgets.QPushButton("Start Recording")
-        self.record_button.clicked.connect(self.toggle_recording)
-        self.record_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        self.record_button.setMinimumWidth(50)
-        self.record_button.setMinimumHeight(50)
-        layout.addWidget(self.record_button)
+#         # Add box for Rig Recorder
+#         self.record_button = QtWidgets.QPushButton("Start Recording")
+#         self.record_button.clicked.connect(self.toggle_recording)
+#         self.record_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+#         self.record_button.setMinimumWidth(50)
+#         self.record_button.setMinimumHeight(50)
+#         layout.addWidget(self.record_button)
 
-        self.setLayout(layout)
+#         self.setLayout(layout)
 
-    def toggle_recording(self):
-        if self.recording_state_manager.is_recording_enabled():
-            self.stop_recording()
-        else:
-            self.start_recording()
+#     def toggle_recording(self):
+#         if self.recording_state_manager.is_recording_enabled():
+#             self.stop_recording()
+#         else:
+#             self.start_recording()
 
-    def start_recording(self):
-        self.recording_state_manager.set_recording(True)
-        self.record_button.setText("Stop Recording")
-        self.record_button.setStyleSheet("background-color: red; color: white;")
-        logging.info("Recording started")
+#     def start_recording(self):
+#         self.recording_state_manager.set_recording(True)
+#         self.record_button.setText("Stop Recording")
+#         self.record_button.setStyleSheet("background-color: red; color: white;")
+#         logging.info("Recording started")
 
-    def stop_recording(self):
-        self.recording_state_manager.set_recording(False)
-        self.record_button.setText("Start Recording")
-        self.record_button.setStyleSheet("")
-        logging.info("Recording stopped")
+#     def stop_recording(self):
+#         self.recording_state_manager.set_recording(False)
+#         self.record_button.setText("Start Recording")
+#         self.record_button.setStyleSheet("")
+#         logging.info("Recording stopped")
 
-    def close(self):
-        self.save_stage_pos()
-        self.recorder.close()
-        super(PatchButtons, self).close()
+#     def close(self):
+#         self.save_stage_pos()
+#         self.recorder.close()
+#         super(PatchButtons, self).close()
 
-    def closeEvent(self, event):
-        self.save_stage_pos()
-        self.recorder.close()
-        super(PatchButtons, self).closeEvent(event)
+#     def closeEvent(self, event):
+#         self.save_stage_pos()
+#         self.recorder.close()
+#         super(PatchButtons, self).closeEvent(event)
 
-    def tare_pipette(self):
-        currPos = self.pipette_interface.calibrated_unit.unit.position()
-        self.init_pipette_pos = currPos
+#     def tare_pipette(self):
+#         currPos = self.pipette_interface.calibrated_unit.unit.position()
+#         self.init_pipette_pos = currPos
 
-    def update_pipette_pos_labels(self, indices):
-        # Update the position labels
-        currPos = self.pipette_interface.calibrated_unit.unit.position()
-        if self.init_pipette_pos is None:
-            self.init_pipette_pos = currPos
-        currPos = currPos - self.init_pipette_pos
+#     def update_pipette_pos_labels(self, indices):
+#         # Update the position labels
+#         currPos = self.pipette_interface.calibrated_unit.unit.position()
+#         if self.init_pipette_pos is None:
+#             self.init_pipette_pos = currPos
+#         currPos = currPos - self.init_pipette_pos
 
-        self.recorder.setBatchMoves(True)
-        self.recorder.write_movement_data_batch(
-            datetime.now().timestamp(),
-            self.stage_xy[0],
-            self.stage_xy[1],
-            self.stage_z,
-            currPos[0],
-            currPos[1],
-            currPos[2]
-        )
+#         self.recorder.setBatchMoves(True)
+#         self.recorder.write_movement_data_batch(
+#             datetime.now().timestamp(),
+#             self.stage_xy[0],
+#             self.stage_xy[1],
+#             self.stage_z,
+#             currPos[0],
+#             currPos[1],
+#             currPos[2]
+#         )
 
-        self.pipette_xyz = currPos
+#         self.pipette_xyz = currPos
 
-        for i, ind in enumerate(indices):
-            label = self.pos_labels[ind]
-            label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
+#         for i, ind in enumerate(indices):
+#             label = self.pos_labels[ind]
+#             label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
 
-    def tare_stage(self):
-        xyPos = self.pipette_interface.calibrated_stage.position()
-        zPos = self.pipette_interface.microscope.position()
-        self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+#     def tare_stage(self):
+#         xyPos = self.pipette_interface.calibrated_stage.position()
+#         zPos = self.pipette_interface.microscope.position()
+#         self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
 
-    def update_stage_pos_labels(self, indices):
-        # Update the position labels
-        xyPos = self.pipette_interface.calibrated_stage.position()
-        zPos = self.pipette_interface.microscope.position()
+#     def update_stage_pos_labels(self, indices):
+#         # Update the position labels
+#         xyPos = self.pipette_interface.calibrated_stage.position()
+#         zPos = self.pipette_interface.microscope.position()
 
-        if self.init_stage_pos is None:
-            self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
+#         if self.init_stage_pos is None:
+#             self.init_stage_pos = np.array([xyPos[0], xyPos[1], zPos])
 
-        xyPos = xyPos - self.init_stage_pos[0:2]
-        zPos = zPos - self.init_stage_pos[2]
+#         xyPos = xyPos - self.init_stage_pos[0:2]
+#         zPos = zPos - self.init_stage_pos[2]
 
-        self.recorder.setBatchMoves(True)
-        self.recorder.write_movement_data_batch(
-            datetime.now().timestamp(),
-            xyPos[0],
-            xyPos[1],
-            zPos,
-            self.pipette_xyz[0],
-            self.pipette_xyz[1],
-            self.pipette_xyz[2]
-        )
+#         self.recorder.setBatchMoves(True)
+#         self.recorder.write_movement_data_batch(
+#             datetime.now().timestamp(),
+#             xyPos[0],
+#             xyPos[1],
+#             zPos,
+#             self.pipette_xyz[0],
+#             self.pipette_xyz[1],
+#             self.pipette_xyz[2]
+#         )
 
-        self.stage_xy = xyPos
-        self.stage_z = zPos
+#         self.stage_xy = xyPos
+#         self.stage_z = zPos
 
-        for i, ind in enumerate(indices):
-            label = self.pos_labels[ind]
-            if i < 2:
-                label.setText(f'{label.text().split(":")[0]}: {xyPos[i]:.2f}')
-            else:
-                # Note: divide by 5 here to account for z-axis gear ratio
-                label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}')
+#         for i, ind in enumerate(indices):
+#             label = self.pos_labels[ind]
+#             if i < 2:
+#                 label.setText(f'{label.text().split(":")[0]}: {xyPos[i]:.2f}')
+#             else:
+#                 # Note: divide by 5 here to account for z-axis gear ratio
+#                 label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}')
 
 class CellSorterButtons(ButtonTabWidget):
     def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals):

@@ -35,6 +35,7 @@ class AutoPatcher(TaskController):
         self.calibrated_stage = calibrated_stage
         self.microscope = microscope
         self.safe_position = None
+        self.home_position = None
         self.cleaning_bath_position = None
         self.rinsing_bath_position = None
         self.contact_position = None
@@ -419,6 +420,31 @@ class AutoPatcher(TaskController):
 
         finally:
             pass
+        
+    def move_to_home_space(self):
+        '''
+        Moves the pipette to the home space.
+        '''
+        if self.home_position is None:
+            raise ValueError('Home position has not been set')
+
+        try:
+            # Extract individual coordinates from the home position
+            home_x, home_y, home_z = self.home_position
+           
+
+            # Step 1: Move Y axis first to align with the home position value
+            logging.debug(f'Moving Y axis to home position value: {home_y}')
+            self.calibrated_unit.absolute_move(home_y, axis=1)
+            self.calibrated_unit.wait_until_still()  # Ensure movement completes
+
+            # Step 2: Simultaneously move X and Z axes to reach the home position
+            logging.debug(f'Moving X and Z axes to home position values: X={home_x}, Z={home_z}')
+            self.calibrated_unit.absolute_move_group([home_x,home_y,home_z], [0,1,2])
+            self.calibrated_unit.wait_until_still()  # Ensure movement completes
+
+        finally:
+            pass
 
     def move_group_down(self):
         '''
@@ -428,7 +454,7 @@ class AutoPatcher(TaskController):
         try:
             self.calibrated_unit.relative_move(dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
-            self.microscope.relative_move(dist*5)
+            self.microscope.relative_move(dist)
             self.microscope.wait_until_still()
         finally:
             pass
@@ -440,7 +466,7 @@ class AutoPatcher(TaskController):
         try:
             self.calibrated_unit.relative_move(-dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
-            self.microscope.relative_move(-dist*5)
+            self.microscope.relative_move(-dist)
             self.microscope.wait_until_still()
         finally:
             pass

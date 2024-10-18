@@ -134,6 +134,15 @@ class AutoPatchInterface(TaskInterface):
         self.info(f'safe space position stored: {self.current_autopatcher.safe_position}')
 
     @command(category='Patch',
+                description='Store the position of the home space',
+                success_message='Home position stored')
+    def store_home_position(self) -> None:
+        
+        self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
+        self.info(f'safe home position stored: {self.current_autopatcher.home_position}')
+    
+
+    @command(category='Patch',
              description='Store the position of the rinsing bath',
              success_message='Rinsing bath position stored')
     def store_rinsing_position(self) -> None:
@@ -150,6 +159,12 @@ class AutoPatchInterface(TaskInterface):
                       task_description='Moving to safe space')
     def move_to_safe_space(self):
         self.execute(self.current_autopatcher.move_to_safe_space)
+
+    @blocking_command(category='Patch',
+                        description='Move to home position',
+                        task_description='Moving to home position')
+    def move_to_home_space(self):
+        self.execute(self.current_autopatcher.move_to_home_space)
 
     @blocking_command(category='Patch',
                         description='Move the group down',
