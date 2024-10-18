@@ -12,10 +12,10 @@ from sklearn.metrics import precision_recall_curve, average_precision_score
 # Configuration
 # ================================
 
-MODEL_PATH = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteTipModel\results2\train\weights\best.pt"  # Path to your trained YOLO model
-IMAGES_DIR = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\finder_training_set\SplitDatasetnoaug\test\images"  # Directory containing test images
-LABELS_DIR = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\finder_training_set\SplitDatasetnoaug\test\labels"  # Directory containing YOLO-formatted label files
-RESULTS_DIR = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteTipModel\results2\test"  # Directory to save all results
+MODEL_PATH = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteTipModel\results3\train\weights\best.pt"  # Path to your trained YOLO model
+IMAGES_DIR = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\focus_set-2\SplitDatasetnoaug\test\images"  # Directory containing test images
+LABELS_DIR = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModelTrainer\focus_set-2\SplitDatasetnoaug\test\labels"  # Directory containing YOLO-formatted label files
+RESULTS_DIR = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteTipModel\results3\test"  # Directory to save all results
 
 # Create necessary directories
 annotated_dir = os.path.join(RESULTS_DIR, "annotated_images")

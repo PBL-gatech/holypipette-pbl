@@ -145,8 +145,8 @@ class CustomGraphicsScene(QGraphicsScene):
                 self.addItem(self.current_rect_item)
         elif event.button() == Qt.RightButton:
             # *** Added right-click functionality ***
-            predefined_width = 100  # Predefined width in pixels
-            predefined_height = 100  # Predefined height in pixels
+            predefined_width = 300  # Predefined width in pixels
+            predefined_height = 300  # Predefined height in pixels
 
             click_pos = event.scenePos()
             x = click_pos.x() - predefined_width / 2
