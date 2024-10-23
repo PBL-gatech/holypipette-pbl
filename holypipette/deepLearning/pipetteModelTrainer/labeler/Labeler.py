@@ -10,6 +10,12 @@ import json
 import sys
 import shutil  # *** Ensure this import is present ***
 
+# SAM integrations
+import torch
+from segment_anything import sam_model_registry, SamPredictor
+import cv2
+import numpy as np
+
 
 class ResizableRectItem(QGraphicsRectItem):
     """Custom QGraphicsRectItem that can be resized and holds a label. Used to make a bounding box."""
@@ -121,7 +127,6 @@ class ResizableRectItem(QGraphicsRectItem):
             if hasattr(parent, 'changes_made'):
                 parent.changes_made = True
         return super().itemChange(change, value)
-
 
 class CustomGraphicsScene(QGraphicsScene):
     """Custom QGraphicsScene to handle drawing of bounding boxes."""
@@ -248,12 +253,15 @@ class CustomGraphicsScene(QGraphicsScene):
             self.current_rect_item = None
         super().mouseReleaseEvent(event)
 
-
 class ImageLabeler(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Image Labeler")
         self.setGeometry(50, 50, 1000, 800)
+
+        self.sam_model_path = "sam_vit_h_4b8939.pth"  # Replace with actual model path
+        self.device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
+        self.sam_predictor = self.load_sam_model()
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -311,6 +319,10 @@ class ImageLabeler(QMainWindow):
         # *** New Button: Change Label Name ***
         self.change_label_button = QPushButton("Change Label Name")
         self.change_label_button.clicked.connect(self.change_label_name)
+
+        self.generate_sam_button = QPushButton("Generate SAM mask")
+        self.generate_sam_button.clicked.connect(self.generate_sam)
+
         # *** End of New Button ***
 
         self.buttons_layout.addWidget(self.prev_button)
@@ -319,6 +331,7 @@ class ImageLabeler(QMainWindow):
         self.buttons_layout.addWidget(self.delete_selected_button)
         self.buttons_layout.addWidget(self.delete_all_button)
         self.buttons_layout.addWidget(self.change_label_button)  # Add new button to layout
+        self.buttons_layout.addWidget(self.generate_sam_button)
 
         self.main_layout.addLayout(self.buttons_layout)
 
@@ -748,6 +761,42 @@ class ImageLabeler(QMainWindow):
         else:
             event.ignore()
 
+    def load_sam_model(self):
+        """Load the SAM model."""
+        print("Loading SAM model...")
+        sam = sam_model_registry["vit_h"](checkpoint=self.sam_model_path).to(self.device)
+        return SamPredictor(sam)
+
+    def generate_sam(self):
+        """Generate a segmentation mask using SAM."""
+        current_image = self.image_paths[self.current_index]
+        current_image = cv2.imread(current_image)
+
+        height, width, _ = current_image.shape
+        # input_point = np.array([[width // 2, height // 2]])
+        input_point = np.array([[100, 200]])
+        input_label = np.array([1])
+
+        self.sam_predictor.set_image(current_image)
+
+        masks, scores, _ = self.sam_predictor.predict(
+            point_coords=input_point,
+            point_labels=input_label,
+            multimask_output=False
+        )
+        mask, score = masks[0], scores[0]
+
+        mask_image = (mask * 255).astype(np.uint8)
+        colored_mask = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2RGB)
+        overlay = cv2.addWeighted(current_image, 0.7, colored_mask, 0.3, 0)
+
+        # mask_name = "overlay.png"
+        mask_name = "colored_mask.png"
+        
+        cv2.imwrite(mask_name, colored_mask)
+        self.display_image(mask_name)
+        print("Mask score: " + str(score))
+        self.info_label.setText(f"SAM mask generated for current image. Mask score is {str(score)}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
