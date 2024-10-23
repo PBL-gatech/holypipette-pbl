@@ -1,8 +1,9 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton,
     QFileDialog, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QHBoxLayout,
-    QFrame, QMessageBox, QShortcut, QInputDialog, QListWidget
+    QFrame, QMessageBox, QShortcut, QInputDialog, QListWidget, QCheckBox
 )
+
 from PyQt5.QtCore import Qt, QRectF, QPointF
 from PyQt5.QtGui import QPixmap, QPen, QColor, QKeySequence
 import os
@@ -261,6 +262,7 @@ class ImageLabeler(QMainWindow):
 
         self.sam_model_path = "sam_vit_h_4b8939.pth"  # Replace with actual model path
         self.device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
+        print(f"Device: {self.device}")
         self.sam_predictor = self.load_sam_model()
 
         self.central_widget = QWidget()
@@ -320,8 +322,8 @@ class ImageLabeler(QMainWindow):
         self.change_label_button = QPushButton("Change Label Name")
         self.change_label_button.clicked.connect(self.change_label_name)
 
-        self.generate_sam_button = QPushButton("Generate SAM mask")
-        self.generate_sam_button.clicked.connect(self.generate_sam)
+        self.generate_sam_toggle = QCheckBox("Generate SAM mask")
+        self.generate_sam_toggle.stateChanged.connect(self.generate_sam)
 
         # *** End of New Button ***
 
@@ -331,7 +333,7 @@ class ImageLabeler(QMainWindow):
         self.buttons_layout.addWidget(self.delete_selected_button)
         self.buttons_layout.addWidget(self.delete_all_button)
         self.buttons_layout.addWidget(self.change_label_button)  # Add new button to layout
-        self.buttons_layout.addWidget(self.generate_sam_button)
+        self.buttons_layout.addWidget(self.generate_sam_toggle)
 
         self.main_layout.addLayout(self.buttons_layout)
 
@@ -427,7 +429,7 @@ class ImageLabeler(QMainWindow):
         self.current_index = 0
         self.info_label.setText(f"Loaded {len(self.image_paths)} images.")
 
-    def display_image(self, image_path):
+    def display_image(self, image_path, displaying_sam_mask=False):
         """Display the image on the QGraphicsView using QGraphicsScene."""
         if not os.path.exists(image_path):
             QMessageBox.warning(self, "Error", f"Image file {image_path} does not exist.")
@@ -450,8 +452,9 @@ class ImageLabeler(QMainWindow):
 
             # Fit the image to the view
             self.view.fitInView(pixmap_item, Qt.KeepAspectRatio)
-            self.info_label.setText(f"Displaying {os.path.basename(image_path)}")
-
+            self.info_label.setText(f"Displaying {os.path.basename(image_path)}")   
+            self.generate_sam_toggle.setChecked(displaying_sam_mask)
+        
             # Load bounding boxes for the image
             load_success = self.load_bounding_boxes(image_path)
             if load_success:
@@ -767,36 +770,47 @@ class ImageLabeler(QMainWindow):
         sam = sam_model_registry["vit_h"](checkpoint=self.sam_model_path).to(self.device)
         return SamPredictor(sam)
 
-    def generate_sam(self):
+    def generate_sam(self, state):
         """Generate a segmentation mask using SAM."""
-        current_image = self.image_paths[self.current_index]
-        current_image = cv2.imread(current_image)
+        if len(self.image_paths) == 0:
+            self.info_label.setText("No image directory loaded yet.")
+            self.generate_sam_toggle.setChecked(False)
+            # self.display_image("")
+            return
 
-        height, width, _ = current_image.shape
-        # input_point = np.array([[width // 2, height // 2]])
-        input_point = np.array([[100, 200]])
-        input_label = np.array([1])
+        current_image_path = self.image_paths[self.current_index]
+        current_image = cv2.imread(current_image_path)
 
-        self.sam_predictor.set_image(current_image)
+        if state == Qt.Checked:
+            height, width, _ = current_image.shape
+            # input_point = np.array([[width // 2, height // 2]])
+            input_point = np.array([[100, 200]])
+            input_label = np.array([1])
+            self.info_label.setText("Generating SAM mask for current image...") # doesn't quite work
 
-        masks, scores, _ = self.sam_predictor.predict(
-            point_coords=input_point,
-            point_labels=input_label,
-            multimask_output=False
-        )
-        mask, score = masks[0], scores[0]
+            self.sam_predictor.set_image(current_image)
 
-        mask_image = (mask * 255).astype(np.uint8)
-        colored_mask = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2RGB)
-        overlay = cv2.addWeighted(current_image, 0.7, colored_mask, 0.3, 0)
+            masks, scores, _ = self.sam_predictor.predict(
+                point_coords=input_point,
+                point_labels=input_label,
+                multimask_output=False
+            )
+            mask, score = masks[0], scores[0]
 
-        # mask_name = "overlay.png"
-        mask_name = "colored_mask.png"
-        
-        cv2.imwrite(mask_name, colored_mask)
-        self.display_image(mask_name)
-        print("Mask score: " + str(score))
-        self.info_label.setText(f"SAM mask generated for current image. Mask score is {str(score)}")
+            mask_image = (mask * 255).astype(np.uint8)
+            colored_mask = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2RGB)
+            overlay = cv2.addWeighted(current_image, 0.7, colored_mask, 0.3, 0)
+
+            # mask_name = "overlay.png"
+            mask_name = "colored_mask.png"
+
+            cv2.imwrite(mask_name, colored_mask)
+            self.display_image(mask_name, displaying_sam_mask = True)
+            print("Mask score: " + str(score))
+            self.info_label.setText(f"SAM mask generated for current image. Mask score is {str(score)}")
+        else:
+            self.display_image(current_image_path)
+            self.info_label.setText("Original image displayed.")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
