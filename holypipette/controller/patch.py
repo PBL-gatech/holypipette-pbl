@@ -35,7 +35,9 @@ class AutoPatcher(TaskController):
         self.calibrated_stage = calibrated_stage
         self.microscope = microscope
         self.safe_position = None
+        self.safe_stage_position = None
         self.home_position = None
+        self.home_stage_position = None
         self.cleaning_bath_position = None
         self.rinsing_bath_position = None
         self.contact_position = None
@@ -149,7 +151,78 @@ class AutoPatcher(TaskController):
         self.amplifier.voltage_clamp()
         self.info('finished running holding protocol (E/I PSC test)')
 
+    def hunt_cell(self,cell = None):
+        '''
+        Moves the pipette down to cell plane and detects a cell using resistance measurements
+        '''
+        self.info("Hunting for cell")
+        if not self.calibrated_unit.calibrated:
+            raise AutopatchError("Pipette not calibrated")
+        if not self.calibrated_stage.calibrated:
+            raise AutopatchError("Stage not calibrated")
+        if self.safe_position is None:
+            raise ValueError('Safe position has not been set')
+        if self.home_position is None:
+            raise ValueError('Home position has not been set')
+        if self.microscope.floor_Z is None:
+            raise AutopatchError("Cell Plane not set")
         
+        if cell is None:
+            raise AutopatchError("No cell given to patch!")
+
+        # move stage and pipette to safe space
+        self.move_to_safe_space()
+        # set pipette pressure to 200 mbar
+        self.pressure.set_pressure(200)
+        # move to home space
+        self.move_to_home_space()
+        # center pipette and stage on cell XY
+        cell_pos, cell_img = cell
+        self.calibrated_stage._move(np.array([cell_pos[0], cell_pos[1], 0]))
+        self.calibrated_stage.wait_until_still()
+        # move stage and pipette to cell plane 
+
+        self.calibrated_unit.absolute_move(np.array([0, 0, self.microscope.floor_Z]))
+        self.microscope.absolute_move(self.microscope.floor_Z)
+
+        # move stage and pipette rapidly down to initial distance above cell
+        # let say we have the z position of the cell, we will move down to 25 um above it
+        self.move_group_down()
+  
+        # set pipette to 50 mbar when approaching cell
+        self.pressure.set_pressure(50)
+        # set up resitance measurement
+        self.amplifier.voltage_clamp()
+        self.sleep(1)
+        self.amplifier.auto_pipette_offset()
+        self.sleep(1)
+        self.amplifier.voltage_clamp()
+        lastResDeque = collections.deque(maxlen=3)
+        # get initial resistance
+        daqResistance = self.daq.resistance()
+        lastResDeque.append(daqResistance)
+        # move pipette down 15 um at a time until resistance increases by 0.3 MOhm (continuously)
+        while not self._isCellDetected(lastResDeque):
+            self.calibrated_unit.relative_move(15, axis=2, speed=100)
+            self.calibrated_unit.wait_until_still(2)
+            self.calibrated_stage.microscope.relative_move(15)
+            self.calibrated_stage.microscope.wait_until_still()
+            self.sleep(1)
+            lastResDeque.append(daqResistance)
+            daqResistance = self.daq.resistance()
+            
+
+
+        
+        # check if hunt cancel is requested
+
+
+
+        
+
+
+
+
     def break_in(self):
         '''
         Breaks in. The pipette must be in cell-attached mode
@@ -406,7 +479,10 @@ class AutoPatcher(TaskController):
         try:
             # Extract individual coordinates from the safe position
             safe_x, safe_y, safe_z = self.safe_position
-           
+            safe_stage_x, safe_stage_y, safe_stage_z = self.safe_stage_position
+
+            # Step 0: Move the stage to the safe position
+            self.calibrated_stage.absolute_move_group([safe_stage_x,safe_stage_y,safe_stage_z], [0,1,2])
 
             # Step 1: Move Y axis first to align with the safe position value
             logging.debug(f'Moving Y axis to safe position value: {safe_y}')
@@ -431,7 +507,11 @@ class AutoPatcher(TaskController):
         try:
             # Extract individual coordinates from the home position
             home_x, home_y, home_z = self.home_position
-           
+            stage_home_x, stage_home_y, stage_home_z = self.home_stage_position
+
+            # Step 0: Move the stage to the home position
+            logging.debug(f'Moving stage to home position values: X={stage_home_x}, Y={stage_home_y}, Z={stage_home_z}')
+            self.calibrated_stage.absolute_move_group([stage_home_x,stage_home_y,stage_home_z], [0,1,2])
 
             # Step 1: Move Y axis first to align with the home position value
             logging.debug(f'Moving Y axis to home position value: {home_y}')
@@ -446,11 +526,11 @@ class AutoPatcher(TaskController):
         finally:
             pass
 
-    def move_group_down(self):
+    def move_group_down(self,dist = 100):
         '''
         Moves the microsope and manipulator down by input distance in the z axis
         '''
-        dist = 100 # distance to move down in um
+
         try:
             self.calibrated_unit.relative_move(dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
@@ -458,11 +538,11 @@ class AutoPatcher(TaskController):
             self.microscope.wait_until_still()
         finally:
             pass
-    def move_group_up(self):
+    def move_group_up(self,dist = 100):
         '''
         Moves the microscope and manipulator up by input distance in the z axis
         '''
-        dist = 100
+    
         try:
             self.calibrated_unit.relative_move(-dist, axis=2)
             self.calibrated_unit.wait_until_still(2)

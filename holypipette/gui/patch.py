@@ -41,9 +41,6 @@ class PatchGui(ManipulatorGui):
         self.patch_interface.moveToThread(pipette_interface.thread())
         self.interface_signals[self.patch_interface] = (self.patch_command_signal,
                                                         self.patch_reset_signal)
-        
-
-
     
         try:
             # Add patching button tab
@@ -217,8 +214,6 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
             if child.widget():
                 child.widget().setParent(None)
         self.content_layout.addLayout(layout)
-
-
 
 class ButtonTabWidget(QtWidgets.QWidget):
     def __init__(self):
@@ -621,8 +616,9 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         self.addButtonList('movement', layout, buttonList, cmds)
 
         # Add a box for patching commands
-        buttonList = [['Break In'],['Run Protocols']]
-        cmds = [[self.patch_interface.break_in],
+        buttonList = [['Select Cell', 'Remove Last Cell'],['Hunt Cell','Break In'],['Run Protocols']]
+        cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell],
+                [self.patch_interface.hunt_cell ,self.patch_interface.break_in],
             [[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]]
             
         ]
@@ -993,145 +989,145 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 #                 # Note: divide by 5 here to account for z-axis gear ratio
 #                 label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}')
 
-class CellSorterButtons(ButtonTabWidget):
-    def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals):
-        super().__init__()
-        self.patch_interface = patch_interface
-        self.pipette_interface = pipette_interface
+# class CellSorterButtons(ButtonTabWidget):
+#     def __init__(self, patch_interface : AutoPatchInterface, pipette_interface : PipetteInterface, start_task, interface_signals):
+#         super().__init__()
+#         self.patch_interface = patch_interface
+#         self.pipette_interface = pipette_interface
 
-        self.start_task = start_task
-        self.interface_signals = interface_signals
+#         self.start_task = start_task
+#         self.interface_signals = interface_signals
 
-        self.pos_update_timers = []
-        self.pos_labels = []
+#         self.pos_update_timers = []
+#         self.pos_labels = []
 
-        layout = QtWidgets.QVBoxLayout()
-        layout.setAlignment(Qt.AlignTop)
+#         layout = QtWidgets.QVBoxLayout()
+#         layout.setAlignment(Qt.AlignTop)
 
-        self.addPositionBox('Automated Movement', layout, self.update_cellsorter_pos_labels, axes=['Z'])
+#         self.addPositionBox('Automated Movement', layout, self.update_cellsorter_pos_labels, axes=['Z'])
 
-        #add a box for movement
-        buttonList = [['Calibrate', 'Sorter to Cell']]
-        cmds = [[self.pipette_interface.calibrate_cell_sorter, self.patch_interface.move_cellsorter_to_cell]]
-        self.addButtonList('Cell Sorter Movement', layout, buttonList, cmds)
-        self.addCellSorterControlBox('Cell Sorter Control', layout)
+#         #add a box for movement
+#         buttonList = [['Calibrate', 'Sorter to Cell']]
+#         cmds = [[self.pipette_interface.calibrate_cell_sorter, self.patch_interface.move_cellsorter_to_cell]]
+#         self.addButtonList('Cell Sorter Movement', layout, buttonList, cmds)
+#         self.addCellSorterControlBox('Cell Sorter Control', layout)
 
-        self.setLayout(layout)
+#         self.setLayout(layout)
 
-    def update_cellsorter_pos_labels(self, indices):
-        #update the position labels
-        currPos = self.pipette_interface.calibrated_cellsorter.position()
-        for _, ind in enumerate(indices):
-            label = self.pos_labels[ind]
-            label.setText(f'{label.text().split(":")[0]}: {currPos:.2f}')
+#     def update_cellsorter_pos_labels(self, indices):
+#         #update the position labels
+#         currPos = self.pipette_interface.calibrated_cellsorter.position()
+#         for _, ind in enumerate(indices):
+#             label = self.pos_labels[ind]
+#             label.setText(f'{label.text().split(":")[0]}: {currPos:.2f}')
 
-    def addCellSorterControlBox(self, name, layout):
+#     def addCellSorterControlBox(self, name, layout):
 
-        posLayout = QtWidgets.QGroupBox(name)
-        rows = QtWidgets.QVBoxLayout()
+#         posLayout = QtWidgets.QGroupBox(name)
+#         rows = QtWidgets.QVBoxLayout()
 
-        #add a label
-        movement_row = QtWidgets.QHBoxLayout()
-        label = QtWidgets.QLabel(name)
-        label.setText("Movement Control")
-        label.setAlignment(Qt.AlignCenter)
+#         #add a label
+#         movement_row = QtWidgets.QHBoxLayout()
+#         label = QtWidgets.QLabel(name)
+#         label.setText("Movement Control")
+#         label.setAlignment(Qt.AlignCenter)
 
-        #add label to layout
-        movement_row.addWidget(label)
+#         #add label to layout
+#         movement_row.addWidget(label)
         
-        #add position text input
-        posInput = QtWidgets.QLineEdit()
-        posInput.setPlaceholderText('Relative Movement (um) Position')
-        posInput.setValidator(QtGui.QDoubleValidator())
-        posInput.returnPressed.connect(lambda: self.pipette_interface.calibrated_cellsorter.relative_move(float(posInput.text())))
-        movement_row.addWidget(posInput)
+#         #add position text input
+#         posInput = QtWidgets.QLineEdit()
+#         posInput.setPlaceholderText('Relative Movement (um) Position')
+#         posInput.setValidator(QtGui.QDoubleValidator())
+#         posInput.returnPressed.connect(lambda: self.pipette_interface.calibrated_cellsorter.relative_move(float(posInput.text())))
+#         movement_row.addWidget(posInput)
 
-        #add movement to layout
-        rows.addLayout(movement_row)
+#         #add movement to layout
+#         rows.addLayout(movement_row)
 
-        #add suction control row (label, input, button)
-        suction_row = QtWidgets.QHBoxLayout()
-        label = QtWidgets.QLabel(name)
-        label.setText("Suction")
-        label.setAlignment(Qt.AlignCenter)
+#         #add suction control row (label, input, button)
+#         suction_row = QtWidgets.QHBoxLayout()
+#         label = QtWidgets.QLabel(name)
+#         label.setText("Suction")
+#         label.setAlignment(Qt.AlignCenter)
 
-        #add label to layout
-        suction_row.addWidget(label)
+#         #add label to layout
+#         suction_row.addWidget(label)
 
-        #add pressure text input
-        suctionInput = QtWidgets.QLineEdit()
-        suctionInput.setPlaceholderText('Duration (ms)')
-        suctionInput.setValidator(QtGui.QIntValidator())
-        suction_row.addWidget(suctionInput)
+#         #add pressure text input
+#         suctionInput = QtWidgets.QLineEdit()
+#         suctionInput.setPlaceholderText('Duration (ms)')
+#         suctionInput.setValidator(QtGui.QIntValidator())
+#         suction_row.addWidget(suctionInput)
 
-        label = QtWidgets.QLabel(name)
-        label.setText("ms")
-        label.setAlignment(Qt.AlignCenter)
-        suction_row.addWidget(label)
+#         label = QtWidgets.QLabel(name)
+#         label.setText("ms")
+#         label.setAlignment(Qt.AlignCenter)
+#         suction_row.addWidget(label)
 
-        #add button
-        suctionButton = QtWidgets.QPushButton('Go')
-        suctionButton.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.pulse_suction(int(suctionInput.text())))
-        suction_row.addWidget(suctionButton)
-        rows.addLayout(suction_row)
+#         #add button
+#         suctionButton = QtWidgets.QPushButton('Go')
+#         suctionButton.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.pulse_suction(int(suctionInput.text())))
+#         suction_row.addWidget(suctionButton)
+#         rows.addLayout(suction_row)
 
-        #add pressure control row (label, input, button)
-        pressure_row = QtWidgets.QHBoxLayout()
-        label = QtWidgets.QLabel(name)
-        label.setText("Pressure")
-        label.setAlignment(Qt.AlignCenter)
-        pressure_row.addWidget(label)
+#         #add pressure control row (label, input, button)
+#         pressure_row = QtWidgets.QHBoxLayout()
+#         label = QtWidgets.QLabel(name)
+#         label.setText("Pressure")
+#         label.setAlignment(Qt.AlignCenter)
+#         pressure_row.addWidget(label)
 
-        #add pressure text input
-        pressureInput = QtWidgets.QLineEdit()
-        pressureInput.setPlaceholderText('Duration (ms)')
-        pressureInput.setValidator(QtGui.QIntValidator())
-        pressure_row.addWidget(pressureInput)
+#         #add pressure text input
+#         pressureInput = QtWidgets.QLineEdit()
+#         pressureInput.setPlaceholderText('Duration (ms)')
+#         pressureInput.setValidator(QtGui.QIntValidator())
+#         pressure_row.addWidget(pressureInput)
 
-        label = QtWidgets.QLabel(name)
-        label.setText("ms")
-        label.setAlignment(Qt.AlignCenter)
-        pressure_row.addWidget(label)
+#         label = QtWidgets.QLabel(name)
+#         label.setText("ms")
+#         label.setAlignment(Qt.AlignCenter)
+#         pressure_row.addWidget(label)
 
-        #add button
-        pressureButton = QtWidgets.QPushButton('Go')
-        pressureButton.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.pulse_pressure(int(pressureInput.text())))
-        pressure_row.addWidget(pressureButton)
-        rows.addLayout(pressure_row)
+#         #add button
+#         pressureButton = QtWidgets.QPushButton('Go')
+#         pressureButton.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.pulse_pressure(int(pressureInput.text())))
+#         pressure_row.addWidget(pressureButton)
+#         rows.addLayout(pressure_row)
 
-        #add radio button options for light (off, ring1, ring2)
-        light_row = QtWidgets.QHBoxLayout()
-        label = QtWidgets.QLabel(name)
-        label.setText("Light")
-        label.setAlignment(Qt.AlignCenter)
-        light_row.addWidget(label)
+#         #add radio button options for light (off, ring1, ring2)
+#         light_row = QtWidgets.QHBoxLayout()
+#         label = QtWidgets.QLabel(name)
+#         label.setText("Light")
+#         label.setAlignment(Qt.AlignCenter)
+#         light_row.addWidget(label)
 
-        #add radio buttons
-        lightGroup = QtWidgets.QButtonGroup()
-        lightGroup.setExclusive(True)
-        lightOff = QtWidgets.QRadioButton('Off')
-        lightGroup.addButton(lightOff)
-        lightRing1 = QtWidgets.QRadioButton('Ring 1')
-        lightGroup.addButton(lightRing1)
-        lightRing1.setChecked(True)
-        lightRing2 = QtWidgets.QRadioButton('Ring 2')
-        lightGroup.addButton(lightRing2)
-        #command cell sorter to turn off light when radio button is clicked
-        lightOff.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.set_led_status(False))
-        lightRing1.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.set_led_status(True, 1))
-        lightRing2.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.set_led_status(True, 2))
+#         #add radio buttons
+#         lightGroup = QtWidgets.QButtonGroup()
+#         lightGroup.setExclusive(True)
+#         lightOff = QtWidgets.QRadioButton('Off')
+#         lightGroup.addButton(lightOff)
+#         lightRing1 = QtWidgets.QRadioButton('Ring 1')
+#         lightGroup.addButton(lightRing1)
+#         lightRing1.setChecked(True)
+#         lightRing2 = QtWidgets.QRadioButton('Ring 2')
+#         lightGroup.addButton(lightRing2)
+#         #command cell sorter to turn off light when radio button is clicked
+#         lightOff.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.set_led_status(False))
+#         lightRing1.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.set_led_status(True, 1))
+#         lightRing2.clicked.connect(lambda: self.pipette_interface.calibrated_cellsorter.set_led_status(True, 2))
         
-        light_row.addWidget(lightOff)
-        light_row.addWidget(lightRing1)
-        light_row.addWidget(lightRing2)
-        rows.addLayout(light_row)
+#         light_row.addWidget(lightOff)
+#         light_row.addWidget(lightRing1)
+#         light_row.addWidget(lightRing2)
+#         rows.addLayout(light_row)
 
 
 
 
-        #add rows to layout
-        posLayout.setLayout(rows)
-        layout.addWidget(posLayout)
+#         #add rows to layout
+#         posLayout.setLayout(rows)
+#         layout.addWidget(posLayout)
 
         
         
