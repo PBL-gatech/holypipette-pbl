@@ -16,7 +16,7 @@ import torch
 from segment_anything import sam_model_registry, SamPredictor
 import cv2
 import numpy as np
-
+from functools import lru_cache
 
 class ResizableRectItem(QGraphicsRectItem):
     """Custom QGraphicsRectItem that can be resized and holds a label. Used to make a bounding box."""
@@ -260,15 +260,13 @@ class ImageLabeler(QMainWindow):
         self.setWindowTitle("Image Labeler")
         self.setGeometry(50, 50, 1000, 800)
 
-        self.sam_model_path = "sam_vit_h_4b8939.pth"  # Replace with actual model path
-        self.device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
-        print(f"Device: {self.device}")
-        self.sam_predictor = self.load_sam_model()
-
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
 
         self.main_layout = QVBoxLayout(self.central_widget)
+
+        self.sam_model_path = "sam_vit_h_4b8939.pth"  # Replace with actual model path
+        self.sam_handler = SAMHandler(self.sam_model_path)
 
         # Horizontal layout for image and side list
         self.top_layout = QHBoxLayout()
@@ -298,6 +296,7 @@ class ImageLabeler(QMainWindow):
         self.info_frame.setFrameShadow(QFrame.Sunken)
 
         self.main_layout.addWidget(self.info_frame)
+
 
         # Add buttons for navigation and directory selection at the bottom
         self.buttons_layout = QHBoxLayout()
@@ -764,53 +763,108 @@ class ImageLabeler(QMainWindow):
         else:
             event.ignore()
 
-    def load_sam_model(self):
-        """Load the SAM model."""
-        print("Loading SAM model...")
-        sam = sam_model_registry["vit_h"](checkpoint=self.sam_model_path).to(self.device)
-        return SamPredictor(sam)
-
     def generate_sam(self, state):
         """Generate a segmentation mask using SAM."""
         if len(self.image_paths) == 0:
             self.info_label.setText("No image directory loaded yet.")
             self.generate_sam_toggle.setChecked(False)
-            # self.display_image("")
             return
 
         current_image_path = self.image_paths[self.current_index]
         current_image = cv2.imread(current_image_path)
 
         if state == Qt.Checked:
-            height, width, _ = current_image.shape
-            # input_point = np.array([[width // 2, height // 2]])
-            input_point = np.array([[100, 200]])
-            input_label = np.array([1])
-            self.info_label.setText("Generating SAM mask for current image...") # doesn't quite work
-
-            self.sam_predictor.set_image(current_image)
-
-            masks, scores, _ = self.sam_predictor.predict(
-                point_coords=input_point,
-                point_labels=input_label,
-                multimask_output=False
-            )
-            mask, score = masks[0], scores[0]
-
-            mask_image = (mask * 255).astype(np.uint8)
-            colored_mask = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2RGB)
-            overlay = cv2.addWeighted(current_image, 0.7, colored_mask, 0.3, 0)
-
-            # mask_name = "overlay.png"
-            mask_name = "colored_mask.png"
-
-            cv2.imwrite(mask_name, colored_mask)
-            self.display_image(mask_name, displaying_sam_mask = True)
-            print("Mask score: " + str(score))
-            self.info_label.setText(f"SAM mask generated for current image. Mask score is {str(score)}")
+            self.info_label.setText("Generating SAM mask...")
+            
+            try:                
+                masks, scores, _ = self.sam_handler.generate_mask(current_image)
+                
+                # Create and save overlay
+                overlay = self.sam_handler.create_overlay(current_image, masks[0])
+                mask_name = "colored_mask.png"
+                cv2.imwrite(mask_name, overlay)
+                
+                self.display_image(mask_name, displaying_sam_mask=True)
+                self.info_label.setText(f"SAM mask generated. Score: {scores[0]:.3f}")
+                
+            except Exception as e:
+                self.info_label.setText(f"Error generating mask: {str(e)}")
+                self.generate_sam_toggle.setChecked(False)
         else:
             self.display_image(current_image_path)
             self.info_label.setText("Original image displayed.")
+    
+    def closeEvent(self, event):
+        """Clean up resources before closing."""
+        self.sam_handler.cleanup()
+        super().closeEvent(event)
+
+class SAMHandler:
+    """Handles SAM model operations with optimizations."""
+    def __init__(self, model_path, device=None):
+        self.model_path = model_path
+        self.device = device or ('cuda' if torch.cuda.is_available() else 
+                               'mps' if torch.backends.mps.is_available() else 'cpu')
+        print(f"Device: {self.device}")
+
+        self._predictor = None
+        self.current_image_hash = None
+    
+    @property
+    def predictor(self):
+        """Lazy loading of SAM predictor."""
+        if self._predictor is None:
+            print(f"Initialising SAM model on {self.device}...")
+            sam = sam_model_registry["vit_h"](checkpoint=self.model_path)
+            sam.to(self.device)
+            self._predictor = SamPredictor(sam)
+        return self._predictor
+
+    def _compute_image_hash(self, image):
+        """Compute a hash of the image for caching purposes."""
+        return hash(image.tobytes())
+
+    @lru_cache(maxsize=5)
+    def _get_cached_embedding(self, image_hash):
+        """Cache and retrieve image embeddings."""
+        return self.predictor.get_image_embedding()
+
+    def set_image(self, image):
+        """Set image with caching mechanism."""
+        image_hash = self._compute_image_hash(image)
+        if image_hash != self.current_image_hash:
+            self.predictor.set_image(image)
+            self.current_image_hash = image_hash
+
+    def generate_mask(self, image, points=None, multimask_output=False):
+        """Generate segmentation mask with automatic input handling."""
+        self.set_image(image)
+        
+        if points is None:
+            points = np.array([[100, 200]])
+            point_labels = np.array([1])
+        else:
+            point_labels = np.ones(len(points))
+
+        masks, scores, logits = self.predictor.predict(
+            point_coords=points,
+            point_labels=point_labels if points is not None else None,
+            multimask_output=multimask_output
+        )
+        
+        return masks, scores, logits
+
+    def create_overlay(self, image, mask, alpha=0.7):
+        """Create overlay of mask on image."""
+        mask_image = (mask * 255).astype(np.uint8)
+        colored_mask = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2RGB)
+        return cv2.addWeighted(image, alpha, colored_mask, 1-alpha, 0)
+
+    def cleanup(self):
+        """Clean up GPU memory."""
+        if self._predictor is not None and self.device != 'cpu':
+            self._predictor.model.cpu()
+            torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
