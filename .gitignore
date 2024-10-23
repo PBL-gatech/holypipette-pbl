@@ -7,5 +7,5 @@ docs/
 dist/
 *.egg-info/
 CellSorterSerial.py
-
-
+.DS_Store
+sam_vit_h_4b8939.pth

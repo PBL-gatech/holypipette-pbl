@@ -1,8 +1,9 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton,
     QFileDialog, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QHBoxLayout,
-    QFrame, QMessageBox, QShortcut, QInputDialog, QListWidget
+    QFrame, QMessageBox, QShortcut, QInputDialog, QListWidget, QCheckBox
 )
+
 from PyQt5.QtCore import Qt, QRectF, QPointF
 from PyQt5.QtGui import QPixmap, QPen, QColor, QKeySequence
 import os
@@ -10,6 +11,12 @@ import json
 import sys
 import shutil  # *** Ensure this import is present ***
 
+# SAM integrations
+import torch
+from segment_anything import sam_model_registry, SamPredictor
+import cv2
+import numpy as np
+from functools import lru_cache
 
 class ResizableRectItem(QGraphicsRectItem):
     """Custom QGraphicsRectItem that can be resized and holds a label. Used to make a bounding box."""
@@ -121,7 +128,6 @@ class ResizableRectItem(QGraphicsRectItem):
             if hasattr(parent, 'changes_made'):
                 parent.changes_made = True
         return super().itemChange(change, value)
-
 
 class CustomGraphicsScene(QGraphicsScene):
     """Custom QGraphicsScene to handle drawing of bounding boxes."""
@@ -248,7 +254,6 @@ class CustomGraphicsScene(QGraphicsScene):
             self.current_rect_item = None
         super().mouseReleaseEvent(event)
 
-
 class ImageLabeler(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -259,6 +264,9 @@ class ImageLabeler(QMainWindow):
         self.setCentralWidget(self.central_widget)
 
         self.main_layout = QVBoxLayout(self.central_widget)
+
+        self.sam_model_path = "sam_vit_h_4b8939.pth"  # Replace with actual model path
+        self.sam_handler = SAMHandler(self.sam_model_path)
 
         # Horizontal layout for image and side list
         self.top_layout = QHBoxLayout()
@@ -289,6 +297,7 @@ class ImageLabeler(QMainWindow):
 
         self.main_layout.addWidget(self.info_frame)
 
+
         # Add buttons for navigation and directory selection at the bottom
         self.buttons_layout = QHBoxLayout()
 
@@ -311,6 +320,10 @@ class ImageLabeler(QMainWindow):
         # *** New Button: Change Label Name ***
         self.change_label_button = QPushButton("Change Label Name")
         self.change_label_button.clicked.connect(self.change_label_name)
+
+        self.generate_sam_toggle = QCheckBox("Generate SAM mask")
+        self.generate_sam_toggle.stateChanged.connect(self.generate_sam)
+
         # *** End of New Button ***
 
         self.buttons_layout.addWidget(self.prev_button)
@@ -319,6 +332,7 @@ class ImageLabeler(QMainWindow):
         self.buttons_layout.addWidget(self.delete_selected_button)
         self.buttons_layout.addWidget(self.delete_all_button)
         self.buttons_layout.addWidget(self.change_label_button)  # Add new button to layout
+        self.buttons_layout.addWidget(self.generate_sam_toggle)
 
         self.main_layout.addLayout(self.buttons_layout)
 
@@ -414,7 +428,7 @@ class ImageLabeler(QMainWindow):
         self.current_index = 0
         self.info_label.setText(f"Loaded {len(self.image_paths)} images.")
 
-    def display_image(self, image_path):
+    def display_image(self, image_path, displaying_sam_mask=False):
         """Display the image on the QGraphicsView using QGraphicsScene."""
         if not os.path.exists(image_path):
             QMessageBox.warning(self, "Error", f"Image file {image_path} does not exist.")
@@ -437,8 +451,9 @@ class ImageLabeler(QMainWindow):
 
             # Fit the image to the view
             self.view.fitInView(pixmap_item, Qt.KeepAspectRatio)
-            self.info_label.setText(f"Displaying {os.path.basename(image_path)}")
-
+            self.info_label.setText(f"Displaying {os.path.basename(image_path)}")   
+            self.generate_sam_toggle.setChecked(displaying_sam_mask)
+        
             # Load bounding boxes for the image
             load_success = self.load_bounding_boxes(image_path)
             if load_success:
@@ -748,6 +763,108 @@ class ImageLabeler(QMainWindow):
         else:
             event.ignore()
 
+    def generate_sam(self, state):
+        """Generate a segmentation mask using SAM."""
+        if len(self.image_paths) == 0:
+            self.info_label.setText("No image directory loaded yet.")
+            self.generate_sam_toggle.setChecked(False)
+            return
+
+        current_image_path = self.image_paths[self.current_index]
+        current_image = cv2.imread(current_image_path)
+
+        if state == Qt.Checked:
+            self.info_label.setText("Generating SAM mask...")
+            
+            try:                
+                masks, scores, _ = self.sam_handler.generate_mask(current_image)
+                
+                # Create and save overlay
+                overlay = self.sam_handler.create_overlay(current_image, masks[0])
+                mask_name = "colored_mask.png"
+                cv2.imwrite(mask_name, overlay)
+                
+                self.display_image(mask_name, displaying_sam_mask=True)
+                self.info_label.setText(f"SAM mask generated. Score: {scores[0]:.3f}")
+                
+            except Exception as e:
+                self.info_label.setText(f"Error generating mask: {str(e)}")
+                self.generate_sam_toggle.setChecked(False)
+        else:
+            self.display_image(current_image_path)
+            self.info_label.setText("Original image displayed.")
+    
+    def closeEvent(self, event):
+        """Clean up resources before closing."""
+        self.sam_handler.cleanup()
+        super().closeEvent(event)
+
+class SAMHandler:
+    """Handles SAM model operations with optimizations."""
+    def __init__(self, model_path, device=None):
+        self.model_path = model_path
+        self.device = device or ('cuda' if torch.cuda.is_available() else 
+                               'mps' if torch.backends.mps.is_available() else 'cpu')
+        print(f"Device: {self.device}")
+
+        self._predictor = None
+        self.current_image_hash = None
+    
+    @property
+    def predictor(self):
+        """Lazy loading of SAM predictor."""
+        if self._predictor is None:
+            print(f"Initialising SAM model on {self.device}...")
+            sam = sam_model_registry["vit_h"](checkpoint=self.model_path)
+            sam.to(self.device)
+            self._predictor = SamPredictor(sam)
+        return self._predictor
+
+    def _compute_image_hash(self, image):
+        """Compute a hash of the image for caching purposes."""
+        return hash(image.tobytes())
+
+    @lru_cache(maxsize=5)
+    def _get_cached_embedding(self, image_hash):
+        """Cache and retrieve image embeddings."""
+        return self.predictor.get_image_embedding()
+
+    def set_image(self, image):
+        """Set image with caching mechanism."""
+        image_hash = self._compute_image_hash(image)
+        if image_hash != self.current_image_hash:
+            self.predictor.set_image(image)
+            self.current_image_hash = image_hash
+
+    def generate_mask(self, image, points=None, multimask_output=False):
+        """Generate segmentation mask with automatic input handling."""
+        self.set_image(image)
+        
+        if points is None:
+            points = np.array([[100, 200]])
+            point_labels = np.array([1])
+        else:
+            point_labels = np.ones(len(points))
+
+        masks, scores, logits = self.predictor.predict(
+            point_coords=points,
+            point_labels=point_labels if points is not None else None,
+            multimask_output=multimask_output
+        )
+        
+        return masks, scores, logits
+
+    def create_overlay(self, image, mask, alpha=0.7):
+        """Create overlay of mask on image."""
+        mask_image = (mask * 255).astype(np.uint8)
+        colored_mask = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2RGB)
+        return cv2.addWeighted(image, alpha, colored_mask, 1-alpha, 0)
+
+    def cleanup(self):
+        """Clean up GPU memory."""
+        if self._predictor is not None and self.device != 'cpu':
+            self._predictor.model.cpu()
+            torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
