@@ -75,7 +75,7 @@ class SerialGrapher(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    com_port = 'COM9'  # Set your COM port here
+    com_port = 'COM8'  # Set your COM port here
     main = SerialGrapher(com_port)
     main.show()
     sys.exit(app.exec_())
