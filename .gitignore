@@ -44,3 +44,5 @@ patch_analyzer.log
 /holypipette/deepLearning/pipetteModelTrainer/focus_dataset
 /holypipette/deepLearning/pipetteModelTrainer/finder_training_set
 /holypipette/deepLearning/pipetteModelTrainer/focus_set-2
+/holypipette/devices/camera/pvcam
+/src/holypipette
