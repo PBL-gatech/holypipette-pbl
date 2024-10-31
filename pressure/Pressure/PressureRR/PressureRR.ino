@@ -47,7 +47,7 @@ void loop() {
       
       // compute the adjusted value
       // float Y = M * (average - 513.62);
-      float Y = (M*average)+516.72;
+      float Y = (M*average)+520.48;
       
       // send the result
       Serial.print("S");

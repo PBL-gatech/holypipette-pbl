@@ -8,11 +8,65 @@ from PyQt5.QtWidgets import (
     QComboBox, QMessageBox, QTextEdit, QGroupBox, QDialog, QLineEdit, QFileDialog
 )
 from PyQt5.QtGui import QFont
-from PyQt5.QtCore import Qt, QDateTime, QTimer
+from PyQt5.QtCore import Qt, QDateTime, QTimer, QThread, pyqtSignal
 import numpy as np
 import pyqtgraph as pg
 import time
-from threading import Thread
+
+class SerialReaderThread(QThread):
+    data_received = pyqtSignal(float, float)  # Signal to emit timestamp and value
+    error_occurred = pyqtSignal(str)          # Signal to emit error messages
+
+    def __init__(self, serial_port, parent=None):
+        super().__init__(parent)
+        self.serial_port = serial_port
+        self.is_running = True
+
+    def run(self):
+        while self.is_running and self.serial_port and self.serial_port.is_open:
+            try:
+                if self.serial_port.in_waiting > 0:
+                    line = self.serial_port.readline().decode('utf-8').strip()
+                    if line.startswith('S') and line.endswith('E'):
+                        numeric_part = line[1:-1]
+                        try:
+                            value = float(numeric_part)
+                            # value = (value - 520.72) / 0.3923  # Adjusted conversion for pressure sensor
+                            # value = (value - 521)/0.213  # Adjusted conversion for pressure sensor
+                            timestamp = time.time()
+                            self.data_received.emit(timestamp, value)
+                        except ValueError:
+                            self.error_occurred.emit("Received invalid data format.")
+                else:
+                    self.msleep(10)  # Sleep briefly to prevent CPU overuse
+            except Exception as e:
+                self.error_occurred.emit(f"Error reading data: {e}")
+                break
+
+    def stop(self):
+        self.is_running = False
+        self.wait()
+
+class SerialWriterThread(QThread):
+    error_occurred = pyqtSignal(str)  # Signal to emit error messages
+
+    def __init__(self, serial_port, parent=None):
+        super().__init__(parent)
+        self.serial_port = serial_port
+        self.is_running = True
+
+    def run(self):
+        while self.is_running and self.serial_port and self.serial_port.is_open:
+            try:
+                self.serial_port.write(b'R')
+                self.msleep(int(1000/30))  # Approximately 33 ms
+            except Exception as e:
+                self.error_occurred.emit(f"Error sending command: {e}")
+                break
+
+    def stop(self):
+        self.is_running = False
+        self.wait()
 
 class PressureReaderApp(QWidget):
     def __init__(self):
@@ -24,19 +78,12 @@ class PressureReaderApp(QWidget):
         self.csv_file = None
         self.csv_writer = None
         self.recording_count = 0  # Counter to track the number of recording sessions
+        self.reader_thread = None
+        self.writer_thread = None
         self.initUI()
 
         # Variables for plotting
         self.plot_data = np.zeros(100)  # Buffer for last 100 data points
-        self.plot_timer = QTimer()
-        self.plot_timer.timeout.connect(self.update_plot)
-        self.plot_timer.start(50)  # Update plot every 50 ms
-
-        # Initialize plot (hidden initially) within initUI to maintain order
-        # Removed init_plot() from here
-
-        # Thread for sending 'R' commands
-        self.sender_thread = None
 
     def initUI(self):
         self.setFixedSize(700, 500)  # Updated window size
@@ -77,10 +124,6 @@ class PressureReaderApp(QWidget):
 
         self.setLayout(layout)
         self.setWindowTitle('Pressure Reader Control')
-
-        # Timer for periodically reading data from serial port
-        self.read_timer = QTimer()
-        self.read_timer.timeout.connect(self.read_serial_data)
 
     def create_communication_box(self):
         """ Create communication box with COM port selection """
@@ -126,12 +169,12 @@ class PressureReaderApp(QWidget):
         """ Refresh the list of available COM ports and set default """
         ports = serial.tools.list_ports.comports()
         self.com_selector.clear()
-        default_port = "COM9"  # Adjust default port as needed
+        default_port = "COM8"  # Adjust default port as needed
         available_ports = [port.device for port in ports]
         if default_port in available_ports:
             # set default port if available
             self.com_selector.addItem(default_port)
-            # add all  other available ports to the dropdown
+            # add all other available ports to the dropdown
             self.com_selector.addItems([port for port in available_ports if port != default_port])
         else:
             self.data_display.append(f"Default port {default_port} not available.")
@@ -142,7 +185,7 @@ class PressureReaderApp(QWidget):
         selected_port = self.com_selector.currentText()
         if selected_port:
             try:
-                self.serial_port = serial.Serial(selected_port, 9600, timeout=0.1)  # Adjusted baud rate and timeout
+                self.serial_port = serial.Serial(selected_port, 9600, timeout=0.05)  # Adjusted baud rate and shorter timeout
                 self.is_connected = True
                 self.read_button.setEnabled(True)  # Enable read button when connected
                 QMessageBox.information(self, "Success", f"Connected to {selected_port}")
@@ -156,11 +199,17 @@ class PressureReaderApp(QWidget):
         if checked:
             self.read_button.setText("Stop Read")
             self.is_reading = True
-            self.read_timer.start(50)  # Check every 50 ms for higher update rate
 
-            # Start the sender thread to send 'R' commands at ~30 FPS
-            self.sender_thread = Thread(target=self.send_command, daemon=True)
-            self.sender_thread.start()
+            # Start the reader thread
+            self.reader_thread = SerialReaderThread(self.serial_port)
+            self.reader_thread.data_received.connect(self.handle_new_data)
+            self.reader_thread.error_occurred.connect(self.handle_error)
+            self.reader_thread.start()
+
+            # Start the writer thread to send 'R' commands at ~30 FPS
+            self.writer_thread = SerialWriterThread(self.serial_port)
+            self.writer_thread.error_occurred.connect(self.handle_error)
+            self.writer_thread.start()
 
             # Enable recording button
             self.record_button.setEnabled(True)
@@ -170,19 +219,20 @@ class PressureReaderApp(QWidget):
         else:
             self.read_button.setText("Start Read")
             self.is_reading = False
-            self.read_timer.stop()
 
-            # Sender thread will stop as it checks self.is_reading
-            # No need to explicitly stop the thread since it's daemonized
+            # Stop reader thread
+            if self.reader_thread and self.reader_thread.isRunning():
+                self.reader_thread.stop()
+
+            # Stop writer thread
+            if self.writer_thread and self.writer_thread.isRunning():
+                self.writer_thread.stop()
 
             # Disable recording button
             self.record_button.setEnabled(False)
 
             # Switch back to logo view
             self.hide_plot()
-            # Ensure sender thread has stopped
-            if self.sender_thread and self.sender_thread.is_alive():
-                self.sender_thread.join(timeout=1)
 
     def toggle_record(self, checked):
         """ Start or stop recording the data to a CSV file """
@@ -229,44 +279,25 @@ class PressureReaderApp(QWidget):
                 self.csv_file = None
                 self.csv_writer = None
 
-    def read_serial_data(self):
-        """ Read data from the serial port and display it """
-        if self.is_reading and self.serial_port and self.serial_port.is_open:
-            try:
-                # Only attempt to read if there is data in the buffer
-                if self.serial_port.in_waiting > 0:
-                    line = self.serial_port.readline().decode('utf-8').strip()
-                    if line.startswith('S') and line.endswith('E'):
-                        numeric_part = line[1:-1]
-                        try:
-                            value = float(numeric_part)
-                            value = (value - 516.72) / 0.3923  # Adjusted conversion for pressure sensor
-                            # use the unix timestamp
-                            timestamp = time.time()
-                            self.data_display.append(f"time: {timestamp}s, pressure: {value}mbar")
+    def handle_new_data(self, timestamp, value):
+        """ Handle new data received from the serial port """
+        # Display data
+        self.data_display.append(f"time: {timestamp:.2f}s, pressure: {value:.2f}mbar")
 
-                            # Update plot data buffer
-                            self.plot_data[:-1] = self.plot_data[1:]
-                            self.plot_data[-1] = value
+        # Update plot data buffer
+        self.plot_data[:-1] = self.plot_data[1:]
+        self.plot_data[-1] = value
 
-                            # If recording, write to CSV
-                            if self.is_recording and self.csv_writer:
-                                self.csv_writer.writerow([timestamp, value])
-                        except ValueError:
-                            self.data_display.append("Received invalid data format.")
-            except Exception as e:
-                self.data_display.append(f"Error reading data: {e}")
+        # If recording, write to CSV
+        if self.is_recording and self.csv_writer:
+            self.csv_writer.writerow([timestamp, value])
 
-    def send_command(self):
-        """ Continuously send 'R' commands to the Arduino at ~30 FPS """
-        while self.is_reading:
-            try:
-                if self.serial_port and self.serial_port.is_open:
-                    self.serial_port.write(b'R')
-                time.sleep(1/30)  # Approximately 33 ms
-            except Exception as e:
-                self.data_display.append(f"Error sending command: {e}")
-                break
+    def handle_error(self, message):
+        """ Handle errors emitted from threads """
+        self.data_display.append(message)
+        QMessageBox.critical(self, "Error", message)
+        # Optionally, stop reading if a critical error occurs
+        self.toggle_read(False)
 
     def init_plot(self):
         """ Initialize the PyQtGraph plot widget but keep it hidden initially """
@@ -295,13 +326,25 @@ class PressureReaderApp(QWidget):
     def closeEvent(self, event):
         """ Handle application exit """
         self.is_reading = False
-        if self.sender_thread and self.sender_thread.is_alive():
-            self.sender_thread.join(timeout=1)
+        # Stop reader thread
+        if self.reader_thread and self.reader_thread.isRunning():
+            self.reader_thread.stop()
+        # Stop writer thread
+        if self.writer_thread and self.writer_thread.isRunning():
+            self.writer_thread.stop()
         if self.serial_port and self.serial_port.is_open:
             self.serial_port.close()
         if self.csv_file:
             self.close_csv_file()
         event.accept()
+
+    def showEvent(self, event):
+        """ Initialize the plot timer when the window is shown """
+        super().showEvent(event)
+        # Initialize plot timer after the window is shown
+        self.plot_timer = QTimer()
+        self.plot_timer.timeout.connect(self.update_plot)
+        self.plot_timer.start(33)  # Update plot every 50 ms
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
