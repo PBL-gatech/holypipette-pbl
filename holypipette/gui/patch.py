@@ -574,7 +574,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         self.currx_stage_pos = np.array([0, 0, 0])
         self.curry_stage_pos = np.array([0, 0, 0])
         self.currz_stage_pos = np.array([0, 0, 0])
-        self.stage_json_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\setup\stage_position.json"
+        self.stage_json_path = r"C:\Users\rowan\Documents\GitHub\holypipette-pbl\setup\stage_position.json"
         self.load_stage_pos()
 
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
