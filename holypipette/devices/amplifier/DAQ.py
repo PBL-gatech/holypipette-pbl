@@ -527,6 +527,8 @@ class FakeDAQ:
         self.isRunningProtocol = False
         self.current_protocol_data = None
         self.voltage_protocol_data = None
+        self.holding_protocol_data = None
+        self._deviceLock = threading.Lock()
 
     def resistance(self):
         return self.totalResistance + np.random.normal(0, 0.1 * 10 ** 6)
@@ -537,7 +539,7 @@ class FakeDAQ:
         # self.latest_protocol_data = None # clear data
         self.voltage_protocol_data = None # clear data
 
-        self.voltage_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
+        self.voltage_protocol_data, fake_response, fake_total, fake_access,fake_membrane_r,fake_capacitance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
         # self.lastest_protocol_data, resistance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
 
         self.isRunningProtocol = False
@@ -546,26 +548,27 @@ class FakeDAQ:
         return self.voltage_protocol_data
 
     def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
-        #create a wave_freq Hz square wave
-        data = np.zeros(int(samplesPerSec / recordingTime))
-        onTime = 1 / wave_freq * dutyCycle * samplesPerSec
-        offTime = 1 / wave_freq * (1-dutyCycle) * samplesPerSec
+            # Lock the creation and modification of shared data
+            with self._deviceLock:
+                # Create square wave data array with locked resource access
+                data = np.zeros(int(samplesPerSec * recordingTime))
+                onTime = int(1 / wave_freq * dutyCycle * samplesPerSec)
+                offTime = int(1 / wave_freq * (1 - dutyCycle) * samplesPerSec)
+                period = onTime + offTime
+                wavesPerSec = samplesPerSec // period
 
-        #calc period
-        period = onTime + offTime
+                # Populate the square wave data with amplitude values for 'on' times
+                for i in range(wavesPerSec):
+                    data[i * period: i * period + onTime] = amplitude
 
-        #convert to int
-        onTime = int(onTime)
-        offTime = int(offTime)
-        period = int(period)
+            # Perform calculations outside the lock to avoid GUI conflicts or memory issues
+            timeData = np.linspace(0, recordingTime, len(data), dtype=float)
+            data = np.array([timeData, data])
 
-        wavesPerSec = samplesPerSec // period
+            # Set up fake resistance and capacitance values
+            fake_resistance = 20
+            fake_capacitance = 20
+            total_resistance = fake_resistance * 2
 
-        for i in range(wavesPerSec):
-            data[i * period : i * period + onTime] = amplitude
-
-
-        timeData = np.linspace(0, recordingTime, len(data), dtype=float)
-
-        data = np.array([timeData, data])
-        return data, self.resistance()
+            # Return the assembled data
+            return data, data, fake_resistance, total_resistance, fake_resistance, fake_capacitance
