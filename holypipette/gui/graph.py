@@ -462,11 +462,11 @@ class EPhysGraph(QWidget):
             try:
                 # Fetch data from DAQ
                 data = self.daq.getDataFromSquareWave(
-                    wave_freq=20,
-                    samplesPerSec=50000,
+                    wave_freq=50,
+                    samplesPerSec=20000,
                     dutyCycle=0.5,
-                    amplitude=0.5,
-                    recordingTime=0.05
+                    amplitude=0.75,
+                    recordingTime=0.04
                 )
             except Exception as e:
                 logging.error(f"Error fetching data from DAQ: {e}")

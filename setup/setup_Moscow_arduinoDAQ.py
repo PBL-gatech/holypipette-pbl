@@ -13,42 +13,39 @@ from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 
 
-# controllerSerial = serial.Serial('COM6')
-# controller = ScientificaSerialNoEncoder(controllerSerial)
+controllerSerial = serial.Serial('COM6')
+controller = ScientificaSerialNoEncoder(controllerSerial)
 
-# pipetteSerial = serial.Serial('COM3')
-# pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
-# stage = ManipulatorUnit(controller, [1, 2])
+pipetteSerial = serial.Serial('COM3')
+pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
+stage = ManipulatorUnit(controller, [1, 2])
 
-controller = FakeManipulator(min=[-240000, 50000, 280000],
-                             max=[-230000, 60000, 290000])
-pipetteManip = FakeManipulator(min=[0, 0, 0],
-                                      max=[4000, 20000, 20000])
+# controller = FakeManipulator(min=[-240000, 50000, 280000],
+#                              max=[-230000, 60000, 290000])
+# pipetteManip = FakeManipulator(min=[0, 0, 0],
+#                                       max=[4000, 20000, 20000])
 stage = ManipulatorUnit(controller, [1, 2])
 
 cellSorterController = FakeCellSorterController()
 cellSorterManip = FakeCellSorterManip()
 
-# pipetteManip.x = [200, 300, 400] # start with pipette in frame
-# controller.x = [-235000, 55000, 285000]
+
 camera = PcoCamera()
-# camera = moscowQCamera()
-# camera = QImagingCam()
+
 # camera = FakeCalCamera(stageManip=controller, pipetteManip=pipetteManip, image_z=100, cellSorterManip=cellSorterManip)
 microscope = Microscope(controller, 3)
 microscope.up_direction = 1.0
 
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 
-# daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
-# daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0')
+
 ArdDAQserial = serial.Serial(port='COM11', baudrate=500000, timeout=1)
 daq = ArduinoDAQ(DAQSerial=ArdDAQserial)
 # daq = FakeDAQ()
-amplifier = FakeAmplifier()
+# amplifier = FakeAmplifier()
 # pressure = FakePressureController()
-# amplifier = MultiClampChannel(channel=1)
-#
+amplifier = MultiClampChannel(channel=1)
+
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
 pressureReaderSerial = serial.Serial(port='COM9', baudrate=9600, timeout=0)
 pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)

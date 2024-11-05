@@ -769,6 +769,7 @@ class ArduinoDAQ:
 
         readData = np.array(command, dtype=float)
         respData = np.array(response, dtype=float)
+        
         # logging.debug(f"Read data shape: {readData.shape}, Response data shape: {respData.shape}")
         return np.array([readData, respData])
 
