@@ -229,12 +229,12 @@ class DAQ:
         self.isRunningProtocol = True
         self.holding_protocol_data = None # clear data
         self._deviceLock.acquire()
-        data  = self._readAnalogInput(20000, 1)
+        data  = self._readAnalogInput(50000, 1)
         respData = data[1]
         readData = data[0]
         self._deviceLock.release()
         triggeredSamples = respData.shape[0]
-        timeData = np.linspace(0, triggeredSamples / 20000, triggeredSamples, dtype=float)
+        timeData = np.linspace(0, triggeredSamples / 50000, triggeredSamples, dtype=float)
         self.isRunningProtocol = False
         #show shapes of data
         # assign data to holding_protocol_data
@@ -252,7 +252,7 @@ class DAQ:
             self.isRunningProtocol = True
             while attempts < max_attempts:
                 attempts += 1
-                self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(20, 20000, 0.5, 0.5, 0.05)
+                self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.05)
         
                 if self.voltageMembraneCapacitance != 0:
                     break  # exit loop if capacitance is non-zero
@@ -519,6 +519,8 @@ class DAQ:
         C_m_pF = (tau*1e-3) / (1/(1/(R_a_Mohms*1e6) + 1/(R_m_Mohms*1e6))) * 1e12 # supposed to be 33 pF
         # print("C_m_pF in calc", C_m_pF)
         return R_a_Mohms, R_m_Mohms, C_m_pF
+
+
 
 class ArduinoDAQ:
     # Calibration Constants
