@@ -432,22 +432,14 @@ class EPhysGraph(QWidget):
 
         # Start the background thread for DAQ data acquisition
         self.daqUpdateThread = threading.Thread(target=self.updateDAQDataAsync, daemon=True)
+    
         self.daqUpdateThread.start()
 
         # Show window and bring to front
         self.raise_()
         self.show()
 
-    def location_on_the_screen(self):
-        ag = QDesktopWidget().availableGeometry()
-        sg = QDesktopWidget().screenGeometry()
 
-        x = ag.width() // 2    # Adjusted calculation for x coordinate
-        y = 30  # Adjusted calculation for y coordinate
-        width = ag.width() // 2
-        height = ag.height() - 30    # Subtract 30 from the total height
-
-        self.setGeometry(x, y, width, height)
 
     def closeEvent(self, event):
         """
@@ -463,20 +455,18 @@ class EPhysGraph(QWidget):
         Background thread that continuously fetches data from the DAQ and emits signals for GUI updates.
         """
         while True:
-            # Sleep to control the data acquisition rate
-            time.sleep(0.01)
-
+            # sleep for 50 ms
+            time.sleep(0.05)
             if self.daq.isRunningProtocol:
                 continue  # Don't run membrane test while running a current protocol
-
             try:
                 # Fetch data from DAQ
                 data = self.daq.getDataFromSquareWave(
-                    wave_freq=20,
-                    samplesPerSec=50000,
+                    wave_freq=50,
+                    samplesPerSec=20000,
                     dutyCycle=0.5,
-                    amplitude=0.5,
-                    recordingTime=0.05
+                    amplitude=0.75,
+                    recordingTime=0.04
                 )
             except Exception as e:
                 logging.error(f"Error fetching data from DAQ: {e}")

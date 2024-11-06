@@ -4,7 +4,7 @@
 import serial
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
 from holypipette.devices.amplifier.amplifier import FakeAmplifier
-from holypipette.devices.amplifier.DAQ import FakeDAQ, DAQ
+from holypipette.devices.amplifier.DAQ import FakeDAQ, DAQ, ArduinoDAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.camera.electrocamera import ElectroCamera
 # from holypipette.devices.camera.qimagingcam import QImagingCam
@@ -34,8 +34,7 @@ cellSorterManip = FakeCellSorterManip()
 # pipetteManip.x = [200, 300, 400] # start with pipette in frame
 # controller.x = [-235000, 55000, 285000]
 camera = ElectroCamera()
-# camera = moscowQCamera()
-# camera = QImagingCam()
+
 # camera = FakeCalCamera(stageManip=controller, pipetteManip=pipetteManip, image_z=100, cellSorterManip=cellSorterManip)
 microscope = Microscope(controller, 3)
 microscope.up_direction = 1.0
@@ -43,17 +42,14 @@ microscope.up_direction = 1.0
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 
 # daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
-# daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0')
+# ArdDAQserial = serial.Serial(port='COM11', baudrate=500000, timeout=1)
+# daq = ArduinoDAQ(DAQSerial=ArdDAQserial)
 
 daq = FakeDAQ()
 amplifier = FakeAmplifier()
-pressure = FakePressureController()
 # amplifier = MultiClampChannel(channel=1)
 
 # pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
 # pressureReaderSerial = serial.Serial(port='COM9', baudrate=9600, timeout=0)
-# pressureReaderSerial = serial.Serial(port='COM8', baudrate=9600, timeout=0)
-# pressure = IBBPressureController(channel=1, arduinoSerial=pressureControllerSerial)
-# pressure = TestPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
 # pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
 pressure = FakePressureController()
