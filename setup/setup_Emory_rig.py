@@ -15,10 +15,10 @@ from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 
 
-# controllerSerial = serial.Serial('COM6')
+# controllerSerial = serial.Serial('COM20')
 # controller = ScientificaSerialNoEncoder(controllerSerial)
 
-# pipetteSerial = serial.Serial('COM3')
+# pipetteSerial = serial.Serial('COM19')
 # pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
 # stage = ManipulatorUnit(controller, [1, 2])
 
@@ -41,7 +41,7 @@ microscope.up_direction = 1.0
 
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 
-# daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
+
 # ArdDAQserial = serial.Serial(port='COM11', baudrate=500000, timeout=1)
 # daq = ArduinoDAQ(DAQSerial=ArdDAQserial)
 
