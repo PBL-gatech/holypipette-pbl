@@ -3,12 +3,12 @@ from __future__ import absolute_import
 from types import MethodType
 
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal, QObject
 import PyQt5.QtGui as QtGui
 import numpy as np
 import logging
 
-from PyQt5.QtWidgets import QDesktopWidget
+from PyQt5.QtWidgets import QFileDialog, QWidget,QMessageBox
 
 from holypipette.controller import TaskController
 from holypipette.gui.manipulator import ManipulatorGui
@@ -197,6 +197,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self.interface_signals = {}
         self.start_task = None
 
+
     def do_nothing(self):
         pass  # a dummy function for buttons that aren't implemented yet
 
@@ -310,7 +311,24 @@ class ButtonTabWidget(QtWidgets.QWidget):
         box.setContentLayout(rows)
         layout.addWidget(box)
 
+class FileSelector(QWidget):
+    fileSelected = pyqtSignal(str)  # Signal to emit the selected file path
 
+    def __init__(self):
+        super().__init__()
+
+    def open_file_dialog(self):
+        # Open the file dialog in non-blocking mode
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file_name, _ = QFileDialog.getOpenFileName(self, 
+                                                   "Select CSV File", 
+                                                   "", 
+                                                   "CSV Files (*.csv);;All Files (*)", 
+                                                   options=options)
+        if file_name:
+            # Emit the signal with the selected file path
+            self.fileSelected.emit(file_name)
 class PIDPatchButtons(ButtonTabWidget):
     def __init__(self, patch_interface: AutoPatchInterface, pipette_interface: PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
         super().__init__()
@@ -333,7 +351,11 @@ class PIDPatchButtons(ButtonTabWidget):
         self.currx_stage_pos = [0, 0, 0]
         self.curry_stage_pos = [0, 0, 0]
         self.currz_stage_pos = [0, 0, 0]
-        
+
+        self.file_selector = FileSelector()
+        self.file_selector.fileSelected.connect(self.load_movement_file)
+
+
 
 
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
@@ -371,14 +393,10 @@ class PIDPatchButtons(ButtonTabWidget):
         ]
         self.addButtonList('movement', layout, buttonList, cmds)
 
-        # Add a box for patching commands
-        buttonList = [['Select Cell', 'Remove Last Cell'],['Hunt Cell','Break In'],['Run Protocols']]
-        cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell],
-                [self.patch_interface.hunt_cell ,self.patch_interface.break_in],
-            [[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]]
-            
-        ]
-        self.addButtonList('patching', layout, buttonList, cmds)
+        # add a box for testing controllability of the pipette and stage
+        buttonList = [['Test Movement']]
+        cmds = [ [self.test_movement]]
+        self.addButtonList('testing', layout, buttonList, cmds)
 
         # Add a box for Rig Recorder
         self.record_button = QtWidgets.QPushButton("Start Recording")
@@ -389,7 +407,24 @@ class PIDPatchButtons(ButtonTabWidget):
         layout.addWidget(self.record_button)
 
         self.setLayout(layout)
-    
+
+    def test_movement(self):
+        # check if recording is enabled
+        if self.recording_state_manager.is_recording_enabled():
+            # Opens the file selector dialog without blocking the main thread
+            self.file_selector.open_file_dialog()
+        else:
+            # if not recording then start recording
+            self.toggle_recording()
+            # Opens the file selector dialog without blocking the main thread
+            self.file_selector.open_file_dialog()
+        
+    def load_movement_file(self, file_path):
+        logging.info(f"Loading movement file: {file_path}")
+        # # send file to the pipette interface
+        self.patch_interface.send_movement_file(file_path)
+
+        
     def toggle_recording(self):
         if self.recording_state_manager.is_recording_enabled():
             self.stop_recording()

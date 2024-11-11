@@ -137,7 +137,7 @@ class ScientificaSerialEncoder(Manipulator):
             # Move X and Y axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
-            print("sent cmd", xPos, yPos)
+            # print("sent cmd", xPos, yPos)
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
 
         elif 1 in axes and 2 in axes and 3 in axes:
@@ -145,7 +145,7 @@ class ScientificaSerialEncoder(Manipulator):
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
-            print("sent cmd", xPos, yPos, zPos)
+            # print("sent cmd", xPos, yPos, zPos)
             self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
 
         else:
@@ -274,7 +274,7 @@ class ScientificaSerialNoEncoder(Manipulator):
             # Move X and Y axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
-            print("sent cmd", xPos, yPos)
+            # print("sent cmd", xPos, yPos)
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
 
         elif 1 in axes and 2 in axes and 3 in axes:
@@ -282,7 +282,7 @@ class ScientificaSerialNoEncoder(Manipulator):
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
-            print("sent cmd", xPos, yPos, zPos)
+            # print("sent cmd", xPos, yPos, zPos)
             self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
 
         else:

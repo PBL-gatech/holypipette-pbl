@@ -1,5 +1,6 @@
 import time
 
+import pandas as pd
 import numpy as np
 import cv2
 import ctypes
@@ -14,6 +15,7 @@ import logging
 from holypipette.interface.patchConfig import PatchConfig
 
 from .base import TaskController
+
 
 
 class AutopatchError(Exception):
@@ -484,7 +486,7 @@ class AutoPatcher(TaskController):
             logging.debug(f'Moving microscope to safe position value: Z={safe_microscope_z}')
             self.microscope.absolute_move(safe_microscope_z)
             # Step 1: Move the stage to the safe position
-            self.calibrated_stage.absolute_move_group([safe_stage_x,safe_stage_y])
+            self.calibrated_stage.absolute_move([safe_stage_x,safe_stage_y])
 
             # Step 2: Move Y axis first to align with the safe position value
             logging.debug(f'Moving Y axis to safe position value: {safe_y}')
@@ -555,6 +557,7 @@ class AutoPatcher(TaskController):
         finally:
             pass
     
+    
     def clean_pipette(self):
         if self.cleaning_bath_position is None:
             raise ValueError('Cleaning bath position has not been set')
@@ -617,3 +620,53 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.wait_until_still() # Ensure movement completes
         finally:
             pass
+
+
+
+    def test_movement(self, path):
+        """
+        Moves the pipette and stage to the positions at the given frequency of the timestamps to test controllability with improved precision.
+        """
+        # Read and parse the file into a DataFrame for optimized access
+        data = {
+            'timestamp': [],
+            'st_x': [], 'st_y': [], 'st_z': [],
+            'pi_x': [], 'pi_y': [], 'pi_z': []
+        }
+
+        with open(path, 'r') as file:
+            for line in file:
+                parts = line.strip().split()
+                data_point = {key: float(value) for key, value in (part.split(':') for part in parts)}
+                for key in data:
+                    data[key].append(data_point[key])
+        
+        df = pd.DataFrame(data)
+        df['timestamp'] -= df['timestamp'].iloc[0]  # Adjust timestamps to start from 0
+
+        # Retrieve start positions for stage and pipette
+        start_positions = df.iloc[0][['st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z']]
+        self.calibrated_stage.absolute_move([start_positions['st_x'], start_positions['st_y'], start_positions['st_z']])
+        self.calibrated_unit.absolute_move_group(
+            [start_positions['pi_x'], start_positions['pi_y'], start_positions['pi_z']], [0, 1, 2]
+        )
+
+        self.info('Starting Movement Test')
+
+        # Initialize high-resolution timer
+        start_time = time.perf_counter()
+
+        # Iterate through the DataFrame for precise movement timing
+        for index, row in df.iterrows():
+            # Calculate actual target time using high-precision time and busy-wait if necessary
+            target_time = row['timestamp'] + start_time
+            while time.perf_counter() < target_time:
+                pass  # Busy-wait to achieve precise timing
+
+            # Move the pipette and stage to the current position
+            self.calibrated_stage.absolute_move([row['st_x'], row['st_y'], row['st_z']])
+            self.calibrated_unit.absolute_move_group([row['pi_x'], row['pi_y'], row['pi_z']], [0, 1, 2])
+
+        self.info('Movement Test completed')
+
+            
