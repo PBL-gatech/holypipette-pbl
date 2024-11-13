@@ -21,7 +21,7 @@ from holypipette.gui.patch import PatchGui
 
 
 # from setup_IBB_rig import *
-# from setup_fake_rig import *
+# from setup.setup_fake_rig import *
 from setup.setup_Moscow_rig import *
 # from setup.setup_Moscow_arduinoDAQ import *
 

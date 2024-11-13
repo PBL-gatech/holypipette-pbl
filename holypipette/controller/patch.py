@@ -15,7 +15,7 @@ import logging
 from holypipette.interface.patchConfig import PatchConfig
 
 from .base import TaskController
-
+import threading
 
 
 class AutopatchError(Exception):
@@ -217,13 +217,6 @@ class AutoPatcher(TaskController):
 
         
         # check if hunt cancel is requested
-
-
-
-        
-
-
-
 
     def break_in(self):
         '''
@@ -625,48 +618,75 @@ class AutoPatcher(TaskController):
 
     def test_movement(self, path):
         """
-        Moves the pipette and stage to the positions at the given frequency of the timestamps to test controllability with improved precision.
+        Moves the pipette and stage based on parsed data, updating positions every 100 ms.
         """
-        # Read and parse the file into a DataFrame for optimized access
-        data = {
-            'timestamp': [],
-            'st_x': [], 'st_y': [], 'st_z': [],
-            'pi_x': [], 'pi_y': [], 'pi_z': []
-        }
-
+        # Step 1: Load data from file and parse into a DataFrame
+        data = {'timestamp': [], 'st_x': [], 'st_y': [], 'st_z': [], 'pi_x': [], 'pi_y': [], 'pi_z': []}
         with open(path, 'r') as file:
             for line in file:
                 parts = line.strip().split()
                 data_point = {key: float(value) for key, value in (part.split(':') for part in parts)}
                 for key in data:
                     data[key].append(data_point[key])
-        
-        df = pd.DataFrame(data)
-        df['timestamp'] -= df['timestamp'].iloc[0]  # Adjust timestamps to start from 0
 
-        # Retrieve start positions for stage and pipette
-        start_positions = df.iloc[0][['st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z']]
-        self.calibrated_stage.absolute_move([start_positions['st_x'], start_positions['st_y'], start_positions['st_z']])
+        df = pd.DataFrame(data)
+        df['timestamp'] -= df['timestamp'].iloc[0]  # Normalize timestamps to start from 0
+
+        # Step 2: Select unique rows closest to each 100 ms interval
+        interval = 0.16  #  hz
+        target_times = [i * interval for i in range(int(df['timestamp'].iloc[-1] // interval) + 1)]
+        
+        filtered_indices = []
+        last_index = 0
+        for target_time in target_times:
+            # Find the closest row at or after the target time
+            closest_index = df.index[(df['timestamp'] >= target_time) & (df.index >= last_index)].min()
+            if pd.notna(closest_index):
+                filtered_indices.append(closest_index)
+                last_index = closest_index + 1  # Avoid re-selecting the same or previous rows
+
+        filtered_df = df.loc[filtered_indices]
+        self.info(f'Filtered data to {len(filtered_df)} rows')
+
+        # Step 3: Move to the initial position
+        initial_positions = filtered_df.iloc[0][['st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z']]
+        self.calibrated_stage.absolute_move([initial_positions['st_x'], initial_positions['st_y'], initial_positions['st_z']])
         self.calibrated_unit.absolute_move_group(
-            [start_positions['pi_x'], start_positions['pi_y'], start_positions['pi_z']], [0, 1, 2]
+            [initial_positions['pi_x'], initial_positions['pi_y'], initial_positions['pi_z']], [0, 1, 2]
         )
 
-        self.info('Starting Movement Test')
+        # Step 4: Start movement loop with filtered data
+        self.stop_event = threading.Event()
+        self.movement_thread = threading.Thread(target=self._movement_loop, args=(filtered_df,))
+        self.movement_thread.start()
+        self.info('Movement Test started')
 
-        # Initialize high-resolution timer
+    def _movement_loop(self, df):
+        """
+        Executes precise movements at each pre-selected timestamp.
+        """
         start_time = time.perf_counter()
-
-        # Iterate through the DataFrame for precise movement timing
-        for index, row in df.iterrows():
-            # Calculate actual target time using high-precision time and busy-wait if necessary
-            target_time = row['timestamp'] + start_time
-            while time.perf_counter() < target_time:
-                pass  # Busy-wait to achieve precise timing
-
-            # Move the pipette and stage to the current position
+        for _, row in df.iterrows():
+            if self.stop_event.is_set():
+                break
+            # self.debug("sending command")
+            # Move to the next position for both stage and pipette
             self.calibrated_stage.absolute_move([row['st_x'], row['st_y'], row['st_z']])
+            self.calibrated_stage.wait_until_still()
             self.calibrated_unit.absolute_move_group([row['pi_x'], row['pi_y'], row['pi_z']], [0, 1, 2])
+            self.calibrated_unit.wait_until_still()
+
+            # Wait until the exact timestamp in the data for strict timing
+            target_time = row['timestamp']
+            while time.perf_counter() < start_time + target_time and not self.stop_event.is_set():
+                pass
 
         self.info('Movement Test completed')
 
-            
+
+    def stop_movement(self):
+        """
+        Stops the movement thread gracefully.
+        """
+        self.stop_event.set()
+        self.movement_thread.join()

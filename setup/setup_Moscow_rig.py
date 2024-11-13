@@ -41,11 +41,11 @@ microscope.up_direction = 1.0
 
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 
-daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
+# daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
 # daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0')
 
-# daq = FakeDAQ()
-# amplifier = FakeAmplifier()
+daq = FakeDAQ()
+amplifier = FakeAmplifier()
 # pressure = FakePressureController()
 amplifier = MultiClampChannel(channel=1)
 

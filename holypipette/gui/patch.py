@@ -249,7 +249,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         # Periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
-        pos_timer.start(16)
+        pos_timer.start(10)
         self.pos_update_timers.append(pos_timer)
 
     def positionAndTareBox(self, name: str, layout, update_func, tare_funcs, axes=['x', 'y', 'z']):
@@ -355,9 +355,6 @@ class PIDPatchButtons(ButtonTabWidget):
         self.file_selector = FileSelector()
         self.file_selector.fileSelected.connect(self.load_movement_file)
 
-
-
-
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
         # Add position boxes using the updated methods (which use CollapsibleGroupBox)
@@ -462,17 +459,17 @@ class PIDPatchButtons(ButtonTabWidget):
         
         currPos = self.pipette_interface.calibrated_unit.unit.position()
         currPos = currPos - self.tare_pipette_pos
-
-        self.recorder.setBatchMoves(True)
-        self.recorder.write_movement_data_batch(
-            datetime.now().timestamp(),
-            self.stage_xy[0],
-            self.stage_xy[1],
-            self.stage_z,
-            currPos[0],
-            currPos[1],
-            currPos[2]
-        )
+        if self.recording_state_manager.is_recording_enabled():
+            self.recorder.setBatchMoves(True)
+            self.recorder.write_movement_data_batch(
+                datetime.now().timestamp(),
+                self.stage_xy[0],
+                self.stage_xy[1],
+                self.stage_z,
+                currPos[0],
+                currPos[1],
+                currPos[2]
+            )
 
         self.pipette_xyz = currPos
 
@@ -505,16 +502,17 @@ class PIDPatchButtons(ButtonTabWidget):
         self.stage_xy = xyPos
         self.stage_z = zPos
 
-        self.recorder.setBatchMoves(True)
-        self.recorder.write_movement_data_batch(
-            datetime.now().timestamp(),
-            self.stage_xy[0],
-            self.stage_xy[1],
-            self.stage_z,
-            self.pipette_xyz[0],
-            self.pipette_xyz[1],
-            self.pipette_xyz[2]
-        )
+        if self.recording_state_manager.is_recording_enabled():
+            self.recorder.setBatchMoves(True)
+            self.recorder.write_movement_data_batch(
+                datetime.now().timestamp(),
+                self.stage_xy[0],
+                self.stage_xy[1],
+                self.stage_z,
+                self.pipette_xyz[0],
+                self.pipette_xyz[1],
+                self.pipette_xyz[2]
+            )
 
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]

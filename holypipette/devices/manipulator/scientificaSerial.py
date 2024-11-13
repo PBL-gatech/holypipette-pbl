@@ -137,7 +137,7 @@ class ScientificaSerialEncoder(Manipulator):
             # Move X and Y axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
-            # print("sent cmd", xPos, yPos)
+            print("sent cmd", xPos, yPos)
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
 
         elif 1 in axes and 2 in axes and 3 in axes:
@@ -145,7 +145,7 @@ class ScientificaSerialEncoder(Manipulator):
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
-            # print("sent cmd", xPos, yPos, zPos)
+            print("sent cmd", xPos, yPos, zPos)
             self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
 
         else:
@@ -223,7 +223,9 @@ class ScientificaSerialNoEncoder(Manipulator):
         resp = self.comPort.read_until(b'\r') #read reply to message
         resp = resp[:-1]
         self._lock.release()
-
+        # # if the response is b'A' then print the resp
+        # if resp == b'A':
+        #     print(resp)
         return resp.decode()
 
     def position(self, axis=None):
@@ -283,6 +285,7 @@ class ScientificaSerialNoEncoder(Manipulator):
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
             # print("sent cmd", xPos, yPos, zPos)
+            # print("testing to see if variables matter")
             self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
 
         else:

@@ -401,7 +401,7 @@ class EPhysGraph(QWidget):
 
         # Initialize timers
         self.updateTimer = QtCore.QTimer()
-        self.updateDt = 20  # ms (~50 Hz)
+        self.updateDt = 33  # ms (~30 Hz)
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 

@@ -172,11 +172,12 @@ class PcoCamera(Camera):
 
         img = np.clip((img.astype(np.float32) - self.lowerBound) / span * 255, 0, 255).astype(np.uint8)
 
-        # resize if needed
-        if self.width != None and self.height != None:
-            img = cv2.resize(img, (self.width, self.height), interpolation = cv2.INTER_LINEAR)
+        # # resize if needed
+        # if self.width != None and self.height != None:
+        #     img = cv2.resize(img, (self.width, self.height), interpolation = cv2.INTER_LINEAR)
 
         # if img is not None:
+        
         #     out = self.pipetteFinder.find_pipette(img)
         #     if out is not None:
         #         img = cv2.circle(img, out, 2, 0, 2)
