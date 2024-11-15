@@ -456,18 +456,21 @@ class EPhysGraph(QWidget):
         """
         while True:
             # sleep for 50 ms
-            time.sleep(0.05)
+            # time.sleep(0.010)
             if self.daq.isRunningProtocol:
                 continue  # Don't run membrane test while running a current protocol
             try:
                 # Fetch data from DAQ
+                # start = time.perf_counter_ns()
                 data = self.daq.getDataFromSquareWave(
-                    wave_freq=50,
-                    samplesPerSec=20000,
+                    wave_freq=40,
+                    samplesPerSec=25000,
                     dutyCycle=0.5,
-                    amplitude=0.75,
-                    recordingTime=0.04
+                    amplitude=0.5,
+                    recordingTime=0.025
                 )
+                # end = time.perf_counter_ns()
+                # logging.info(f"Time taken to get data from square wave: {(end-start)/1e6} ms")
             except Exception as e:
                 logging.error(f"Error fetching data from DAQ: {e}")
                 continue

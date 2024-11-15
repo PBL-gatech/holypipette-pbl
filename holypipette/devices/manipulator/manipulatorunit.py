@@ -66,7 +66,7 @@ class ManipulatorUnit(Manipulator):
             self.dev.absolute_move(x, self.axes[axis], speed)
             if blocking:
                 self.dev.wait_until_still([self.axes[axis]])
-        self.sleep(.05)
+        # self.sleep(.005)
 
     def absolute_move_group(self, x, axes, speed=None):
         '''
@@ -74,7 +74,7 @@ class ManipulatorUnit(Manipulator):
         '''
         
         self.dev.absolute_move_group(x, np.array(self.axes)[axes], speed)
-        self.sleep(.05)
+        # self.sleep(.005)
 
     def relative_move(self, x, axis = None, speed=None):
         '''
@@ -89,7 +89,7 @@ class ManipulatorUnit(Manipulator):
             self.dev.relative_move_group(x, self.axes, speed)
         else:
             self.dev.relative_move(x, self.axes[axis], speed)
-        self.sleep(.05)
+        # self.sleep(.0055)
 
     def stop(self, axis = None):
         """
@@ -113,7 +113,7 @@ class ManipulatorUnit(Manipulator):
                 self.wait_until_still(i)
         else:
             self.dev.wait_until_still([self.axes[axes]])
-        self.sleep(.05)
+        # self.sleep(.005)
 
     def wait_until_reached(self, position, axes=None, precision=0.5, timeout=10):
         """

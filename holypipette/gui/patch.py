@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QObject
 import PyQt5.QtGui as QtGui
 import numpy as np
 import logging
+import time
 
 from PyQt5.QtWidgets import QFileDialog, QWidget,QMessageBox
 
@@ -249,7 +250,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         # Periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
-        pos_timer.start(10)
+        pos_timer.start(8)
         self.pos_update_timers.append(pos_timer)
 
     def positionAndTareBox(self, name: str, layout, update_func, tare_funcs, axes=['x', 'y', 'z']):
@@ -280,7 +281,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         # Periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
-        pos_timer.start(16)
+        pos_timer.start(8)
         self.pos_update_timers.append(pos_timer)
 
     def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds):
@@ -456,7 +457,7 @@ class PIDPatchButtons(ButtonTabWidget):
 
     def update_pipette_pos_labels(self, indices):
         # Update the position labels
-        
+        # start_time = time.perf_counter_ns()
         currPos = self.pipette_interface.calibrated_unit.unit.position()
         currPos = currPos - self.tare_pipette_pos
         if self.recording_state_manager.is_recording_enabled():
@@ -476,7 +477,8 @@ class PIDPatchButtons(ButtonTabWidget):
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
             label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
-
+        # end_time = time.perf_counter_ns()
+        # print(f"Elapsed time pipette: {(end_time - start_time)/1e6} ms")
 
 
     def tare_stage_x(self):
@@ -496,23 +498,24 @@ class PIDPatchButtons(ButtonTabWidget):
 
     def update_stage_pos_labels(self, indices):
         # Update the position labels
+        # start_time = time.perf_counter_ns()
         xyPos = self.pipette_interface.calibrated_stage.position() - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
         zPos = self.pipette_interface.microscope.position() - self.currz_stage_pos[2]
 
         self.stage_xy = xyPos
         self.stage_z = zPos
 
-        if self.recording_state_manager.is_recording_enabled():
-            self.recorder.setBatchMoves(True)
-            self.recorder.write_movement_data_batch(
-                datetime.now().timestamp(),
-                self.stage_xy[0],
-                self.stage_xy[1],
-                self.stage_z,
-                self.pipette_xyz[0],
-                self.pipette_xyz[1],
-                self.pipette_xyz[2]
-            )
+        # if self.recording_state_manager.is_recording_enabled():
+        #     self.recorder.setBatchMoves(True)
+        #     self.recorder.write_movement_data_batch(
+        #         datetime.now().timestamp(),
+        #         self.stage_xy[0],
+        #         self.stage_xy[1],
+        #         self.stage_z,
+        #         self.pipette_xyz[0],
+        #         self.pipette_xyz[1],
+        #         self.pipette_xyz[2]
+        #     )
 
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
@@ -521,7 +524,8 @@ class PIDPatchButtons(ButtonTabWidget):
             else:
                 # Note: divide by 5 here to account for z-axis gear ratio
                 label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}')
- 
+        # end_time = time.perf_counter_ns()
+        # print(f"Elapsed time stage: {(end_time - start_time)/1e6} ms")
 
 
         

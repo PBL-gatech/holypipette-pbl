@@ -530,11 +530,14 @@ class AutoPatcher(TaskController):
         Moves the microsope and manipulator down by input distance in the z axis
         '''
 
-        try:
+        try:   
+            # start = time.perf_counter_ns()
             self.calibrated_unit.relative_move(dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
             self.microscope.relative_move(dist)
             self.microscope.wait_until_still()
+            # end = time.perf_counter_ns()
+            # print(f"Time taken to move down: {(end-start)/1e6} ms")
         finally:
             pass
     def move_group_up(self,dist = 100):
@@ -632,8 +635,8 @@ class AutoPatcher(TaskController):
         df = pd.DataFrame(data)
         df['timestamp'] -= df['timestamp'].iloc[0]  # Normalize timestamps to start from 0
 
-        # Step 2: Select unique rows closest to each 100 ms interval
-        interval = 0.16  #  hz
+        # Step 2: Select unique rows closest to each  interval
+        interval = 0.1  # 100 ms or 10 Hz
         target_times = [i * interval for i in range(int(df['timestamp'].iloc[-1] // interval) + 1)]
         
         filtered_indices = []
@@ -658,8 +661,9 @@ class AutoPatcher(TaskController):
         # Step 4: Start movement loop with filtered data
         self.stop_event = threading.Event()
         self.movement_thread = threading.Thread(target=self._movement_loop, args=(filtered_df,))
-        self.movement_thread.start()
         self.info('Movement Test started')
+        self.movement_thread.start()
+ 
 
     def _movement_loop(self, df):
         """
@@ -669,14 +673,8 @@ class AutoPatcher(TaskController):
         for _, row in df.iterrows():
             if self.stop_event.is_set():
                 break
-            # self.debug("sending command")
-            # Move to the next position for both stage and pipette
-            self.calibrated_stage.absolute_move([row['st_x'], row['st_y'], row['st_z']])
-            self.calibrated_stage.wait_until_still()
+            # self.calibrated_stage.absolute_move([row['st_x'], row['st_y'], row['st_z']])
             self.calibrated_unit.absolute_move_group([row['pi_x'], row['pi_y'], row['pi_z']], [0, 1, 2])
-            self.calibrated_unit.wait_until_still()
-
-            # Wait until the exact timestamp in the data for strict timing
             target_time = row['timestamp']
             while time.perf_counter() < start_time + target_time and not self.stop_event.is_set():
                 pass

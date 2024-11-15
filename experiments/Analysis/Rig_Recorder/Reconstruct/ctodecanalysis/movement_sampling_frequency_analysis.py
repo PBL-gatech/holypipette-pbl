@@ -3,14 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the CSV data
-# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_11_11-13_51\movement_recording.csv"
-# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_12-14_18\movement_recording.csv"
-# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_12-16_23\movement_recording.csv"
-# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_12-16_30\movement_recording_truncated.csv"
-# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_12-16_52\movement_recording_truncated.csv"
-# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_12-17_17\movement_recording_truncated.csv"
-# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_12-17_41\movement_recording_truncated.csv"
-file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_12-17_46\movement_recording_truncated.csv"
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_14-15_55\movement_recording.csv"
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_14-15_58\movement_recording_truncated.csv"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_14-16_06\movement_recording_truncated.csv"
+
+
 
 # Use pandas to read the data directly, specifying the delimiter as whitespace
 data = pd.read_csv(file_path, sep='\s+', header=None)
@@ -36,6 +33,21 @@ data['sampling_frequency'] = 1 / data['time_diff']
 avg_sampling_frequency = data['sampling_frequency'].mean()
 std_sampling_frequency = data['sampling_frequency'].std()
 
+
+
+# zero pipette movement
+#obtain the initial coordinates of the pipette
+initial_coords = data.iloc[0][['pi_x', 'pi_y', 'pi_z']].values
+# subtract the initial coordinates from all subsequent coordinates
+data['pi_x'] -= initial_coords[0]
+data['pi_y'] -= initial_coords[1]
+data['pi_z'] -= initial_coords[2]
+
+# Calculate the resultant displacement of the pipette
+data['pipette_resultant'] = np.sqrt(data['pi_x']**2 + data['pi_y']**2 + data['pi_z']**2)
+
+
+
 # Plot sampling frequency over time
 plt.figure(figsize=(10, 6))
 plt.plot(data['timestamp'], data['sampling_frequency'], label='Sampling Frequency (Hz)')
@@ -49,17 +61,6 @@ plt.title('Sampling Frequency Over Time')
 plt.legend()
 plt.grid(True)
 plt.show()
-
-# zero pipette movement
-#obtain the initial coordinates of the pipette
-initial_coords = data.iloc[0][['pi_x', 'pi_y', 'pi_z']].values
-# subtract the initial coordinates from all subsequent coordinates
-data['pi_x'] -= initial_coords[0]
-data['pi_y'] -= initial_coords[1]
-data['pi_z'] -= initial_coords[2]
-
-# Calculate the resultant displacement of the pipette
-data['pipette_resultant'] = np.sqrt(data['pi_x']**2 + data['pi_y']**2 + data['pi_z']**2)
 
 # Plot the pipette's resultant displacement over time
 plt.figure(figsize=(10, 6))

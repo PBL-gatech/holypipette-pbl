@@ -63,6 +63,7 @@ class DAQ:
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         # ?? HOW DO WE KNOW THE UNITS?
         numSamples = int(samplesPerSec * recordingTime)
+        # start_time = time.perf_counter_ns()
         # print("Num Samples", numSamples)
         with nidaqmx.Task() as task:
             task.ai_channels.add_ai_voltage_chan(f'{self.readDev}/{self.readChannel}', max_val=10, min_val=0, terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF)
@@ -73,7 +74,8 @@ class DAQ:
             data = np.array(data, dtype=float)
             # print("Data len", data.shape)
             task.stop()
-
+        # end_time = time.perf_counter_ns()
+        # logging.debug(f"Time taken to read data: {(end_time - start_time) / 1e9} seconds")
         #check for None values
         if data is None or np.where(data == None)[0].size > 0:
             data = np.zeros((2, numSamples))
