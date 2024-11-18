@@ -250,7 +250,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         # Periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
-        pos_timer.start(8)
+        pos_timer.start(2)
         self.pos_update_timers.append(pos_timer)
 
     def positionAndTareBox(self, name: str, layout, update_func, tare_funcs, axes=['x', 'y', 'z']):
@@ -281,7 +281,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         # Periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
-        pos_timer.start(8)
+        pos_timer.start(2)
         self.pos_update_timers.append(pos_timer)
 
     def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds):

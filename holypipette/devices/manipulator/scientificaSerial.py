@@ -24,6 +24,9 @@ class SerialCommands():
     SET_MAX_SPEED = 'TOP {}\r'
     SET_MAX_ACCEL = 'ACC {}\r'
 
+
+    SET_X_Y_Z_VEL = 'VJ {} {} {}\r'
+
     STOP = 'STOP\r'
 
 class ScientificaSerialEncoder(Manipulator):
@@ -238,7 +241,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         if axis == None:
             return self.current_pos
         
-    def update_pos_continuous(self, freq=250):
+    def update_pos_continuous(self, freq=1000):
         '''constantly polls the device's position and updates the current_pos variable
         '''
         while True:
@@ -268,6 +271,14 @@ class ScientificaSerialNoEncoder(Manipulator):
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(pos * 10)))
         if axis == 3:
             self._sendCmd(SerialCommands.SET_Z_POS.format(int(pos * 10)))
+
+    def absolute_move_group_velocity(self, vel, axes):
+         vel = list(vel)
+         axes = list(axes)
+         xvel = vel[axes.index(1)]
+         yvel = vel[axes.index(2)]
+         zvel = vel[axes.index(3)]
+         self._sendCmd(SerialCommands.SET_X_Y_Z_VEL.format(xvel, yvel, zvel))
     
     def absolute_move_group(self, x, axes, speed=None):
 

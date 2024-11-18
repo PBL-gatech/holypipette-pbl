@@ -67,6 +67,13 @@ class ManipulatorUnit(Manipulator):
             if blocking:
                 self.dev.wait_until_still([self.axes[axis]])
         # self.sleep(.005)
+    def absolute_move_group_velocity(self, vel, axes):
+        '''
+        Moves the device axes to positions x in um.
+        '''
+        
+        self.dev.absolute_move_group_velocity(vel, np.array(self.axes)[axes])
+        # self.sleep(.005)
 
     def absolute_move_group(self, x, axes, speed=None):
         '''

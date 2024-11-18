@@ -4,8 +4,10 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 
 # Load both CSV files into separate DataFrames
-file_path_1 = r"C:\Users\sa-forest\OneDrive - Georgia Institute of Technology\Documents\Grad-school\Gatech\Fall2024\ForestLab\ML\Rig_Replay\error_comparison\movement_recording.csv"
-file_path_2 = r"C:\Users\sa-forest\OneDrive - Georgia Institute of Technology\Documents\Grad-school\Gatech\Fall2024\ForestLab\ML\Rig_Replay\error_comparison\movement_recording_truncated.csv"
+# file_path_1 = r"C:\Users\sa-forest\OneDrive - Georgia Institute of Technology\Documents\Grad-school\Gatech\Fall2024\ForestLab\ML\Rig_Replay\error_comparison\movement_recording.csv"
+file_path_1 = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_15-16_25\movement_recording.csv"
+# file_path_2 = r"C:\Users\sa-forest\OneDrive - Georgia Institute of Technology\Documents\Grad-school\Gatech\Fall2024\ForestLab\ML\Rig_Replay\error_comparison\movement_recording_truncated.csv"
+file_path_2 = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_15-17_20\movement_recording.csv"
 
 # Read data from both files
 data1 = pd.read_csv(file_path_1, sep='\s+', header=None)
