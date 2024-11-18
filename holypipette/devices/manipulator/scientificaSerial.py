@@ -83,7 +83,7 @@ class ScientificaSerialEncoder(Manipulator):
         if axis == None:
             return self.current_pos
         
-    def update_pos_continuous(self, freq=10):
+    def update_pos_continuous(self, freq=100):
         '''constantly polls the device's position and updates the current_pos variable
         '''
         while True:

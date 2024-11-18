@@ -479,12 +479,14 @@ class AutoPatcher(TaskController):
         try:
             # Extract individual coordinates from the safe position
             safe_x, safe_y, safe_z = self.safe_position
-            safe_stage_x, safe_stage_y, safe_microscope_z = self.safe_stage_position
-            # Step 0: Move the microscope to the safe position
-            logging.debug(f'Moving microscope to safe position value: Z={safe_microscope_z}')
-            self.microscope.absolute_move(safe_microscope_z)
-            # Step 1: Move the stage to the safe position
-            self.calibrated_stage.absolute_move_group([safe_stage_x,safe_stage_y])
+            # safe_stage_x, safe_stage_y, safe_microscope_z = self.safe_stage_position
+            # self.info(f"Moving to safe space: {safe_x}, {safe_y}, {safe_z}")
+
+            # # Step 0: Move the microscope to the safe position
+            # logging.debug(f'Moving microscope to safe position value: Z={safe_microscope_z}')
+            # self.microscope.absolute_move(safe_microscope_z)
+            # # Step 1: Move the stage to the safe position
+            # self.calibrated_stage.absolute_move([safe_stage_x,safe_stage_y])
 
             # Step 2: Move Y axis first to align with the safe position value
             logging.debug(f'Moving Y axis to safe position value: {safe_y}')
@@ -507,15 +509,15 @@ class AutoPatcher(TaskController):
             raise ValueError('Home position has not been set')
 
         try:
-            # Extract individual coordinates from the home position
+            # # Extract individual coordinates from the home position
             home_x, home_y, home_z = self.home_position
-            stage_home_x, stage_home_y, microscope_home_z = self.home_stage_position
-            # step 0: move the microscope to the home position
-            logging.debug(f'Moving microscope to home position value: Z={microscope_home_z}')
-            self.microscope.absolute_move(microscope_home_z)
-            # Step 1: Move the stage to the home position
-            logging.debug(f'Moving stage to home position values: X={stage_home_x}, Y={stage_home_y}')
-            self.calibrated_stage.absolute_move([stage_home_x,stage_home_y])
+            # stage_home_x, stage_home_y, microscope_home_z = self.home_stage_position
+            # # step 0: move the microscope to the home position
+            # logging.debug(f'Moving microscope to home position value: Z={microscope_home_z}')
+            # self.microscope.absolute_move(microscope_home_z)
+            # # Step 1: Move the stage to the home position
+            # logging.debug(f'Moving stage to home position values: X={stage_home_x}, Y={stage_home_y}')
+            # self.calibrated_stage.absolute_move([stage_home_x,stage_home_y])
 
             # Step 2: Move Y axis first to align with the home position value
             logging.debug(f'Moving Y axis to home position value: {home_y}')

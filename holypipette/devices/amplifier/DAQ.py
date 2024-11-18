@@ -252,7 +252,7 @@ class DAQ:
             self.isRunningProtocol = True
             while attempts < max_attempts:
                 attempts += 1
-                self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.05)
+                self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(20, 20000, 0.5, 0.5, 0.05)
         
                 if self.voltageMembraneCapacitance != 0:
                     break  # exit loop if capacitance is non-zero

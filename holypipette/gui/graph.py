@@ -462,11 +462,11 @@ class EPhysGraph(QWidget):
             try:
                 # Fetch data from DAQ
                 data = self.daq.getDataFromSquareWave(
-                    wave_freq=50,
+                    wave_freq=20,
                     samplesPerSec=20000,
                     dutyCycle=0.5,
-                    amplitude=0.75,
-                    recordingTime=0.04
+                    amplitude=0.5,
+                    recordingTime=0.05
                 )
             except Exception as e:
                 logging.error(f"Error fetching data from DAQ: {e}")
@@ -508,6 +508,11 @@ class EPhysGraph(QWidget):
                 self.membraneResistanceLabel.setText(f"Membrane Resistance: {MembraneResistance:.2f} MΩ\t")
             else:
                 self.membraneResistanceLabel.setText("Membrane Resistance: N/A\t")
+
+            if MembraneCapacitance is not None:
+                self.membraneCapacitanceLabel.setText(f"Membrane Capacitance: {MembraneCapacitance:.2f} pF\t")
+            else:
+                self.membraneCapacitanceLabel.setText("Membrane Capacitance: N/A\t")
 
             # Update plotting data for cmdPlot and respPlot
             if latestReadData is not None:
