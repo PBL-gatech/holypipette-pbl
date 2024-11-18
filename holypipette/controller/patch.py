@@ -115,7 +115,7 @@ class AutoPatcher(TaskController):
         else:
             current = (self.iholding)
         current = current * 1e-12
-        self.amplifier.set_holding(0)
+        self.amplifier.set_holding(current)
         self.info(f'holding at {current} pA')
         self.sleep(0.1)
         self.amplifier.switch_holding(True)
