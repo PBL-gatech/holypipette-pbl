@@ -7,7 +7,10 @@ from scipy.signal import butter, filtfilt, savgol_filter  # Import savgol_filter
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_14-15_55\movement_recording.csv"
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_15-16_19\movement_recording.csv"
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_15-16_25\movement_recording.csv"
-file_path  = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_15-17_20\movement_recording_truncated.csv"
+# file_path  = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_15-17_20\movement_recording_truncated.csv"
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_18-17_18\movement_recording.csv"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_18-17_35\movement_recording.csv"
+
 
 
 # Use pandas to read the data directly, specifying the delimiter as whitespace
