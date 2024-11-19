@@ -7,9 +7,9 @@ from matplotlib.colors import LinearSegmentedColormap, to_hex
 
 
 from pyqtgraph import PlotWidget
-from pyqtgraph.exporters import ImageExporter
-import io
-from PIL import Image
+
+
+
 
 import threading
 

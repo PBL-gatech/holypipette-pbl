@@ -1,3 +1,4 @@
+
 import time
 
 import pandas as pd
@@ -11,7 +12,6 @@ from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.pressurecontroller import PressureController
 import collections
 import logging
-from scipy.signal import butter, filtfilt,savgol_filter
 
 from holypipette.interface.patchConfig import PatchConfig
 
@@ -619,9 +619,10 @@ class AutoPatcher(TaskController):
             pass
 
 
+
     def test_movement(self, path):
         """
-        Processes position data to compute velocity, downsamples it, and starts the velocity-based movement loop.
+        Moves the pipette and stage based on parsed data, updating positions every 100 ms.
         """
         # Step 1: Load data from file and parse into a DataFrame
         data = {'timestamp': [], 'st_x': [], 'st_y': [], 'st_z': [], 'pi_x': [], 'pi_y': [], 'pi_z': []}
@@ -632,82 +633,65 @@ class AutoPatcher(TaskController):
                 for key in data:
                     data[key].append(data_point[key])
 
-        df = pd.DataFrame(data)
-        df['timestamp'] -= df['timestamp'].iloc[0]  # Normalize timestamps to start from 0
 
-        # Step 2: Smooth position data using Savitzky-Golay filter
-        window_length = 11  # Must be odd and greater than polyorder
-        polyorder = 3
-        for axis in ['st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z']:
-            df[axis] = savgol_filter(df[axis].values, window_length=window_length, polyorder=polyorder)
+        # Step 2: Downsample the data to the target frequency
+        filtered_df = self.downsample_dataframe(data)
 
-        # Step 3: Calculate velocity using central difference
-        # Using np.gradient for central difference which handles endpoints
-        df['st_vx'] = np.gradient(df['st_x'], df['timestamp'])
-        df['st_vy'] = np.gradient(df['st_y'], df['timestamp'])
-        df['st_vz'] = np.gradient(df['st_z'], df['timestamp'])
-        df['pi_vx'] = np.gradient(df['pi_x'], df['timestamp'])
-        df['pi_vy'] = np.gradient(df['pi_y'], df['timestamp'])
-        df['pi_vz'] = np.gradient(df['pi_z'], df['timestamp'])
 
-        # Step 4: Downsample velocity data to the specified interval
-        interval = 0.1  # 100 ms or 10 Hz
-        target_times = np.arange(0, df['timestamp'].iloc[-1], interval)
-
-        downsampled_df = pd.DataFrame({
-            'timestamp': target_times,
-            'st_vx': np.interp(target_times, df['timestamp'], df['st_vx']),
-            'st_vy': np.interp(target_times, df['timestamp'], df['st_vy']),
-            'st_vz': np.interp(target_times, df['timestamp'], df['st_vz']),
-            'pi_vx': np.interp(target_times, df['timestamp'], df['pi_vx']),
-            'pi_vy': np.interp(target_times, df['timestamp'], df['pi_vy']),
-            'pi_vz': np.interp(target_times, df['timestamp'], df['pi_vz']),
-        })
-
-        self.info(f'Filtered and downsampled data to {len(downsampled_df)} rows')
-
-        # Step 5: Move to the initial position (optional, can be skipped if starting from current position)
-        initial_positions = df.iloc[0][['st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z']]
+        # Step 3: Move to the initial position
+        initial_positions = filtered_df.iloc[0][['st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z']]
         self.calibrated_stage.absolute_move([initial_positions['st_x'], initial_positions['st_y'], initial_positions['st_z']])
         self.calibrated_unit.absolute_move_group(
             [initial_positions['pi_x'], initial_positions['pi_y'], initial_positions['pi_z']], [0, 1, 2]
         )
 
-        # Step 6: Start movement loop with downsampled velocity data
+        # Step 4: Start movement loop with filtered data
         self.stop_event = threading.Event()
-        self.movement_thread = threading.Thread(target=self._movement_loop, args=(downsampled_df,))
-        self.info('Velocity-based Movement Test started')
+        self.movement_thread = threading.Thread(target=self._movement_loop, args=(filtered_df,))
+        self.info('Movement Test started')
         self.movement_thread.start()
+ 
 
+    def downsample_dataframe(self, data):
+        df = pd.DataFrame(data)
+        df['timestamp'] -= df['timestamp'].iloc[0]  # Normalize timestamps to start from 0
+        df = df.sort_values('timestamp')  # Ensure DataFrame is sorted
+
+        # Define target frequency and interval
+        target_frequency = 10  # Hz
+        interval = 1 / target_frequency  # seconds
+
+        # Generate target times
+        max_time = df['timestamp'].iloc[-1]
+        target_times = pd.DataFrame({'timestamp': [i * interval for i in range(int(max_time // interval) + 1)]})
+
+        # Perform an asof merge to find the closest timestamp at or after each target_time
+        filtered_df = pd.merge_asof(target_times, df, on='timestamp', direction='forward')
+
+        # Drop any rows where a match wasn't found (optional)
+        filtered_df.dropna(inplace=True)
+
+        self.info(f'Filtered data to {len(filtered_df)} rows')
+        return filtered_df
 
     def _movement_loop(self, df):
         """
-        Executes velocity commands at each pre-selected timestamp.
+        Executes precise movements at each pre-selected timestamp.
         """
         start_time = time.perf_counter()
         for _, row in df.iterrows():
             if self.stop_event.is_set():
+                self.info('Movement Test stopped')
                 break
-
-            # Extract velocities
-            vel_stage = [row['st_vx'], row['st_vy'], row['st_vz']]
-            vel_pipette = [row['pi_vx'], row['pi_vy'], row['pi_vz']]
-
-            # Send velocity commands
-            # Assuming stage and pipette velocities are controlled separately
-            # self.calibrated_stage.absolute_move_group_velocity(vel_stage, [0, 1, 2])
-            self.calibrated_unit.absolute_move_group_velocity(vel_pipette, [0, 1, 2])
-
-            # Calculate target time
+            # self.calibrated_stage.absolute_move([row['st_x'], row['st_y'], row['st_z']])
+            # self.debug(f"Moving to: {row['pi_x']}, {row['pi_y']}, {row['pi_z']}")
+            self.calibrated_unit.absolute_move_group([row['pi_x'], row['pi_y'], row['pi_z']], [0, 1, 2])
             target_time = row['timestamp']
-            current_time = time.perf_counter()
-            while current_time < start_time + target_time:
-                if self.stop_event.is_set():
-                    break
-                time.sleep(0.001)  # Sleep briefly to prevent busy-waiting
-                current_time = time.perf_counter()
+            while time.perf_counter() < start_time + target_time and not self.stop_event.is_set():
+                # print('waiting')
+                pass
 
-        self.info('Velocity-based Movement Test completed')
+        self.info('Movement Test completed')
 
 
     def stop_movement(self):
@@ -715,6 +699,4 @@ class AutoPatcher(TaskController):
         Stops the movement thread gracefully.
         """
         self.stop_event.set()
-        if self.movement_thread.is_alive():
-            self.movement_thread.join()
-        self.info('Movement Test stopped')
+        self.movement_thread.join()

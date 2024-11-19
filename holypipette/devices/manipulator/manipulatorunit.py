@@ -1,3 +1,4 @@
+
 """
 A class for access to a particular unit managed by a device.
 It is essentially a subset of a Manipulator
@@ -67,21 +68,17 @@ class ManipulatorUnit(Manipulator):
             if blocking:
                 self.dev.wait_until_still([self.axes[axis]])
         # self.sleep(.005)
-    def absolute_move_group_velocity(self, vel, axes):
-        '''
-        Moves the device axes to positions x in um.
-        '''
-        
-        self.dev.absolute_move_group_velocity(vel, np.array(self.axes)[axes])
-        # self.sleep(.005)
 
     def absolute_move_group(self, x, axes, speed=None):
         '''
         Moves the device axes to positions x in um.
         '''
-        
-        self.dev.absolute_move_group(x, np.array(self.axes)[axes], speed)
-        # self.sleep(.005)
+        # self.info(f"attempting movmement ")
+        try: 
+            self.dev.absolute_move_group(x, np.array(self.axes)[axes], speed)
+            # self.sleep(.005)
+        except Exception as e:
+            self.error(f"Error in absolute_move_group: {e}")
 
     def relative_move(self, x, axis = None, speed=None):
         '''

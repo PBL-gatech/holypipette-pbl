@@ -159,21 +159,21 @@ class SignalGenerator:
 
 # Example Usage:
 # Create an instance of the SignalGenerator
-generator = SignalGenerator(sampling_rate=40, amplitude=10)
+generator = SignalGenerator(sampling_rate=40, amplitude=20)
 
 # Generate a sinusoidal signal
-t_sin, sinusoid = generator.generate_sinusoid(frequency=1, duration=5)
+t_sin, sinusoid = generator.generate_sinusoid(frequency=0.1, duration=5)
 
 # Downsample the sinusoid to 10 Hz
-t_down, sinusoid_down = generator.downsample(t_sin, sinusoid, target_rate=20)
+# t_down, sinusoid_down = generator.downsample(t_sin, sinusoid, target_rate=20)
 
 # Plot the original and downsampled signals
 generator.plot_signal(t_sin, sinusoid, "Original Sinusoidal Signal")
-generator.plot_signal(t_down, sinusoid_down, "Downsampled Sinusoidal Signal")
+# generator.plot_signal(t_down, sinusoid_down, "Downsampled Sinusoidal Signal")
 
 
 # Save the sinusoidal signal to a CSV
-# generator.save_to_csv(t_sin, sinusoid, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal.csv")
+generator.save_to_csv(t_sin, sinusoid, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal.csv")
 
 # Generate a chirp signal
 # t_chirp, chirp_signal = generator.generate_chirp(f_start=1, f_end=10, duration=5)

@@ -1,3 +1,4 @@
+
 import serial
 from .manipulator import Manipulator
 import time
@@ -23,9 +24,6 @@ class SerialCommands():
     SET_Z_POS = 'absz {}\r'
     SET_MAX_SPEED = 'TOP {}\r'
     SET_MAX_ACCEL = 'ACC {}\r'
-
-
-    SET_X_Y_Z_VEL = 'VJ {} {} {}\r'
 
     STOP = 'STOP\r'
 
@@ -226,6 +224,8 @@ class ScientificaSerialNoEncoder(Manipulator):
         self.comPort.write(cmd.encode())
         resp = self.comPort.read_until(b'\r') #read reply to message
         resp = resp[:-1]
+        if resp == b'A':
+            print(f"command received: {resp}")
         # end = time.perf_counter_ns()
         # print(f"Time taken to send command: {(end - start)/1e6} ms")
         self._lock.release()
@@ -241,7 +241,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         if axis == None:
             return self.current_pos
         
-    def update_pos_continuous(self, freq=1000):
+    def update_pos_continuous(self, freq=250):
         '''constantly polls the device's position and updates the current_pos variable
         '''
         while True:
@@ -262,26 +262,20 @@ class ScientificaSerialNoEncoder(Manipulator):
                 time.sleep(sleepTime)
 
     def absolute_move(self, pos, axis, speed=None):
-        
-        if axis == 1:
-            yPos = self.position(axis=2)
-            self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos * 10) , int(yPos * 10)))
-        if axis == 2:
-            xPos = self.position(axis=1)
-            self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(pos * 10)))
-        if axis == 3:
-            self._sendCmd(SerialCommands.SET_Z_POS.format(int(pos * 10)))
-
-    def absolute_move_group_velocity(self, vel, axes):
-         vel = list(vel)
-         axes = list(axes)
-         xvel = vel[axes.index(1)]
-         yvel = vel[axes.index(2)]
-         zvel = vel[axes.index(3)]
-         self._sendCmd(SerialCommands.SET_X_Y_Z_VEL.format(xvel, yvel, zvel))
+        try: 
+            if axis == 1:
+                yPos = self.position(axis=2)
+                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos * 10) , int(yPos * 10)))
+            if axis == 2:
+                xPos = self.position(axis=1)
+                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(pos * 10)))
+            if axis == 3:
+                self._sendCmd(SerialCommands.SET_Z_POS.format(int(pos * 10)))
+        except Exception as e:
+            self.error(f"Error in absolute_move: {e}")
     
     def absolute_move_group(self, x, axes, speed=None):
-
+      
         x = list(x)
         axes = list(axes)
 
@@ -297,6 +291,7 @@ class ScientificaSerialNoEncoder(Manipulator):
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
+            # print("sent cmd", xPos, yPos, zPos)
             # start = time.perf_counter_ns()
             self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
             # end  = time.perf_counter_ns()
@@ -304,6 +299,7 @@ class ScientificaSerialNoEncoder(Manipulator):
 
         else:
             print(f'unimplemented move group {x} {axes}')
+        
 
     
     def relative_move_group(self, pos, axis, speed=None):
