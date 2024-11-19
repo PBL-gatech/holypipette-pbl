@@ -32,8 +32,6 @@ class PatchGui(ManipulatorGui):
         super(PatchGui, self).__init__(camera, pipette_interface,with_tracking=with_tracking,recording_state_manager=recording_state_manager)
 
         self.setWindowTitle("Patch GUI")
-        # Note that pipette interface already runs in a thread, we need to use
-        # the same for the patch interface
 
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
@@ -43,19 +41,10 @@ class PatchGui(ManipulatorGui):
         self.interface_signals[self.patch_interface] = (self.patch_command_signal,
                                                         self.patch_reset_signal)
     
-        try:
-            # Add patching button tab
-            # button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
-            self.add_config_gui(self.patch_interface.config)
-            logging.debug("Added config GUI.")
-            # self.add_tab(button_tab, 'Auto Patching', index=0)
-            logging.debug("Added 'Auto Patching' tab.")
-        except Exception as e:
-            logging.error("Exception during PatchGui initialization: %s", e, exc_info=True)
-            raise
-
-        semi_auto_patching_tab = PIDPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
-        self.add_tab(semi_auto_patching_tab, 'Semi-Auto Patching', index = 0)
+     
+        self.add_config_gui(self.patch_interface.config)
+        PID_tab = PIDPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
+        self.add_tab(PID_tab, 'Semi-Auto Patching', index = 0)
 
         # Update the pressure and information in the status bar every 16ms
         self.pressure_timer = QtCore.QTimer()
@@ -64,8 +53,6 @@ class PatchGui(ManipulatorGui):
         self.patch_interface.set_pressure_near()
 
     def display_pressure(self):
-        # current_pressure = self.patch_interface.pressure.get_pressure()
-        # current_pressure = self.patch_interface.pressure.measure()
         current_pressure = self.patch_interface.pressure.getLastVal()
         self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(current_pressure))
 
@@ -198,7 +185,6 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self.interface_signals = {}
         self.start_task = None
 
-
     def do_nothing(self):
         pass  # a dummy function for buttons that aren't implemented yet
 
@@ -250,7 +236,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         # Periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
-        pos_timer.start(2)
+        pos_timer.start(16)
         self.pos_update_timers.append(pos_timer)
 
     def positionAndTareBox(self, name: str, layout, update_func, tare_funcs, axes=['x', 'y', 'z']):
@@ -281,7 +267,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         # Periodically update the position labels
         pos_timer = QtCore.QTimer()
         pos_timer.timeout.connect(lambda: update_func(indices))
-        pos_timer.start(2)
+        pos_timer.start(16)
         self.pos_update_timers.append(pos_timer)
 
     def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds):
@@ -311,6 +297,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
 
         box.setContentLayout(rows)
         layout.addWidget(box)
+
 
 class FileSelector(QWidget):
     fileSelected = pyqtSignal(str)  # Signal to emit the selected file path
@@ -442,18 +429,16 @@ class PIDPatchButtons(ButtonTabWidget):
         logging.info("Recording stopped")
 
     def close(self):
-        self.save_stage_pos()
         self.recorder.close()
         super(PIDPatchButtons, self).close()
 
     def closeEvent(self, event):
-        self.save_stage_pos()
         self.recorder.close()
         super(PIDPatchButtons, self).closeEvent(event)
 
     def tare_pipette(self):
         currPos = self.pipette_interface.calibrated_unit.unit.position()
-        self.tare_pipette_pos = currPos
+        self.init_pipette_pos = currPos
 
     def update_pipette_pos_labels(self, indices):
         # Update the position labels
@@ -473,12 +458,11 @@ class PIDPatchButtons(ButtonTabWidget):
             )
 
         self.pipette_xyz = currPos
+        # print("Pipette position: ", self.pipette_xyz)
 
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
             label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
-        # end_time = time.perf_counter_ns()
-        # print(f"Elapsed time pipette: {(end_time - start_time)/1e6} ms")
 
 
     def tare_stage_x(self):
@@ -505,18 +489,6 @@ class PIDPatchButtons(ButtonTabWidget):
         self.stage_xy = xyPos
         self.stage_z = zPos
 
-        # if self.recording_state_manager.is_recording_enabled():
-        #     self.recorder.setBatchMoves(True)
-        #     self.recorder.write_movement_data_batch(
-        #         datetime.now().timestamp(),
-        #         self.stage_xy[0],
-        #         self.stage_xy[1],
-        #         self.stage_z,
-        #         self.pipette_xyz[0],
-        #         self.pipette_xyz[1],
-        #         self.pipette_xyz[2]
-        #     )
-
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
             if i < 2:
@@ -524,8 +496,6 @@ class PIDPatchButtons(ButtonTabWidget):
             else:
                 # Note: divide by 5 here to account for z-axis gear ratio
                 label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}')
-        # end_time = time.perf_counter_ns()
-        # print(f"Elapsed time stage: {(end_time - start_time)/1e6} ms")
 
 
         

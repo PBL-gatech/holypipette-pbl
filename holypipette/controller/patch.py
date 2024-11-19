@@ -17,6 +17,8 @@ from holypipette.interface.patchConfig import PatchConfig
 
 from .base import TaskController
 import threading
+# import locking package
+from threading import Lock
 
 
 class AutopatchError(Exception):
@@ -658,7 +660,7 @@ class AutoPatcher(TaskController):
         df = df.sort_values('timestamp')  # Ensure DataFrame is sorted
 
         # Define target frequency and interval
-        target_frequency = 10  # Hz
+        target_frequency = 12  # Hz
         interval = 1 / target_frequency  # seconds
 
         # Generate target times
@@ -684,7 +686,6 @@ class AutoPatcher(TaskController):
                 self.info('Movement Test stopped')
                 break
             # self.calibrated_stage.absolute_move([row['st_x'], row['st_y'], row['st_z']])
-            # self.debug(f"Moving to: {row['pi_x']}, {row['pi_y']}, {row['pi_z']}")
             self.calibrated_unit.absolute_move_group([row['pi_x'], row['pi_y'], row['pi_z']], [0, 1, 2])
             target_time = row['timestamp']
             while time.perf_counter() < start_time + target_time and not self.stop_event.is_set():

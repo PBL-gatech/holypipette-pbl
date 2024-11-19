@@ -15,9 +15,11 @@ from scipy.signal import butter, filtfilt, savgol_filter  # Import savgol_filter
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_19-14_10\movement_recording.csv"
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_19-14_13\movement_recording.csv"
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_19-14_23\movement_recording_truncated.csv"
-
-sinusoid_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal.csv"
-file_path = sinusoid_path
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_19-16_23\movement_recording_truncated.csv"
+# sinusoid_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal.csv"
+exponential_path  = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\exponential_position_signal.csv"
+# file_path = sinusoid_path
+file_path = exponential_path
 
 
 # Use pandas to read the data directly, specifying the delimiter as whitespace
@@ -62,7 +64,7 @@ def apply_low_pass_filter(data, cutoff_frequency, sampling_rate, order=4):
     return filtered_data
 
 # Set Butterworth filter parameters
-butter_cutoff_frequency = 15  # Hz
+butter_cutoff_frequency = 1  # Hz
 sampling_rate = 1 / data['time_diff'].mean()  # Average sampling rate in Hz
 
 # Apply the Butterworth low-pass filter to the pipette resultant displacement
@@ -102,8 +104,8 @@ savgol_acceleration = savgol_filter(data['pipette_resultant_derivative_derivativ
 # Plot the pipette's resultant displacement over time
 plt.figure(figsize=(12, 7))
 plt.plot(data['timestamp'], data['pipette_resultant'], label='Original Pipette Resultant Movement', color='k', alpha=0.5)
-plt.plot(data['timestamp'], butter_filtered_resultant, label='Butterworth Filtered (15 Hz)', color='r')
-plt.plot(data['timestamp'], savgol_filtered_resultant, label='Savitzky-Golay Filtered', color='b')
+plt.plot(data['timestamp'], butter_filtered_resultant, label='Butterworth Filtered (0.5 Hz)', color='r')
+# plt.plot(data['timestamp'], savgol_filtered_resultant, label='Savitzky-Golay Filtered', color='b')
 plt.xlabel('Timestamp (s)')
 plt.ylabel('Resultant Displacement')
 plt.title('Pipette Resultant Displacement: Original vs Butterworth vs Savitzky-Golay Filtered')
@@ -115,8 +117,8 @@ plt.show()
 # Plot the numerical derivative of the pipette's resultant displacement (velocity)
 plt.figure(figsize=(12, 7))
 plt.plot(data['timestamp'], data['pipette_resultant_derivative'], label='Original Velocity (Derivative)', color='k', alpha=0.5)
-plt.plot(data['timestamp'], butter_filtered_velocity, label='Butterworth Filtered Velocity (15 Hz)', color='r')
-plt.plot(data['timestamp'], savgol_velocity, label='Savitzky-Golay Filtered Velocity', color='b')
+plt.plot(data['timestamp'], butter_filtered_velocity, label='Butterworth Filtered Velocity (0.5 Hz)', color='r')
+# plt.plot(data['timestamp'], savgol_velocity, label='Savitzky-Golay Filtered Velocity', color='b')
 plt.xlabel('Timestamp (s)')
 plt.ylabel('Velocity (Derivative of Displacement)')
 plt.title('Pipette Velocity: Original vs Butterworth vs Savitzky-Golay Filtered')
@@ -128,8 +130,8 @@ plt.show()
 # Plot the numerical derivative of the velocity (acceleration)
 plt.figure(figsize=(12, 7))
 plt.plot(data['timestamp'], data['pipette_resultant_derivative_derivative'], label='Original Acceleration (Derivative of Velocity)', color='k', alpha=0.5)
-plt.plot(data['timestamp'], butter_filtered_acceleration, label='Butterworth Filtered Acceleration (15 Hz)', color='r')
-plt.plot(data['timestamp'], savgol_acceleration, label='Savitzky-Golay Filtered Acceleration', color='b')
+plt.plot(data['timestamp'], butter_filtered_acceleration, label='Butterworth Filtered Acceleration (0.5 Hz)', color='r')
+# plt.plot(data['timestamp'], savgol_acceleration, label='Savitzky-Golay Filtered Acceleration', color='b')
 plt.xlabel('Timestamp (s)')
 plt.ylabel('Acceleration (Derivative of Velocity)')
 plt.title('Pipette Acceleration: Original vs Butterworth vs Savitzky-Golay Filtered')

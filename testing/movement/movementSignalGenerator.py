@@ -50,6 +50,30 @@ class SignalGenerator:
         chirp_signal = self.amplitude * chirp(t, f0=f_start, f1=f_end, t1=duration, method=method)
         return t, chirp_signal
 
+    def generate_exponential(self, initial_speed, final_speed, duration):
+        """
+        Generate a position curve based on constant acceleration from initial to final speed.
+
+        Args:
+            initial_speed (float): Initial speed in units per second.
+            final_speed (float): Final speed in units per second.
+            duration (float): Duration of the signal in seconds.
+
+        Returns:
+            t (numpy.ndarray): Time vector.
+            position (numpy.ndarray): Position signal with constant acceleration.
+        """
+        # Time vector
+        t = np.linspace(0, duration, int(self.sampling_rate * duration), endpoint=False)
+        
+        # Calculate constant acceleration
+        acceleration = (final_speed - initial_speed) / duration
+        
+        # Position using the equation: x(t) = v0 * t + 0.5 * a * t^2
+        position = initial_speed * t + 0.5 * acceleration * t**2
+        
+        return t, position
+
     def downsample(self, t, signal, target_rate):
         """
         Downsample a signal to a target sampling rate.
@@ -131,7 +155,7 @@ class SignalGenerator:
         # Write data to CSV
         with open(filename, mode='w') as file:
             for timestamp, pi_z in zip(t, signal):
-                pi_z += -9365.4  # Add a small offset to pi_z
+                pi_z += -5321.20  # Add a small offset to pi_z
                 file.write(
                     f"timestamp:{timestamp:.6f}  st_x:{st_x}  st_y:{st_y}  st_z:{st_z}  "
                     f"pi_x:{pi_x}  pi_y:{pi_y}  pi_z:{pi_z:.1f}\n"
@@ -158,26 +182,49 @@ class SignalGenerator:
 
 
 # Example Usage:
+if __name__ == "__main__":
+    # Create an instance of the SignalGenerator
+    generator = SignalGenerator(sampling_rate=40, amplitude=5)
+
+    # # Generate a chirp signal
+    # t_chirp, chirp_signal = generator.generate_chirp(f_start=0.01, f_end=0.5, duration=15)
+    # generator.plot_signal(t_chirp, chirp_signal, "Chirp Signal")
+
+    # Save the chirp signal to a CSV
+    # generator.save_to_csv(t_chirp, chirp_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\chirp_signal.csv")
+
+    # Generate an exponential position curve
+    initial_speed = 1.0  # um per second
+    final_speed = 4.0    # um per second
+    duration = 30        # seconds
+    t_exp, exp_position = generator.generate_exponential(initial_speed, final_speed, duration)
+    generator.plot_signal(t_exp, exp_position, "Exponential Position Signal")
+
+    # Save the exponential signal to a CSV
+    # generator.save_to_csv(t_exp, exp_position, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\exponential_position_signal.csv")
+
+
+# Example Usage:
 # Create an instance of the SignalGenerator
-generator = SignalGenerator(sampling_rate=40, amplitude=20)
+generator = SignalGenerator(sampling_rate=40, amplitude=5)
 
-# Generate a sinusoidal signal
-t_sin, sinusoid = generator.generate_sinusoid(frequency=0.1, duration=5)
+# # Generate a sinusoidal signal
+# # t_sin, sinusoid = generator.generate_sinusoid(frequency=0.5, duration=5)
 
-# Downsample the sinusoid to 10 Hz
-# t_down, sinusoid_down = generator.downsample(t_sin, sinusoid, target_rate=20)
+# # Downsample the sinusoid to 10 Hz
+# # t_down, sinusoid_down = generator.downsample(t_sin, sinusoid, target_rate=20)
 
-# Plot the original and downsampled signals
-generator.plot_signal(t_sin, sinusoid, "Original Sinusoidal Signal")
-# generator.plot_signal(t_down, sinusoid_down, "Downsampled Sinusoidal Signal")
+# # Plot the original and downsampled signals
+# # generator.plot_signal(t_sin, sinusoid, "Original Sinusoidal Signal")
+# # generator.plot_signal(t_down, sinusoid_down, "Downsampled Sinusoidal Signal")
 
 
-# Save the sinusoidal signal to a CSV
-generator.save_to_csv(t_sin, sinusoid, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal.csv")
+# # # Save the sinusoidal signal to a CSV
+# # generator.save_to_csv(t_sin, sinusoid, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal.csv")
 
-# Generate a chirp signal
-# t_chirp, chirp_signal = generator.generate_chirp(f_start=1, f_end=10, duration=5)
+# # # Generate a chirp signal
+# t_chirp, chirp_signal = generator.generate_chirp(f_start=0.01, f_end=0.5, duration=15)
 # generator.plot_signal(t_chirp, chirp_signal, "Chirp Signal")
 
-# Save the chirp signal to a CSV
+# # Save the chirp signal to a CSV
 # generator.save_to_csv(t_chirp, chirp_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\chirp_signal.csv")
