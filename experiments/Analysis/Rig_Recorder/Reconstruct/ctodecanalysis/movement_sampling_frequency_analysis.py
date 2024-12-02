@@ -17,9 +17,12 @@ from scipy.signal import butter, filtfilt, savgol_filter  # Import savgol_filter
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_19-14_23\movement_recording_truncated.csv"
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_19-16_23\movement_recording_truncated.csv"
 # sinusoid_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal.csv"
-exponential_path  = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\exponential_position_signal.csv"
+# exponential_path  = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\exponential_position_signal.csv"
 # file_path = sinusoid_path
-file_path = exponential_path
+# file_path = exponential_path
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_21-12_24\movement_recording.csv"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_responses\2deci_response.csv"
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal_2deci.csv"
 
 
 # Use pandas to read the data directly, specifying the delimiter as whitespace
@@ -64,23 +67,23 @@ def apply_low_pass_filter(data, cutoff_frequency, sampling_rate, order=4):
     return filtered_data
 
 # Set Butterworth filter parameters
-butter_cutoff_frequency = 1  # Hz
-sampling_rate = 1 / data['time_diff'].mean()  # Average sampling rate in Hz
+# butter_cutoff_frequency = 1  # Hz
+# sampling_rate = 1 / data['time_diff'].mean()  # Average sampling rate in Hz
 
 # Apply the Butterworth low-pass filter to the pipette resultant displacement
-butter_filtered_resultant = apply_low_pass_filter(data['pipette_resultant'].values, butter_cutoff_frequency, sampling_rate)
+# butter_filtered_resultant = apply_low_pass_filter(data['pipette_resultant'].values, butter_cutoff_frequency, sampling_rate)
 
 # Calculate the numerical derivative of the pipette resultant displacement (velocity)
 data['pipette_resultant_derivative'] = data['pipette_resultant'].diff() / data['time_diff']
 
 # Apply the Butterworth low-pass filter to the velocity derivative
-butter_filtered_velocity = apply_low_pass_filter(data['pipette_resultant_derivative'].fillna(0).values, butter_cutoff_frequency, sampling_rate)
+# butter_filtered_velocity = apply_low_pass_filter(data['pipette_resultant_derivative'].fillna(0).values, butter_cutoff_frequency, sampling_rate)
 
 # Calculate the numerical derivative of the velocity (acceleration)
 data['pipette_resultant_derivative_derivative'] = data['pipette_resultant_derivative'].diff() / data['time_diff']
 
 # Apply the Butterworth low-pass filter to the acceleration derivative
-butter_filtered_acceleration = apply_low_pass_filter(data['pipette_resultant_derivative_derivative'].fillna(0).values, butter_cutoff_frequency, sampling_rate)
+# butter_filtered_acceleration = apply_low_pass_filter(data['pipette_resultant_derivative_derivative'].fillna(0).values, butter_cutoff_frequency, sampling_rate)
 
 # Define Savitzky-Golay filter parameters
 # Choose window_length based on the sampling rate and desired smoothing
@@ -89,22 +92,22 @@ window_length = 10  # Example value; adjust as needed
 polyorder = 3       # Polynomial order; typically 2 or 3
 
 # Apply the Savitzky-Golay filter to the pipette resultant displacement
-savgol_filtered_resultant = savgol_filter(data['pipette_resultant'].values, window_length=window_length, polyorder=polyorder)
+# savgol_filtered_resultant = savgol_filter(data['pipette_resultant'].values, window_length=window_length, polyorder=polyorder)
 
 # Calculate velocity using numerical derivative on SG filtered displacement (optional)
 # Alternatively, compute velocity first and then apply SG filter
 # Here, we follow the latter approach for consistency
-savgol_velocity = savgol_filter(data['pipette_resultant_derivative'].fillna(0).values, window_length=window_length, polyorder=polyorder)
+# savgol_velocity = savgol_filter(data['pipette_resultant_derivative'].fillna(0).values, window_length=window_length, polyorder=polyorder)
 
 # Calculate acceleration using numerical derivative on SG filtered velocity
-savgol_acceleration = savgol_filter(data['pipette_resultant_derivative_derivative'].fillna(0).values, window_length=window_length, polyorder=polyorder)
+# savgol_acceleration = savgol_filter(data['pipette_resultant_derivative_derivative'].fillna(0).values, window_length=window_length, polyorder=polyorder)
 
 # Plotting the original and filtered data for comparison
 
 # Plot the pipette's resultant displacement over time
 plt.figure(figsize=(12, 7))
 plt.plot(data['timestamp'], data['pipette_resultant'], label='Original Pipette Resultant Movement', color='k', alpha=0.5)
-plt.plot(data['timestamp'], butter_filtered_resultant, label='Butterworth Filtered (0.5 Hz)', color='r')
+# plt.plot(data['timestamp'], butter_filtered_resultant, label='Butterworth Filtered (0.5 Hz)', color='r')
 # plt.plot(data['timestamp'], savgol_filtered_resultant, label='Savitzky-Golay Filtered', color='b')
 plt.xlabel('Timestamp (s)')
 plt.ylabel('Resultant Displacement')
@@ -117,7 +120,7 @@ plt.show()
 # Plot the numerical derivative of the pipette's resultant displacement (velocity)
 plt.figure(figsize=(12, 7))
 plt.plot(data['timestamp'], data['pipette_resultant_derivative'], label='Original Velocity (Derivative)', color='k', alpha=0.5)
-plt.plot(data['timestamp'], butter_filtered_velocity, label='Butterworth Filtered Velocity (0.5 Hz)', color='r')
+# plt.plot(data['timestamp'], butter_filtered_velocity, label='Butterworth Filtered Velocity (0.5 Hz)', color='r')
 # plt.plot(data['timestamp'], savgol_velocity, label='Savitzky-Golay Filtered Velocity', color='b')
 plt.xlabel('Timestamp (s)')
 plt.ylabel('Velocity (Derivative of Displacement)')
@@ -130,7 +133,7 @@ plt.show()
 # Plot the numerical derivative of the velocity (acceleration)
 plt.figure(figsize=(12, 7))
 plt.plot(data['timestamp'], data['pipette_resultant_derivative_derivative'], label='Original Acceleration (Derivative of Velocity)', color='k', alpha=0.5)
-plt.plot(data['timestamp'], butter_filtered_acceleration, label='Butterworth Filtered Acceleration (0.5 Hz)', color='r')
+# plt.plot(data['timestamp'], butter_filtered_acceleration, label='Butterworth Filtered Acceleration (0.5 Hz)', color='r')
 # plt.plot(data['timestamp'], savgol_acceleration, label='Savitzky-Golay Filtered Acceleration', color='b')
 plt.xlabel('Timestamp (s)')
 plt.ylabel('Acceleration (Derivative of Velocity)')

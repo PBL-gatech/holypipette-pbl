@@ -49,6 +49,44 @@ class SignalGenerator:
         t = np.linspace(0, duration, int(self.sampling_rate * duration), endpoint=False)
         chirp_signal = self.amplitude * chirp(t, f0=f_start, f1=f_end, t1=duration, method=method)
         return t, chirp_signal
+    
+    def generate_step_pulses(self, duration, step_interval, duty_cycle, step_value):
+        """
+        Generate a step signal with pulses.
+
+        Args:
+            duration (float): Duration of the signal in seconds.
+            step_interval (float): Time at which the step occurs.
+            duty_cycle (float): Duty cycle of the pulse.
+            step_value (float): Value of the step.
+        """
+        t = np.linspace(0, duration, int(self.sampling_rate * duration), endpoint=False)
+        step_signal = np.zeros_like(t)
+        period = step_interval
+        high_time = period * duty_cycle
+
+        for i in range(len(t)):
+            if (t[i] % period) < high_time:
+                step_signal[i] = step_value
+
+        return t, step_signal
+        
+
+    def generate_ramp(self, initial_value, final_value, velocity):
+        """
+        Generate a ramp signal.
+
+        Args:
+            initial_value (float): Initial value of the ramp.
+            final_value (float): Final value of the ramp.
+            velocity (float): Velocity of the ramp.
+            duration (float): Duration of the signal in seconds.
+        """
+        duration = (final_value - initial_value) / velocity
+        t = np.linspace(0, duration, int(self.sampling_rate * duration), endpoint=False)
+        ramp_signal = initial_value + velocity * t
+        return t, ramp_signal
+    
 
     def generate_exponential(self, initial_speed, final_speed, duration):
         """
@@ -71,6 +109,13 @@ class SignalGenerator:
         
         # Position using the equation: x(t) = v0 * t + 0.5 * a * t^2
         position = initial_speed * t + 0.5 * acceleration * t**2
+
+        # # add a flat line to the end of the signal 10 seconds long
+        flat_time = 0
+
+        t = np.append(t, np.linspace(t[-1], t[-1] + flat_time, int(self.sampling_rate * flat_time), endpoint=False))
+        position = np.append(position, np.full(int(self.sampling_rate * flat_time), position[-1]))
+        
         
         return t, position
 
@@ -193,34 +238,46 @@ if __name__ == "__main__":
     # Save the chirp signal to a CSV
     # generator.save_to_csv(t_chirp, chirp_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\chirp_signal.csv")
 
-    # Generate an exponential position curve
-    initial_speed = 1.0  # um per second
-    final_speed = 4.0    # um per second
-    duration = 30        # seconds
-    t_exp, exp_position = generator.generate_exponential(initial_speed, final_speed, duration)
-    generator.plot_signal(t_exp, exp_position, "Exponential Position Signal")
+    # # Generate an exponential position curve
+    # initial_speed = 1.0  # um per second
+    # final_speed = 10.0    # um per second
+    # duration = 30        # seconds
+    # t_exp, exp_position = generator.generate_exponential(initial_speed, final_speed, duration)
+    # generator.plot_signal(t_exp, exp_position, "Exponential Position Signal")
 
-    # Save the exponential signal to a CSV
+    # # Save the exponential signal to a CSV
     # generator.save_to_csv(t_exp, exp_position, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\exponential_position_signal.csv")
 
+    # Generate a step signal
+    # duration =  30      # seconds
+    # step_interval = 10   # seconds
+    # duty_cycle = 0.5   # 50%
+    # step_value = 100    # um
+    # t_step, step_signal = generator.generate_step_pulses(duration, step_interval, duty_cycle, step_value)
+
+    # # plot the step signal
+    # generator.plot_signal(t_step, step_signal, "Step Signal")
+
+    # # Save the step signal to a CSV
+    # generator.save_to_csv(t_step, step_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\step_signal.csv")
 
 # Example Usage:
 # Create an instance of the SignalGenerator
 generator = SignalGenerator(sampling_rate=40, amplitude=5)
 
 # # Generate a sinusoidal signal
-# # t_sin, sinusoid = generator.generate_sinusoid(frequency=0.5, duration=5)
+t_sin, sinusoid = generator.generate_sinusoid(frequency=1, duration=5)
 
 # # Downsample the sinusoid to 10 Hz
 # # t_down, sinusoid_down = generator.downsample(t_sin, sinusoid, target_rate=20)
 
 # # Plot the original and downsampled signals
-# # generator.plot_signal(t_sin, sinusoid, "Original Sinusoidal Signal")
+generator.plot_signal(t_sin, sinusoid, "Original Sinusoidal Signal")
 # # generator.plot_signal(t_down, sinusoid_down, "Downsampled Sinusoidal Signal")
 
 
 # # # Save the sinusoidal signal to a CSV
-# # generator.save_to_csv(t_sin, sinusoid, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal.csv")
+generator.save_to_csv(t_sin, sinusoid, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal_1.csv")
 
 # # # Generate a chirp signal
 # t_chirp, chirp_signal = generator.generate_chirp(f_start=0.01, f_end=0.5, duration=15)
@@ -228,3 +285,13 @@ generator = SignalGenerator(sampling_rate=40, amplitude=5)
 
 # # Save the chirp signal to a CSV
 # generator.save_to_csv(t_chirp, chirp_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\chirp_signal.csv")
+
+# # Generate a ramp signal
+# initial_value = 0
+# final_value = 100
+# velocity = 2.5
+# t_ramp, ramp_signal = generator.generate_ramp(initial_value, final_value, velocity)
+# generator.plot_signal(t_ramp, ramp_signal, "Ramp Signal")
+
+# # Save the ramp signal to a CSV
+# generator.save_to_csv(t_ramp, ramp_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\ramp_signal.csv")
