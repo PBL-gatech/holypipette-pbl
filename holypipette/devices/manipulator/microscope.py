@@ -62,6 +62,16 @@ class Microscope(Manipulator):
         self.dev.absolute_move(x, self.axis)
         self.sleep(.05)
 
+    def absolute_move_velocity(self, vel):
+        '''
+        Moves the device axis at velocity vel in um/s.
+
+        Parameters
+        ----------
+        vel : velocity in um/s.
+        '''
+        self.dev.absolute_move_group_velocity(vel, self.axis)
+        self.sleep(.05)
 
     def move_to_floor(self):
         self.dev.absolute_move(self.floor_Z + 200, self.axis)
