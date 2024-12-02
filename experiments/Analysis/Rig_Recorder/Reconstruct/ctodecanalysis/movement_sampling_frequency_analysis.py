@@ -21,8 +21,10 @@ from scipy.signal import butter, filtfilt, savgol_filter  # Import savgol_filter
 # file_path = sinusoid_path
 # file_path = exponential_path
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_21-12_24\movement_recording.csv"
-file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_responses\2deci_response.csv"
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_responses\2deci_response.csv"
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal_2deci.csv"
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_12_02-14_06\movement_recording.csv"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\step_command_example.csv"
 
 
 # Use pandas to read the data directly, specifying the delimiter as whitespace
@@ -111,7 +113,8 @@ plt.plot(data['timestamp'], data['pipette_resultant'], label='Original Pipette R
 # plt.plot(data['timestamp'], savgol_filtered_resultant, label='Savitzky-Golay Filtered', color='b')
 plt.xlabel('Timestamp (s)')
 plt.ylabel('Resultant Displacement')
-plt.title('Pipette Resultant Displacement: Original vs Butterworth vs Savitzky-Golay Filtered')
+# plt.title('Pipette Resultant Displacement: Original vs Butterworth vs Savitzky-Golay Filtered')
+plt.title('Pipette Resultant Displacement')
 plt.legend()
 plt.grid(True)
 plt.tight_layout()
