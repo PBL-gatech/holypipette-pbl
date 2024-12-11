@@ -500,7 +500,6 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         # start_time = time.perf_counter_ns()
         xyPos = self.pipette_interface.calibrated_stage.position() - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
         zPos = self.pipette_interface.microscope.position() - self.currz_stage_pos[2]
-        
         self.stage_xy = xyPos
         self.stage_z = zPos
 

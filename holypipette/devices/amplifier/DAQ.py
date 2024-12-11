@@ -252,7 +252,7 @@ class DAQ:
             self.isRunningProtocol = True
             while attempts < max_attempts:
                 attempts += 1
-                self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.05)
+                self.voltage_protocol_data, self.voltage_command_data, self.voltageTotalResistance, self.voltageMembraneResistance, self.voltageAccessResistance, self.voltageMembraneCapacitance = self.getDataFromSquareWave(20, 20000, 0.5, 0.5, 0.05)
         
                 if self.voltageMembraneCapacitance != 0:
                     break  # exit loop if capacitance is non-zero
@@ -947,6 +947,7 @@ class ArduinoDAQ:
                 filtered_data, filtered_time, filtered_command, plot_params, I_prev_pA, I_post_pA = self.filter_data(df)
             
                 self.holding_current = I_prev_pA
+                logging.info(f"Holding current: {self.holding_current}")
 
                 # logging.info("Data filtered")
                 peak_time, peak_index, min_time, min_index = plot_params

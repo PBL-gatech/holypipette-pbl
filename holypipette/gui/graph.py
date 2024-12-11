@@ -415,7 +415,7 @@ class EPhysGraph(QWidget):
         self.latestrespData = None
         self.lastrespData = []
         self.lastReadData = []
-
+        self.value_width = 10
         # Initialize recorder
         self.recorder = FileLogger(
             recording_state_manager,
@@ -456,17 +456,17 @@ class EPhysGraph(QWidget):
         """
         while True:
             # sleep for 50 ms
-            time.sleep(0.05)
+            time.sleep(0.025)
             if self.daq.isRunningProtocol:
                 continue  # Don't run membrane test while running a current protocol
             try:
                 # Fetch data from DAQ
                 data = self.daq.getDataFromSquareWave(
-                    wave_freq=50,
-                    samplesPerSec=20000,
+                    wave_freq=40,
+                    samplesPerSec=100000,
                     dutyCycle=0.5,
-                    amplitude=0.75,
-                    recordingTime=0.04
+                    amplitude=0.5,
+                    recordingTime=0.025
                 )
             except Exception as e:
                 logging.error(f"Error fetching data from DAQ: {e}")
@@ -491,53 +491,56 @@ class EPhysGraph(QWidget):
         Slot to handle DAQ data updates emitted from the background thread.
         Updates GUI elements safely in the main thread.
         """
+
+
         try:
-            # Update resistance labels
-            if totalResistance is not None:
+
+             if totalResistance is not None:
                 self.resistanceDeque.append(totalResistance)
-                self.resistanceLabel.setText(f"Total Resistance: {totalResistance:.2f} MΩ\t")
-            else:
-                self.resistanceLabel.setText("Total Resistance: N/A\t")
+                self.resistanceLabel.setText(self.format_label("Total Resistance", totalResistance, "MΩ"))
+             if AccessResistance is not None:
+                self.accessResistanceLabel.setText(self.format_label("Access Resistance", AccessResistance, "MΩ"))
+             if MembraneResistance is not None:
+               self.membraneResistanceLabel.setText(self.format_label("Membrane Resistance", MembraneResistance, "MΩ"))
+             if MembraneCapacitance is not None:
+                self.membraneCapacitanceLabel.setText(self.format_label("Membrane Capacitance", MembraneCapacitance, "pF"))
 
-            if AccessResistance is not None:
-                self.accessResistanceLabel.setText(f"Access Resistance: {AccessResistance:.2f} MΩ\t")
-            else:
-                self.accessResistanceLabel.setText("Access Resistance: N/A\t")
+                    # Update plotting data for cmdPlot and respPlot
+                if latestReadData is not None:
+                    self.cmdPlot.clear()
+                    self.cmdPlot.plot(latestReadData[0, :], latestReadData[1, :])  # Removed pen color
+                    self.lastReadData = latestReadData
 
-            if MembraneResistance is not None:
-                self.membraneResistanceLabel.setText(f"Membrane Resistance: {MembraneResistance:.2f} MΩ\t")
-            else:
-                self.membraneResistanceLabel.setText("Membrane Resistance: N/A\t")
+                if latestrespData is not None:
+                    self.respPlot.clear()
+                    self.respPlot.plot(latestrespData[0, :], latestrespData[1, :])  # Removed pen color
+                    self.lastrespData = latestrespData
 
-            # Update plotting data for cmdPlot and respPlot
-            if latestReadData is not None:
-                self.cmdPlot.clear()
-                self.cmdPlot.plot(latestReadData[0, :], latestReadData[1, :])  # Removed pen color
-                self.lastReadData = latestReadData
-
-            if latestrespData is not None:
-                self.respPlot.clear()
-                self.respPlot.plot(latestrespData[0, :], latestrespData[1, :])  # Removed pen color
-                self.lastrespData = latestrespData
-
-            # Handle recording
-            if self.recording_state_manager.is_recording_enabled():
-                with self.pressure_lock:
-                    currentPressureReading = self.latest_pressure
-                timestamp = datetime.now().timestamp()
-                try:
-                    self.recorder.write_graph_data(
-                        timestamp,
-                        currentPressureReading,
-                        totalResistance,
-                        list(self.lastrespData[1, :]) if self.lastrespData is not None else [],
-                        list(self.lastReadData[1, :]) if self.lastReadData is not None else []
-                    )
-                except Exception as e:
-                    logging.error(f"Error in writing graph data to file: {e}, {self.lastrespData}")
+                # Handle recording
+                if self.recording_state_manager.is_recording_enabled():
+                    with self.pressure_lock:
+                        currentPressureReading = self.latest_pressure
+                    timestamp = datetime.now().timestamp()
+                    try:
+                        self.recorder.write_graph_data(
+                            timestamp,
+                            currentPressureReading,
+                            totalResistance,
+                            list(self.lastrespData[1, :]) if self.lastrespData is not None else [],
+                            list(self.lastReadData[1, :]) if self.lastReadData is not None else []
+                        )
+                    except Exception as e:
+                        logging.error(f"Error in writing graph data to file: {e}, {self.lastrespData}")
 
         except Exception as e:
-            logging.error(f"Error in handle_data_update: {e}", exc_info=True)
+                logging.error(f"Error in handle_data_update: {e}", exc_info=True)
+
+    def format_label(self,label, value, unit):
+        if value is not None:
+            return f"{label}: {value:{self.value_width}.2f} {unit}\t"
+        else:
+            # Pad "N/A" to match the numerical width
+            return f"{label}: {'N/A':>{self.value_width}} {unit}\t"
 
     def update_plot(self):
         """
