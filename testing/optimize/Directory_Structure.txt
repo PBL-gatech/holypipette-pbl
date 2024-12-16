@@ -1,0 +1,182 @@
+Directory structure:
+└── PBL-gatech-holypipette-pbl
+    ├── testing
+    │   ├── niDAQ
+    │   │   ├── DAQTest.py
+    │   │   ├── DAQTest2.py
+    │   │   └── vclamptestplot.py
+    │   ├── pressure
+    │   │   ├── recordings
+    │   │   │   ├── pressure.xlsx
+    │   │   │   ├── expert
+    │   │   │   │   ├── caitlin-3.csv
+    │   │   │   │   ├── caitlin-1.csv
+    │   │   │   │   └── caitlin-2-fail.csv
+    │   │   │   └── demo
+    │   │   │       ├── emulateProfile-3.csv
+    │   │   │       ├── emulateProfile-1.csv
+    │   │   │       ├── emulateProfile-2.csv
+    │   │   │       └── emulateProfile-4.csv
+    │   │   ├── Pressure
+    │   │   │   ├── PressureRR
+    │   │   │   │   └── PressureRR.ino
+    │   │   │   └── Pressure.ino
+    │   │   ├── PressureControllerTest.py
+    │   │   ├── stepResponse.csv
+    │   │   ├── pressureRecorder.py
+    │   │   ├── pressureSender.py
+    │   │   └── pressurereader2.py
+    │   └── arduinoDAQ
+    │       ├── DAQreaderv0_004.py
+    │       ├── arduinoDAQ_sinetest
+    │       │   └── arduinoDAQ_sinetest.ino
+    │       ├── arduinoDAQ_v0_004
+    │       │   └── arduinoDAQ_v0_004.ino
+    │       ├── DAQreaderv0_003.py
+    │       └── arduinoDAQ_v0_003
+    │           └── arduinoDAQ_v0_003.ino
+    ├── requirements.txt
+    ├── patch_gui.py
+    ├── experiments
+    │   ├── Data
+    │   │   ├── Pressure_reader_data
+    │   │   │   └── PressureReaderRec_10_21_2024_1.csv
+    │   │   └── log_data
+    │   │       └── logs_2024_09_23.csv
+    │   ├── reference
+    │   │   └── scraper.py
+    │   └── Analysis
+    │       ├── Rig_Recorder
+    │       │   └── Reconstruct
+    │       │       ├── file_size_checker.py
+    │       │       ├── video.py
+    │       │       ├── rig_viewer3D.py
+    │       │       ├── movement.py
+    │       │       ├── rig_replay3D.py
+    │       │       ├── rig_replay3D.ipynb
+    │       │       ├── pressure.py
+    │       │       ├── rig_replay.py
+    │       │       ├── graph_update_analyzer_logs.py
+    │       │       ├── frame_rate_analyzer_logs.py
+    │       │       ├── resistance.py
+    │       │       ├── image_saver_test.py
+    │       │       ├── ephys.py
+    │       │       └── Timeline.py
+    │       ├── Patch_Clamp
+    │       │   ├── abf_ephys_params_calculator.py
+    │       │   ├── PatchAnalyzer.py
+    │       │   ├── ephys_calc_class.py
+    │       │   ├── 24418016.abf
+    │       │   ├── ephys_params_calculator.py
+    │       │   ├── duplicateremover.py
+    │       │   ├── CprotAnalyzer.py
+    │       │   └── VprotAnalyzer.py
+    │       └── Timeline.py
+    ├── setup
+    │   ├── setup_Moscow_usbDAQ.py
+    │   ├── setup_Moscow_DAQtest.py
+    │   ├── setup_Moscow_Pressuretest.py
+    │   ├── setup_Moscow_arduinoDAQ.py
+    │   ├── setup.py
+    │   ├── setup_fake_rig.py
+    │   ├── setup_IBB_rig.py
+    │   └── setup_Moscow_rig.py
+    ├── TODO.txt
+    └── holypipette
+        ├── gui
+        │   ├── livefeed.py
+        │   ├── camera.py
+        │   ├── graph.py
+        │   ├── manipulator.py
+        │   ├── __init__.py
+        │   ├── movingList.py
+        │   └── patch.py
+        ├── devices
+        │   ├── amplifier
+        │   │   ├── amplifier.py
+        │   │   ├── AxMultiClampMsg.h
+        │   │   ├── __init__.py
+        │   │   ├── DAQ.py
+        │   │   └── multiclamp.py
+        │   ├── __init__.py
+        │   ├── cellsorter
+        │   │   ├── __init__.py
+        │   │   ├── CellSorter.py
+        │   │   └── CalibratedCellSorter.py
+        │   ├── camera
+        │   │   ├── camera.py
+        │   │   ├── __init__.py
+        │   │   ├── FakeCalCamera.py
+        │   │   ├── qimagingcam.py
+        │   │   ├── moscow_qcam_camera.py
+        │   │   ├── pcocamera.py
+        │   │   └── FakeMicroscopeImgs
+        │   │       └── background.tif
+        │   ├── pressurecontroller
+        │   │   ├── BasePressureController.py
+        │   │   ├── __init__.py
+        │   │   ├── TestPressureController.py
+        │   │   ├── IBBPressureController.py
+        │   │   └── MoscowPressureController.py
+        │   ├── lamp
+        │   │   ├── __init__.py
+        │   │   └── lumencor.py
+        │   └── manipulator
+        │       ├── StageCalHelper.py
+        │       ├── fakemanipulator.py
+        │       ├── manipulator.py
+        │       ├── __init__.py
+        │       ├── calibratedunit.py
+        │       ├── sensapexWrapper.py
+        │       ├── manipulatorunit.py
+        │       ├── scientificaSerial.py
+        │       ├── microscope.py
+        │       └── PipetteCalHelper.py
+        ├── config.py
+        ├── log_utils.py
+        ├── interface
+        │   ├── camera.py
+        │   ├── pipettes.py
+        │   ├── __init__.py
+        │   ├── base.py
+        │   ├── patchConfig.py
+        │   └── patch.py
+        ├── exception_handler.py
+        ├── __init__.py
+        ├── controller
+        │   ├── __init__.py
+        │   ├── base.py
+        │   └── patch.py
+        ├── deepLearning
+        │   ├── pipetteModel
+        │   │   ├── pipetteFocusNet2.onnx
+        │   │   ├── pipetteFocusNet.onnx
+        │   │   ├── pipetteFinderNet.onnx
+        │   │   ├── pipette-small.onnx
+        │   │   ├── pipetteFinderNetnano2.onnx
+        │   │   ├── pipetteFocusNet3.onnx
+        │   │   └── pipette-nano.onnx
+        │   ├── pipetteModelTrainer
+        │   │   ├── labeler
+        │   │   │   ├── Labeler.py
+        │   │   │   ├── LabelResizer.py
+        │   │   │   └── Labeler_guide.ipynb
+        │   │   └── Dataset
+        │   │       └── P_DET_LABELS
+        │   │           ├── 10116_1723491320.424536.json
+        │   │           ├── 10120_1723491320.488632.json
+        │   │           ├── 10118_1723491320.455496.json
+        │   │           └── 10114_1723491320.392975.json
+        │   ├── pipetteFocuser.py
+        │   ├── __init__.py
+        │   ├── cellSegmentor.py
+        │   ├── cellModel
+        │   │   └── example pictures
+        │   │       └── before.tiff
+        │   └── pipetteFinder.py
+        └── utils
+            ├── filelock.py
+            ├── __init__.py
+            ├── EPhysLogger.py
+            ├── FileLogger.py
+            └── RecordingStateManager.py
