@@ -118,4 +118,4 @@ if m is not None and t is not None and b is not None:
     # print(f"Membrane Resistance (R_m): {R_m_MOhms:.2f} MOhms")
     # print(f"Membrane Capacitance (C_m): {C_m_pF:.2f} pF")
 else:
-    # print("Failed to optimize parameters.")
+    print("Failed to optimize parameters.")
