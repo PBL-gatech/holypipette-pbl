@@ -20,7 +20,8 @@ from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProto
 from holypipette.gui.patch import PatchGui
 
 
-from setup.setup_Moscow_rig import *
+# from setup.setup_Moscow_rig import *
+from setup.setup_Moscow_Pressuretest import *
 
 
 setup_logging()  # Log to the standard console as well
