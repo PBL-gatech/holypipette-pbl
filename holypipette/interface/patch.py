@@ -36,7 +36,7 @@ class AutoPatchInterface(TaskInterface):
         self.is_selecting_cells = False
         self.cells_to_patch = []
 
-        #call update_camera_cell_list every 0.1 seconds using a QTimer
+        #call update_camera_cell_list every 0.05 seconds using a QTimer
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_camera_cell_list)
         self.timer.start(50)

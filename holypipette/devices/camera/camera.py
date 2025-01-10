@@ -12,6 +12,7 @@ import time
 import threading
 import imageio
 import logging
+from holypipette.deepLearning.cellSegmentor import CellSegmentor2
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -183,6 +184,8 @@ class Camera(object):
         self.last_frame_time = None
         self.fps = 0
 
+        self.Cellseg = CellSegmentor2()
+
     def show_point(self, point, color=(255, 0, 0), radius=10, duration=1.5, show_center=False):
         self.point_to_show = [point, radius, color, show_center]
         self.stop_show_time = time.time() + duration
@@ -215,6 +218,14 @@ class Camera(object):
     def flip(self):
         self.flipped = not self.flipped
 
+
+    def segment(self, img, cell):
+        # return self.Cellseg.segment(img, cell)
+        mask = self.Cellseg.segment(img, cell)
+        print('segmentation successful!1!!')
+        pass
+  
+
     def preprocess(self, input_img):
         # isGreyscale = len(input_img.shape) == 2
         # ? why? because our images are grayscale. the line below makes images ~3x larger
@@ -225,12 +236,14 @@ class Camera(object):
             img = cv2.circle(img, self.point_to_show[0], self.point_to_show[1], self.point_to_show[2], 3)
             if self.point_to_show[3]:
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
-
-
         # draw cell outlines
         for cell in self.cell_list:
+            # print(cell)
             img = cv2.circle(img, cell, 10, (0, 255, 0), 3)
-
+            # self.segment(img, cell)
+        # instead of drawing  a circle for where the cell coordinates are, we will draw the countour of the cell with SAM2 
+        #TODO: draw the contour of the cell with SAM2
+        
         if self.flipped:
             img = img[:, ::-1]
             # ? uncomment below for rgb images

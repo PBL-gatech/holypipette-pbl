@@ -27,7 +27,8 @@ class FakeCalCamera(Camera):
         curFile = str(Path(__file__).parent.absolute())
 
         #setup frame image (numpy because of easy rolling)
-        self.frame = cv2.imread(curFile + "/FakeMicroscopeImgs/background.tif", cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(curFile + "/FakeMicroscopeImgs/background.tif", cv2.IMREAD_GRAYSCALE)
+        self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff", cv2.IMREAD_GRAYSCALE)
         self.frame = cv2.resize(self.frame, dsize=(self.width * 2, self.height * 2), interpolation=cv2.INTER_NEAREST)
 
         self.last_img = None
@@ -106,7 +107,7 @@ class FakeCalCamera(Camera):
         frame = self.pipette.add_pipette_to_img(frame, [stage_x, stage_y, stage_z])
 
         #add cellsorter to image
-        frame = self.cellSorterHandler.add_cellsorter_to_img(frame, [stage_x, stage_y, stage_z])
+        # frame = self.cellSorterHandler.add_cellsorter_to_img(frame, [stage_x, stage_y, stage_z])
 
         #add noise, exposure
         exposure_factor = self.exposure_time/30.
