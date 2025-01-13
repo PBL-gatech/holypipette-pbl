@@ -1,5 +1,5 @@
 '''
-"Fake setup" for GUI development on a computer without access to a rig
+This script sets up the Moscow rig. It is used to set up the devices and their connections. The devices are then used in the main script.
 '''
 import serial
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel

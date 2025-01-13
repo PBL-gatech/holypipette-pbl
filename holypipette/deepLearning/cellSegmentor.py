@@ -10,6 +10,7 @@ import time
 #sam imports
 # sys.path.append(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\MobileSAM\mobile_sam")
 from mobile_sam import sam_model_registry, SamPredictor
+import logging
 
 #sam2 imports
 from sam2.build_sam import build_sam2
@@ -178,7 +179,7 @@ class CellSegmentor:
 
 class CellSegmentor2:
     def __init__(self, sam_checkpoint=r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\checkpoints\sam2.1_hiera_tiny.pt" , model_cfg =r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\sam2\configs\sam2.1\sam2.1_hiera_t.yaml" , device=None):
-    
+        logging.info("Initializing SAM2 CellSegmentor...")
         # Enable MPS fallback for unsupported operations
         os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 

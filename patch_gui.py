@@ -19,11 +19,9 @@ from holypipette.interface.pipettes import PipetteInterface
 from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 from holypipette.gui.patch import PatchGui
 
-sys.path.append(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\setup")
-# from setup.setup_Moscow_rig import *
-from setup.setup_fake_rig import *
 
-
+# from rig_setup.setup_Moscow_rig import *  # noqa: F401, F403
+from rig_setup.setup_fake_rig import *  
 
 setup_logging()  # Log to the standard console as well
 

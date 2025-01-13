@@ -219,11 +219,12 @@ class Camera(object):
         self.flipped = not self.flipped
 
 
-    def segment(self, img, cell):
-        # return self.Cellseg.segment(img, cell)
-        mask = self.Cellseg.segment(img, cell)
-        print('segmentation successful!1!!')
-        pass
+    def segment(self, img, cell,label):
+        # logging.debug("image shape: {}".format(img.shape))
+        
+        mask = self.Cellseg.segment(image = img, input_point = cell, input_label = label)
+        # logging.debug("mask shape: {}".format(mask.shape))
+        return mask
   
 
     def preprocess(self, input_img):
@@ -240,9 +241,15 @@ class Camera(object):
         for cell in self.cell_list:
             # print(cell)
             img = cv2.circle(img, cell, 10, (0, 255, 0), 3)
-            # self.segment(img, cell)
-        # instead of drawing  a circle for where the cell coordinates are, we will draw the countour of the cell with SAM2 
-        #TODO: draw the contour of the cell with SAM2
+
+            cell = cell.reshape(1, 2)
+            mask = self.segment(img,cell,np.array([1]))
+            print(mask.shape)
+            # make sure mask and image are same size
+            if mask.shape[0] != img.shape[0] or mask.shape[1] != img.shape[1]:
+                mask = cv2.resize(mask, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+                # put overlay of mask onto image, in teal
+                img[mask == 1] = [255, 0, 255]
         
         if self.flipped:
             img = img[:, ::-1]
@@ -250,6 +257,7 @@ class Camera(object):
             # img = img[:, ::-1] if isGreyscale else img[:, ::-1, :]
 
         return img
+    
 
     def new_frame(self):
         '''

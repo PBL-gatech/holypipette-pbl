@@ -1,5 +1,5 @@
 '''
-"Fake setup" for GUI development on a computer without access to a rig
+Setup for Moscow Pressuretest
 '''
 import serial
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
