@@ -170,13 +170,19 @@ class CellSegmentor:
         if input_point is not None: 
             # use single predict method
             mask = self.single_prediction(input_point, input_label, multimask_output)
-            return mask
+            if mask is None:
+                logging.error("No mask found")
+                return None
+            else:
+                return mask
         else:
             # use box predict method
             masks, scores = self.predict_mask_box(input_box, multimask_output)
-            return masks[0]
-        
-
+            if masks is None:
+                logging.error("No masks found")
+                return None
+            else:
+                return masks[0]
 class CellSegmentor2:
     def __init__(self, sam_checkpoint=r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\checkpoints\sam2.1_hiera_tiny.pt" , model_cfg =r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\sam2\configs\sam2.1\sam2.1_hiera_t.yaml" , device=None):
         logging.info("Initializing SAM2 CellSegmentor...")
@@ -236,16 +242,21 @@ class CellSegmentor2:
         self.predictor = SAM2ImagePredictor(self.sam)
 
     def load_image(self, image_path=None, image=None):
-        # Load and convert the image to RGB
         if image_path is not None:
             image = cv2.imread(image_path)
-            if image is None:
-                raise FileNotFoundError(f"Error: Could not load image from {image_path}. Please check the file path and ensure the file exists.")
+            ...
+            if len(image.shape) == 2:
+                # Expand grayscale -> BGR
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
             self.image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         elif image is not None:
+            # Check if grayscale
+            if len(image.shape) == 2:
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
             self.image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         else:
             raise ValueError("Either image_path or image must be provided.")
+
 
     def set_image(self):
         # Set image to SAM2 model for embedding
@@ -360,6 +371,7 @@ class CellSegmentor2:
     def segment(self, image = None,input_point=None, input_label=None, input_box=None, multimask_output=False):
 
         if image is not None:
+
             self.load_image(image = image)
             self.set_image()
 
@@ -382,60 +394,177 @@ class CellSegmentor2:
             return masks[0]
         
 
+import sys, time
+import numpy as np
+import cv2
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QPoint
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtGui import QPixmap, QImage
+
+
+
+class CameraWorker(QThread):
+    frame_ready = pyqtSignal(np.ndarray)  # signal to deliver new frame
+
+    def __init__(self, fps=30, parent=None):
+        super().__init__(parent)
+        self.fps = fps
+        self.keep_running = True
+        # Load or initialize an image to simulate a camera frame
+        # self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\8ae5dd1d-c8de-4e00-8ba8-bc724275ee2f.webp"
+        self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff"
+        bgr = cv2.imread(self.image_path)
+        if bgr is None:
+            raise FileNotFoundError(f"Could not load {self.image_path}")
+        self.rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+        # Points & labels
+        self.points = []
+        self.labels = []
+        self.segmentor = CellSegmentor2()
+
+    def run(self):
+        """Thread loop: periodically load/segment the image and emit result."""
+        while self.keep_running:
+            display_img = self.rgb.copy()
+            if self.points:
+                mask = self.segmentor.segment(
+                    image=display_img,
+                    input_point=np.array(self.points),
+                    input_label=np.array(self.labels),
+                    multimask_output=False
+                )
+                if mask is not None:
+                    mask_bool = mask.astype(bool)
+                    display_img[mask_bool] = [255, 0, 0]  # color in red
+                    for (x, y) in self.points:
+                        cv2.circle(display_img, (x, y), 5, (0, 255, 0), -1)
+
+            self.frame_ready.emit(display_img)  # send frame to GUI
+            time.sleep(1 / self.fps)
+
+    def stop(self):
+        self.keep_running = False
+        self.quit()
+        self.wait()
+
+    def add_point(self, x, y):
+        self.points.append([x, y])
+        self.labels.append(1)
+
+    def clear_points(self):
+        self.points.clear()
+        self.labels.clear()
+
+class SamCAM(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("SamCAM Minimal Example")
+        self.image_label = QLabel(alignment=Qt.AlignCenter)
+        layout = QVBoxLayout()
+        layout.addWidget(self.image_label)
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
+
+        # Create worker thread for “camera”
+        self.worker = CameraWorker(fps=5)
+        self.worker.frame_ready.connect(self.update_image)
+        self.worker.start()
+
+    def update_image(self, rgb):
+        h, w, ch = rgb.shape
+        qimg = QImage(rgb.data, w, h, ch*w, QImage.Format_RGB888)
+        self.image_label.setPixmap(QPixmap.fromImage(qimg))
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            # Convert to label coords -> image coords
+            label_pos = self.image_label.mapFromParent(event.pos())
+            pm = self.image_label.pixmap()
+            if pm:
+                scale_w = pm.width() / self.image_label.width()
+                scale_h = pm.height() / self.image_label.height()
+                x_img = int(label_pos.x() * scale_w)
+                y_img = int(label_pos.y() * scale_h)
+                self.worker.add_point(x_img, y_img)
+        elif event.button() == Qt.RightButton:
+            self.worker.clear_points()
+
+    def closeEvent(self, event):
+        self.worker.stop()
+        super().closeEvent(event)
+
+
+
 if __name__ == "__main__":
-    #### test segmentor 
-    # obj_seg = CellSegmentor()
-    obj_seg = CellSegmentor2()
 
-    # Load an example image
-    # # image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\notebooks\images\truck.jpg"
-    # # image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_12_10-15_17\camera_frames\178605_1733864203.246073.webp" # pipette
+    app = QApplication(sys.argv)
+    w = SamCAM()
+    w.show()
+    sys.exit(app.exec_())
 
-    image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff" # cell
+
+
+
+
+    # #### test segmentor 
+    # # obj_seg = CellSegmentor()
+    # obj_seg = CellSegmentor2()
+
+    # # Load an example image
+    # # # image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\notebooks\images\truck.jpg"
+    # # # image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_12_10-15_17\camera_frames\178605_1733864203.246073.webp" # pipette
+
+    # # image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff" # cell
+    # image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\background.tif"
+
      
-    # load and set image
-    # obj_seg.load_image(r"C:\Users\sa-forest\Documents\GitHub\patchability\code\segment-anything\notebooks\images\truck.jpg")
+    # # load and set image
+    # # obj_seg.load_image(r"C:\Users\sa-forest\Documents\GitHub\patchability\code\segment-anything\notebooks\images\truck.jpg")
+    # obj_seg.load_image(image_path)
     # obj_seg.set_image()
     # # obj_seg.show_image()
 
-    # # Predict using a single point
-    input_point = np.array([[500, 375]]) # cell or truck
-    # # input_point = np.array([[400, 900]]) # pipette
-    # input_point = np.array([[600, 550]]) # cell
+    # # # Predict using a single point
+    # # input_point = np.array([[500, 375]]) # cell or truck
+    # # # input_point = np.array([[400, 900]]) # pipette
+  
+    # input_point = np.array([600, 400])
 
-    input_label = np.array([1])
-    # # obj_seg.visualize_prediction(input_point=input_point, input_label=input_label)
+    # input_label = np.array([1])
+    # obj_seg.visualize_prediction(input_point=input_point, input_label=input_label)
 
-    # # # Predict using a bounding box
+    # # # # # Predict using a bounding box
     # # input_box = np.array([425, 600, 700, 875])
     # # obj_seg.visualize_prediction(input_box=input_box)
 
-    # perform a  single prediction
-    #obj_seg.single_prediction(input_point, input_label)
+    # # perform a  single prediction
+    # #obj_seg.single_prediction(input_point, input_label)
 
-    # test segment speed
-    start_time = time.time()
+    # # # test segment speed
+    # # start_time = time.time()
 
-    image = cv2.imread(image_path)
-    total_time = 0
-    num  = 1000
-    time_array = np.zeros(num)
-    for i in range(num):
-        start_time = time.time()
-        mask = obj_seg.segment(image=image, input_point=input_point, input_label=input_label)
-        elapsed_time = time.time() - start_time
-        elapsed_time_ms = elapsed_time * 1000
-        # total_time += elapsed_time
-        time_array[i] = elapsed_time_ms
+    # # image = cv2.imread(image_path)
+    # # total_time = 0
+    # # num  = 1000
+    # # time_array = np.zeros(num)
+    # # for i in range(num):
+    # #     start_time = time.time()
+    # #     mask = obj_seg.segment(image=image, input_point=input_point, input_label=input_label)
+    # #     elapsed_time = time.time() - start_time
+    # #     elapsed_time_ms = elapsed_time * 1000
+    # #     # total_time += elapsed_time
+    # #     time_array[i] = elapsed_time_ms
     
-    time_array = time_array[3:]
-    average_time = np.mean(time_array)
-    print(f'Average segment time: {average_time:.4f}  milliseconds')
-    # remove first few points
+    # # time_array = time_array[3:]
+    # # average_time = np.mean(time_array)
+    # # print(f'Average segment time: {average_time:.4f}  milliseconds')
+    # # # remove first few points
 
-    # plot time_array
-    plt.plot(time_array)
-    plt.xlabel('Iteration')
-    plt.ylabel('Time (ms)')
-    plt.title('Segment Time')
-    plt.show()
+    # # # plot time_array
+    # # plt.plot(time_array)
+    # # plt.xlabel('Iteration')
+    # # plt.ylabel('Time (ms)')
+    # # plt.title('Segment Time')
+    # # plt.show()

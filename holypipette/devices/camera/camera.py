@@ -185,6 +185,8 @@ class Camera(object):
         self.fps = 0
 
         self.Cellseg = CellSegmentor2()
+        # testing flag
+        
 
     def show_point(self, point, color=(255, 0, 0), radius=10, duration=1.5, show_center=False):
         self.point_to_show = [point, radius, color, show_center]
@@ -219,11 +221,10 @@ class Camera(object):
         self.flipped = not self.flipped
 
 
-    def segment(self, img, cell,label):
-        # logging.debug("image shape: {}".format(img.shape))
-        
+    def segment(self, img, cell, label):
+
         mask = self.Cellseg.segment(image = img, input_point = cell, input_label = label)
-        # logging.debug("mask shape: {}".format(mask.shape))
+        # print("mask shape: ", mask.shape)
         return mask
   
 
@@ -233,32 +234,59 @@ class Camera(object):
         # img = cv2.cvtColor(input_img.copy(), cv2.COLOR_GRAY2RGB) if isGreyscale else input_img.copy()
         img = input_img.copy()
 
+        mask = None
+        # draw point for pipette location.
         if self.point_to_show and time.time() - self.stop_show_time < 0:
             img = cv2.circle(img, self.point_to_show[0], self.point_to_show[1], self.point_to_show[2], 3)
             if self.point_to_show[3]:
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
-        # draw cell outlines
-        for cell in self.cell_list:
-            # print(cell)
-            img = cv2.circle(img, cell, 10, (0, 255, 0), 3)
 
-            cell = cell.reshape(1, 2)
-            mask = self.segment(img,cell,np.array([1]))
-            print(mask.shape)
-            # make sure mask and image are same size
-            if mask.shape[0] != img.shape[0] or mask.shape[1] != img.shape[1]:
-                mask = cv2.resize(mask, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
-                # put overlay of mask onto image, in teal
-                img[mask == 1] = [255, 0, 255]
+        # draw cell outlines( currently just circles)
+        for cell in self.cell_list:
+            # testing cell segmentation: 
+            rgbimg = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            # cell is e.g. np.array([360, 490]) with shape (2,)
+            cell_2d = cell.reshape(1, 2)  # shape (1,2)
+            label = np.array([1])         # shape (1,)  
+            if cell_2d is not None:          
+                mask = self.segment(rgbimg, cell_2d, label)
+                # resize mask to image size
+                # mask = cv2.resize(mask, (img.shape[1], img.shape[0]))
+                # Ensure the binary mask is in the correct data type (uint8)
+                if mask.dtype != 'uint8':
+                    mask = mask.astype('uint8')
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                # create a contour from mask
+                cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
+                img = cv2.circle(img, cell, 10, (0, 255, 0), 3)
+   
+        # # # testing if mask is working
+        # if mask is not None:
+    
+        #     test = mask
+        #     # save the image to a directory once for each unique cell coordinates
+        #     mask_dir = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\mask_images'
+        #     if not os.path.exists(mask_dir):
+        #         os.makedirs(mask_dir)
+        #     filename = f'mask_cell_{cell[0]}_{cell[1]}.png'
+        #     filepath = os.path.join(mask_dir, filename)
+        #     if not os.path.exists(filepath):
+        #         cv2.imwrite(filepath, mask * 255)  # multiply by 255 to convert boolean mask to visible image
+        #     filename = f'raw_{cell[0]}_{cell[1]}.png'
+        #     filepath = os.path.join(mask_dir, filename)
+        #     if not os.path.exists(filepath):
+        #         cv2.imwrite(filepath, img)
         
+        # else :
+    
+        # correction for flipped image from bgr to rgb
         if self.flipped:
             img = img[:, ::-1]
             # ? uncomment below for rgb images
             # img = img[:, ::-1] if isGreyscale else img[:, ::-1, :]
 
         return img
-    
-
+ 
     def new_frame(self):
         '''
         Returns True if a new frame is available

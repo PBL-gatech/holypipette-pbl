@@ -27,8 +27,12 @@ class FakeCalCamera(Camera):
         curFile = str(Path(__file__).parent.absolute())
 
         #setup frame image (numpy because of easy rolling)
-        # self.frame = cv2.imread(curFile + "/FakeMicroscopeImgs/background.tif", cv2.IMREAD_GRAYSCALE)
-        self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff", cv2.IMREAD_GRAYSCALE)
+        self.frame = cv2.imread(curFile + "/FakeMicroscopeImgs/background.tif", cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\213125_1733864762.600275.webp",cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\8ae5dd1d-c8de-4e00-8ba8-bc724275ee2f.webp",cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff", cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\notebooks\images\cars.jpg", cv2.IMREAD_GRAYSCALE)
+  
         self.frame = cv2.resize(self.frame, dsize=(self.width * 2, self.height * 2), interpolation=cv2.INTER_NEAREST)
 
         self.last_img = None
