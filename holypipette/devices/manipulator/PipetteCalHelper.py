@@ -8,6 +8,7 @@ from holypipette.deepLearning.pipetteFinder import PipetteFinder
 from holypipette.deepLearning.pipetteFocuser import PipetteFocuser, FocusLevels
 from threading import Thread
 
+
 class PipetteCalHelper():
     '''A helper class to aid with Pipette Calibration
     '''
@@ -23,7 +24,53 @@ class PipetteCalHelper():
         self.calibrated_stage = calibrated_stage
         self.cal_points = [] #the points we've recorded for calibration
 
-        
+  
+    def collect_cal_points(self, num_planes=3, z_step=100, xy_step=75, max_retries=5):
+        self.cal_points = []
+        for plane in range(num_planes):
+            self._record_point_with_retries(max_retries)
+            self.pipette.relative_move([
+                0,
+                xy_step + np.random.uniform(-5, 5),
+                0
+            ])
+            self.pipette.wait_until_still()
+            self._record_point_with_retries(max_retries)
+            self.pipette.relative_move([
+                0,
+                -2 * xy_step + np.random.uniform(-5, 5),
+                0
+            ])
+            self.pipette.wait_until_still()
+            self._record_point_with_retries(max_retries)
+
+            if plane < num_planes - 1:
+                self.pipette.relative_move([0, 0, z_step])
+                self.microscope.relative_move(z_step)
+                self.pipette.wait_until_still()
+                self.microscope.wait_until_still()
+
+        self.calibrate()
+
+        return len(self.cal_points) >= 3 * num_planes
+
+
+    def _record_point_with_retries(self, max_retries=5):
+        for _ in range(max_retries):
+            before = len(self.cal_points)
+            self.record_cal_point()
+            if len(self.cal_points) > before:
+                return True
+            self.pipette.relative_move([
+                0,
+                np.random.uniform(-30, 30),
+                0
+            ])
+            self.pipette.wait_until_still()
+            time.sleep(0.5)
+        return False
+
+
     def record_cal_point(self):
         '''Records a calibration point by moving the pipette to the center of the pipette in the current frame
         '''

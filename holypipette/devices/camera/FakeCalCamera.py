@@ -31,6 +31,7 @@ class FakeCalCamera(Camera):
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\213125_1733864762.600275.webp",cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\8ae5dd1d-c8de-4e00-8ba8-bc724275ee2f.webp",cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff", cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\cellsegtest.png", cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\notebooks\images\cars.jpg", cv2.IMREAD_GRAYSCALE)
   
         self.frame = cv2.resize(self.frame, dsize=(self.width * 2, self.height * 2), interpolation=cv2.INTER_NEAREST)
@@ -189,7 +190,7 @@ class FakePipetteManipulator(FakeManipulator):
         return raw_pos
 
     def position(self, axis=None):
-        raw_pos = self.raw_position()
+        raw_pos = self.raw_position() 
         real_pos = self.raw_to_real(raw_pos)
         
         if axis == None:
@@ -199,6 +200,7 @@ class FakePipetteManipulator(FakeManipulator):
 
     def raw_position(self, axis=None):
         return super().position(axis).copy()
+
 
     def absolute_move(self, x, axis):
         print(f"Moving axis {axis} to {x}\t{self.position()}\t{self.raw_position()}")
@@ -258,7 +260,7 @@ class FakePipette():
 
         stage_to_pipette = np.array([[0.7,  -0.3,   0,      0], 
                                      [0.3,  1,      0,      0], 
-                                     [0,    0,      -(1/2), 600], 
+                                     [0,    0,      (1), 600], 
                                      [0,    0,      0,      1]])
 
         # rotation matrix to make the x-axis to parallel to the pipette, rather than the stage

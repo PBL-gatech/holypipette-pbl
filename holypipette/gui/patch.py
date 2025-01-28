@@ -367,12 +367,11 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         # self.addButtonList('patching states', layout, buttonList, cmds)
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Stage'],['Save cell plane origin'],['Calibrate Pipette'],['Store Safe Position'],['Store Home Position'],['Store Cleaning Position']]
-        cmds = [[self.pipette_interface.calibrate_stage],
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['store Cell plane'],['Store Safe Position','Store Home Position'],['Store Cleaning Position']]
+        cmds = [[self.pipette_interface.calibrate_stage, self.pipette_interface.calibrate_manipulator],
                 [self.pipette_interface.set_floor],
-                [self.pipette_interface.record_cal_point],
-                [self.patch_interface.store_safe_position],
-                [self.patch_interface.store_home_position],
+                [self.patch_interface.store_safe_position,
+                self.patch_interface.store_home_position],
                 [self.patch_interface.store_cleaning_position]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds)

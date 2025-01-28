@@ -150,12 +150,12 @@ class PipetteInterface(TaskInterface):
                       description='Calibrate manipulator',
                       task_description='Calibrating manipulator')
     def calibrate_manipulator(self):
-        self.execute([self.calibrated_unit.calibrate])
+        self.execute([self.calibrated_unit.calibrate_pipette])
     @blocking_command(category='Manipulators',
                         description='Home the manipulator',
-                        task_description='Homming the manipulator')
+                        task_description='Homing the manipulator')
     def Home_manipulator(self):
-        self.execute([self.calibrated_unit.calibrate])
+        self.execute([self.calibrated_unit.home])
 
     @blocking_command(category='Manipulators',
                       description='Focus the pipette',

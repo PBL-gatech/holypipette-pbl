@@ -305,7 +305,17 @@ class CalibratedUnit(ManipulatorUnit):
             p.append(((M[0,axis]**2 + M[1,axis]**2))**.5) #TODO: is this correct? 
         return p
     
+
+    def calibrate_pipette(self):
+        '''
+        Calibrate the pipette using YOLO object detection and pipette encoders to create a um -> pixels transformation matrix
+        '''
+        self.pipetteCalHelper.collect_cal_points()
+
     def record_cal_point(self):
+        '''
+        records a calibration point for the pipette
+        '''
         self.pipetteCalHelper.record_cal_point()
 
     def finish_calibration(self):
@@ -521,7 +531,6 @@ class CalibratedStage(CalibratedUnit):
         self.must_be_recalibrated = False
 
         self.info('Stage calibration done')
-
 
 
     def mosaic(self, width = None, height = None):

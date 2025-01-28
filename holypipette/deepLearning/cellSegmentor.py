@@ -393,38 +393,42 @@ class CellSegmentor2:
             masks, scores = self.predict_mask_box(input_box, multimask_output)
             return masks[0]
         
-
 import sys, time
 import numpy as np
 import cv2
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QPoint
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, 
+    QHBoxLayout, QPushButton, QFileDialog  # <-- NEW IMPORTS
+)
 from PyQt5.QtGui import QPixmap, QImage
 
-
+# ---------------------------------------------------------
+# Suppose you have already defined CellSegmentor2 here somewhere
+# class CellSegmentor2:
+#     def segment(...):
+#         ...
+# ---------------------------------------------------------
 
 class CameraWorker(QThread):
-    frame_ready = pyqtSignal(np.ndarray)  # signal to deliver new frame
+    frame_ready = pyqtSignal(np.ndarray)
 
     def __init__(self, fps=30, parent=None):
         super().__init__(parent)
         self.fps = fps
         self.keep_running = True
-        # Load or initialize an image to simulate a camera frame
-        # self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\8ae5dd1d-c8de-4e00-8ba8-bc724275ee2f.webp"
-        self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff"
+        # self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff"
+        self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\newpipette.webp"
         bgr = cv2.imread(self.image_path)
         if bgr is None:
             raise FileNotFoundError(f"Could not load {self.image_path}")
         self.rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-        # Points & labels
         self.points = []
         self.labels = []
         self.segmentor = CellSegmentor2()
 
     def run(self):
-        """Thread loop: periodically load/segment the image and emit result."""
         while self.keep_running:
             display_img = self.rgb.copy()
             if self.points:
@@ -436,11 +440,11 @@ class CameraWorker(QThread):
                 )
                 if mask is not None:
                     mask_bool = mask.astype(bool)
-                    display_img[mask_bool] = [255, 0, 0]  # color in red
+                    display_img[mask_bool] = [255, 0, 0]
                     for (x, y) in self.points:
                         cv2.circle(display_img, (x, y), 5, (0, 255, 0), -1)
 
-            self.frame_ready.emit(display_img)  # send frame to GUI
+            self.frame_ready.emit(display_img)
             time.sleep(1 / self.fps)
 
     def stop(self):
@@ -459,10 +463,23 @@ class CameraWorker(QThread):
 class SamCAM(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SamCAM Minimal Example")
+        self.setWindowTitle("SamCAM")
         self.image_label = QLabel(alignment=Qt.AlignCenter)
+        
         layout = QVBoxLayout()
         layout.addWidget(self.image_label)
+
+        # ----------------------------------------------------
+        # 1) Create a bottom-right button layout and button
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()  # pushes the button to the right
+        self.save_button = QPushButton("Save segmentation?")
+        button_layout.addWidget(self.save_button)
+        layout.addLayout(button_layout)
+        # 2) Connect button to a method that saves the image
+        self.save_button.clicked.connect(self.save_segmentation)
+        # ----------------------------------------------------
+        
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
@@ -472,14 +489,20 @@ class SamCAM(QMainWindow):
         self.worker.frame_ready.connect(self.update_image)
         self.worker.start()
 
+        # Will store the latest displayed frame here
+        self.latest_frame = None
+
     def update_image(self, rgb):
+        """Receive new frames and display them."""
+        # Store the latest image so we can save it
+        self.latest_frame = rgb.copy()
+        
         h, w, ch = rgb.shape
         qimg = QImage(rgb.data, w, h, ch*w, QImage.Format_RGB888)
         self.image_label.setPixmap(QPixmap.fromImage(qimg))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # Convert to label coords -> image coords
             label_pos = self.image_label.mapFromParent(event.pos())
             pm = self.image_label.pixmap()
             if pm:
@@ -495,18 +518,57 @@ class SamCAM(QMainWindow):
         self.worker.stop()
         super().closeEvent(event)
 
+    # ----------------------------------------------------
+    def save_segmentation(self):
+        """Re-run segmentation on original image and save only the cut-out region (RGBA)."""
+        if not self.worker.points:
+            print("No points set, nothing to segment.")
+            return
 
+        # Re-run segmentation on the original
+        rgb_copy = self.worker.rgb.copy()
+        mask = self.worker.segmentor.segment(
+            image=rgb_copy,
+            input_point=np.array(self.worker.points),
+            input_label=np.array(self.worker.labels),
+            multimask_output=False
+        )
+        if mask is None:
+            print("Segmentation returned None, nothing to save.")
+            return
+
+        # Convert mask to boolean
+        mask_bool = (mask > 0)
+
+        # Build an RGBA image (4 channels)
+        h, w, _ = rgb_copy.shape
+        segmented_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+
+        # Copy over the original RGB where the mask is True
+        segmented_rgba[mask_bool, 0:3] = rgb_copy[mask_bool]
+
+        # Set alpha channel to 255 where the mask is True
+        segmented_rgba[mask_bool, 3] = 255
+
+        # Let user pick the save path
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Segmented PNG", "", 
+            "PNG Files (*.png);;All Files (*)"
+        )
+        if not file_path:
+            return  # user canceled
+
+        # Finally save as PNG (4-channels) - the alpha channel is preserved
+        cv2.imwrite(file_path, segmented_rgba)
+        print(f"Saved RGBA cut-out to: {file_path}")
+
+    # ----------------------------------------------------
 
 if __name__ == "__main__":
-
     app = QApplication(sys.argv)
     w = SamCAM()
     w.show()
     sys.exit(app.exec_())
-
-
-
-
 
     # #### test segmentor 
     # # obj_seg = CellSegmentor()
