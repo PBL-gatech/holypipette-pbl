@@ -206,7 +206,7 @@ class CalibratedUnit(ManipulatorUnit):
         print(f'Move position: {pos_pixels}')
         print(f'Reference position: {self.reference_position()}')
         pos_micron = self.pixels_to_um(pos_pixels - self.stage.reference_position()) # position vector (um) in manipulator unit system
-
+        print(f'Position in um: {pos_micron}')
         self.absolute_move(pos_micron)
         self.wait_until_still()
 
@@ -311,6 +311,7 @@ class CalibratedUnit(ManipulatorUnit):
         Calibrate the pipette using YOLO object detection and pipette encoders to create a um -> pixels transformation matrix
         '''
         self.pipetteCalHelper.collect_cal_points()
+        self.finish_calibration()
 
     def record_cal_point(self):
         '''

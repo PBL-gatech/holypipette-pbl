@@ -450,7 +450,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 
     def tare_pipette(self):
         currPos = self.pipette_interface.calibrated_unit.unit.position()
-        self.init_pipette_pos = currPos
+        self.tare_pipette_pos = currPos
 
     def update_pipette_pos_labels(self, indices):
         # Update the position labels

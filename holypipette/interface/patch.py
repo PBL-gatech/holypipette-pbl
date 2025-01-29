@@ -148,7 +148,7 @@ class AutoPatchInterface(TaskInterface):
         
         self.current_autopatcher.safe_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
-        z = self.pipette_controller.calibrated_unit.microscope.position()
+        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.safe_stage_position = [x,y,z]
         self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
 
@@ -159,7 +159,7 @@ class AutoPatchInterface(TaskInterface):
         
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
-        z = self.pipette_controller.calibrated_unit.microscope.position()
+        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
     
