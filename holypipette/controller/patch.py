@@ -227,11 +227,15 @@ class AutoPatcher(TaskController):
         print("Moving to cell plane")
 
         zdist =  stage_pos[2] - self.microscope.floor_Z + 20
+        print(f"Z distance: {zdist}")
 
-        self.calibrated_unit.absolute_move(np.array([0,0, zdist]))
-        self.calibrated_unit.wait_until_still()
-        self.calibrated_stage.absolute_move(np.array[0,0, self.microscope.floor_Z + 20])
-        self.calibrated_stage.wait_until_still()
+        self.move_group_down(-zdist)# for testing
+        # self.move_group_down(zdist)# on real rig
+
+        # self.calibrated_unit.relative_move(np.array([0,0, zdist]))
+        # self.calibrated_unit.wait_until_still()
+        # self.calibrated_stage.relative_move(np.array([0,0, zdist]))
+        # self.calibrated_stage.wait_until_still()
         
         # #ensure "near cell" pressure
         self.pressure.set_pressure(self.config.pressure_near)
