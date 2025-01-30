@@ -30,14 +30,14 @@ class PipetteCalHelper():
         for plane in range(num_planes):
             self._record_point_with_retries(max_retries)
             self.pipette.relative_move([
-                np.random.uniform(-5, 5),
+                xy_step + np.random.uniform(-5, 5),
                 xy_step + np.random.uniform(-5, 5),
                 0
             ])
             self.pipette.wait_until_still()
             self._record_point_with_retries(max_retries)
             self.pipette.relative_move([
-                np.random.uniform(-5, 5),
+                -xy_step + np.random.uniform(-5, 5),
                 -2 * xy_step + np.random.uniform(-5, 5),
                 0
             ])
@@ -62,7 +62,7 @@ class PipetteCalHelper():
             if len(self.cal_points) > before:
                 return True
             self.pipette.relative_move([
-                np.random.uniform(-5, 5),
+                np.random.uniform(-30, 30),
                 np.random.uniform(-30, 30),
                 0
             ])

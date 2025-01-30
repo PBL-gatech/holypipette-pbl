@@ -191,61 +191,59 @@ class AutoPatcher(TaskController):
         # move stage and pipette to safe space
         print("Moving to safe space")
         self.move_to_safe_space()
+        self.calibrated_stage.wait_until_still()
+        self.calibrated_unit.wait_until_still()
         # set pipette pressure to 200 mbar
         print("Setting pressure to 200 mbar")
         self.pressure.set_pressure(200)
         # move to home space
         logging.debug("Moving to home space")
         self.move_to_home_space()
+        self.calibrated_stage.wait_until_still()
+        self.calibrated_unit.wait_until_still()
         # center pipette and stage on cell XY
         cell_pos, cell_img = cell
+        # print(f"Cell img: {cell_img}")
 
-        print(f" Moving to Cell position: {cell_pos}")
+        print(f" Moving to Cell position: {cell_pos}") # in um i think?
         # moving stage to xy position of cell
-        self.calibrated_stage.safe_move(np.array([cell_pos[0], cell_pos[1], 0]))
+        # home position
+        cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
+        self.calibrated_stage.safe_move(np.array(cell_pos))
         self.calibrated_stage.wait_until_still()
 
-        print(f"stage reference position: {self.calibrated_stage.reference_position()}")
-        # print(f"stage position: {self.calibrated_stage.position()}")
+        # move pipette to xy position of cell
+        stage_pos = self.calibrated_stage.pixels_to_um(self.calibrated_stage.reference_position())
+        disp = np.zeros(3)
+        disp[0] = stage_pos[0] - self.home_stage_position[0]
+        disp[1] = stage_pos[1] - self.home_stage_position[1]
+        disp[2] = 0
+        curr = self.calibrated_unit.position()
+        desired = curr + disp
+        self.calibrated_unit.absolute_move(desired)
+        self.calibrated_unit.wait_until_still()
         
-        print(f"pipette reference position: {self.calibrated_unit.reference_position()}")
+        # # move stage and pipette to 20 um above cell plane
+        print("Moving to cell plane")
 
-        # move microscope up 200 um above cell plane
-        self.microscope.absolute_move(self.microscope.floor_Z + 200)
+        zdist =  stage_pos[2] - self.microscope.floor_Z + 20
+
+        self.calibrated_unit.absolute_move(np.array([0,0, zdist]))
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_stage.absolute_move(np.array[0,0, self.microscope.floor_Z + 20])
+        self.calibrated_stage.wait_until_still()
         
-        self.calibrated_unit.safe_move(np.array([cell_pos[0], cell_pos[1], 0]))
-        print("Waiting for pipette to stop moving")
-        # self.calibrated_unit.wait_until_still()
-        print(f"pipette after reference position: {self.calibrated_unit.reference_position()}")
-        # print(f"pipette position: {self.calibrated_unit.position()}")
-
-
-        # # move stage and pipette to cell plane 
-        # print("Moving to cell plane")
-        # self.calibrated_unit.safe_move(np.array([0, 0, self.microscope.floor_Z]))
-        # self.microscope.relative_move(self.microscope.floor_Z)
-
-        # # move stage and pipette rapidly down to initial distance above cell
-        # # let say we have the z position of the cell, we will move down to 25 um above it
-        # #TODO will check if distance move implementation is correct
-        # z_position = cell_pos[2]
-        # curr_position = self.calibrated_unit.position()
-        # desired_position = np.array([curr_position[0], curr_position[1], z_position - 25])
-        # # change to relative move distance
-        # dist = desired_position[2] - curr_position[2]
-        # self.move_group_down(dist=dist)
-  
         # #ensure "near cell" pressure
-        # self.pressure.set_pressure(self.config.pressure_near)
+        self.pressure.set_pressure(self.config.pressure_near)
 
-        # lastResDeque = collections.deque(maxlen=3)
-        # # get initial resistance
-        # daqResistance = self.daq.resistance()
-        # lastResDeque.append(daqResistance)
+        lastResDeque = collections.deque(maxlen=3)
+        # get initial resistance
+        daqResistance = self.daq.resistance()
+        lastResDeque.append(daqResistance)
 
-        # # move pipette down at 1um/s and check reistance every 50 ms
-        # # get starting position 
-        # start_pos = self.calibrated_unit.position()
+        # move pipette down at 1um/s and check reistance every 50 ms
+        # get starting position 
+        start_pos = self.calibrated_unit.position()
 
         # self.calibrated_unit.absolute_move_group_velocity(1, [2])
         # self.calibrated_stage.microscope.absolute_move_velocity(1)
@@ -449,9 +447,11 @@ class AutoPatcher(TaskController):
             # step 0: move the microscope to the home position
             logging.debug(f'Moving microscope to home position value: Z={microscope_home_z}')
             self.microscope.absolute_move(microscope_home_z)
+            self.sleep(0.1)
             # Step 1: Move the stage to the home position
             logging.debug(f'Moving stage to home position values: X={stage_home_x}, Y={stage_home_y}')
             self.calibrated_stage.absolute_move([stage_home_x,stage_home_y])
+            self.calibrated_stage.wait_until_still()
 
             # Step 2: Move Y axis first to align with the home position value
             logging.debug(f'Moving Y axis to home position value: {home_y}')

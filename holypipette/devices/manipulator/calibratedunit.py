@@ -172,6 +172,7 @@ class CalibratedUnit(ManipulatorUnit):
         Converts um to pixel coordinates.
         '''
         return dot(self.M, pos_microns)
+    
 
     def reference_position(self, include_offset = True):
         '''
@@ -184,6 +185,9 @@ class CalibratedUnit(ManipulatorUnit):
         # if not self.calibrated:
         #     raise CalibrationError
         pos_um = self.position() # position vector (um) in manipulator unit system
+        print(f"pipette position: {pos_um}")
+        pipette_pos_pixels = self.um_to_pixels(pos_um) 
+        print(f"pipette position in pixels: {pipette_pos_pixels}")
         if include_offset:
             pos_pixels = self.um_to_pixels(pos_um) + self.stage.reference_position() + self.emperical_offset
         else:
@@ -291,7 +295,6 @@ class CalibratedUnit(ManipulatorUnit):
         r = r + np.array([self.camera.width // 2, self.camera.height // 2, 0])
 
         self.reference_move(r, yolo_correction) # Or relative move in manipulator coordinates, first axis (faster)
-
 
     def pixel_per_um(self, M=None):
         '''
@@ -478,13 +481,15 @@ class CalibratedStage(CalibratedUnit):
 
         return posDelta
 
-    def reference_move(self, r, yolo_correction=None):
-        if len(r)==2: # Third coordinate is actually not useful
-            r3D = zeros(3)
-            r3D[:2] = r
-        else:
-            r3D = r
-        CalibratedUnit.reference_move(self, r3D) # Third coordinate is ignored
+    # def reference_move(self, r, yolo_correction=None):
+    #     if len(r)==2: # Third coordinate is actually not useful
+    #         r3D = zeros(3)
+    #         r3D[:2] = r
+    #     else:
+    #         r3D = r
+    #     CalibratedUnit.reference_move(self, r3D) # Third coordinate is ignored
+
+
 
     def reference_relative_move(self, pos_pix):
         '''
