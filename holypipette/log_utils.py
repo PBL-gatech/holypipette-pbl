@@ -69,7 +69,7 @@ def setup_logging():
     
     # Console handler
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.WARNING)
+    console_handler.setLevel(logging.INFO)
     console_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s [%(name)s - thread %(thread)d]')
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)

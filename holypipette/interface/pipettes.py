@@ -125,7 +125,7 @@ class PipetteInterface(TaskInterface):
              description='Set the position of the floor (cover slip)',
              success_message='Cover slip position stored')
     def set_floor(self):
-        self.microscope.floor_Z = self.microscope.position()
+        self.microscope.floor_Z = self.microscope.position()/5.0
         self.info(f'Cell plane position set to {self.microscope.floor_Z}')
 
     @command(category='Stage',

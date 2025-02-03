@@ -226,18 +226,20 @@ class AutoPatcher(TaskController):
         # # move stage and pipette to 20 um above cell plane
         print("Moving to cell plane")
 
+
         zdist =  stage_pos[2] - self.microscope.floor_Z + 20
         print(f"Z distance: {zdist}")
 
-        self.move_group_down(-zdist)# for testing
+        # self.move_group_down(-zdist)# for testing
         # self.move_group_down(zdist)# on real rig
 
-        # self.calibrated_unit.relative_move(np.array([0,0, zdist]))
-        # self.calibrated_unit.wait_until_still()
-        # self.calibrated_stage.relative_move(np.array([0,0, zdist]))
-        # self.calibrated_stage.wait_until_still()
+        self.calibrated_unit.relative_move(np.array([0,0, zdist]))
+        self.calibrated_unit.wait_until_still()
+
+        self.microscope.move_to_floor()
+
         
-        # #ensure "near cell" pressure
+        # # #ensure "near cell" pressure
         self.pressure.set_pressure(self.config.pressure_near)
 
         lastResDeque = collections.deque(maxlen=3)
@@ -249,31 +251,32 @@ class AutoPatcher(TaskController):
         # get starting position 
         start_pos = self.calibrated_unit.position()
 
-        # self.calibrated_unit.absolute_move_group_velocity(1, [2])
-        # self.calibrated_stage.microscope.absolute_move_velocity(1)
-        # while not self._isCellDetected(lastResDeque):
-        #     curr_pos = self.calibrated_unit.position()
-        #     if self.abort_requested():
-        #         # stop the movement
-        #         self.calibrated_unit.stop()
-        #         self.calibrated_stage.microscope.stop()
-        #         self.info("Hunt cancelled")
-        #         break
-        #     elif abs(curr_pos[2] - start_pos[2]) >= int(self.config.max_distance):
-            #     # we have moved 25 um down and still no cell detected
-            #     self.calibrated_unit.stop()
-            #     self.calibrated_stage.microscope.stop()
-            #     self.info("No cell detected")
-            #     break
-            # elif self._isCellDetected(lastResDeque):
-            #     self.info("Cell detected")
-            #     self.calibrated_unit.stop()
-            #     self.calibrated_stage.microscope.stop()
-            #     break
-            # #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
-            # self.sleep(0.05)
-            # lastResDeque.append(daqResistance)
-            # daqResistance = self.daq.resistance()
+        self.calibrated_unit.absolute_move_group_velocity(1, [2])
+        self.calibrated_stage.microscope.absolute_move_velocity(1)
+        
+        while not self._isCellDetected(lastResDeque):
+            curr_pos = self.calibrated_unit.position()
+            if self.abort_requested():
+                # stop the movement
+                self.calibrated_unit.stop()
+                self.calibrated_stage.microscope.stop()
+                self.info("Hunt cancelled")
+                break
+            elif abs(curr_pos[2] - start_pos[2]) >= int(self.config.max_distance):
+                # we have moved 25 um down and still no cell detected
+                self.calibrated_unit.stop()
+                self.calibrated_stage.microscope.stop()
+                self.info("No cell detected")
+                break
+            elif self._isCellDetected(lastResDeque):
+                self.info("Cell detected")
+                self.calibrated_unit.stop()
+                self.calibrated_stage.microscope.stop()
+                break
+            #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
+            self.sleep(0.05)
+            lastResDeque.append(daqResistance)
+            daqResistance = self.daq.resistance()
 
     def gigaseal(self):
         lastResDeque = collections.deque(maxlen=3)
