@@ -70,7 +70,10 @@ class Microscope(Manipulator):
         ----------
         vel : velocity in um/s.
         '''
-        self.dev.absolute_move_group_velocity(vel, self.axis)
+        if not isinstance(self.axis, (list, tuple)):
+            z = [self.axis]
+        self.dev.absolute_move_group_velocity(vel, z)
+
         # self.sleep(.05)
 
     def move_to_floor(self):

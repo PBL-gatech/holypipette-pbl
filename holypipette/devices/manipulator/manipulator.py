@@ -9,8 +9,9 @@ TODO:
 * Add minimum and maximum for each axis
 """
 import time
-
+import numpy as np
 from numpy import array
+
 
 from holypipette.controller import TaskController
 
@@ -84,9 +85,10 @@ class Manipulator(TaskController):
 
         Returns
         -------
-        The current position of the device axis in um (vector).
+        np.ndarray
+            The current position of the device axes in um (vector).
         '''
-        return array([self.position(axis) for axis in axes])
+        return np.array([self.position(axis) for axis in axes])
 
     def absolute_move_group(self, x, axes, speed=None):
         '''

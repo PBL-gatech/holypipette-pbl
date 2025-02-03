@@ -229,36 +229,40 @@ class Camera(object):
   
 
     def preprocess(self, input_img):
-        # isGreyscale = len(input_img.shape) == 2
-        # ? why? because our images are grayscale. the line below makes images ~3x larger
-        # img = cv2.cvtColor(input_img.copy(), cv2.COLOR_GRAY2RGB) if isGreyscale else input_img.copy()
         img = input_img.copy()
-
         mask = None
-        # draw point for pipette location.
+
+        # Draw point for pipette location.
         if self.point_to_show and time.time() - self.stop_show_time < 0:
             img = cv2.circle(img, self.point_to_show[0], self.point_to_show[1], self.point_to_show[2], 3)
             if self.point_to_show[3]:
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
 
-        # draw cell outlines( currently just circles)
+        # Draw cell outlines (currently just circles)
         for cell in self.cell_list:
-            # testing cell segmentation: 
+            # Check if the cell's coordinates are on-screen.
+            # Here, cell is assumed to be a two-element array [x, y]
+            x, y = cell[0], cell[1]
+            if not (0 <= x < self.width and 0 <= y < self.height):
+                # The cell is offscreen. Skip segmentation.
+                continue
+
+            # Only perform segmentation if the cell is onscreen.
+            # Convert the grayscale image to RGB for segmentation if needed.
             rgbimg = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-            # cell is e.g. np.array([360, 490]) with shape (2,)
-            cell_2d = cell.reshape(1, 2)  # shape (1,2)
-            label = np.array([1])         # shape (1,)  
-            if cell_2d is not None:          
-                mask = self.segment(rgbimg, cell_2d, label)
-                # resize mask to image size
-                # mask = cv2.resize(mask, (img.shape[1], img.shape[0]))
-                # Ensure the binary mask is in the correct data type (uint8)
+            cell_2d = cell.reshape(1, 2)  # Ensure the shape is (1,2)
+            label = np.array([1])         # The label for segmentation
+
+            mask = self.segment(rgbimg, cell_2d, label)
+            if mask is not None:
+                # Ensure the mask is in the correct type.
                 if mask.dtype != 'uint8':
                     mask = mask.astype('uint8')
                 contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                # create a contour from mask
+                # Draw the segmentation contours
                 cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
-                img = cv2.circle(img, cell, 10, (0, 255, 0), 3)
+                # Draw a circle at the cell location
+                img = cv2.circle(img, (int(x), int(y)), 10, (0, 255, 0), 3)
    
         # # # testing if mask is working
         # if mask is not None:

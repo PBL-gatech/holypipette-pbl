@@ -64,6 +64,8 @@ class FakeManipulator(Manipulator):
             self.update_axis(axis)
             return self.x[axis-1]
 
+
+
     def position_group(self, axes):
         """
         Returns the current positions for the given axes.
@@ -72,11 +74,18 @@ class FakeManipulator(Manipulator):
         ----------
         axes : iterable
             List of axis numbers.
+        
+        Returns
+        -------
+        np.ndarray
+            A NumPy array containing the positions for the specified axes.
         """
         for axis in axes:
             self.update_axis(axis)
-        indices = [axis-1 for axis in axes]
-        return (self.x[indices])
+        indices = [axis - 1 for axis in axes]
+        # Convert self.x to a NumPy array so that advanced indexing works
+        return np.array(self.x)[indices]
+
 
     def update_axis(self, axis):
         """

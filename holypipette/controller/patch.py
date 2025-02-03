@@ -227,11 +227,13 @@ class AutoPatcher(TaskController):
         print("Moving to cell plane")
 
 
-        zdist =  stage_pos[2] - self.microscope.floor_Z + 20
+        zdist =  stage_pos[2] - self.microscope.floor_Z + 50
         print(f"Z distance: {zdist}")
 
         # self.move_group_down(-zdist)# for testing
         # self.move_group_down(zdist)# on real rig
+        
+        self.microscope.move_to_floor()
 
         self.calibrated_unit.relative_move(np.array([0,0, zdist]))
         self.calibrated_unit.wait_until_still()
@@ -251,32 +253,35 @@ class AutoPatcher(TaskController):
         # get starting position 
         start_pos = self.calibrated_unit.position()
 
-        self.calibrated_unit.absolute_move_group_velocity(1, [2])
-        self.calibrated_stage.microscope.absolute_move_velocity(1)
+        self.calibrated_unit.absolute_move_group_velocity(15, [2])
+        # self.calibrated_stage.microscope.absolute_move_velocity(1)
         
         while not self._isCellDetected(lastResDeque):
             curr_pos = self.calibrated_unit.position()
-            if self.abort_requested():
+            if self.abort_requested:
                 # stop the movement
                 self.calibrated_unit.stop()
-                self.calibrated_stage.microscope.stop()
+                # self.calibrated_stage.microscope.stop()
                 self.info("Hunt cancelled")
                 break
             elif abs(curr_pos[2] - start_pos[2]) >= int(self.config.max_distance):
                 # we have moved 25 um down and still no cell detected
                 self.calibrated_unit.stop()
-                self.calibrated_stage.microscope.stop()
+                # self.calibrated_stage.microscope.stop()
                 self.info("No cell detected")
                 break
             elif self._isCellDetected(lastResDeque):
                 self.info("Cell detected")
                 self.calibrated_unit.stop()
-                self.calibrated_stage.microscope.stop()
+                # self.calibrated_stage.microscope.stop()
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
             self.sleep(0.05)
             lastResDeque.append(daqResistance)
             daqResistance = self.daq.resistance()
+
+        self.calibrated_unit.stop()
+
 
     def gigaseal(self):
         lastResDeque = collections.deque(maxlen=3)
@@ -359,15 +364,20 @@ class AutoPatcher(TaskController):
         '''
         print(lastResDeque)
 
-        #criteria 1: the last three readings must be increasing
+        # Ensure there are three readings before checking
+        if len(lastResDeque) < 3:
+            return False
+
+        # Criteria 1: the last three readings must be increasing
         if not lastResDeque[0] < lastResDeque[1] < lastResDeque[2]:
-            return False #last three resistances must be ascending
-        
-        print('ascending')
-        
-        #criteria 2: there must be an increase of at least 0.3 mega ohms
+            return False  # Last three resistances must be ascending
+
+  
+
+        # Criteria 2: there must be an increase of at least 0.3 mega ohms
         r_delta = lastResDeque[2] - lastResDeque[0]
         return cellThreshold <= r_delta
+
 
     def patch(self, cell=None):
         '''
