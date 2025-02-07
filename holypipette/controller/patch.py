@@ -191,16 +191,16 @@ class AutoPatcher(TaskController):
         # move stage and pipette to safe space
         print("Moving to safe space")
         self.move_to_safe_space()
-        self.calibrated_stage.wait_until_still()
-        self.calibrated_unit.wait_until_still()
+        # self.calibrated_stage.wait_until_still()
+        # self.calibrated_unit.wait_until_still()
         # set pipette pressure to 200 mbar
         print("Setting pressure to 200 mbar")
         self.pressure.set_pressure(200)
         # move to home space
         logging.debug("Moving to home space")
         self.move_to_home_space()
-        self.calibrated_stage.wait_until_still()
-        self.calibrated_unit.wait_until_still()
+        # self.calibrated_stage.wait_until_still()
+        # self.calibrated_unit.wait_until_still()
         # center pipette and stage on cell XY
         cell_pos, cell_img = cell
         # print(f"Cell img: {cell_img}")
@@ -233,7 +233,7 @@ class AutoPatcher(TaskController):
         # self.move_group_down(-zdist)# for testing
         # self.move_group_down(zdist)# on real rig
         
-        self.microscope.move_to_floor()
+        # self.microscope.move_to_floor()
 
         self.calibrated_unit.relative_move(np.array([0,0, zdist]))
         self.calibrated_unit.wait_until_still()
@@ -241,46 +241,46 @@ class AutoPatcher(TaskController):
         self.microscope.move_to_floor()
 
         
-        # # #ensure "near cell" pressure
-        self.pressure.set_pressure(self.config.pressure_near)
+        # # # #ensure "near cell" pressure
+        # self.pressure.set_pressure(self.config.pressure_near)
 
-        lastResDeque = collections.deque(maxlen=3)
-        # get initial resistance
-        daqResistance = self.daq.resistance()
-        lastResDeque.append(daqResistance)
+        # lastResDeque = collections.deque(maxlen=3)
+        # # get initial resistance
+        # daqResistance = self.daq.resistance()
+        # lastResDeque.append(daqResistance)
 
-        # move pipette down at 1um/s and check reistance every 50 ms
-        # get starting position 
-        start_pos = self.calibrated_unit.position()
+        # # move pipette down at 1um/s and check reistance every 50 ms
+        # # get starting position 
+        # start_pos = self.calibrated_unit.position()
 
-        self.calibrated_unit.absolute_move_group_velocity(15, [2])
+        # self.calibrated_unit.absolute_move_group_velocity(1, [2])
         # self.calibrated_stage.microscope.absolute_move_velocity(1)
         
-        while not self._isCellDetected(lastResDeque):
-            curr_pos = self.calibrated_unit.position()
-            if self.abort_requested:
-                # stop the movement
-                self.calibrated_unit.stop()
-                # self.calibrated_stage.microscope.stop()
-                self.info("Hunt cancelled")
-                break
-            elif abs(curr_pos[2] - start_pos[2]) >= int(self.config.max_distance):
-                # we have moved 25 um down and still no cell detected
-                self.calibrated_unit.stop()
-                # self.calibrated_stage.microscope.stop()
-                self.info("No cell detected")
-                break
-            elif self._isCellDetected(lastResDeque):
-                self.info("Cell detected")
-                self.calibrated_unit.stop()
-                # self.calibrated_stage.microscope.stop()
-                break
-            #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
-            self.sleep(0.05)
-            lastResDeque.append(daqResistance)
-            daqResistance = self.daq.resistance()
+        # while not self._isCellDetected(lastResDeque):
+        #     curr_pos = self.calibrated_unit.position()
+        #     if self.abort_requested:
+        #         # stop the movement
+        #         self.calibrated_unit.stop()
+        #         # self.calibrated_stage.microscope.stop()
+        #         self.info("Hunt cancelled")
+        #         break
+        #     elif abs(curr_pos[2] - start_pos[2]) >= int(self.config.max_distance):
+        #         # we have moved 25 um down and still no cell detected
+        #         self.calibrated_unit.stop()
+        #         # self.calibrated_stage.microscope.stop()
+        #         self.info("No cell detected")
+        #         break
+        #     elif self._isCellDetected(lastResDeque):
+        #         self.info("Cell detected")
+        #         self.calibrated_unit.stop()
+        #         # self.calibrated_stage.microscope.stop()
+        #         break
+        #     #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
+        #     self.sleep(0.05)
+        #     lastResDeque.append(daqResistance)
+        #     daqResistance = self.daq.resistance()
 
-        self.calibrated_unit.stop()
+        # self.calibrated_unit.stop()
 
 
     def gigaseal(self):
@@ -362,7 +362,7 @@ class AutoPatcher(TaskController):
     def _isCellDetected(self, lastResDeque, cellThreshold = 0.3*10**6):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
         '''
-        print(lastResDeque)
+        # print(lastResDeque)
 
         # Ensure there are three readings before checking
         if len(lastResDeque) < 3:
@@ -372,10 +372,10 @@ class AutoPatcher(TaskController):
         if not lastResDeque[0] < lastResDeque[1] < lastResDeque[2]:
             return False  # Last three resistances must be ascending
 
-  
-
         # Criteria 2: there must be an increase of at least 0.3 mega ohms
         r_delta = lastResDeque[2] - lastResDeque[0]
+
+        self.info(f"Cell detected, resistance: {r_delta}")
         return cellThreshold <= r_delta
 
 
@@ -434,8 +434,10 @@ class AutoPatcher(TaskController):
             # Step 0: Move the microscope to the safe position
             logging.debug(f'Moving microscope to safe position value: Z={safe_microscope_z}')
             self.microscope.absolute_move(safe_microscope_z)
+            self.microscope.wait_until_still()  # Ensure movement completes
             # Step 1: Move the stage to the safe position
             self.calibrated_stage.absolute_move([safe_stage_x,safe_stage_y])
+            self.calibrated_stage.wait_until_still()
 
             # Step 2: Move Y axis first to align with the safe position value
             logging.debug(f'Moving Y axis to safe position value: {safe_y}')
@@ -464,7 +466,8 @@ class AutoPatcher(TaskController):
             # step 0: move the microscope to the home position
             logging.debug(f'Moving microscope to home position value: Z={microscope_home_z}')
             self.microscope.absolute_move(microscope_home_z)
-            self.sleep(0.1)
+            self.microscope.wait_until_still()
+            # self.sleep(0.5)
             # Step 1: Move the stage to the home position
             logging.debug(f'Moving stage to home position values: X={stage_home_x}, Y={stage_home_y}')
             self.calibrated_stage.absolute_move([stage_home_x,stage_home_y])

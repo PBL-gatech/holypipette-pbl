@@ -8,7 +8,7 @@ class PatchConfig(Config):
     Control of automatic patch clamp algorithm
     '''
     # Define parameters directly without try-except
-    pressure_near = NumberWithUnit(20, bounds=(0, 100), doc='Pressure during approach', unit='mbar')
+    pressure_near = NumberWithUnit(45, bounds=(0, 100), doc='Pressure during approach', unit='mbar')
     pressure_sealing = NumberWithUnit(-20, bounds=(-100, 0), doc='Pressure for sealing', unit='mbar')
     pressure_ramp_increment = NumberWithUnit(-25, bounds=(-100, 0), doc='Pressure ramp increment', unit='mbar')
     pressure_ramp_max = NumberWithUnit(-300., bounds=(-1000, 0), doc='Pressure ramp maximum', unit='mbar')

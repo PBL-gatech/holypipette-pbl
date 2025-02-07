@@ -25,7 +25,7 @@ class PipetteCalHelper():
         self.cal_points = [] #the points we've recorded for calibration
 
   
-    def collect_cal_points(self, num_planes=3, z_step=100, xy_step=75, max_retries=5):
+    def collect_cal_points(self, num_planes=3, z_step=100, xy_step=20, max_retries=5):
         self.cal_points = []
         for plane in range(num_planes):
             self._record_point_with_retries(max_retries)

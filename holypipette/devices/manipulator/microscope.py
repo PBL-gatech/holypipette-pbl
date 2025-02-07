@@ -77,7 +77,7 @@ class Microscope(Manipulator):
         # self.sleep(.05)
 
     def move_to_floor(self):
-        self.dev.absolute_move(self.floor_Z + 200, self.axis)
+        self.dev.absolute_move(self.floor_Z - 200, self.axis)
         self.dev.wait_until_still([self.axis])
         self.dev.absolute_move(self.floor_Z, self.axis)
         self.dev.wait_until_still([self.axis])

@@ -367,7 +367,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         # self.addButtonList('patching states', layout, buttonList, cmds)
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['store Cell plane'],['Store Safe Position','Store Home Position'],['Store Cleaning Position']]
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cell Plane'],['Store Safe Position','Store Home Position'],['Store Cleaning Position']]
         cmds = [[self.pipette_interface.calibrate_stage, self.pipette_interface.calibrate_manipulator],
                 [self.pipette_interface.set_floor],
                 [self.patch_interface.store_safe_position,
@@ -386,12 +386,14 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         self.addButtonList('movement', layout, buttonList, cmds)
 
         # Add a box for patching commands
-        buttonList = [['Select Cell', 'Remove Last Cell'],['Hunt Cell','Break In'],['Run Protocols']]
+        buttonList = [['Select Cell','Remove Last Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell],
-                [self.patch_interface.hunt_cell ,self.patch_interface.break_in],
-            [[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]]
+                [self.patch_interface.hunt_cell,self.patch_interface.break_in],
+                [self.patch_interface.gigaseal,[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]],
+                [self.patch_interface.patch]
+]
             
-        ]
+    
         self.addButtonList('patching', layout, buttonList, cmds)
 
         # Add a box for Rig Recorder

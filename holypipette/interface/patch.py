@@ -47,6 +47,11 @@ class AutoPatchInterface(TaskInterface):
     def break_in(self):
         self.execute(self.current_autopatcher.break_in)
 
+    @blocking_command(category='Patch', description='GigaSeal the cell',
+                      task_description='GigaSealing the cell')
+    def gigaseal(self):
+        self.execute(self.current_autopatcher.gigaseal)
+
     def start_selecting_cells(self):
         self.is_selecting_cells = True
 
@@ -119,6 +124,7 @@ class AutoPatchInterface(TaskInterface):
                 
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
+
     def patch(self) -> None:
         cell, img = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.patch,
