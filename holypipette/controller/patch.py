@@ -188,6 +188,8 @@ class AutoPatcher(TaskController):
         if cell is None:
             raise AutopatchError("No cell given to patch!")
         
+        # regional pipette localization: 
+
         # move stage and pipette to safe space
         print("Moving to safe space")
         self.move_to_safe_space()
@@ -222,23 +224,28 @@ class AutoPatcher(TaskController):
         desired = curr + disp
         self.calibrated_unit.absolute_move(desired)
         self.calibrated_unit.wait_until_still()
+
+        # center pipette on cell xy 
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
         
         # # move stage and pipette to 20 um above cell plane
         print("Moving to cell plane")
 
 
-        zdist =  stage_pos[2] - self.microscope.floor_Z + 50
-        print(f"Z distance: {zdist}")
+        zdist =  stage_pos[2] - self.microscope.floor_Z
+        print(f"Z distance: {zdist/2}")
 
         # self.move_group_down(-zdist)# for testing
-        # self.move_group_down(zdist)# on real rig
-        
-        # self.microscope.move_to_floor()
-
-        self.calibrated_unit.relative_move(np.array([0,0, zdist]))
+        self.move_group_down(zdist/2)# on real rig
+        self.sleep(0.1)
+        self.microscope.move_to_floor()
+        self.sleep(0.1)
+        self.calibrated_unit.relative_move(np.array([0,0, (zdist-50)/2]))
         self.calibrated_unit.wait_until_still()
 
-        self.microscope.move_to_floor()
+        # self.microscope.move_to_floor()
 
         
         # # # #ensure "near cell" pressure
@@ -438,7 +445,9 @@ class AutoPatcher(TaskController):
             # Step 1: Move the stage to the safe position
             self.calibrated_stage.absolute_move([safe_stage_x,safe_stage_y])
             self.calibrated_stage.wait_until_still()
-
+            # # step 1.5: move pipette up if at cleaning position:
+            # if self.cleaning_bath_position is not None and self.calibrated_unit.position()[2] == self.cleaning_bath_position[2]:
+            #     self.calibrated_unit.relative_move(-500, axis=2)
             # Step 2: Move Y axis first to align with the safe position value
             logging.debug(f'Moving Y axis to safe position value: {safe_y}')
             self.calibrated_unit.absolute_move(safe_y, axis=1)
@@ -472,7 +481,9 @@ class AutoPatcher(TaskController):
             logging.debug(f'Moving stage to home position values: X={stage_home_x}, Y={stage_home_y}')
             self.calibrated_stage.absolute_move([stage_home_x,stage_home_y])
             self.calibrated_stage.wait_until_still()
-
+            # # step 1.5: move pipette up if at cleaning position:
+            # if self.cleaning_bath_position is not None and self.calibrated_unit.position()[2] == self.cleaning_bath_position[2]:
+            #     self.calibrated_unit.relative_move(-500, axis=2)
             # Step 2: Move Y axis first to align with the home position value
             logging.debug(f'Moving Y axis to home position value: {home_y}')
             self.calibrated_unit.absolute_move(home_y, axis=1)

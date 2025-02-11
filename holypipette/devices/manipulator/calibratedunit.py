@@ -316,6 +316,56 @@ class CalibratedUnit(ManipulatorUnit):
         self.pipetteCalHelper.collect_cal_points()
         self.finish_calibration()
 
+
+    def center_pipette(self):
+        """
+        Moves the pipette so that its detected position in the camera image is centered.
+        """
+        # (1) Retrieve an image from the raw frame queue.
+        _, _, _, img = self.camera.raw_frame_queue[0]
+        h, w = img.shape[:2]
+        print("DEBUG: Camera image dimensions: width =", w, "height =", h)
+        
+        # (2) Get the detected pipette position (in pixels) from the deep-learning finder.
+        detected_px = self.pipetteCalHelper.pipetteFinder.find_pipette(img)
+        if detected_px is None:
+            print("DEBUG: No pipette detected in image; cannot center.")
+            return
+        detected_px = np.array(detected_px)
+        # Ensure the detected position is expressed as a 3D vector.
+        if detected_px.size == 2:
+            detected_px = np.append(detected_px, 0)
+        print("DEBUG: Detected pipette position (pixels):", detected_px)
+        
+        # (3) Define the desired pipette position as the center of the image.
+        # For planar calibration, we set the z-coordinate to 0.
+        desired_px = np.array([w / 2.0, h / 2.0, 0])
+        print("DEBUG: Desired pipette position (image center):", desired_px)
+        
+        # (4) Compute the pixel error (desired minus detected).
+        error_px = desired_px - detected_px
+        print("DEBUG: Pixel error (desired - detected):", error_px)
+        
+        # (5) Convert the pixel error into a correction (in microns).
+        # pixels_to_um_relative() expects a 3-element vector.
+        error_um = self.pixels_to_um_relative(error_px)
+        print("DEBUG: Correction in microns (from pixel error):", error_um)
+        
+        # (6) Get the current manipulator (pipette) position (in microns) and compute the target.
+        current_um = self.position()
+        print("DEBUG: Current manipulator position (um):", current_um)
+        target_um = current_um + error_um
+        print("DEBUG: Computed target manipulator position (um):", target_um)
+        
+        # (7) Command the move and wait until the unit is still.
+        self.absolute_move(target_um.tolist())
+        self.wait_until_still()
+        print("DEBUG: Centering move complete.")
+
+
+
+
+
     def record_cal_point(self):
         '''
         records a calibration point for the pipette
