@@ -40,7 +40,7 @@ class PipetteCalHelper():
         #   (image_x, image_y, encoder_x, encoder_y)
         self.cal_points = []
 
-    def collect_cal_points(self, num_points=10, xy_step=20, max_retries=5):
+    def collect_cal_points(self, num_points=10, xy_step=5, max_retries=5):
         """
         Collects 'num_points' calibration points.
         
@@ -73,8 +73,8 @@ class PipetteCalHelper():
                 return True
             # Jitter the pipette if detection failed.
             self.pipette.relative_move([
-                np.random.uniform(-30, 30),
-                np.random.uniform(-30, 30),
+                np.random.uniform(-15, 15),
+                np.random.uniform(-15, 15),
                 0
             ])
             self.pipette.wait_until_still()
@@ -95,7 +95,7 @@ class PipetteCalHelper():
         if pos_pix is not None:
             # Optionally, display the detected pipette on the frame.
             frame = cv2.circle(frame, pos_pix, 10, 0, 2)
-            # Subtract the stage's reference position (assumed to be in pixels).
+            # add the stage's reference position (assumed to be in pixels).
             stage_pos_pix = self.calibrated_stage.reference_position()
             image_x = pos_pix[0] - stage_pos_pix[0]
             image_y = pos_pix[1] - stage_pos_pix[1]

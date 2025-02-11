@@ -173,7 +173,6 @@ class AutoPatcher(TaskController):
             self.rig_ready = False
             raise e
 
-    
     def hunt_cell(self,cell = None):
         '''
         Moves the pipette down to cell plane and detects a cell using resistance measurements
@@ -201,6 +200,11 @@ class AutoPatcher(TaskController):
         # move to home space
         logging.debug("Moving to home space")
         self.move_to_home_space()
+        # center pipette on cell xy 
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        
         # self.calibrated_stage.wait_until_still()
         # self.calibrated_unit.wait_until_still()
         # center pipette and stage on cell XY
@@ -215,11 +219,28 @@ class AutoPatcher(TaskController):
         self.calibrated_stage.wait_until_still()
 
         # move pipette to xy position of cell
+
+        # self.calibrated_unit.safe_move(np.array(cell_pos))
+        # self.calibrated_unit.wait_until_still()
+
+
+
         stage_pos = self.calibrated_stage.pixels_to_um(self.calibrated_stage.reference_position())
+        print(f"Stage position: {stage_pos}")
         disp = np.zeros(3)
         disp[0] = stage_pos[0] - self.home_stage_position[0]
         disp[1] = stage_pos[1] - self.home_stage_position[1]
         disp[2] = 0
+        print(f"Disp: {disp}")
+        # the stage coordinate system is rotated 30 ccw the pipette coordinate system
+        # so we need to rotate the displacement vector by 30 ccw
+        theta = np.radians(-36)
+        R = np.array([[np.cos(theta), -np.sin(theta), 0],
+                        [np.sin(theta), np.cos(theta), 0],
+                        [0, 0, 1]])
+        disp = np.dot(R, disp)
+        print(f"Rotated disp: {disp}")
+        # move pipette to xy position of cell
         curr = self.calibrated_unit.position()
         desired = curr + disp
         self.calibrated_unit.absolute_move(desired)
@@ -242,7 +263,7 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         self.microscope.move_to_floor()
         self.sleep(0.1)
-        self.calibrated_unit.relative_move(np.array([0,0, (zdist-50)/2]))
+        self.calibrated_unit.relative_move(np.array([0,0, ((zdist)/2)-50 ]))
         self.calibrated_unit.wait_until_still()
 
         # self.microscope.move_to_floor()
