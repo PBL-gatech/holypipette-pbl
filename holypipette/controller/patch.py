@@ -246,7 +246,7 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
-        self.move_group_down(((zdist/2)-50))
+        self.move_group_down(((zdist/2)-self.config.cell_distance))
         self.sleep(0.1)
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
