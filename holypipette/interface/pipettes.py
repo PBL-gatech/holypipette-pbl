@@ -162,7 +162,11 @@ class PipetteInterface(TaskInterface):
                       task_description='Centering the Pipette')
     def center_pipette(self):
         self.execute([self.calibrated_unit.center_pipette])
-
+    @blocking_command(category='Manipulators and Stage',
+                      description='Follow stage',
+                        task_description='Following the stage')
+    def follow_stage(self):
+        self.execute([self.calibrated_unit.follow_stage])
     @blocking_command(category='Manipulators',
                       description='Focus the pipette',
                       task_description='Calibrating manipulator')
@@ -213,16 +217,6 @@ class PipetteInterface(TaskInterface):
         position = np.array([x, y])
         self.debug('asking for reference move to {}'.format(position))
         self.execute(self.calibrated_stage.reference_relative_move, argument=-position) # compensatory move
-
-    # @blocking_command(category='Manipulators',
-    #                 description='Center Pipette in Image Frame',
-    #                 task_description='Centering Pipette in Image Frame')
-    # def center_pipette(self):
-    #     x = 0
-    #     y = 0
-    #     z = self.microscope.position()
-    #     position = np.array([x, y, z])
-    #     self.execute(self.calibrated_unit.safe_move, argument=position) # compensatory move
 
 
     @blocking_command(category='Microscope',

@@ -376,12 +376,12 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         ]
         self.addButtonList('calibration', layout, buttonList, cmds)
         # Add a box for movement commands
-        buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane'],['Center Pipette','Clean pipette']]
+        buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane'],['Follow Stage','Center Pipette','Clean pipette']]
         cmds = [
             [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
             [self.patch_interface.move_to_safe_space, self.patch_interface.move_to_home_space],
             [self.pipette_interface.go_to_floor],
-            [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette]
+            [self.pipette_interface.follow_stage,self.pipette_interface.center_pipette,self.patch_interface.clean_pipette]
         ]
         self.addButtonList('movement', layout, buttonList, cmds)
 
@@ -462,8 +462,10 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         currPos = currPos - self.tare_pipette_pos
         if self.recording_state_manager.is_recording_enabled():
             self.recorder.setBatchMoves(True)
+            timestamp = datetime.now().timestamp()
+            # logging.info(f"the current time is {timestamp}")
             self.recorder.write_movement_data_batch(
-                datetime.now().timestamp(),
+                timestamp,
                 self.stage_xy[0],
                 self.stage_xy[1],
                 self.stage_z,

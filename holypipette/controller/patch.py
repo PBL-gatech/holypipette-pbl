@@ -192,9 +192,6 @@ class AutoPatcher(TaskController):
         # move stage and pipette to safe space
         print("Moving to safe space")
         self.move_to_safe_space()
-        # self.calibrated_stage.wait_until_still()
-        # self.calibrated_unit.wait_until_still()
-        # set pipette pressure to 200 mbar
         print("Setting pressure to 200 mbar")
         self.pressure.set_pressure(200)
         # move to home space
@@ -220,11 +217,7 @@ class AutoPatcher(TaskController):
 
         # move pipette to xy position of cell
 
-        # self.calibrated_unit.safe_move(np.array(cell_pos))
-        # self.calibrated_unit.wait_until_still()
-
-
-
+        #! test
         stage_pos = self.calibrated_stage.pixels_to_um(self.calibrated_stage.reference_position())
         print(f"Stage position: {stage_pos}")
         disp = np.zeros(3)
@@ -232,41 +225,36 @@ class AutoPatcher(TaskController):
         disp[1] = stage_pos[1] - self.home_stage_position[1]
         disp[2] = 0
         print(f"Disp: {disp}")
-        # the stage coordinate system is rotated 30 ccw the pipette coordinate system
-        # so we need to rotate the displacement vector by 30 ccw
-        theta = np.radians(-36)
-        R = np.array([[np.cos(theta), -np.sin(theta), 0],
-                        [np.sin(theta), np.cos(theta), 0],
-                        [0, 0, 1]])
-        disp = np.dot(R, disp)
-        print(f"Rotated disp: {disp}")
-        # move pipette to xy position of cell
-        curr = self.calibrated_unit.position()
-        desired = curr + disp
-        self.calibrated_unit.absolute_move(desired)
-        self.calibrated_unit.wait_until_still()
-
+        pipette_disp = self.calibrated_unit.rotate(disp,2)
+        self.calibrated_unit.relative_move(pipette_disp)
+        self.calibrated_unit.wait_until_still() 
         # center pipette on cell xy 
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
+        #! end test
+
         
-        # # move stage and pipette to 20 um above cell plane
-        print("Moving to cell plane")
 
-
-        zdist =  stage_pos[2] - self.microscope.floor_Z
-        print(f"Z distance: {zdist/2}")
-
-        # self.move_group_down(-zdist)# for testing
+        # # # move stage and pipette to 50 um above cell plane, stopping halfway to center pipette on cell 
+        # print("Moving to cell plane")
+        zdist =  self.home_stage_position[2] - self.microscope.floor_Z 
+        print(f"Z distance: {zdist}")
+        # # self.move_group_down(-zdist)# for testing on fake rig.
         self.move_group_down(zdist/2)# on real rig
         self.sleep(0.1)
-        self.microscope.move_to_floor()
-        self.sleep(0.1)
-        self.calibrated_unit.relative_move(np.array([0,0, ((zdist)/2)-50 ]))
+        self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        self.move_group_down(((zdist/2)-50))
+        self.sleep(0.1)
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        self.microscope.move_to_floor()
+        self.microscope.wait_until_still()
+        self.info("Located Cell")
 
-        # self.microscope.move_to_floor()
 
         
         # # # #ensure "near cell" pressure

@@ -53,10 +53,24 @@ class CalibrationConfig(Config):
     pipette_diag_move = NumberWithUnit(200, unit='um',
                                      doc='x, y dist to move for pipette cal.',
                                      bounds=(50, 10000))
+    stage_x_axis_flip = Boolean(False, 
+                                doc='Flip the x axis of the stage')
+    stage_y_axis_flip = Boolean(True, 
+                                doc='Flip the y axis of the stage')
+    pipette_z_rotation = NumberWithUnit(-60.75, unit = 'degrees',
+                                doc='Rotation of the pipette in the xy plane (degrees)',
+                                bounds=(-360, 360))
+    pipette_y_rotation = NumberWithUnit(25, unit = 'degrees',
+                                doc='Rotation of the pipette in the xz plane (degrees)',
+                                bounds=(-90, 90))
     
 
     categories = [('Stage Calibration', ['autofocus_dist', 'stage_diag_move', 'frame_lag']),
                   ('Pipette Calibration', ['pipette_diag_move']),
+                  ('Stage x-axis flip?', ['stage_x_axis_flip']),
+                  ('Stage y-axis flip?', ['stage_y_axis_flip']),
+                  ('Pipette z-axis rotation', ['pipette_z_rotation']),
+                  ('Pipette y-axis rotation', ['pipette_y_rotation']),
                   ('Display', ['position_update'])]
 
 
@@ -201,7 +215,7 @@ class CalibratedUnit(ManipulatorUnit):
         Parameters
         ----------
         r : XYZ position vector in um
-        safe : if True, moves the Z axis first or last, so as to avoid touching the coverslip
+
         '''
 
         if np.isnan(np.array(pos_pixels)).any():
@@ -274,6 +288,40 @@ class CalibratedUnit(ManipulatorUnit):
             p.append(((M[0,axis]**2 + M[1,axis]**2))**.5) #TODO: is this correct? 
         return p
     
+    def rotate(self,coordinates,axis):
+        '''
+        Rotate the coordinates around the given axis at a specified angle using a rotation matrix.
+        '''
+        if coordinates is None:
+            return None
+        # if the stage coordinates need to be flipped do so
+        if self.config.stage_x_axis_flip:
+            coordinates[0] = -coordinates[0]
+        if self.config.stage_y_axis_flip:
+            coordinates[1] = -coordinates[1]
+        if axis == 0:
+            # Rotation matrix around the X-axis.
+            R = np.array([[1, 0, 0],
+                          [0, np.cos(theta), -np.sin(theta)],
+                          [0, np.sin(theta),  np.cos(theta)]])
+        elif axis == 1:
+            # Rotation matrix around the Y-axis.
+            theta = self.config.pipette_y_rotation * np.pi / 180
+            R = np.array([[np.cos(theta), 0, np.sin(theta)],
+                          [0, 1, 0],
+                          [-np.sin(theta), 0, np.cos(theta)]])
+        elif axis == 2:
+            theta = self.config.pipette_z_rotation * np.pi / 180
+            # Rotation matrix around the Z-axis.
+            R = np.array([[np.cos(theta), -np.sin(theta), 0],
+                          [np.sin(theta),  np.cos(theta), 0],
+                          [0, 0, 1]])
+        else:
+            raise ValueError("Invalid axis. Please choose 0 (X), 1 (Y), or 2 (Z).")
+        rotated = np.dot(R, coordinates)
+        print(f"Rotated coordinates: {rotated}")
+        return rotated
+        
 
     def calibrate_pipette(self):
         '''
@@ -327,9 +375,6 @@ class CalibratedUnit(ManipulatorUnit):
         self.absolute_move(target_um.tolist())
         self.wait_until_still()
         # print("DEBUG: Centering move complete.")
-
-
-
 
 
     def record_cal_point(self):
@@ -426,6 +471,21 @@ class CalibratedUnit(ManipulatorUnit):
         self.must_be_recalibrated = False
 
         print('New offsets: ', self.r0, self.r0_inv)
+
+    def follow_stage(self, movement = 250):
+        '''
+        Moves the pipette to follow the stage, method used for testing/calibration.
+        '''
+        #1. move stage by movement in both axes 
+        movement_vector = np.array([movement, movement, 0])
+        self.stage.relative_move(movement_vector)
+        self.stage.wait_until_still()
+        #2. rotate movement vector around z axis by pipette_z_rotation
+        rotated_vector = self.rotate(movement_vector, 2)
+        #3. move pipette by rotated movement vector
+        self.relative_move(rotated_vector)
+        self.wait_until_still()
+
 
 
     def save_configuration(self):
