@@ -171,7 +171,7 @@ class PipetteInterface(TaskInterface):
                       description='Focus the pipette',
                       task_description='Calibrating manipulator')
     def focus_pipette(self):
-        self.execute([self.calibrated_unit.focus])
+        self.execute([self.calibrated_unit.autofocus_pipette])
 
     @blocking_command(category='Manipulators',
                      description='Move pipette to position',

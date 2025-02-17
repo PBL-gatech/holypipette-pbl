@@ -5,7 +5,7 @@ from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.manipulator import Manipulator
 from holypipette.devices.camera import Camera
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
-from holypipette.deepLearning.pipetteFocuser import PipetteFocuser, FocusLevels
+from holypipette.deepLearning.pipetteFocuser import PipetteFocuser
 from threading import Thread
 
 class PipetteCalHelper():
@@ -170,25 +170,17 @@ class PipetteFocusHelper():
     
     def focus(self):
         """
-        Moves the pipette into focus (if visible) by checking the focus level
-        of the current 16-bit image and commanding relative moves until the pipette
-        is in focus.
+        Adjusts the pipette focus by capturing an image,
+        predicting the defocus value, and commanding a relative move
+        using that value.
         """
         print("Focusing pipette...")
         frame = self.camera.get_16bit_image()
-        focusLevel = self.pipetteFocuser.get_pipette_focus(frame)
-        print("Focus level:", focusLevel)
-        for i in range(10):
-            if focusLevel == FocusLevels.OUT_OF_FOCUS_DOWN:
-                print("Moving pipette down")
-                self.pipette.relative_move([-50, 0, 0])
-            elif focusLevel == FocusLevels.OUT_OF_FOCUS_UP:
-                print("Moving pipette up")
-                self.pipette.relative_move([50, 0, 0])
-            elif focusLevel == FocusLevels.IN_FOCUS:
-                print("Pipette in focus")
-                break
-            
-            self.pipette.wait_until_still()
-            frame = self.camera.get_16bit_image()
-            focusLevel = self.pipetteFocuser.get_pipette_focus(frame)
+        # convert to 8-bit for display
+        frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+        defocus_value = self.pipetteFocuser.get_pipette_focus_value(frame)
+        print(f"Defocus value: {defocus_value:.2f} µm")
+        
+        # Use the defocus value directly in the relative move command.
+        self.pipette.relative_move([0, 0, -defocus_value])
+        self.pipette.wait_until_still()

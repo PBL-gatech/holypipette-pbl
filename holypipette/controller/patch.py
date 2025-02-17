@@ -230,8 +230,15 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still() 
         # center pipette on cell xy 
         self.calibrated_unit.center_pipette()
+        
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+
         #! end test
 
         
@@ -246,11 +253,21 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
         self.move_group_down(((zdist/2)-self.config.cell_distance))
         self.sleep(0.1)
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
         self.microscope.move_to_floor()
         self.microscope.wait_until_still()
         self.info("Located Cell")

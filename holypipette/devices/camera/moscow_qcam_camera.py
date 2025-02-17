@@ -7,7 +7,7 @@ import time
 from . import *
 import warnings
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
-from holypipette.deepLearning.pipetteFocuser import PipetteFocuser, FocusLevels
+from holypipette.deepLearning.pipetteFocuser import PipetteFocuser
 from collections import deque
 import pymmcore
 import copy
