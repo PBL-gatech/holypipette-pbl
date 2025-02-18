@@ -48,6 +48,7 @@ class AutoPatcher(TaskController):
         self.hunt_cell_failed = False
         self.gigaseal_failed = False
         self.break_in_failed = False
+        self.first_res = None
         
 
         self.current_protocol_graph = None
@@ -275,12 +276,10 @@ class AutoPatcher(TaskController):
         self.microscope.wait_until_still()
         self.info("Located Cell")
 
-
-        
         # # #ensure "near cell" pressure
         self.pressure.set_pressure(self.config.pressure_near)
 
-        lastResDeque = collections.deque(maxlen=3)
+        lastResDeque = collections.deque(maxlen=5)
         # get initial resistance
         daqResistance = self.daq.resistance()
         lastResDeque.append(daqResistance)
@@ -288,22 +287,26 @@ class AutoPatcher(TaskController):
         # move pipette down at 5um/s and check reistance every 40 ms
         # get starting position 
         start_pos = self.calibrated_unit.position()
+ 
+        self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
+        R = 0
+        for i in range(5):
+            R += self.daq.resistance()
+        self.first_res = R/5
+        print(f"Initial resistance: {self.first_res}")
 
-        self.calibrated_unit.absolute_move_group_velocity([0, 0, -5])
-        # self.microscope.absolute_move_velocity(1)
-        
-        while not self._isCellDetected(lastResDeque):
+        while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase):
             curr_pos = self.calibrated_unit.position()
-            if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance) - 10):
+            if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
                 # we have moved expected um down and still no cell detected
                 self.calibrated_unit.stop()
                 self.info("No cell detected")
                 self.hunt_cell_failed = True
                 self.escape()
                 break
-            elif self._isCellDetected(lastResDeque):
-                self.info("Cell detected!")
+            elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
                 self.calibrated_unit.stop()
+                self.info("Cell Detected")
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
             self.sleep(0.04)
@@ -400,23 +403,30 @@ class AutoPatcher(TaskController):
             # print("Resistance is too high (obstructed?)")
             raise AutopatchError("Resistance is too high (obstructed?)")
         
-    def _isCellDetected(self, lastResDeque, cellThreshold = 0.3*10**6):
+    def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
         '''
         # print(lastResDeque)
 
-        # Ensure there are three readings before checking
-        if len(lastResDeque) < 3:
+        # Ensure there are five readings before checking
+        if len(lastResDeque) < 5:
             return False
 
         # Criteria 1: the last three readings must be increasing
-        if not lastResDeque[0] < lastResDeque[1] < lastResDeque[2]:
-            return False  # Last three resistances must be ascending
-
+        # if not lastResDeque[0] < lastResDeque[1] < lastResDeque[2]:
+        #     # show the last three resistances
+        #     self.debug(f"Last three resistances: {lastResDeque}")
+        #     return False  # Last three resistances must be ascending
+        
         # Criteria 2: there must be an increase of at least 0.3 mega ohms
-        r_delta = lastResDeque[2] - lastResDeque[0]
+        r_delta = (lastResDeque[4] - self.first_res)
 
-        self.info(f"Cell detected, resistance: {r_delta}")
+        # self.info(f"Cell detected, resistance: {r_delta}")
+        detected = cellThreshold <= r_delta
+        if detected:
+            self.info(f"Cell detected: {detected}, resistance: {r_delta}")
+            self.calibrated_unit.stop()
+
         return cellThreshold <= r_delta
 
 
