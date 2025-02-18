@@ -304,14 +304,13 @@ class ScientificaSerialNoEncoder(Manipulator):
         else:
             print(f'unimplemented move group {x} {axes}')
 
-    def absolute_move_group_velocity(self,vel,axes):   
+    def absolute_move_group_velocity(self, vel):   
         try: 
-         vel = list(vel)
-         axes = list(axes)
-         xvel = vel[axes.index(1)]
-         yvel = vel[axes.index(2)]
-         zvel = vel[axes.index(3)]
-         self._sendCmd(SerialCommands.SET_X_Y_Z_VEL.format(xvel, yvel, zvel))
+            vel = list(vel)
+            if len(vel) != 3:
+                raise ValueError("Expected velocity list of length 3: [xvel, yvel, zvel]")
+            xvel, yvel, zvel = vel
+            self._sendCmd(SerialCommands.SET_X_Y_Z_VEL.format(xvel, yvel, zvel))
         except Exception as e:
             self.error(f"Error in absolute_move: {e}")
         

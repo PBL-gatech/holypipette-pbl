@@ -53,10 +53,10 @@ class PipetteFocuser:
         start_time = time.time()
         outputs = self.session.run([self.output_name], {self.input_name: input_tensor})
         inference_time = time.time() - start_time
-        print(f"Inference time: {inference_time:.4f} seconds")
+        # print(f"Inference time: {inference_time:.4f} seconds")
         output_array = outputs[0]
         norm_pred = float(output_array.flatten()[0])
-        print(f"Predicted defocus value: {norm_pred:.2f}")
+        # print(f"Predicted defocus value: {norm_pred:.2f}")
         # pred_microns = self.denormalize_z(norm_pred)
         pred_microns = norm_pred
         return pred_microns
@@ -79,7 +79,7 @@ if __name__ == '__main__':
         exit(1)
     
     focus_value = focuser.get_pipette_focus_value(img)
-    print(f"Predicted pipette focus value: {focus_value:.2f} microns")
+    # print(f"Predicted pipette focus value: {focus_value:.2f} microns")
     
     label = f"Focus: {focus_value:.2f} µm"
     cv2.putText(img, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)

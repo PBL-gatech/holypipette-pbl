@@ -45,6 +45,9 @@ class AutoPatcher(TaskController):
         self.vholding = None
         self.iholding = None
         self.rig_ready = False
+        self.hunt_cell_failed = False
+        self.gigaseal_failed = False
+        self.break_in_failed = False
         
 
         self.current_protocol_graph = None
@@ -240,15 +243,12 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
 
         #! end test
-
-        
-
         # # # move stage and pipette to 50 um above cell plane, stopping halfway to center pipette on cell 
         # print("Moving to cell plane")
         zdist =  self.home_stage_position[2] - self.microscope.floor_Z 
-        print(f"Z distance: {zdist}")
+        # print(f"Z distance: {zdist}")
         # # self.move_group_down(-zdist)# for testing on fake rig.
-        self.move_group_down(zdist/2)# on real rig
+        self.move_group_down(-zdist/2)# on real rig
         self.sleep(0.1)
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
@@ -258,7 +258,9 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
-        self.move_group_down(((zdist/2)-self.config.cell_distance))
+        second = zdist/2 + self.config.cell_distance
+        # print(f"Second distance: {second}")
+        self.move_group_down(-second)
         self.sleep(0.1)
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
@@ -268,53 +270,58 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
+
         self.microscope.move_to_floor()
         self.microscope.wait_until_still()
         self.info("Located Cell")
 
 
         
-        # # # #ensure "near cell" pressure
-        # self.pressure.set_pressure(self.config.pressure_near)
+        # # #ensure "near cell" pressure
+        self.pressure.set_pressure(self.config.pressure_near)
 
-        # lastResDeque = collections.deque(maxlen=3)
-        # # get initial resistance
-        # daqResistance = self.daq.resistance()
-        # lastResDeque.append(daqResistance)
+        lastResDeque = collections.deque(maxlen=3)
+        # get initial resistance
+        daqResistance = self.daq.resistance()
+        lastResDeque.append(daqResistance)
 
-        # # move pipette down at 1um/s and check reistance every 50 ms
-        # # get starting position 
-        # start_pos = self.calibrated_unit.position()
+        # move pipette down at 5um/s and check reistance every 40 ms
+        # get starting position 
+        start_pos = self.calibrated_unit.position()
 
-        # self.calibrated_unit.absolute_move_group_velocity(1, [2])
-        # self.calibrated_stage.microscope.absolute_move_velocity(1)
+        self.calibrated_unit.absolute_move_group_velocity([0, 0, -5])
+        # self.microscope.absolute_move_velocity(1)
         
-        # while not self._isCellDetected(lastResDeque):
-        #     curr_pos = self.calibrated_unit.position()
-        #     if self.abort_requested:
-        #         # stop the movement
-        #         self.calibrated_unit.stop()
-        #         # self.calibrated_stage.microscope.stop()
-        #         self.info("Hunt cancelled")
-        #         break
-        #     elif abs(curr_pos[2] - start_pos[2]) >= int(self.config.max_distance):
-        #         # we have moved 25 um down and still no cell detected
-        #         self.calibrated_unit.stop()
-        #         # self.calibrated_stage.microscope.stop()
-        #         self.info("No cell detected")
-        #         break
-        #     elif self._isCellDetected(lastResDeque):
-        #         self.info("Cell detected")
-        #         self.calibrated_unit.stop()
-        #         # self.calibrated_stage.microscope.stop()
-        #         break
-        #     #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
-        #     self.sleep(0.05)
-        #     lastResDeque.append(daqResistance)
-        #     daqResistance = self.daq.resistance()
+        while not self._isCellDetected(lastResDeque):
+            curr_pos = self.calibrated_unit.position()
+            if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance) - 10):
+                # we have moved expected um down and still no cell detected
+                self.calibrated_unit.stop()
+                self.info("No cell detected")
+                self.hunt_cell_failed = True
+                self.escape()
+                break
+            elif self._isCellDetected(lastResDeque):
+                self.info("Cell detected!")
+                self.calibrated_unit.stop()
+                break
+            #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
+            self.sleep(0.04)
+            lastResDeque.append(daqResistance)
+            daqResistance = self.daq.resistance()
 
-        # self.calibrated_unit.stop()
+        self.calibrated_unit.stop()
+        self.microscope.stop()
 
+    def escape(self):
+        if self.hunt_cell_failed or self.gigaseal_failed or self.break_in_failed or self.abort_requested:
+            self.calibrated_unit.stop()
+            self.microscope.stop()
+            self.move_group_up(10)
+            self.pressure.set_pressure(50)
+            self.move_to_home_space()
+            self.clean_pipette()
+            raise AutopatchError("patch attempt failed")
 
     def gigaseal(self):
         lastResDeque = collections.deque(maxlen=3)
@@ -336,6 +343,7 @@ class AutoPatcher(TaskController):
                 # Time timeout for gigaseal
                 self.amplifier.stop_patch()
                 self.pressure.set_pressure(20)
+                # self.escape()
                 raise AutopatchError("Seal unsuccessful")
             
             # did we reach gigaseal?

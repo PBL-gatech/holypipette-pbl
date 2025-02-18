@@ -230,7 +230,6 @@ class Camera(object):
 
     def preprocess(self, input_img):
         img = input_img.copy()
-        mask = None
 
         # Draw point for pipette location.
         if self.point_to_show and time.time() - self.stop_show_time < 0:
@@ -238,30 +237,36 @@ class Camera(object):
             if self.point_to_show[3]:
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
 
-        # Draw cell outlines (currently just circles)
+        # Process each cell's segmentation.
         for cell in self.cell_list:
-            # Check if the cell's coordinates are on-screen.
-            # Here, cell is assumed to be a two-element array [x, y]
+            # cell is assumed to be a 2D coordinate [x, y].
             x, y = cell[0], cell[1]
             if not (0 <= x < self.width and 0 <= y < self.height):
-                # The cell is offscreen. Skip segmentation.
-                continue
+                continue  # Skip if the cell is offscreen.
 
-            # Only perform segmentation if the cell is onscreen.
-            # Convert the grayscale image to RGB for segmentation if needed.
+            # Convert the grayscale image to RGB if needed for segmentation.
             rgbimg = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-            cell_2d = cell.reshape(1, 2)  # Ensure the shape is (1,2)
-            label = np.array([1])         # The label for segmentation
+            cell_2d = cell.reshape(1, 2)  # Ensure shape is (1,2).
+            label = np.array([1])          # The segmentation label.
 
             mask = self.segment(rgbimg, cell_2d, label)
             if mask is not None:
-                # Ensure the mask is in the correct type.
+                # Ensure mask is of type uint8.
                 if mask.dtype != 'uint8':
                     mask = mask.astype('uint8')
                 contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                # Draw the segmentation contours
+                
+                # Compute the total area of all detected contours.
+                total_area = sum(cv2.contourArea(c) for c in contours)
+                image_area = self.width * self.height
+                
+                # Only draw the contours if the mask's area is within an acceptable range.
+                # Here, if the mask area is more than 10% of the original image area, skip drawing.
+                if total_area > 0.1 * image_area:
+                    continue
+
+                # Draw the segmentation contours and a circle at the cell location.
                 cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
-                # Draw a circle at the cell location
                 img = cv2.circle(img, (int(x), int(y)), 10, (0, 255, 0), 3)
    
         # # # testing if mask is working

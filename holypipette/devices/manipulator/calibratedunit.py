@@ -115,7 +115,7 @@ class CalibratedUnit(ManipulatorUnit):
         self.calibrated = False
         self.must_be_recalibrated = False
         self.up_direction = [-1 for _ in range(len(unit.axes))] # Default up direction, determined during calibration
-
+        self.abort_requested = False
         self.pipette_position = None
         self.photos = None
         self.photo_x0 = None

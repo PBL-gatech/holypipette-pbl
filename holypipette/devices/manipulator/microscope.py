@@ -70,15 +70,15 @@ class Microscope(Manipulator):
         ----------
         vel : velocity in um/s.
         '''
-        if not isinstance(self.axis, (list, tuple)):
-            z = [self.axis]
-        self.dev.absolute_move_group_velocity(vel, z)
+        velarr = [0,0,vel]
+        self.dev.absolute_move_group_velocity(velarr)
 
         # self.sleep(.05)
 
     def move_to_floor(self):
         self.dev.absolute_move(self.floor_Z, self.axis)
         self.dev.wait_until_still([self.axis])
+        print(f"Moved to floor at {self.floor_Z} um")
         # self.dev.absolute_move(self.floor_Z, self.axis)
         # self.dev.wait_until_still([self.axis])
 
@@ -107,7 +107,7 @@ class Microscope(Manipulator):
         """
         Stop current movements.
         """
-        self.dev.stop(self.axis)
+        self.dev.stop()
 
     def wait_until_still(self):
         """

@@ -7,6 +7,7 @@ from holypipette.devices.camera import Camera
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
 from holypipette.deepLearning.pipetteFocuser import PipetteFocuser
 from threading import Thread
+import logging
 
 class PipetteCalHelper():
     """
@@ -174,12 +175,12 @@ class PipetteFocusHelper():
         predicting the defocus value, and commanding a relative move
         using that value.
         """
-        print("Focusing pipette...")
+        # logging.info("Focusing pipette...")
         frame = self.camera.get_16bit_image()
         # convert to 8-bit for display
         frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
         defocus_value = self.pipetteFocuser.get_pipette_focus_value(frame)
-        print(f"Defocus value: {defocus_value:.2f} µm")
+        # print(f"Defocus value: {defocus_value:.2f} µm")
         
         # Use the defocus value directly in the relative move command.
         self.pipette.relative_move([0, 0, -defocus_value])
