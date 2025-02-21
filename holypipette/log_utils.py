@@ -75,10 +75,10 @@ def setup_logging():
     root_logger.addHandler(console_handler)
     
     # Path for logs
-    path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\log_data"
+    path = "/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/experiments/Data/log_data"
     
     # CSV file handler with a daily timestamped filename
-    csv_handler = CSVLogHandler(base_filename=path + r'\logs')
+    csv_handler = CSVLogHandler(base_filename=path + '/logs')
     root_logger.addHandler(csv_handler)
 
 # Initialize the logging

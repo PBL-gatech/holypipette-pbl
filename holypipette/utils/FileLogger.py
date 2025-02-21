@@ -5,7 +5,7 @@ from collections import deque
 import imageio
 import os
 import logging
-
+import pandas as pd
 
 
 class FileLogger(threading.Thread):
@@ -58,6 +58,13 @@ class FileLogger(threading.Thread):
 
     def open(self):
         self.file = open(self.filename, 'a+')
+        if len(self.file.readlines()) == 0:
+            if self.filename == self.folder_path + "movement_recording.csv":
+                self.file.write("timestamp;st_x;st_y;st_z;pi_x;pi_y;pi_z\n")
+            if self.filename == self.folder_path + "graph_recording.csv":
+                self.file.write("timestamp;pressure;resistance;current;voltage\n")
+
+
         print(f"Opened file at: {self.filename}")
 
     def _write_to_file(self, contents):
@@ -86,7 +93,7 @@ class FileLogger(threading.Thread):
         self.last_graph_time = time_value
         self.create_folder()  # Create the folder if recording is enabled and it's the first time
         # content = f"timestamp:{time_value}  pressure:{pressure}  resistance:{resistance}  / current:{current}\n"
-        content = f"timestamp:{time_value}  pressure:{pressure}  resistance:{resistance}  current:{current} voltage:{voltage}\n"
+        content = f"{time_value};{pressure};{resistance};{current};{voltage}\n"
         self.write_event.clear()
         threading.Thread(target=self._write_to_file, args=(content,)).start()
 
@@ -97,7 +104,9 @@ class FileLogger(threading.Thread):
             return
         self.last_movement_time = time_value
         self.create_folder()  # Create the folder if recording is enabled and it's the first time
-        content = f"timestamp:{time_value}  st_x:{stage_x}  st_y:{stage_y}  st_z:{stage_z}  pi_x:{pipette_x} pi_y:{pipette_y} pi_z:{pipette_z}\n"
+        content = f"{time_value};{stage_x};{stage_y};{stage_z};{pipette_x};{pipette_y};{pipette_z}\n"
+
+        #print('New Pos: ' + content)
 
         self.movement_contents.append(content)
         if len(self.movement_contents) >= self.frame_batch_limit:
