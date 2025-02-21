@@ -374,7 +374,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
                 self.patch_interface.store_home_position],
                 [self.patch_interface.store_cleaning_position]
         ]
-        self.addButtonList('calibration', layout, buttonList, cmds)
+        #self.addButtonList('calibration', layout, buttonList, cmds)
         # Add a box for movement commands
         buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane'],['Clean pipette']]
         cmds = [
@@ -460,6 +460,8 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         currPos = currPos - self.tare_pipette_pos
         if self.recording_state_manager.is_recording_enabled():
             self.recorder.setBatchMoves(True)
+            timestamp = datetime.now().timestamp()
+            # logging.info(f"the current time is {timestamp}")
             self.recorder.write_movement_data_batch(
                 datetime.now().timestamp(),
                 self.stage_xy[0],

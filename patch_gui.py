@@ -3,6 +3,7 @@ import faulthandler
 faulthandler.enable()
 faulthandler.dump_traceback_later(5)
 
+import atexit
 import sys
 from PyQt5.QtWidgets import QApplication
 import traceback
@@ -18,9 +19,11 @@ from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
 from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 from holypipette.gui.patch import PatchGui
+from holypipette.utils.HDF5Logger import HDF5Logger
+from experiments.DatasetBuilder import DatasetBuilder
 
 
-# from rig_setup.setup_Moscow_rig import *  
+#from rig_setup.setup_Moscow_rig import *  
 from rig_setup.setup_fake_rig import *  
 
 setup_logging()  # Log to the standard console as well
@@ -40,6 +43,12 @@ def main():
     currentProtocolGraph = CurrentProtocolGraph(daq, recording_state_manager)
     voltageProtocolGraph = VoltageProtocolGraph(daq, recording_state_manager)
     holdingProtocolGraph = HoldingProtocolGraph(daq, recording_state_manager)
+
+    # hdf5_recorder = HDF5Logger(recording_state_manager, stage, microscope, camera, amplifier, daq, pressure, pipette_controller, graphs)
+    # app.aboutToQuit.connect(hdf5_recorder.close)
+
+    datasetConverter = DatasetBuilder(dataset_name='dataset_1.hdf5')
+    datasetConverter.add_demo(demo_file_path='2025_02_14-12_57')
 
     gui.initialize()
     # gui.location_on_the_screen()

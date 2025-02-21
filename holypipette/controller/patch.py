@@ -488,6 +488,8 @@ class AutoPatcher(TaskController):
         Moves the microsope and manipulator down by input distance in the z axis
         '''
 
+        print('MOVING GROUP DOWN')
+
         try:
             self.calibrated_unit.relative_move(dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
