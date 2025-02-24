@@ -200,13 +200,13 @@ class ScientificaSerialEncoder(Manipulator):
 
 class ScientificaSerialNoEncoder(Manipulator):
 
-    def __init__(self, comPort: serial.Serial):
+    def __init__(self, comPort: serial.Serial,speed,accel):
         self.comPort : serial.Serial = comPort
         self._lock = threading.Lock()
         self.current_pos = [0, 0, 0]
-
-        self.set_max_accel(1000)
-        self.set_max_speed(10000)
+        
+        self.set_max_accel(accel)
+        self.set_max_speed(speed)
 
         #start constantly polling position in a new thread
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
@@ -217,37 +217,29 @@ class ScientificaSerialNoEncoder(Manipulator):
         '''Sets the max speed for the Scientifica Stage.  
            It seems like the range for this is around (1000, 100000)
         '''
-        self._sendCmd(SerialCommands.SET_MAX_SPEED.format(int(speed)))
+        resp = self._sendCmd(SerialCommands.SET_MAX_SPEED.format(int(speed)))
+        print(f"speed set set: {resp},{speed}")
 
     def set_max_accel(self, accel):
         '''Sets the max acceleration for the Scientifica Stage.
            It seems like the range for this is around (10, 10000)
         '''
-        self._sendCmd(SerialCommands.SET_MAX_ACCEL.format(int(accel)))
+        resp = self._sendCmd(SerialCommands.SET_MAX_ACCEL.format(int(accel)))
+        print(f"acceleration set: {resp},{accel}")
 
     def __del__(self):
         self.comPort.close()
 
     def _sendCmd(self, cmd):
-        '''Sends a command to the stage and returns the response'''
-        try:
-            self.comPort.write(cmd.encode())  # Send the command
-            resp = self.comPort.read_until(b'\r')  # Read the response  
-            # print(f"Raw response: {resp}")  # Debugging line
-            if b'E' in resp:
-                print(f"error in response: {resp}")
-            if not resp:  # If the response is empty
-                raise ValueError(f"No response received for command: {cmd}")
-            resp = resp[:-1]  # Remove the trailing '\r'
-            return resp.decode()  # Decode and return the response
-        except serial.SerialTimeoutException:
-            print("Timeout occurred while reading from serial.")
-        except serial.SerialException as e:
-            print(f"Serial error: {e}")
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-        return None
-
+        '''Sends a command to the stage and returns the response
+        '''
+        
+        self._lock.acquire()
+        self.comPort.write(cmd.encode())
+        resp = self.comPort.read_until(b'\r') #read reply to message
+        resp = resp[:-1]
+        self._lock.release()
+        return resp.decode()
 
     def position(self, axis=None):
         if axis == 1:
@@ -259,39 +251,42 @@ class ScientificaSerialNoEncoder(Manipulator):
         if axis == None:
             return self.current_pos
         
-        print(f"current position: {self.current_pos}")
-
-    def update_pos_continuous(self, freq=20):
+    def update_pos_continuous(self, freq=40):
         '''constantly polls the device's position and updates the current_pos variable
         '''
         while True:
             startTime = time.time()
-            xyz = self._sendCmd(SerialCommands.GET_X_Y_Z)
-            xyz = xyz.split('\t')
-            
-            try:
-                xPos = int(xyz[0]) / 10.0
-                yPos = int(xyz[1]) / 10.0
-                zPos = int(xyz[2]) / 10.0
-                self.current_pos = [xPos, yPos, zPos]
-                # print(f"current position :{self.current_pos}")
-            except:
-                print('error reading position')
+            # isBusy = self._sendCmd(SerialCommands.GET_IS_BUSY)
+            isBusy = 'text'
+            if 's' not in isBusy:
+                xyz = self._sendCmd(SerialCommands.GET_X_Y_Z)
+                xyz = xyz.split('\t')
+                
+                try:
+                    xPos = int(xyz[0]) / 10.0
+                    yPos = int(xyz[1]) / 10.0
+                    zPos = int(xyz[2]) / 10.0
+                    self.current_pos = [xPos, yPos, zPos]
+                except:
+                    print('error reading position')
 
-            sleepTime = 1 / freq - (time.time() - startTime)
-            if sleepTime > 0:
-                time.sleep(sleepTime)
+                sleepTime = 1 / freq - (time.time() - startTime)
+                if sleepTime > 0:
+                    time.sleep(sleepTime)
 
     def absolute_move(self, pos, axis, speed=None):
         try: 
             if axis == 1:
                 yPos = self.position(axis=2)
-                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos * 10) , int(yPos * 10)))
+                resp = self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos * 10) , int(yPos * 10)))
+                print(resp)
             if axis == 2:
                 xPos = self.position(axis=1)
-                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(pos * 10)))
+                resp = self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(pos * 10)))
+                print(resp)
             if axis == 3:
-                self._sendCmd(SerialCommands.SET_Z_POS.format(int(pos * 10)))
+                resp = self._sendCmd(SerialCommands.SET_Z_POS.format(int(pos * 10)))
+                print(resp)
         except Exception as e:
             self.error(f"Error in absolute_move: {e}")
     
@@ -304,27 +299,19 @@ class ScientificaSerialNoEncoder(Manipulator):
             # Move X and Y axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
-            self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
+            resp = self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
 
         elif 1 in axes and 2 in axes and 3 in axes:
             # Move X, Y and Z axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
-            self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
-
+            resp = self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
+            print(resp)
 
         else:
             print(f'unimplemented move group {x} {axes}')
         
-    def relative_move_group(self, pos, axis, speed=None):
-        if axis == 1:
-            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(pos, 0))
-        if axis == 2:
-            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(0, pos))
-        if axis == 3:
-            absZCmd = self.position(3) + pos
-            self.absolute_move(absZCmd, 3)
 
     def relative_move_group(self, x, axes, speed=None):
         cmd = [0, 0, 0]
@@ -332,10 +319,11 @@ class ScientificaSerialNoEncoder(Manipulator):
             cmd[axis  - 1] = pos
         
         if cmd[0] != 0 or cmd[1] != 0:
-            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] * 10), int(cmd[1] * 10)))
-
+            resp = self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] * 10), int(cmd[1] * 10)))
+            print(resp)
         if cmd[2] != 0:
-            self.relative_move(cmd[2], 3)
+            resp = self.relative_move(cmd[2], 3)
+            print(resp)
 
     def wait_until_still(self, axes = None, axis = None):
         while True:

@@ -25,7 +25,7 @@ cellSorterManip = FakeCellSorterManip()
 
 
 camera = FakeCalCamera(stageManip=controller, pipetteManip=pipetteManip, image_z=100, cellSorterManip=cellSorterManip)
-microscope = Microscope(controller, 3)
+microscope = Microscope(controller, 3,speed=10000,accel=19500)
 microscope.up_direction = 1.0
 
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
@@ -36,5 +36,5 @@ amplifier = FakeAmplifier()
 
 
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
-pressureReaderSerial = serial.Serial(port='COM9', baudrate=9600, timeout=0)
+pressureReaderSerial = serial.Serial(port='COM3', baudrate=9600, timeout=0)
 pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)

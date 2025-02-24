@@ -20,7 +20,7 @@ class Microscope(Manipulator):
     '''
     A microscope Z axis, obtained here from an axis of a Manipulator.
     '''
-    def __init__(self, dev, axis):
+    def __init__(self, dev, axis,speed,accel):
         '''
         Parameters
         ----------
@@ -35,10 +35,14 @@ class Microscope(Manipulator):
         # Motor range in um; by default +- one meter
         self.min = -1e6 # This could replace floor_Z
         self.max = 1e6
+        self.set_max_accel(accel)
+        self.set_max_speed(speed)
 
     def set_max_speed(self, speed):
         self.dev.set_max_speed(speed)
 
+    def set_max_accel(self, accel):
+        self.dev.set_max_accel(accel)
     def position(self):
         '''
         Current position

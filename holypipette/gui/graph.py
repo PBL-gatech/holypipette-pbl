@@ -259,8 +259,8 @@ class EPhysGraph(QWidget):
     # Define a signal that can accept DAQ data
     data_updated = pyqtSignal(object, object, object, object, object, object)
 
-    pressureLowerBound = -450
-    pressureUpperBound = 730
+    pressureLowerBound = -1000
+    pressureUpperBound = 1000
 
     def __init__(self, daq: DAQ, pressureController: PressureController, recording_state_manager: RecordingStateManager):
         super().__init__()
