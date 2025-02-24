@@ -12,7 +12,7 @@ import time
 import threading
 import imageio
 import logging
-from holypipette.deepLearning.cellSegmentor import CellSegmentor2
+# from holypipette.deepLearning.cellSegmentor import CellSegmentor2
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -184,7 +184,7 @@ class Camera(object):
         self.last_frame_time = None
         self.fps = 0
 
-        self.Cellseg = CellSegmentor2()
+        # self.Cellseg = CellSegmentor2()
         # testing flag
         
 
@@ -249,25 +249,25 @@ class Camera(object):
             cell_2d = cell.reshape(1, 2)  # Ensure shape is (1,2).
             label = np.array([1])          # The segmentation label.
 
-            mask = self.segment(rgbimg, cell_2d, label)
-            if mask is not None:
-                # Ensure mask is of type uint8.
-                if mask.dtype != 'uint8':
-                    mask = mask.astype('uint8')
-                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # mask = self.segment(rgbimg, cell_2d, label)
+            # if mask is not None:
+            #     # Ensure mask is of type uint8.
+            #     if mask.dtype != 'uint8':
+            #         mask = mask.astype('uint8')
+            #     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 
-                # Compute the total area of all detected contours.
-                total_area = sum(cv2.contourArea(c) for c in contours)
-                image_area = self.width * self.height
+            #     # Compute the total area of all detected contours.
+            #     total_area = sum(cv2.contourArea(c) for c in contours)
+            #     image_area = self.width * self.height
                 
-                # Only draw the contours if the mask's area is within an acceptable range.
-                # Here, if the mask area is more than 10% of the original image area, skip drawing.
-                if total_area > 0.1 * image_area:
-                    continue
+            #     # Only draw the contours if the mask's area is within an acceptable range.
+            #     # Here, if the mask area is more than 10% of the original image area, skip drawing.
+            #     if total_area > 0.1 * image_area:
+            #         continue
 
-                # Draw the segmentation contours and a circle at the cell location.
-                cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
-                img = cv2.circle(img, (int(x), int(y)), 10, (0, 255, 0), 3)
+            #     # Draw the segmentation contours and a circle at the cell location.
+            #     cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
+            img = cv2.circle(img, (int(x), int(y)), 10, (0, 255, 0), 3)
    
         # # # testing if mask is working
         # if mask is not None:

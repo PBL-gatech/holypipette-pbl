@@ -22,7 +22,7 @@ cellSorterManip = FakeCellSorterManip()
 pipetteManip.x = [200, 300, 400] # start with pipette in frame
 controller.x = [-235000, 55000, 285000]
 camera = FakeCalCamera(stageManip=controller, pipetteManip=pipetteManip, image_z=100, cellSorterManip=cellSorterManip)
-microscope = Microscope(controller, 3)
+microscope = Microscope(controller, 3,speed=10000,accel=19500)
 microscope.up_direction = 1.0
 
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])

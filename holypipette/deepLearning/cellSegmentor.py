@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import torch
+import torch_directml
 import matplotlib.pyplot as plt
 import cv2
 import sys
@@ -185,7 +186,7 @@ class CellSegmentor:
             else:
                 return masks[0]
 class CellSegmentor2:
-    def __init__(self, sam_checkpoint="/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/deepLearning/cellModel/sam2/checkpoints/sam2.1_hiera_tiny.pt" , model_cfg ="//Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/deepLearning/cellModel/sam2/sam2/configs/sam2.1/sam2.1_hiera_t.yaml" , device=None):
+    def __init__(self, sam_checkpoint=r"C:\Users\rowan\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\checkpoints\sam2.1_hiera_tiny.pt" , model_cfg =r"C:\Users\rowan\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\sam2\configs\sam2.1\sam2.1_hiera_t.yaml" , device=None):
         logging.info("Initializing SAM2 CellSegmentor...")
         # Enable MPS fallback for unsupported operations
         os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -196,6 +197,8 @@ class CellSegmentor2:
                 self.device = torch.device("cuda")
             elif torch.backends.mps.is_available():
                 self.device = torch.device("mps")
+            elif torch_directml.is_available():
+                self.device = device = torch_directml.device(torch_directml.default_device())
             else:
                 self.device = torch.device("cpu")
         else:
@@ -207,6 +210,7 @@ class CellSegmentor2:
                 "\nWarning: SAM2 is optimized for CUDA devices. "
                 "Using MPS may result in degraded performance or numerically different results."
             )
+
         elif self.device.type == "cpu":
             print("\nWarning: Running on CPU may significantly impact performance.")
 
@@ -418,8 +422,8 @@ class CameraWorker(QThread):
         super().__init__(parent)
         self.fps = fps
         self.keep_running = True
-        # self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff"
-        self.image_path = "/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/devices/camera/FakeMicroscopeImgs/cellsegtest.png"
+        self.image_path = r"C:\Users\rowan\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff"
+
         bgr = cv2.imread(self.image_path)
         if bgr is None:
             raise FileNotFoundError(f"Could not load {self.image_path}")

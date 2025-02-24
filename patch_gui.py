@@ -24,7 +24,8 @@ from experiments.DatasetBuilder import DatasetBuilder
 
 
 
-# from setup.setup_Emory_rig import * 
+# from rig_setup.setup_Emory_rig import * 
+from rig_setup.setup_fake_rig import *
 # from setup.setup_Moscow_Pressuretest import *
 
 setup_logging()  # Log to the standard console as well
@@ -48,8 +49,8 @@ def main():
     # hdf5_recorder = HDF5Logger(recording_state_manager, stage, microscope, camera, amplifier, daq, pressure, pipette_controller, graphs)
     # app.aboutToQuit.connect(hdf5_recorder.close)
 
-    datasetConverter = DatasetBuilder(dataset_name='dataset_1.hdf5')
-    datasetConverter.add_demo(demo_file_path='2025_02_14-12_57')
+    # datasetConverter = DatasetBuilder(dataset_name='dataset_1.hdf5')
+    # datasetConverter.add_demo(demo_file_path='2025_02_14-12_57')
 
     gui.initialize()
     # gui.location_on_the_screen()
