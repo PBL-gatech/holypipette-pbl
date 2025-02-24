@@ -29,7 +29,7 @@ class CSVLogHandler(logging.Handler):
             self.csv_writer.writerow(log_entry.split(","))
             # Ensure the log is flushed after every write to prevent data loss
             self.output_file.flush()
-        except Exception as e:
+        except Exception:
             self.handleError(record)
 
     def close(self):
@@ -54,8 +54,8 @@ class LoggingObject(object):
     def info(self, message, *args, **kwds):
         self.logger.info(message, *args, **kwds)
 
-    def warn(self, message, *args, **kwds):
-        self.logger.warn(message, *args, **kwds)
+    def warning(self, message, *args, **kwds):
+        self.logger.warning(message, *args, **kwds)
 
     def error(self, message, *args, **kwds):
         self.logger.error(message, *args, **kwds)
@@ -69,6 +69,7 @@ def setup_logging():
     
     # Console handler
     console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
     console_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s [%(name)s - thread %(thread)d]')
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
@@ -78,7 +79,7 @@ def setup_logging():
     # path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\log_data"
     
     # CSV file handler with a daily timestamped filename
-    csv_handler = CSVLogHandler(base_filename=path + r'\logs')
+    csv_handler = CSVLogHandler(base_filename=path + '/logs')
     root_logger.addHandler(csv_handler)
 
 # Initialize the logging

@@ -367,31 +367,33 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         # self.addButtonList('patching states', layout, buttonList, cmds)
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Stage'],['Save cell plane origin'],['Calibrate Pipette'],['Store Safe Position'],['Store Home Position'],['Store Cleaning Position']]
-        cmds = [[self.pipette_interface.calibrate_stage],
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cell Plane'],['Store Safe Position','Store Home Position'],['Store Cleaning Position']]
+        cmds = [[self.pipette_interface.calibrate_stage, self.pipette_interface.calibrate_manipulator],
                 [self.pipette_interface.set_floor],
-                [self.pipette_interface.record_cal_point],
-                [self.patch_interface.store_safe_position],
-                [self.patch_interface.store_home_position],
+                [self.patch_interface.store_safe_position,
+                self.patch_interface.store_home_position],
                 [self.patch_interface.store_cleaning_position]
         ]
-        self.addButtonList('calibration', layout, buttonList, cmds)
+        #self.addButtonList('calibration', layout, buttonList, cmds)
         # Add a box for movement commands
-        buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Clean pipette']]
+        buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane'],['Center Pipette','Clean pipette','Focus Pipette']]
         cmds = [
             [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
             [self.patch_interface.move_to_safe_space, self.patch_interface.move_to_home_space],
-            [self.patch_interface.clean_pipette]
+            [self.pipette_interface.go_to_floor],
+            [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
         ]
         self.addButtonList('movement', layout, buttonList, cmds)
 
         # Add a box for patching commands
-        buttonList = [['Select Cell', 'Remove Last Cell'],['Hunt Cell','Break In'],['Run Protocols']]
+        buttonList = [['Select Cell','Remove Last Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell],
-                [self.patch_interface.hunt_cell ,self.patch_interface.break_in],
-            [[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]]
+                [self.patch_interface.hunt_cell,self.patch_interface.break_in],
+                [self.patch_interface.gigaseal,[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]],
+                [self.patch_interface.patch]
+]
             
-        ]
+    
         self.addButtonList('patching', layout, buttonList, cmds)
 
         # Add a box for Rig Recorder
@@ -451,7 +453,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 
     def tare_pipette(self):
         currPos = self.pipette_interface.calibrated_unit.unit.position()
-        self.init_pipette_pos = currPos
+        self.tare_pipette_pos = currPos
 
     def update_pipette_pos_labels(self, indices):
         # Update the position labels
@@ -463,8 +465,10 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         # print(f"pipette position: {currPos}")
         if self.recording_state_manager.is_recording_enabled():
             self.recorder.setBatchMoves(True)
+            timestamp = datetime.now().timestamp()
+            # logging.info(f"the current time is {timestamp}")
             self.recorder.write_movement_data_batch(
-                datetime.now().timestamp(),
+                timestamp,
                 self.stage_xy[0],
                 self.stage_xy[1],
                 self.stage_z,

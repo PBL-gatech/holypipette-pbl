@@ -7,7 +7,7 @@ from . import *
 import warnings
 import pco
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
-from holypipette.deepLearning.pipetteFocuser import PipetteFocuser, FocusLevels
+from holypipette.deepLearning.pipetteFocuser import PipetteFocuser
 
 
 try:

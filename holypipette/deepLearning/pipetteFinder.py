@@ -7,7 +7,9 @@ class PipetteFinder():
 
 	def __init__(self):
 		curFile = str(Path(__file__).parent.absolute())
-		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipetteFinderNetnano2.onnx')
+		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipetteFinderNetnano2.onnx') #real pipette
+		# self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipette-nano.onnx') # fake pipette
+
 
 		layer_names = self.yoloNet.getLayerNames()
 		self.output_layers = [layer_names[i-1] for i in self.yoloNet.getUnconnectedOutLayers()]

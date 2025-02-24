@@ -344,7 +344,9 @@ class DAQ:
                 # logging.info(f"resistance: {self.totalResistance}, membrane resistance: {self.latestMembraneResistance}, membrane capacitance: {self.latestMembraneCapacitance}")
                 
                 return None, None, None, None, None, None
-
+   
+    def capacitance(self):
+        return self.latestMembraneCapacitance
     def resistance(self):
         # logging.warn("totalResistance", self.totalResistance)
         return self.totalResistance

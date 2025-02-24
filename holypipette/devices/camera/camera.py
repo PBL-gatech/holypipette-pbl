@@ -12,6 +12,7 @@ import time
 import threading
 import imageio
 import logging
+from holypipette.deepLearning.cellSegmentor import CellSegmentor2
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -183,6 +184,10 @@ class Camera(object):
         self.last_frame_time = None
         self.fps = 0
 
+        self.Cellseg = CellSegmentor2()
+        # testing flag
+        
+
     def show_point(self, point, color=(255, 0, 0), radius=10, duration=1.5, show_center=False):
         self.point_to_show = [point, radius, color, show_center]
         self.stop_show_time = time.time() + duration
@@ -215,29 +220,82 @@ class Camera(object):
     def flip(self):
         self.flipped = not self.flipped
 
+
+    def segment(self, img, cell, label):
+
+        mask = self.Cellseg.segment(image = img, input_point = cell, input_label = label)
+        # print("mask shape: ", mask.shape)
+        return mask
+  
+
     def preprocess(self, input_img):
-        # isGreyscale = len(input_img.shape) == 2
-        # ? why? because our images are grayscale. the line below makes images ~3x larger
-        # img = cv2.cvtColor(input_img.copy(), cv2.COLOR_GRAY2RGB) if isGreyscale else input_img.copy()
         img = input_img.copy()
 
+        # Draw point for pipette location.
         if self.point_to_show and time.time() - self.stop_show_time < 0:
             img = cv2.circle(img, self.point_to_show[0], self.point_to_show[1], self.point_to_show[2], 3)
             if self.point_to_show[3]:
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
 
-
-        # draw cell outlines
+        # Process each cell's segmentation.
         for cell in self.cell_list:
-            img = cv2.circle(img, cell, 10, (0, 255, 0), 3)
+            # cell is assumed to be a 2D coordinate [x, y].
+            x, y = cell[0], cell[1]
+            if not (0 <= x < self.width and 0 <= y < self.height):
+                continue  # Skip if the cell is offscreen.
 
+            # Convert the grayscale image to RGB if needed for segmentation.
+            rgbimg = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            cell_2d = cell.reshape(1, 2)  # Ensure shape is (1,2).
+            label = np.array([1])          # The segmentation label.
+
+            mask = self.segment(rgbimg, cell_2d, label)
+            if mask is not None:
+                # Ensure mask is of type uint8.
+                if mask.dtype != 'uint8':
+                    mask = mask.astype('uint8')
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                # Compute the total area of all detected contours.
+                total_area = sum(cv2.contourArea(c) for c in contours)
+                image_area = self.width * self.height
+                
+                # Only draw the contours if the mask's area is within an acceptable range.
+                # Here, if the mask area is more than 10% of the original image area, skip drawing.
+                if total_area > 0.1 * image_area:
+                    continue
+
+                # Draw the segmentation contours and a circle at the cell location.
+                cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
+                img = cv2.circle(img, (int(x), int(y)), 10, (0, 255, 0), 3)
+   
+        # # # testing if mask is working
+        # if mask is not None:
+    
+        #     test = mask
+        #     # save the image to a directory once for each unique cell coordinates
+        #     mask_dir = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\mask_images'
+        #     if not os.path.exists(mask_dir):
+        #         os.makedirs(mask_dir)
+        #     filename = f'mask_cell_{cell[0]}_{cell[1]}.png'
+        #     filepath = os.path.join(mask_dir, filename)
+        #     if not os.path.exists(filepath):
+        #         cv2.imwrite(filepath, mask * 255)  # multiply by 255 to convert boolean mask to visible image
+        #     filename = f'raw_{cell[0]}_{cell[1]}.png'
+        #     filepath = os.path.join(mask_dir, filename)
+        #     if not os.path.exists(filepath):
+        #         cv2.imwrite(filepath, img)
+        
+        # else :
+    
+        # correction for flipped image from bgr to rgb
         if self.flipped:
             img = img[:, ::-1]
             # ? uncomment below for rgb images
             # img = img[:, ::-1] if isGreyscale else img[:, ::-1, :]
 
         return img
-
+ 
     def new_frame(self):
         '''
         Returns True if a new frame is available

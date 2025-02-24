@@ -93,24 +93,19 @@ class ManipulatorUnit(Manipulator):
             self.dev.relative_move(x, self.axes[axis], speed)
         # self.sleep(.05)
 
-    def absolute_move_group_velocity(self, vel, axes):
+    def absolute_move_group_velocity(self, vel):
         '''
-        Moves the device axes to positions x in um.
+        Moves the device in um/s.
         '''
         
-        self.dev.absolute_move_group_velocity(vel, np.array(self.axes)[axes])
+        self.dev.absolute_move_group_velocity(vel)
         # self.sleep(.005)
 
-    def stop(self, axis = None):
+    def stop(self):
         """
         Stop current movements.
         """
-        if axis is None:
-            # then we stop all axes
-            for i, axis in enumerate(self.axes):
-                self.dev.stop(axis)
-        else:
-            self.dev.stop(self.axes[axis])
+        self.dev.stop()
 
     def wait_until_still(self, axes = None):
         """

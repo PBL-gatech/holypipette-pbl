@@ -38,7 +38,7 @@ class AutoPatchInterface(TaskInterface):
         self.is_selecting_cells = False
         self.cells_to_patch = []
 
-        #call update_camera_cell_list every 0.1 seconds using a QTimer
+        #call update_camera_cell_list every 0.05 seconds using a QTimer
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_camera_cell_list)
         self.timer.start(50)
@@ -48,6 +48,11 @@ class AutoPatchInterface(TaskInterface):
                       task_description='Breaking into the cell')
     def break_in(self):
         self.execute(self.current_autopatcher.break_in)
+
+    @blocking_command(category='Patch', description='GigaSeal the cell',
+                      task_description='GigaSealing the cell')
+    def gigaseal(self):
+        self.execute(self.current_autopatcher.gigaseal)
 
     def start_selecting_cells(self):
         self.is_selecting_cells = True
@@ -121,6 +126,7 @@ class AutoPatchInterface(TaskInterface):
                 
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
+
     def patch(self) -> None:
         cell, img = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.patch,
@@ -150,7 +156,7 @@ class AutoPatchInterface(TaskInterface):
         
         self.current_autopatcher.safe_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
-        z = self.pipette_controller.calibrated_unit.microscope.position()
+        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.safe_stage_position = [x,y,z]
         self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
 
@@ -161,7 +167,7 @@ class AutoPatchInterface(TaskInterface):
         
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
-        z = self.pipette_controller.calibrated_unit.microscope.position()
+        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
     
