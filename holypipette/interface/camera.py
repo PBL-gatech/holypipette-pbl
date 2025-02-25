@@ -47,12 +47,13 @@ class CameraInterface(TaskInterface):
                 description='Set exposure time to {:.1f}ms',
                 default_arg=2.5)
     def set_exposure(self, exposure):     
-        currexpos = self.camera.get_exposure()
-        change = exposure - currexpos
-        if change > 0:
-            self.increase_exposure(change)
-        elif change < 0:
-            self.decrease_exposure(-change)
+        # currexpos = self.camera.get_exposure()
+        # change = exposure - currexpos
+        # if change > 0:
+        #     self.increase_exposure(change)
+        # elif change < 0:
+        #     self.decrease_exposure(-change)
+        self.camera.set_exposure(exposure)
         # logging.info('Current exposure time is: {}'.format(currexpos))
         # logging.info("difference is: {}".format(change))
         logging.info('New exposure time is: {}'.format(exposure))

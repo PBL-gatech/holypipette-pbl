@@ -11,8 +11,7 @@ from pyvcam import pvc
 # from pyvcam.camera import Camera
 import pyvcam.camera
 
-from holypipette.deepLearning.pipetteFinder import PipetteFinder
-from holypipette.deepLearning.pipetteFocuser import PipetteFocuser, FocusLevels
+
 
 
 try:
@@ -20,8 +19,7 @@ try:
 except ImportError:
     warnings.warn('OpenCV is not installed.')
 
-# ? See __init__.py for the following line
-# __all__ = ['PcoCamera']
+
 
 
 class ElectroCamera(Camera):
@@ -46,9 +44,6 @@ class ElectroCamera(Camera):
 
         self.cam.start_live(exp_time=20,buffer_frame_count=16)
 
-        # self.cam.record(number_of_images = 10, mode='ring buffer') #use "ring buffer" mode for continuous streaming from camera
-        # self.cam.wait_for_first_image()
-
         self.frameno = None
 
         self.currExposure = 0
@@ -59,8 +54,6 @@ class ElectroCamera(Camera):
         self.last_frame_time = None
         self.fps = 0
 
-        # self.pipetteFinder = PipetteFinder()
-        self.pipetteFocuser = PipetteFocuser()
 
         # self.normalize() #normalize image on startup
 
@@ -83,7 +76,6 @@ class ElectroCamera(Camera):
 
     def close(self):
         if self.cam:
-            # self.cam.stop()
             self.cam.close()
 
     def reset(self) -> None:
@@ -95,34 +87,15 @@ class ElectroCamera(Camera):
         print(f"CAMERA {self.cam}")
         self.cam.set_roi(0,0,self.width,self.height)
 
-        # self.cam = pco.Camera()
-        
-        # config = {'exposure time': 10e-3,
-        #             'roi': (0, 0, 2048, 2048),
-        #             'timestamp': 'off',
-        #             'pixel rate': 500_000_000,
-        #             'trigger': 'auto sequence',
-        #             'acquire': 'auto',
-        #             'metadata': 'on',
-        #             'binning': (1, 1)}
-        # self.cam.configuration = config
-
-        # self.cam.record(number_of_images=10, mode='ring buffer')
-        # self.cam.wait_for_first_image()
 
     def normalize(self, img = None) -> None:
 
         if not self.auto_normalize:
             print("NORMALIZING")   
 
-        # print(f"BEFORE IMAGE: {img}")
+
         if img is None:
             img = self.get_16bit_image()
-            # print(f"IMAGE after get_16bit_image: {img}")
-            # print(type(img))
-        # print(f"AFTER IMAGE: {img}")
-        #is there a better way to do this?
-        #maybe 2 stdevs instead?
         self.lowerBound = img.min()
         self.upperBound = img.max()
 
@@ -143,8 +116,6 @@ class ElectroCamera(Camera):
             img = test['pixel_data']
             self.lastFrame = img
             self.frameno = out[2]
-            # logging.debug(f"Got image from camera")
-            # print(meta)
         except Exception as e:
             print(f"ERROR in get_16bit_image: {e}")
             self.frameno = 0
@@ -159,15 +130,10 @@ class ElectroCamera(Camera):
         img = self.get_16bit_image()
 
         if self.auto_normalize:
-            # print("AutoNormalizing")
             self.normalize(img)
 
         if img is None:
             return None
-
-        # if img is not None:
-        #     focusLvl = self.pipetteFocuser.get_pipette_focus(img)
-        #     print(focusLvl)
 
         # apply upper / lower bounds (normalization)
         span = np.maximum(self.upperBound - self.lowerBound, 1)  # Avoid division by zero
@@ -177,21 +143,5 @@ class ElectroCamera(Camera):
         # resize if needed
         if self.width != None and self.height != None:
             img = cv2.resize(img, (self.width, self.height), interpolation = cv2.INTER_LINEAR)
-
-        # if img is not None:
-        #     out = self.pipetteFinder.find_pipette(img)
-        #     if out is not None:
-        #         img = cv2.circle(img, out, 2, 0, 2)
-
-        # find good points to track
-        # corners = cv2.goodFeaturesToTrack(img, 250, 0.005, 10)
-        # corners = np.int0(corners)
-        
-        # draw points on image
-
-        # we only want the top 100 corners
-
-        # if self.lastFrame is not None:
-        #     flow = cv2.calcOpticalFlowFarneback(self.lastFrame, img, None, 0.5, 3, 15, 3, 5, 1.2, 0)
 
         return img
