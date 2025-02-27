@@ -18,7 +18,7 @@ from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSor
 controllerSerial = serial.Serial('COM20',baudrate=38400,timeout=3)
 controller = ScientificaSerialNoEncoder(controllerSerial,speed = 4000, accel = 19500)
 
-pipetteSerial = serial.Serial('COM18',baudrate=38400,timeout=3)
+pipetteSerial = serial.Serial('COM19',baudrate=38400,timeout=3)
 pipetteManip = ScientificaSerialNoEncoder(pipetteSerial,speed = 1000, accel = 19500)
 stage = ManipulatorUnit(controller, [1, 2])
 
@@ -48,7 +48,7 @@ daq = DAQ('Dev2', 'ai0', 'Dev2', 'ao0', 'Dev2', 'ai3')
 # amplifier = FakeAmplifier()
 amplifier = MultiClampChannel(channel=1)
 
-# pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
-# pressureReaderSerial = serial.Serial(port='COM3', baudrate=9600, timeout=0)
-# pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
-pressure = FakePressureController()
+pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
+pressureReaderSerial = serial.Serial(port='COM3', baudrate=9600, timeout=0)
+pressure = EmoryPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
+# pressure = FakePressureController()

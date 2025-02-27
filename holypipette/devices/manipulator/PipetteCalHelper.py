@@ -41,7 +41,7 @@ class PipetteCalHelper():
         #   (image_x, image_y, encoder_x, encoder_y)
         self.cal_points = []
 
-    def collect_cal_points(self, num_points=10, xy_step=5, max_retries=5):
+    def collect_cal_points(self, num_points=10, xy_step=10, max_retries=5):
         """
         Collects 'num_points' calibration points.
         

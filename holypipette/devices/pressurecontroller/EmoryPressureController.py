@@ -15,15 +15,15 @@ all = ['EmoryPressureController']
 
 class EmoryPressureController(PressureController):
     '''A PressureController child class that handles serial communication between the PC and
-       the Arduino controlling the Emory Pressure box
+       the Arduino controlling Emory Pressure box
     '''
     validProducts = ["USB Serial"] # TODO: move to a constants or json file?
     validVIDs = [0x1a86, 0x403]
                     
     # nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
     # nativePerMbar = float(4096/1380) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
-    nativeZero = 1962 # The native units at a 0 pressure (y-intercept)
-    nativePerMbar = float(3062/1100) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
+    nativeZero = 2161 # The native units at a 0 pressure (y-intercept)
+    nativePerMbar = float(3078/1000) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
 
     serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
@@ -143,10 +143,8 @@ class EmoryPressureController(PressureController):
                 # Try to convert the extracted pressure string to float
                 try:
                     pressureVal = float(pressure_str)
-                    # logging.info(f"Pressure: {pressureVal} units (raw)")
-                    # pressureVal = float((pressureVal/2.559) + 512) # conversion to raw because the seeed is not working
-                    # pressureVal = float((pressureVal*0.3923)+516.72)
-                    pressureVal = float((pressureVal - 516.72)/0.3923) # conversion to raw because the seeed is not working
+
+                    pressureVal = float((pressureVal - 516.72)/0.3923) - 9 # conversion to raw because the seeed is not working
                     self.lastVal = pressureVal
                 except ValueError:
                     # pressureVal = None
@@ -177,11 +175,6 @@ class EmoryPressureController(PressureController):
         self.controllerSerial.write(bytes(cmd, 'ascii')) #do serial writing in main thread for timing?
         self.controllerSerial.flush()
         
-        # add expected arduino responces
-        # self.expectedResponses.append((time.time(), f"pulse {self.channel} {delayMs}"))
-        # self.expectedResponses.append((time.time(), f"pulse"))
-        # self.expectedResponses.append((time.time(), f"{self.channel}"))
-        # self.expectedResponses.append((time.time(), f"{delayMs}"))
 
 
     def set_ATM(self, atm):
@@ -200,53 +193,3 @@ class EmoryPressureController(PressureController):
 
         self.isATM = atm
 
-        #add the expected arduino responses 
-        # if atm:
-        #     self.expectedResponses.append((time.time(), f"switchAtm {self.channel}"))
-        #     self.expectedResponses.append((time.time(), f"switchAtm"))
-        #     self.expectedResponses.append((time.time(), f"{self.channel}"))
-        #     self.expectedResponses.append((time.time(), f"0"))
-        # else:
-        #     self.expectedResponses.append((time.time(), f"switchP {self.channel}"))
-        #     self.expectedResponses.append((time.time(), f"switchP"))
-        #     self.expectedResponses.append((time.time(), f"{self.channel}"))
-        #     self.expectedResponses.append((time.time(), f"0"))
-
-    # def waitForArduinoResponses(self):
-    #     '''Continuously ensure that all expected responses are received within the timeout period.
-    #        Runs in a deamon thread.
-    #     '''
-    #     while True:
-    #         if len(self.expectedResponses) == 0 and self.controllerSerial.in_waiting == 0:
-    #             time.sleep(0.1)
-    #             continue #nothing to do
-            
-    #         #check for new responses
-    #         resp = self.controllerSerial.readline().decode("ascii")
-    #         while len(resp) > 0: #process all commands 
-    #             #remove newlines from string
-    #             resp = resp.replace('\n', '')
-    #             resp = resp.replace('\r', '')
-                
-    #             #grab latest expected response
-    #             if len(self.expectedResponses) > 0:
-    #                 sendTime, expected = self.expectedResponses.popleft()
-    #             else:
-    #                 expected = None
-
-    #             #make what was actually received and what was expected match
-    #             if resp != expected:
-    #                 logging.info(f"INVALID PRESSURE COMMAND, EXPECTED RESPONSE {expected} BUT GOT {resp}")
-    #                 self.expectedResponses.clear()
-    #             else :
-    #                 logging.info(f"Pressure Box Response: {resp}")
-                
-    #             #grab the next line
-    #             resp = self.controllerSerial.readline().decode("ascii")
-            
-    #         while len(self.expectedResponses) > 0 and time.time() - self.expectedResponses[0][0] > self.serialCmdTimeout:
-    #             #the response on top of expectedResponses has timed out!
-    #             self.expectedResponses.popleft() #remove timed out response
-    #             logging.info("PRESSURE BOX SERIAL RESPONSE TIMEOUT!")
-            
-    #         time.sleep(0.01) #sleep less when there might be things to do shortly
