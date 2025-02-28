@@ -177,61 +177,65 @@ class AutoPatcher(TaskController):
             self.rig_ready = False
             raise e
         
-    def regional_localization(self, cell_img, mask):
-        '''
-        Localizes the pipette and cell in the image using the mask
-        '''
-        # For this example, we assume you can derive cell_pos from mask.
-        # If you already have cell_pos from somewhere else, just pass it in as needed.
-        # e.g., cell_pos = self.some_method_to_get_cell_position(mask)
 
+    def hunt_cell(self,cell = None):
+        '''
+        Moves the pipette down to cell plane and detects a cell using resistance measurements
+        '''
         self.info("Hunting for cell")
-
+        
         self.isrigready()
-        if not self.rig_ready:
+
+        if self.rig_ready == False:
             raise AutopatchError("Rig not ready for cell hunting")
+        
+        if cell is None:
+            raise AutopatchError("No cell given to patch!")
+        
+        # regional pipette localization: 
 
-        if cell_img is None:
-            raise AutopatchError("No cell image provided!")
-
-        # Example placeholder for obtaining cell_pos from mask
-        cell_pos = self.get_cell_position_from_mask(mask)
-
-        # Move stage and pipette to safe space
+        # move stage and pipette to safe space
         print("Moving to safe space")
         self.move_to_safe_space()
         print("Setting pressure to 200 mbar")
         self.pressure.set_pressure(200)
-        # Move to home space
+        # move to home space
         logging.debug("Moving to home space")
         self.move_to_home_space()
-        # Center pipette on cell xy
+        # center pipette on cell xy 
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
+        
+        # self.calibrated_stage.wait_until_still()
+        # self.calibrated_unit.wait_until_still()
+        # center pipette and stage on cell XY
+        cell_pos, cell_img = cell
+        # print(f"Cell img: {cell_img}")
 
-        print(f"Moving to Cell position: {cell_pos}")  # in microns
-        # Convert cell_pos to appropriate stage coordinates
-        cell_target = np.array([cell_pos[0], cell_pos[1], 0])
-        self.calibrated_stage.safe_move(cell_target)
+        print(f" Moving to Cell position: {cell_pos}") # in um i think?
+        # moving stage to xy position of cell
+        # home position
+        cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
+        self.calibrated_stage.safe_move(np.array(cell_pos))
         self.calibrated_stage.wait_until_still()
 
-        # Move pipette to xy position of cell
-        stage_pos = self.calibrated_stage.pixels_to_um(
-            self.calibrated_stage.reference_position()
-        )
+        # move pipette to xy position of cell
+
+        #! test
+        stage_pos = self.calibrated_stage.pixels_to_um(self.calibrated_stage.reference_position())
         print(f"Stage position: {stage_pos}")
         disp = np.zeros(3)
         disp[0] = stage_pos[0] - self.home_stage_position[0]
         disp[1] = stage_pos[1] - self.home_stage_position[1]
         disp[2] = 0
         print(f"Disp: {disp}")
-        pipette_disp = self.calibrated_unit.rotate(disp, 2)
+        pipette_disp = self.calibrated_unit.rotate(disp,2)
         self.calibrated_unit.relative_move(pipette_disp)
-        self.calibrated_unit.wait_until_still()
-
-        # Center pipette on cell xy again
+        self.calibrated_unit.wait_until_still() 
+        # center pipette on cell xy 
         self.calibrated_unit.center_pipette()
+        
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
@@ -240,11 +244,14 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
 
-        # Move stage and pipette close to cell plane, stopping halfway to recenter
-        zdist = self.home_stage_position[2] - self.microscope.floor_Z
-        self.move_group_down(-zdist/2)  # partial move
+        #! end test
+        # # # move stage and pipette to 50 um above cell plane, stopping halfway to center pipette on cell 
+        # print("Moving to cell plane")
+        zdist =  self.home_stage_position[2] - self.microscope.floor_Z 
+        # print(f"Z distance: {zdist}")
+        # # self.move_group_down(-zdist)# for testing on fake rig.
+        self.move_group_down(-zdist/2)# on real rig
         self.sleep(0.1)
-
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
@@ -253,11 +260,10 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
-
         second = zdist/2 + self.config.cell_distance
+        # print(f"Second distance: {second}")
         self.move_group_down(-second)
         self.sleep(0.1)
-
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
@@ -271,57 +277,46 @@ class AutoPatcher(TaskController):
         self.microscope.wait_until_still()
         self.info("Located Cell")
 
-        # Ensure near-cell pressure
+        # # #ensure "near cell" pressure
         self.pressure.set_pressure(self.config.pressure_near)
 
-        # Prepare the deque for resistance measurements
-        self.lastResDeque = collections.deque(maxlen=5)
+        lastResDeque = collections.deque(maxlen=5)
+        # get initial resistance
         daqResistance = self.daq.resistance()
-        self.lastResDeque.append(daqResistance)
+        lastResDeque.append(daqResistance)
 
-        # Move pipette down at 5um/s, check resistance
-        self.start_pos = self.calibrated_unit.position()
+        # move pipette down at 5um/s and check reistance every 40 ms
+        # get starting position 
+        start_pos = self.calibrated_unit.position()
+ 
         self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
-
         R = 0
-        for _ in range(5):
+        for i in range(5):
             R += self.daq.resistance()
-        self.first_res = R / 5.0
+        self.first_res = R/5
         print(f"Initial resistance: {self.first_res}")
 
-
-    def hunt_cell(self, cell=None):
-        '''
-        Moves the pipette down to cell plane and detects a cell using resistance measurements
-        '''
-        if cell is None:
-            raise AutopatchError("No cell given to patch!")
-
-        cell_pos, cell_img = cell
-        mask = None  # or your actual mask reference
-        self.regional_localization(cell_img, mask)
-
-        # Continue with detection loop
-        while not self._isCellDetected(lastResDeque=self.lastResDeque, cellThreshold=self.config.cell_R_increase):
+        while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase):
             curr_pos = self.calibrated_unit.position()
-            if abs(curr_pos[2] - self.start_pos[2]) >= int(self.config.max_distance):
-                # we have moved the expected distance down with no cell detected
-                self.amplifier.stop_patch()
+            if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
+                # we have moved expected um down and still no cell detected
                 self.calibrated_unit.stop()
                 self.info("No cell detected")
                 self.hunt_cell_failed = True
                 self.escape()
                 break
-            elif self._isCellDetected(lastResDeque=self.lastResDeque, cellThreshold=self.config.cell_R_increase):
+            elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
                 self.calibrated_unit.stop()
                 self.info("Cell Detected")
                 break
+            #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
             self.sleep(0.04)
-            self.lastResDeque.append(self.daq.resistance())
+            lastResDeque.append(daqResistance)
+            daqResistance = self.daq.resistance()
 
         self.calibrated_unit.stop()
         self.microscope.stop()
-       
+
     def escape(self):
         if self.hunt_cell_failed or self.gigaseal_failed or self.break_in_failed or self.abort_requested:
             self.amplifier.stop_patch()
@@ -338,7 +333,7 @@ class AutoPatcher(TaskController):
             raise AutopatchError("patch attempt failed")
 
     def gigaseal(self):
-        self.info("Attempting to form gigaseal")
+        self.info("Attempting to form gigaseal...")
         self.pressure.set_ATM()
         self.sleep(3)
 
@@ -396,7 +391,7 @@ class AutoPatcher(TaskController):
         '''
         Breaks in. The pipette must be in cell-attached mode
         '''
-        self.info("Breaking in")
+        self.info(" Attempting Break in...")
         measuredResistance = self.daq.resistance()
         # if R is not None and R < self.config.gigaseal_R:
         #     raise AutopatchError("Seal lost")
