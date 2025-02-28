@@ -19,8 +19,7 @@ from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
 from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 from holypipette.gui.patch import PatchGui
-from holypipette.utils.HDF5Logger import HDF5Logger
-from experiments.DatasetBuilder import DatasetBuilder
+from experiments.Analysis.DatasetBuilder import DatasetBuilder
 
 
 
@@ -46,8 +45,6 @@ def main():
     voltageProtocolGraph = VoltageProtocolGraph(daq, recording_state_manager)
     holdingProtocolGraph = HoldingProtocolGraph(daq, recording_state_manager)
 
-    # hdf5_recorder = HDF5Logger(recording_state_manager, stage, microscope, camera, amplifier, daq, pressure, pipette_controller, graphs)
-    # app.aboutToQuit.connect(hdf5_recorder.close)
 
     # datasetConverter = DatasetBuilder(dataset_name='dataset_1.hdf5')
     # datasetConverter.add_demo(demo_file_path='2025_02_14-12_57')
