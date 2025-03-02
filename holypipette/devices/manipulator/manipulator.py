@@ -99,6 +99,7 @@ class Manipulator(TaskController):
         axes : list of axis numbers
         x : target position in um (vector or list).
         '''
+        self.info('Moving axes %s to position %s' % (axes, x))
         for xi,axis in zip(x,axes):
             self.absolute_move(xi, axis)
 
@@ -117,6 +118,7 @@ class Manipulator(TaskController):
         """
         Stops current movements.
         """
+        
         pass
 
     def wait_until_still(self, axes = None):

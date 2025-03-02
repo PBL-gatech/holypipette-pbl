@@ -15,7 +15,7 @@ import logging
 #sam2 imports
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-sys.path.append('//Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/deepLearning/cellModel/sam2/sam2/configs/sam2.1/sam2.1_hiera_t.yaml')
+sys.path.append(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\sam2\configs\sam2.1\sam2.1_hiera_t.yaml")
 
 class CellSegmentor:  
     def __init__(self, sam_checkpoint = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\MobileSAM\weights\mobile_sam.pt", model_type="vit_t", device="cuda"):
@@ -185,7 +185,7 @@ class CellSegmentor:
             else:
                 return masks[0]
 class CellSegmentor2:
-    def __init__(self, sam_checkpoint="/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/deepLearning/cellModel/sam2/checkpoints/sam2.1_hiera_tiny.pt" , model_cfg ="//Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/deepLearning/cellModel/sam2/sam2/configs/sam2.1/sam2.1_hiera_t.yaml" , device=None):
+    def __init__(self, sam_checkpoint=r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\checkpoints\sam2.1_hiera_tiny.pt" , model_cfg =r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\sam2\configs\sam2.1\sam2.1_hiera_t.yaml" , device=None):
         logging.info("Initializing SAM2 CellSegmentor...")
         # Enable MPS fallback for unsupported operations
         os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -418,8 +418,8 @@ class CameraWorker(QThread):
         super().__init__(parent)
         self.fps = fps
         self.keep_running = True
-        # self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff"
-        self.image_path = "/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/devices/camera/FakeMicroscopeImgs/cellsegtest.png"
+        self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff"
+        # self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\cellsegtest.png"
         bgr = cv2.imread(self.image_path)
         if bgr is None:
             raise FileNotFoundError(f"Could not load {self.image_path}")

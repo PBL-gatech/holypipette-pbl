@@ -19,7 +19,7 @@ from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
 from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 from holypipette.gui.patch import PatchGui
-from experiments.Analysis.DatasetBuilder import DatasetBuilder
+# from experiments.Analysis.DatasetBuilder import DatasetBuilder
 
 
 # from rig_setup.setup_Moscow_rig import *  
@@ -46,8 +46,8 @@ def main():
     holdingProtocolGraph = HoldingProtocolGraph(daq, recording_state_manager)
 
 
-    datasetConverter = DatasetBuilder(dataset_name='dataset_1.hdf5')
-    datasetConverter.add_demo(demo_file_path='2025_02_14-12_57')
+    # datasetConverter = DatasetBuilder(dataset_name='dataset_1.hdf5')
+    # datasetConverter.add_demo(demo_file_path='2025_02_14-12_57')
 
     gui.initialize()
     # gui.location_on_the_screen()
