@@ -59,6 +59,7 @@ class Manipulator(TaskController):
         axis: axis number
         x : target position in um.
         '''
+        self.abort_if_requested()
         pass
 
     def relative_move(self, x, axis, speed=None):
@@ -71,8 +72,10 @@ class Manipulator(TaskController):
         x : position shift in um.
         '''
         if speed is not None:
+            self.abort_if_requested()
             self.absolute_move(self.position(axis)+x, axis, speed)
         else:
+            self.abort_if_requested()
             self.absolute_move(self.position(axis)+x, axis)
 
     def position_group(self, axes):
@@ -99,7 +102,8 @@ class Manipulator(TaskController):
         axes : list of axis numbers
         x : target position in um (vector or list).
         '''
-        self.info('Moving axes %s to position %s' % (axes, x))
+        self.abort_if_requested()
+        # self.info('Moving axes %s to position %s' % (axes, x))
         for xi,axis in zip(x,axes):
             self.absolute_move(xi, axis)
 
@@ -118,7 +122,7 @@ class Manipulator(TaskController):
         """
         Stops current movements.
         """
-        
+
         pass
 
     def wait_until_still(self, axes = None):

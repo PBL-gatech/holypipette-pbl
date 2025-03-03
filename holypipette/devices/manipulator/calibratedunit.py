@@ -217,7 +217,7 @@ class CalibratedUnit(ManipulatorUnit):
         r : XYZ position vector in um
 
         '''
-
+        self.abort_if_requested()
         if np.isnan(np.array(pos_pixels)).any():
             raise RuntimeError("can not move to nan location.")
         
@@ -257,6 +257,7 @@ class CalibratedUnit(ManipulatorUnit):
         '''Use the microscope image to put the pipette in focus
         '''
         self.debug('Autofocusing pipette')
+        self.abort_if_requested()
         self.pipetteFocusHelper.focus()
 
     def safe_move(self, r):
@@ -273,7 +274,7 @@ class CalibratedUnit(ManipulatorUnit):
             raise CalibrationError
         if self.must_be_recalibrated:
             raise CalibrationError('Pipette offsets must be recalibrated')
-
+        self.abort_if_requested()
         self.reference_move(r) # Or relative move in manipulator coordinates, first axis (faster)
 
     def pixel_per_um(self, M=None):
@@ -327,6 +328,7 @@ class CalibratedUnit(ManipulatorUnit):
         '''
         Calibrate the pipette using YOLO object detection and pipette encoders to create a um -> pixels transformation matrix
         '''
+        self.abort_if_requested()
         self.pipetteCalHelper.collect_cal_points()
         self.finish_calibration()
 
@@ -335,6 +337,7 @@ class CalibratedUnit(ManipulatorUnit):
         """
         Moves the pipette so that its detected position in the camera image is centered.
         """
+        self.abort_if_requested()
         # (1) Retrieve an image from the raw frame queue.
         _, _, _, img = self.camera.raw_frame_queue[0]
         h, w = img.shape[:2]
@@ -576,7 +579,7 @@ class CalibratedStage(CalibratedUnit):
         # r from pyQt has origin at the center of the image, move origin to the top left corner (as expected by calibration)
         r = np.array(r)
         r = r + np.array([self.camera.width // 2, self.camera.height // 2, 0])
-
+        self.abort_if_requested()
         self.reference_move(r) # Or relative move in manipulator coordinates, first axis (faster)
 
 
@@ -593,7 +596,7 @@ class CalibratedStage(CalibratedUnit):
         if self.must_be_recalibrated:
             raise CalibrationError('Pipette offsets must be recalibrated')
 
-            
+        self.abort_if_requested()
         pos_microns = dot(self.Minv, pos_pix)
         self.relative_move(pos_microns)
 
@@ -604,7 +607,7 @@ class CalibratedStage(CalibratedUnit):
         '''
         if not self.stage.calibrated:
             self.stage.calibrate()
-
+        
         self.info('Preparing stage calibration')
         # self.info("auto focusing microscope...")
         # self.focusHelper.autofocus(dist=self.config.autofocus_dist)
