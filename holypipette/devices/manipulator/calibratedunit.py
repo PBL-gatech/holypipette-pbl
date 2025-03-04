@@ -403,7 +403,7 @@ class CalibratedUnit(ManipulatorUnit):
         mat_inv = pinv(mat)
 
         self.debug(f'calibration matrix: {mat}')
-        self.debug('inv : ', mat_inv)
+        self.debug(f'inv :  {mat_inv}')
 
         # store r0 and r0_inv
         self.r0 = -mat[0:3, 3] #um -> pixels offset
@@ -421,11 +421,10 @@ class CalibratedUnit(ManipulatorUnit):
             raise CalibrationError('Matrix contains NaN values')
 
         self.debug('Calibration Successful!')
-        self.debug('M: ', self.M)
-        self.debug('r0: ', self.r0)
-        self.debug()
-        self.debug('Minv: ', self.Minv)
-        self.debug('r0_inv: ', self.r0_inv)
+        self.debug(f'M: {self.M}')
+        self.debug(f'r0: {self.r0}')
+        self.debug(f'Minv:  {self.Minv}')
+        self.debug(f'r0_inv: {self.r0_inv}')
 
         self.calibrated = True
         self.must_be_recalibrated = False
@@ -437,7 +436,7 @@ class CalibratedUnit(ManipulatorUnit):
         if self.M is None or self.Minv is None:
             raise Exception("initial calibration required for single point recalibration!")
         
-        self.debug('recalculating piptte offsets...')
+        self.debug('recalculating pipette offsets...')
         emperical_poses = []
         for i in range(10):
             _, _, _, frame = self.camera.raw_frame_queue[0]
@@ -446,26 +445,23 @@ class CalibratedUnit(ManipulatorUnit):
                 emperical_poses.append([pos[0], pos[1]])
         
         if len(emperical_poses) == 0:
-            self.debug('No pipette found in image, can\'t run correction')
+            self.debug("No pipette found in image, can't run correction")
             return
         
         new_offset = np.zeros(3)
         pos_pixels_emperical = np.median(emperical_poses, axis=0)
         pos_pixels_emperical = np.append(pos_pixels_emperical, self.microscope.position())
         new_offset = pos_pixels_emperical - self.um_to_pixels_relative(self.dev.position()) - self.stage.reference_position()
-        self.debug('Old offsets: ', self.r0, self.r0_inv)
+        self.debug(f'Old offsets: {self.r0}, {self.r0_inv}')
 
         self.r0 = np.array(new_offset)
 
         #create r0_inv
-        #first create homogenous matrix
-
         homogenous_mat = np.zeros((4,4))
         homogenous_mat[0:3, 0:3] = self.M
         homogenous_mat[0:3, 3] = self.r0
         homogenous_mat[3, 3] = 1
 
-        #invert
         homogenous_mat_inv = pinv(homogenous_mat)
 
         #get r0_inv
@@ -473,7 +469,7 @@ class CalibratedUnit(ManipulatorUnit):
         self.calibrated = True
         self.must_be_recalibrated = False
 
-        self.debug('New offsets: ', self.r0, self.r0_inv)
+        self.debug(f'New offsets: {self.r0}, {self.r0_inv}')
 
     def follow_stage(self, movement = 250):
         '''
@@ -607,7 +603,7 @@ class CalibratedStage(CalibratedUnit):
         '''
         if not self.stage.calibrated:
             self.stage.calibrate()
-        
+
         self.info('Preparing stage calibration')
         # self.info("auto focusing microscope...")
         # self.focusHelper.autofocus(dist=self.config.autofocus_dist)

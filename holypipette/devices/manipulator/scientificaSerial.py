@@ -272,7 +272,7 @@ class ScientificaSerialNoEncoder(Manipulator):
     def absolute_move(self, pos, axis, speed=None):
         '''Moves the device to an absolute position in um.
         '''
-        self.abort_if_requested()
+        # self.abort_if_requested()
         try: 
             if axis == 1:
                 yPos = self.position(axis=2)
@@ -293,7 +293,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         axes : list of axis numbers
         x : target position in um (vector or list).
         '''
-        self.abort_if_requested()
+        # self.abort_if_requested()
         x = list(x)
         axes = list(axes)
 
@@ -321,7 +321,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         ----------
         vel : list of velocities for each axis
         '''
-        self.abort_if_requested()   
+        # self.abort_if_requested()   
         try: 
             vel = list(vel)
             if len(vel) != 3:
@@ -338,7 +338,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         axis : axis number starting at 0; if None, all XYZ axes
         pos : position shift in um.
         '''
-        self.abort_if_requested()
+        # self.abort_if_requested()
         if axis == 1:
             self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(pos, 0))
         if axis == 2:
@@ -355,7 +355,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         axes : list of axis numbers
         x : position shift in um (vector or list).
         '''
-        self.abort_if_requested()
+        # self.abort_if_requested()
         cmd = [0, 0, 0]
         for pos, axis in zip(x, axes):
             cmd[axis  - 1] = pos
