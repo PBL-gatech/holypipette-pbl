@@ -24,8 +24,8 @@ from experiments.DatasetBuilder import DatasetBuilder
 
 
 
-from rig_setup.setup_Emory_rig import * 
-# from rig_setup.setup_fake_rig import *
+# from rig_setup.setup_Emory_rig import * 
+from rig_setup.setup_fake_rig import *
 # from setup.setup_Moscow_Pressuretest import *
 
 setup_logging()  # Log to the standard console as well

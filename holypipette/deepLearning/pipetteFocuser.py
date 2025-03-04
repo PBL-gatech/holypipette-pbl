@@ -67,7 +67,7 @@ if __name__ == '__main__':
     # Adjust image path as needed
     # cur_dir = Path(__file__).parent.absolute()
     # image_path = os.path.join(cur_dir, "", "neg7_focus.png")
-    image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2025_02_17-18_20\camera_frames\7524_1739834506.312564.webp"
+    image_path = r"C:\Users\rowan\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModel\example-pictures\pipette-example.png"
     
     if not os.path.exists(image_path):
         print(f"Image not found: {image_path}")
