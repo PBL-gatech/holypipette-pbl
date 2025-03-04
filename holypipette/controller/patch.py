@@ -197,14 +197,15 @@ class AutoPatcher(TaskController):
         # regional pipette localization: 
 
         # move stage and pipette to safe space
-        print("Moving to safe space")
+        self.info("Moving to safe space")
         self.move_to_safe_space()
-        print("Setting pressure to 200 mbar")
+        self.info("Setting pressure to 200 mbar")
         self.pressure.set_pressure(200)
         # move to home space
-        logging.debug("Moving to home space")
+        self.info("Moving to home space")
         self.move_to_home_space()
         # center pipette on cell xy 
+        self.info("Centering pipette")
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
@@ -215,23 +216,21 @@ class AutoPatcher(TaskController):
         cell_pos, cell_img = cell
         # print(f"Cell img: {cell_img}")
 
-        print(f" Moving to Cell position: {cell_pos}") # in um i think?
+        self.info(f" Moving to Cell position: {cell_pos}") # in um i think?
         # moving stage to xy position of cell
         # home position
         cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
         self.calibrated_stage.safe_move(np.array(cell_pos))
         self.calibrated_stage.wait_until_still()
-
+        self.info("Stage moved to cell position")
         # move pipette to xy position of cell
-
-        #! test
         stage_pos = self.calibrated_stage.pixels_to_um(self.calibrated_stage.reference_position())
-        print(f"Stage position: {stage_pos}")
+        # print(f"Stage position: {stage_pos}")
         disp = np.zeros(3)
         disp[0] = stage_pos[0] - self.home_stage_position[0]
         disp[1] = stage_pos[1] - self.home_stage_position[1]
         disp[2] = 0
-        print(f"Disp: {disp}")
+        # print(f"Disp: {disp}")
         pipette_disp = self.calibrated_unit.rotate(disp,2)
         self.calibrated_unit.relative_move(pipette_disp)
         self.calibrated_unit.wait_until_still() 
@@ -245,10 +244,11 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
+        self.info("Pipette centered on cell position")  
 
-        #! end test
         # # # move stage and pipette to 50 um above cell plane, stopping halfway to center pipette on cell 
         # print("Moving to cell plane")
+        self.info("Moving to cell plane")
         zdist =  self.home_stage_position[2] - self.microscope.floor_Z 
         # print(f"Z distance: {zdist}")
         # # self.move_group_down(-zdist)# for testing on fake rig.
@@ -280,6 +280,7 @@ class AutoPatcher(TaskController):
         self.info("Located Cell")
 
         # # #ensure "near cell" pressure
+        self.info(f"Setting pressure to {self.config.pressure_near} mbar")
         self.pressure.set_pressure(self.config.pressure_near)
 
         lastResDeque = collections.deque(maxlen=5)
@@ -290,15 +291,15 @@ class AutoPatcher(TaskController):
         # move pipette down at 5um/s and check reistance every 40 ms
         # get starting position 
         start_pos = self.calibrated_unit.position()
- 
+        self.info("starting descent....")
         self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
         R = 0
         for i in range(5):
             R += self.daq.resistance()
         self.first_res = R/5
-        print(f"Initial resistance: {self.first_res}")
+        self.info(f"Initial resistance: {self.first_res}")
 
-        while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase):
+        while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
                 # we have moved expected um down and still no cell detected
@@ -350,7 +351,7 @@ class AutoPatcher(TaskController):
         max_resistance = avg_resistance  # Best averaged resistance observed.
         last_progress_time = time.time()
 
-        while avg_resistance < self.config.gigaseal_R:
+        while avg_resistance < self.config.gigaseal_R and self.abort_requested == False:
             current_time = time.time()
 
             # Abort if no significant improvement has been seen within seal_deadline.
@@ -599,7 +600,7 @@ class AutoPatcher(TaskController):
         Moves the microsope and manipulator down by input distance in the z axis
         '''
 
-        print('MOVING GROUP DOWN')
+        self.info('MOVING GROUP DOWN')
 
         try:
             self.calibrated_unit.relative_move(dist, axis=2)

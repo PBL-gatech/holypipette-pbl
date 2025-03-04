@@ -111,11 +111,13 @@ class AutoPatchInterface(TaskInterface):
             self.cells_to_patch.append((np.array(stage_pos_pixels), img))
             self.is_selecting_cells = False
 
+    # Update the cell list to store both cell coordinates and image.
     def update_camera_cell_list(self) -> None:
         self.current_autopatcher.calibrated_unit.camera.cell_list = []
         for cell, img in self.cells_to_patch:
             camera_pos = -cell + self.current_autopatcher.calibrated_stage.reference_position()
-            self.current_autopatcher.calibrated_unit.camera.cell_list.append(camera_pos[0:2].astype(int))
+            # Append a tuple of (coordinates, image)
+            self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img))
             
 
     @command(category='Patch',

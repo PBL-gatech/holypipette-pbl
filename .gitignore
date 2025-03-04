@@ -54,3 +54,5 @@ pressure/recordings/~$pressure.xlsx
 /robomimic_datasets
 C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\log_data\logs_2025_02_13.csv
 /holypipette/deepLearning/pipetteModel/example-pictures
+/holypipette/devices/camera/FakeMicroscopeImgs/mask_images
+/holypipette/devices/camera/FakeMicroscopeImgs/mask_images

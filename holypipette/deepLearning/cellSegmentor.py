@@ -16,7 +16,7 @@ import logging
 #sam2 imports
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-sys.path.append('//Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/deepLearning/cellModel/sam2/sam2/configs/sam2.1/sam2.1_hiera_t.yaml')
+sys.path.append(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\sam2\configs\sam2.1\sam2.1_hiera_t.yaml")
 
 class CellSegmentor:  
     def __init__(self, sam_checkpoint = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\MobileSAM\weights\mobile_sam.pt", model_type="vit_t", device="cuda"):

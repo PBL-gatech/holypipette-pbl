@@ -199,9 +199,9 @@ class CalibratedUnit(ManipulatorUnit):
         # if not self.calibrated:
         #     raise CalibrationError
         pos_um = self.position() # position vector (um) in manipulator unit system
-        print(f"pipette position: {pos_um}")
+        self.debug(f"pipette position: {pos_um}")
         pipette_pos_pixels = self.um_to_pixels(pos_um) 
-        print(f"pipette position in pixels: {pipette_pos_pixels}")
+        self.debug(f"pipette position in pixels: {pipette_pos_pixels}")
         if include_offset:
             pos_pixels = self.um_to_pixels(pos_um) + self.stage.reference_position() + self.emperical_offset
         else:
@@ -217,23 +217,23 @@ class CalibratedUnit(ManipulatorUnit):
         r : XYZ position vector in um
 
         '''
-
+        self.abort_if_requested()
         if np.isnan(np.array(pos_pixels)).any():
             raise RuntimeError("can not move to nan location.")
         
         if isinstance(self, CalibratedStage) or isinstance(self, FixedStage):
-            print(f'desired position: {pos_pixels}')
-            print(f'Stage reference position: {self.stage.reference_position()}')
+            self.debug(f'desired position: {pos_pixels}')
+            self.debug(f'Stage reference position: {self.stage.reference_position()}')
             pos_micron = self.pixels_to_um(pos_pixels - self.stage.reference_position()) # position vector (um) in manipulator unit system
-            print(f'Position in um: {pos_micron}')
+            self.debug(f'Position in um: {pos_micron}')
             self.absolute_move(pos_micron)
             self.wait_until_still()
             return
         else:
-            print(f'desired position: {pos_pixels}')
-            print(f'Stage reference position (used for pipette calibration): {self.stage.reference_position()}')
+            self.debug(f'desired position: {pos_pixels}')
+            self.debug(f'Stage reference position (used for pipette calibration): {self.stage.reference_position()}')
             pos_micron = self.pixels_to_um(pos_pixels - self.stage.reference_position())
-            print(f'Position in um: {pos_micron}')
+            self.debug(f'Position in um: {pos_micron}')
             self.absolute_move(pos_micron)
             self.wait_until_still()
             return
@@ -256,7 +256,8 @@ class CalibratedUnit(ManipulatorUnit):
     def autofocus_pipette(self):
         '''Use the microscope image to put the pipette in focus
         '''
-        print('Autofocusing pipette')
+        self.debug('Autofocusing pipette')
+        self.abort_if_requested()
         self.pipetteFocusHelper.focus()
 
     def safe_move(self, r):
@@ -273,7 +274,7 @@ class CalibratedUnit(ManipulatorUnit):
             raise CalibrationError
         if self.must_be_recalibrated:
             raise CalibrationError('Pipette offsets must be recalibrated')
-
+        self.abort_if_requested()
         self.reference_move(r) # Or relative move in manipulator coordinates, first axis (faster)
 
     def pixel_per_um(self, M=None):
@@ -319,7 +320,7 @@ class CalibratedUnit(ManipulatorUnit):
         else:
             raise ValueError("Invalid axis. Please choose 0 (X), 1 (Y), or 2 (Z).")
         rotated = np.dot(R, coordinates)
-        print(f"Rotated coordinates: {rotated}")
+        self.debug(f"Rotated coordinates: {rotated}")
         return rotated
         
 
@@ -327,6 +328,7 @@ class CalibratedUnit(ManipulatorUnit):
         '''
         Calibrate the pipette using YOLO object detection and pipette encoders to create a um -> pixels transformation matrix
         '''
+        self.abort_if_requested()
         self.pipetteCalHelper.collect_cal_points()
         self.finish_calibration()
 
@@ -335,10 +337,11 @@ class CalibratedUnit(ManipulatorUnit):
         """
         Moves the pipette so that its detected position in the camera image is centered.
         """
+        self.abort_if_requested()
         # (1) Retrieve an image from the raw frame queue.
         _, _, _, img = self.camera.raw_frame_queue[0]
         h, w = img.shape[:2]
-        # print("DEBUG: Camera image dimensions: width =", w, "height =", h)
+        # self.debug("DEBUG: Camera image dimensions: width =", w, "height =", h)
         
         # (2) Get the detected pipette position (in pixels) from the deep-learning finder.
         detected_px = self.pipetteCalHelper.pipetteFinder.find_pipette(img)
@@ -349,32 +352,32 @@ class CalibratedUnit(ManipulatorUnit):
         # Ensure the detected position is expressed as a 3D vector.
         if detected_px.size == 2:
             detected_px = np.append(detected_px, 0)
-        # print("DEBUG: Detected pipette position (pixels):", detected_px)
+        # self.debug("DEBUG: Detected pipette position (pixels):", detected_px)
         
         # (3) Define the desired pipette position as the center of the image.
         # For planar calibration, we set the z-coordinate to 0.
         desired_px = np.array([w / 2.0, h / 2.0, 0])
-        # print("DEBUG: Desired pipette position (image center):", desired_px)
+        # self.debug("DEBUG: Desired pipette position (image center):", desired_px)
         
         # (4) Compute the pixel error (desired minus detected).
         error_px = desired_px - detected_px
-        # print("DEBUG: Pixel error (desired - detected):", error_px)
+        # self.debug("DEBUG: Pixel error (desired - detected):", error_px)
         
         # (5) Convert the pixel error into a correction (in microns).
         # pixels_to_um_relative() expects a 3-element vector.
         error_um = self.pixels_to_um_relative(error_px)
-        # print("DEBUG: Correction in microns (from pixel error):", error_um)
+        # self.debug("DEBUG: Correction in microns (from pixel error):", error_um)
         
         # (6) Get the current manipulator (pipette) position (in microns) and compute the target.
         current_um = self.position()
-        # print("DEBUG: Current manipulator position (um):", current_um)
+        # self.debug("DEBUG: Current manipulator position (um):", current_um)
         target_um = current_um + error_um
-        # print("DEBUG: Computed target manipulator position (um):", target_um)
+        # self.debug("DEBUG: Computed target manipulator position (um):", target_um)
         
         # (7) Command the move and wait until the unit is still.
         self.absolute_move(target_um.tolist())
         self.wait_until_still()
-        # print("DEBUG: Centering move complete.")
+        # self.debug("DEBUG: Centering move complete.")
 
 
     def record_cal_point(self):
@@ -399,8 +402,8 @@ class CalibratedUnit(ManipulatorUnit):
         # *** Compute the (pseudo-)inverse ***
         mat_inv = pinv(mat)
 
-        print(f'calibration matrix: {mat}')
-        print('inv : ', mat_inv)
+        self.debug(f'calibration matrix: {mat}')
+        self.debug('inv : ', mat_inv)
 
         # store r0 and r0_inv
         self.r0 = -mat[0:3, 3] #um -> pixels offset
@@ -417,12 +420,12 @@ class CalibratedUnit(ManipulatorUnit):
         if isnan(self.M).any() or isnan(self.Minv).any():
             raise CalibrationError('Matrix contains NaN values')
 
-        print('Calibration Successful!')
-        print('M: ', self.M)
-        print('r0: ', self.r0)
-        print()
-        print('Minv: ', self.Minv)
-        print('r0_inv: ', self.r0_inv)
+        self.debug('Calibration Successful!')
+        self.debug('M: ', self.M)
+        self.debug('r0: ', self.r0)
+        self.debug()
+        self.debug('Minv: ', self.Minv)
+        self.debug('r0_inv: ', self.r0_inv)
 
         self.calibrated = True
         self.must_be_recalibrated = False
@@ -434,7 +437,7 @@ class CalibratedUnit(ManipulatorUnit):
         if self.M is None or self.Minv is None:
             raise Exception("initial calibration required for single point recalibration!")
         
-        print('recalculating piptte offsets...')
+        self.debug('recalculating piptte offsets...')
         emperical_poses = []
         for i in range(10):
             _, _, _, frame = self.camera.raw_frame_queue[0]
@@ -443,14 +446,14 @@ class CalibratedUnit(ManipulatorUnit):
                 emperical_poses.append([pos[0], pos[1]])
         
         if len(emperical_poses) == 0:
-            print('No pipette found in image, can\'t run correction')
+            self.debug('No pipette found in image, can\'t run correction')
             return
         
         new_offset = np.zeros(3)
         pos_pixels_emperical = np.median(emperical_poses, axis=0)
         pos_pixels_emperical = np.append(pos_pixels_emperical, self.microscope.position())
         new_offset = pos_pixels_emperical - self.um_to_pixels_relative(self.dev.position()) - self.stage.reference_position()
-        print('Old offsets: ', self.r0, self.r0_inv)
+        self.debug('Old offsets: ', self.r0, self.r0_inv)
 
         self.r0 = np.array(new_offset)
 
@@ -470,7 +473,7 @@ class CalibratedUnit(ManipulatorUnit):
         self.calibrated = True
         self.must_be_recalibrated = False
 
-        print('New offsets: ', self.r0, self.r0_inv)
+        self.debug('New offsets: ', self.r0, self.r0_inv)
 
     def follow_stage(self, movement = 250):
         '''
@@ -554,7 +557,7 @@ class CalibratedStage(CalibratedUnit):
 
         #append 0 for z
         posDelta = np.append(posDelta, 0)
-        # print(f'DEBUG: stage reference position: {posDelta}')
+        # self.debug(f'DEBUG: stage reference position: {posDelta}')
 
         return posDelta
 
@@ -576,7 +579,7 @@ class CalibratedStage(CalibratedUnit):
         # r from pyQt has origin at the center of the image, move origin to the top left corner (as expected by calibration)
         r = np.array(r)
         r = r + np.array([self.camera.width // 2, self.camera.height // 2, 0])
-
+        self.abort_if_requested()
         self.reference_move(r) # Or relative move in manipulator coordinates, first axis (faster)
 
 
@@ -593,7 +596,7 @@ class CalibratedStage(CalibratedUnit):
         if self.must_be_recalibrated:
             raise CalibrationError('Pipette offsets must be recalibrated')
 
-            
+        self.abort_if_requested()
         pos_microns = dot(self.Minv, pos_pix)
         self.relative_move(pos_microns)
 
@@ -604,7 +607,7 @@ class CalibratedStage(CalibratedUnit):
         '''
         if not self.stage.calibrated:
             self.stage.calibrate()
-
+        
         self.info('Preparing stage calibration')
         # self.info("auto focusing microscope...")
         # self.focusHelper.autofocus(dist=self.config.autofocus_dist)

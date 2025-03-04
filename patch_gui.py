@@ -19,7 +19,7 @@ from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
 from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 from holypipette.gui.patch import PatchGui
-from experiments.Analysis.DatasetBuilder import DatasetBuilder
+# from experiments.Analysis.DatasetBuilder import DatasetBuilder
 
 
 
