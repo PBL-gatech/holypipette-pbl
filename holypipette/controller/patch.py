@@ -50,6 +50,7 @@ class AutoPatcher(TaskController):
         self.break_in_failed = False
         self.first_res = None
         self.atm = False
+        self.done = False
         
 
         self.current_protocol_graph = None
@@ -73,6 +74,7 @@ class AutoPatcher(TaskController):
             self.sleep(0.25)
         if self.config.holding_protocol:
             self.run_holding_protocol()
+        self.done = True
 
     def run_voltage_protocol(self):
         self.info('Running voltage protocol (membrane test)')
@@ -303,7 +305,7 @@ class AutoPatcher(TaskController):
                 # we have moved expected um down and still no cell detected
                 self.calibrated_unit.stop()
                 self.info("No cell detected")
-                self.hunt_cell_failed = True
+                self.done = True
                 self.escape()
                 break
             elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
@@ -324,7 +326,7 @@ class AutoPatcher(TaskController):
             self.amplifier.stop_patch()
             self.calibrated_unit.stop()
             self.microscope.stop()
-            self.move_group_up(10)
+            self.move_group_up(20)
             self.pressure.set_pressure(50)
             self.move_to_home_space()
             self.clean_pipette()
@@ -361,6 +363,7 @@ class AutoPatcher(TaskController):
                 self.amplifier.stop_patch()
                 self.pressure.set_pressure(20)
                 self.amplifier.switch_holding(False)
+                self.done = True
                 # self.escape()
                 raise AutopatchError("Seal unsuccessful: no significant resistance improvement.")
 
@@ -432,6 +435,7 @@ class AutoPatcher(TaskController):
         
         # Check if the gigaseal is lost
         if measuredResistance is not None and measuredResistance < self.config.max_cell_R*1e-6:
+            self.done = True
             raise AutopatchError("Seal lost")
         
         trials = 0
@@ -474,8 +478,9 @@ class AutoPatcher(TaskController):
             
             # Fail after too many attempts.
             if trials > 15:
+
                 self.info("Break-in unsuccessful")
-                self.break_in_failed = True
+                self.done = True
             #     self.escape()
                 raise AutopatchError("Break-in unsuccessful")
         
@@ -518,7 +523,6 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.stop()
 
         return cellThreshold <= r_delta
-
 
     def patch(self, cell=None):
         '''

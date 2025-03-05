@@ -35,6 +35,7 @@ class AutoPatchInterface(TaskInterface):
 
         self.is_selecting_cells = False
         self.cells_to_patch = []
+        self.done = self.current_autopatcher.done
 
         #call update_camera_cell_list every 0.05 seconds using a QTimer
         self.timer = QtCore.QTimer()
@@ -76,6 +77,7 @@ class AutoPatchInterface(TaskInterface):
             task_description='Run Protocols on the Cell')
     def run_protocols(self):
         self.execute(self.current_autopatcher.run_protocols)
+    
     
 
     @command(category='Patch', description='Add a mouse position to the list of cells to patch')
@@ -171,6 +173,13 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
     
+    @command(category='Recording',
+             description='Check to see if one of the patch methods is complete, whether failed or successful',
+             success_message='Patch method complete')
+    def check_done(self) -> bool:
+        self.done = self.current_autopatcher.done
+        self.current_autopatcher.done = False
+        return self.done()
 
     @command(category='Patch',
              description='Store the position of the rinsing bath',

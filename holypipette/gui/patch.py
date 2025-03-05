@@ -344,6 +344,11 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
+        # create a timer to check if recording should be stopped by using self.patch_interface.check_done()
+        self.recording_timer = QtCore.QTimer()
+        self.recording_timer.timeout.connect(self.patch_interface.check_done())
+        self.recording_timer.start(1000)
+
         # Add position boxes using the updated methods (which use CollapsibleGroupBox)
         self.positionAndTareBox(
             'stage position (um)',
@@ -428,6 +433,10 @@ class SemiAutoPatchButtons(ButtonTabWidget):
             self.stop_recording()
         else:
             self.start_recording()
+
+    def check_done(self):
+        if self.patch_interface.check_done():
+            self.toggle_recording()
 
     def start_recording(self):
         self.recording_state_manager.set_recording(True)
