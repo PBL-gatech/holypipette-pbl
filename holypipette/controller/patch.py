@@ -49,6 +49,7 @@ class AutoPatcher(TaskController):
         self.gigaseal_failed = False
         self.break_in_failed = False
         self.first_res = None
+        self.atm = False
         
 
         self.current_protocol_graph = None
@@ -193,7 +194,6 @@ class AutoPatcher(TaskController):
             raise AutopatchError("No cell given to patch!")
         
         # regional pipette localization: 
-
         # move stage and pipette to safe space
         self.info("Moving to safe space")
         self.move_to_safe_space()
@@ -309,6 +309,7 @@ class AutoPatcher(TaskController):
             elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
                 self.calibrated_unit.stop()
                 self.info("Cell Detected")
+                self.pressure.set_ATM(atm=True)
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
             self.sleep(0.04)
@@ -335,7 +336,7 @@ class AutoPatcher(TaskController):
 
     def gigaseal(self):
         self.info("Attempting to form gigaseal...")
-        self.pressure.set_ATM()
+        self.pressure.set_ATM(atm=True)
         self.sleep(3)
 
         # Use a deque to hold the last 5 resistance measurements.
@@ -349,6 +350,9 @@ class AutoPatcher(TaskController):
         max_resistance = avg_resistance  # Best averaged resistance observed.
         last_progress_time = time.time()
 
+        self.pressure.set_pressure(-5)
+        self.pressure.set_ATM(atm=False)
+
         while avg_resistance < self.config.gigaseal_R and self.abort_requested == False:
             current_time = time.time()
 
@@ -356,24 +360,38 @@ class AutoPatcher(TaskController):
             if current_time - last_progress_time >= self.config.seal_deadline:
                 self.amplifier.stop_patch()
                 self.pressure.set_pressure(20)
-                self.escape()
+                self.amplifier.switch_holding(False)
+                # self.escape()
                 raise AutopatchError("Seal unsuccessful: no significant resistance improvement.")
 
             # Pressure management.
             currPressure = self.pressure.get_pressure()
-            if currPressure < -40:
-                self.pressure.set_ATM()
+            if currPressure < -80:
+                self.atm = True
+                self.pressure.set_ATM(self.atm)
                 self.sleep(0.5)
                 self.info("Pressure reset to ATM")
+            else:
+                # ensure atm is false
+                if self.atm:
+                    # reset pressure to -5 mbar
+                    self.pressure.set_pressure(-15)
+                    self.sleep(0.05)
+                    self.atm = False
+                    self.info("Pressure reset to -15 mbar")
+                    self.pressure.set_ATM(self.atm)
+                    self.sleep(1)
 
             # Apply holding potential if resistance shows an early sign.
             if avg_resistance > self.config.gigaseal_R / 10:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
+                self.amplifier.switch_holding(True)
 
             # Lower pressure gradually.
-            self.sleep(0.75)
-            currPressure -= 5
-            self.pressure.set_pressure(currPressure)
+            if not self.atm:
+                self.sleep(0.75)
+                currPressure -= 10
+                self.pressure.set_pressure(currPressure)
 
             # Update the deque with a new resistance reading.
             new_reading = self.daq.resistance()
@@ -385,63 +403,83 @@ class AutoPatcher(TaskController):
                 max_resistance = avg_resistance
                 last_progress_time = current_time
 
-        self.pressure.set_ATM()
+        self.pressure.set_ATM(atm=True)
         self.info("Seal successful, R = " + str(self.daq.resistance() / 1e6))
 
     def break_in(self):
         '''
-        Breaks in. The pipette must be in cell-attached mode
+        Breaks in. The pipette must be in cell-attached mode.
         '''
-        self.info(" Attempting Break in...")
-        measuredResistance = self.daq.resistance()
-        # if R is not None and R < self.config.gigaseal_R:
-        #     raise AutopatchError("Seal lost")
+        self.info("Attempting Break in...")
+        self.pressure.set_ATM(atm=True)
+        self.sleep(3)
+        self.pressure.set_pressure(self.config.pulse_pressure_break_in)
 
-        # Use a deque to hold the last 5 resistance measurements.
+        # Use deques to hold the last 5 measurements for running averages.
         lastResDeque = collections.deque(maxlen=5)
         lastCapDeque = collections.deque(maxlen=5)
-        # Prime the deque with initial measurements.
+
+        # Prime the deques with initial measurements.
         for _ in range(5):
             lastResDeque.append(self.daq.resistance())
             lastCapDeque.append(self.daq.capacitance())
             self.sleep(0.01)
-        R = sum(lastResDeque) / len(lastResDeque)
-        C = sum(lastCapDeque) / len(lastCapDeque)
-        measuredResistance = R
-        measuredCapacitance = C
-        if R is not None and R < self.config.gigaseal_R:
+        
+        measuredResistance = sum(lastResDeque) / len(lastResDeque)
+        measuredCapacitance = sum(lastCapDeque) / len(lastCapDeque)
+        self.info(f"Initial Resistance: {measuredResistance}, Capacitance: {measuredCapacitance}")
+        self.debug(f"target resistance: {self.config.max_cell_R}, target capacitance: {self.config.min_cell_C}")
+        
+        # Check if the gigaseal is lost
+        if measuredResistance is not None and measuredResistance < self.config.max_cell_R*1e-6:
             raise AutopatchError("Seal lost")
-
-        pressure = 0
+        
         trials = 0
 
-        while self.daq.resistance() > self.config.max_cell_R and self.daq.capacitance() < self.config.min_cell_C:  # Success when resistance goes below 300 MOhm
+        # Loop until both break-in conditions are met.
+        # Adjusted to use the running averages:
+        #   - Resistance must be below self.config.max_cell_R
+        #   - Capacitance must be above self.config.min_cell_C
+        while measuredResistance > self.config.max_cell_R*1e-6 or measuredCapacitance < self.config.min_cell_C*1e-12:
             trials += 1
-
             self.debug(f"Trial: {trials}")
-
-            self.pressure.set_pressure(self.config.pulse_pressure_break_in)
-            self.sleep(0.05)
-            self.pressure.set_ATM()
             
-            # pressure += self.config.pressure_ramp_increment
-            # if abs(pressure) > abs(self.config.pressure_ramp_max):
-            #     raise AutopatchError("Break-in unsuccessful")
-
-            if self.config.zap and trials > 3:
-                self.debug('zapping')
+            # Apply pressure pulses
+            self.pressure.set_ATM(atm=False)
+            self.sleep(0.25)
+            self.pressure.set_ATM(atm=True)
+            self.sleep(0.75)
+            # Optional zapping after a few trials every 3rd trial
+            osc = trials % 3
+            if self.config.zap and osc == 0:
+                self.info("zapping")
                 self.amplifier.zap()
-            # self.pressure.ramp(amplitude=pressure, duration=self.config.pressure_ramp_duration)
+                self.sleep(0.5)
+                self.amplifier.zap()
+                self.sleep(0.5)
+
             self.sleep(0.05)
-
-            # if trials > 10:
-            #     self.info("Break-in unsuccessful")
-            #     self.break_in_failed = True
+            
+            # Take new measurements and update the deques.
+            newResistance = self.daq.resistance()
+            newCapacitance = self.daq.capacitance()
+            lastResDeque.append(newResistance)
+            lastCapDeque.append(newCapacitance)
+            
+            # Compute running averages over the last 5 values.
+            measuredResistance = sum(lastResDeque) / len(lastResDeque)
+            measuredCapacitance = sum(lastCapDeque) / len(lastCapDeque)
+            
+            self.info(f"Trial {trials}: Running Avg Resistance: {measuredResistance}, Capacitance: {measuredCapacitance}")
+            
+            # Fail after too many attempts.
+            if trials > 15:
+                self.info("Break-in unsuccessful")
+                self.break_in_failed = True
             #     self.escape()
-            #     raise AutopatchError("Break-in unsuccessful")
-
-
-        self.info("Successful break-in, R = " + str(self.daq.resistance() / 1e6))
+                raise AutopatchError("Break-in unsuccessful")
+        
+        self.info("Successful break-in, Running Avg Resistance = " + str(measuredResistance))
 
     def _verify_resistance(self):
         return # * just for testing TODO: remove
