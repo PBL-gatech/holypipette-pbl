@@ -128,13 +128,23 @@ class AutoPatchInterface(TaskInterface):
                 
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
-
     def patch(self) -> None:
         cell, img = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.patch,
                      argument=(cell, img))
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
+
+    @blocking_command(category='Patch',
+                        description='Locate the cell',
+                        task_description='Moving to the cell')
+    def locate_cell(self):
+        cell, img = self.cells_to_patch[0]
+        self.execute(self.current_autopatcher.locate_cell,
+                      argument = (cell, img))
+        time.sleep(2)
+        self.cells_to_patch = self.cells_to_patch[1:]
+    
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')

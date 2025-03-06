@@ -180,22 +180,11 @@ class AutoPatcher(TaskController):
             self.rig_ready = False
             raise e
         
-
-    def hunt_cell(self,cell = None):
+    def locate_cell(self, cell):
         '''
-        Moves the pipette down to cell plane and detects a cell using resistance measurements
+        Performs regional pipette localization to bring pipette above the cell.
         '''
-        self.info("Hunting for cell")
-        
-        self.isrigready()
-
-        if self.rig_ready == False:
-            raise AutopatchError("Rig not ready for cell hunting")
-        
-        if cell is None:
-            raise AutopatchError("No cell given to patch!")
-        
-        # regional pipette localization: 
+         # regional pipette localization: 
         # move stage and pipette to safe space
         self.info("Moving to safe space")
         self.move_to_safe_space()
@@ -210,13 +199,10 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
         
-        # self.calibrated_stage.wait_until_still()
-        # self.calibrated_unit.wait_until_still()
-        # center pipette and stage on cell XY
+        # move to cell position 
         cell_pos, cell_img = cell
-        # print(f"Cell img: {cell_img}")
 
-        self.info(f" Moving to Cell position: {cell_pos}") # in um i think?
+        self.info(f" Moving to Cell position: {cell_pos}") 
         # moving stage to xy position of cell
         # home position
         cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
@@ -278,6 +264,33 @@ class AutoPatcher(TaskController):
         self.microscope.move_to_floor()
         self.microscope.wait_until_still()
         self.info("Located Cell")
+
+
+    def hunt_cell(self,cell = None):
+        '''
+        Moves the pipette down to cell plane and detects a cell using resistance measurements
+        '''
+        self.info("Hunting for cell")
+        
+        self.isrigready()
+
+        if self.rig_ready == False:
+            raise AutopatchError("Rig not ready for cell hunting")
+        
+        if cell is None:
+            raise AutopatchError("No cell given to patch!")
+        
+        stage_pos = self.calibrated_stage.position()
+        # if the stage position is within 10 um of the cell position in the xy-plane, we are already at the cell
+        cell_pos, cell_img = cell
+        cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
+        stage_pos = np.array([stage_pos[0], stage_pos[1], 0])
+        dist = np.linalg.norm(cell_pos - stage_pos)
+        if dist < 20:
+            self.info("Already at cell position")
+        else:
+            self.locate_cell(cell)
+
 
         # # #ensure "near cell" pressure
         self.info(f"Setting pressure to {self.config.pressure_near} mbar")

@@ -391,8 +391,8 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         self.addButtonList('movement', layout, buttonList, cmds)
 
         # Add a box for patching commands
-        buttonList = [['Select Cell','Remove Last Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell']]
-        cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell],
+        buttonList = [['Select Cell','Remove Last Cell','Locate Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell']]
+        cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.locate_cell],
                 [[self.patch_interface.hunt_cell,self.toggle_recording],self.patch_interface.gigaseal],
                 [self.patch_interface.break_in,[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]],
                 [[self.toggle_recording,self.patch_interface.patch]]
