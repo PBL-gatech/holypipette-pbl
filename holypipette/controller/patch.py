@@ -316,7 +316,7 @@ class AutoPatcher(TaskController):
             R += self.daq.resistance()
         self.first_res = R/5
         self.info(f"Initial resistance: {self.first_res}")
-
+        # self.info (Manual: starting hunt)
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
@@ -425,7 +425,7 @@ class AutoPatcher(TaskController):
                 last_progress_time = current_time
 
         self.pressure.set_ATM(atm=True)
-        self.info("Seal successful, R = " + str(self.daq.resistance() / 1e6))
+        self.info("Seal successful: R = " + str(self.daq.resistance() / 1e6))
 
     def break_in(self):
         '''
@@ -448,8 +448,8 @@ class AutoPatcher(TaskController):
         
         measuredResistance = sum(lastResDeque) / len(lastResDeque)
         measuredCapacitance = sum(lastCapDeque) / len(lastCapDeque)
-        self.info(f"Initial Resistance: {measuredResistance}, Capacitance: {measuredCapacitance}")
-        self.debug(f"target resistance: {self.config.max_cell_R}, target capacitance: {self.config.min_cell_C}")
+        self.info(f"Initial Resistance: {measuredResistance}; Capacitance: {measuredCapacitance}")
+        self.debug(f"target resistance: {self.config.max_cell_R}; target capacitance: {self.config.min_cell_C}")
         
         # Check if the gigaseal is lost
         if measuredResistance is not None and measuredResistance < self.config.max_cell_R*1e-6:
@@ -492,7 +492,7 @@ class AutoPatcher(TaskController):
             measuredResistance = sum(lastResDeque) / len(lastResDeque)
             measuredCapacitance = sum(lastCapDeque) / len(lastCapDeque)
             
-            self.info(f"Trial {trials}: Running Avg Resistance: {measuredResistance}, Capacitance: {measuredCapacitance}")
+            self.info(f"Trial {trials}: Running Avg Resistance: {measuredResistance}; Capacitance: {measuredCapacitance}")
             
             # Fail after too many attempts.
             if trials > 15:
@@ -537,7 +537,7 @@ class AutoPatcher(TaskController):
         # self.info(f"Cell detected, resistance: {r_delta}")
         detected = cellThreshold <= r_delta
         if detected:
-            self.info(f"Cell detected: {detected}, resistance: {r_delta}")
+            self.info(f"Cell detected: {detected}; resistance: {r_delta}")
             self.calibrated_unit.stop()
 
         return cellThreshold <= r_delta
@@ -587,6 +587,7 @@ class AutoPatcher(TaskController):
         if self.safe_position is None:
             raise ValueError('Safe position has not been set')
 
+
         try:
             # Extract individual coordinates from the safe position
             safe_x, safe_y, safe_z = self.safe_position
@@ -618,7 +619,7 @@ class AutoPatcher(TaskController):
         
     def move_to_home_space(self):
         '''
-        Moves the pipette to the home space.
+        Moves the pipette and stage to the home space.
         '''
         if self.home_position is None:
             raise ValueError('Home position has not been set')

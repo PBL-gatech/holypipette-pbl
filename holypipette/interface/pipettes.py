@@ -122,7 +122,8 @@ class PipetteInterface(TaskInterface):
              default_arg=-500)
     def move_pipette_xyz(self, distance):
         # currently utilized for automatic safe space saving
-        distance = np.array([distance,0,distance])
+        angle = (np.radians(25))
+        distance = np.array([distance*np.cos(angle),0,distance*np.sin(angle)])
         self.calibrated_unit.relative_move(distance)
         
     @command(category='Microscope',

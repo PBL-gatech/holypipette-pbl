@@ -394,6 +394,8 @@ class SemiAutoPatchButtons(ButtonTabWidget):
             tare_func=self.tare_pipette
         )
 
+        self.stage_calibration = [self.pipette_interface.set_floor, self.pipette_interface.calibrate_stage, self.pipette_interface.move_microscope]
+        self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_home_position, self.pipette_interface.move_pipette_xyz]
         # # Add box to emit patching states
         # buttonList = [['Cell Found', 'Gigaseal Reached', 'Whole Cell Achieved'], ['Patch Attempt Start', 'Patch Attempt Failed']]
         # cmds = [
@@ -403,9 +405,8 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         # self.addButtonList('patching states', layout, buttonList, cmds)
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Safe Position','Store Home Position'],['Store Cleaning Position']]
-        cmds = [[[self.pipette_interface.set_floor,self.pipette_interface.calibrate_stage,self.pipette_interface.move_microscope], self.pipette_interface.calibrate_manipulator], 
-                [self.patch_interface.store_safe_position,self.patch_interface.store_home_position],
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position']]
+        cmds = [[self.stage_calibration, self.pipette_calibration],
                 [self.patch_interface.store_cleaning_position]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds,sequential=True)
