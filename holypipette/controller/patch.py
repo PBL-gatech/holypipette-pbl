@@ -309,25 +309,25 @@ class AutoPatcher(TaskController):
         # move pipette down at 5um/s and check reistance every 40 ms
         # get starting position 
         start_pos = self.calibrated_unit.position()
-        self.info("starting descent....")
-        self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
+        # self.info("starting descent....")
+        # self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
         R = 0
         for i in range(5):
             R += self.daq.resistance()
         self.first_res = R/5
         self.info(f"Initial resistance: {self.first_res}")
-        # self.info (Manual: starting hunt)
+        self.info ("Manual: starting hunt")
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
                 # we have moved expected um down and still no cell detected
-                self.calibrated_unit.stop()
+                # self.calibrated_unit.stop()
                 self.info("No cell detected")
                 # self.done = True
                 self.escape()
                 break
             elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
-                self.calibrated_unit.stop()
+                # self.calibrated_unit.stop()
                 self.info("Cell Detected")
                 self.pressure.set_ATM(atm=True)
                 break
@@ -385,34 +385,34 @@ class AutoPatcher(TaskController):
                 # self.escape()
                 raise AutopatchError("Seal unsuccessful: no significant resistance improvement.")
 
-            # Pressure management.
-            currPressure = self.pressure.get_pressure()
-            if currPressure < -80:
-                self.atm = True
-                self.pressure.set_ATM(self.atm)
-                self.sleep(0.5)
-                self.info("Pressure reset to ATM")
-            else:
-                # ensure atm is false
-                if self.atm:
-                    # reset pressure to -5 mbar
-                    self.pressure.set_pressure(-15)
-                    self.sleep(0.05)
-                    self.atm = False
-                    self.info("Pressure reset to -15 mbar")
-                    self.pressure.set_ATM(self.atm)
-                    self.sleep(1)
+            # # Pressure management.
+            # currPressure = self.pressure.get_pressure()
+            # if currPressure < -80:
+            #     self.atm = True
+            #     self.pressure.set_ATM(self.atm)
+            #     self.sleep(0.5)
+            #     self.info("Pressure reset to ATM")
+            # else:
+            #     # ensure atm is false
+            #     if self.atm:
+            #         # reset pressure to -5 mbar
+            #         self.pressure.set_pressure(-15)
+            #         self.sleep(0.05)
+            #         self.atm = False
+            #         self.info("Pressure reset to -15 mbar")
+            #         self.pressure.set_ATM(self.atm)
+            #         self.sleep(1)
 
             # Apply holding potential if resistance shows an early sign.
             if avg_resistance > self.config.gigaseal_R / 10:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
                 self.amplifier.switch_holding(True)
 
-            # Lower pressure gradually.
-            if not self.atm:
-                self.sleep(0.75)
-                currPressure -= 10
-                self.pressure.set_pressure(currPressure)
+            # # Lower pressure gradually.
+            # if not self.atm:
+            #     self.sleep(0.75)
+            #     currPressure -= 10
+            #     self.pressure.set_pressure(currPressure)
 
             # Update the deque with a new resistance reading.
             new_reading = self.daq.resistance()
@@ -463,24 +463,24 @@ class AutoPatcher(TaskController):
         #   - Resistance must be below self.config.max_cell_R
         #   - Capacitance must be above self.config.min_cell_C
         while measuredResistance > self.config.max_cell_R*1e-6 or measuredCapacitance < self.config.min_cell_C*1e-12:
-            trials += 1
-            self.debug(f"Trial: {trials}")
+            # trials += 1
+            # self.debug(f"Trial: {trials}")
             
-            # Apply pressure pulses
-            self.pressure.set_ATM(atm=False)
-            self.sleep(0.25)
-            self.pressure.set_ATM(atm=True)
-            self.sleep(0.75)
-            # Optional zapping after a few trials every 3rd trial
-            osc = trials % 3
-            if self.config.zap and osc == 0:
-                self.info("zapping")
-                self.amplifier.zap()
-                self.sleep(0.5)
-                self.amplifier.zap()
-                self.sleep(0.5)
+            # # Apply pressure pulses
+            # self.pressure.set_ATM(atm=False)
+            # self.sleep(0.25)
+            # self.pressure.set_ATM(atm=True)
+            # self.sleep(0.75)
+            # # Optional zapping after a few trials every 3rd trial
+            # osc = trials % 3
+            # if self.config.zap and osc == 0:
+            #     self.info("zapping")
+            #     self.amplifier.zap()
+            #     self.sleep(0.5)
+            #     self.amplifier.zap()
+            #     self.sleep(0.5)
 
-            self.sleep(0.05)
+            # self.sleep(0.05)
             
             # Take new measurements and update the deques.
             newResistance = self.daq.resistance()
@@ -492,29 +492,29 @@ class AutoPatcher(TaskController):
             measuredResistance = sum(lastResDeque) / len(lastResDeque)
             measuredCapacitance = sum(lastCapDeque) / len(lastCapDeque)
             
-            self.info(f"Trial {trials}: Running Avg Resistance: {measuredResistance}; Capacitance: {measuredCapacitance}")
+            # self.info(f"Trial {trials}: Running Avg Resistance: {measuredResistance}; Capacitance: {measuredCapacitance}")
             
-            # Fail after too many attempts.
-            if trials > 15:
+            # # Fail after too many attempts.
+            # if trials > 15:
 
-                self.info("Break-in unsuccessful")
-                # self.done = True
-            #     self.escape()
-                raise AutopatchError("Break-in unsuccessful")
+            #     self.info("Break-in unsuccessful")
+            #     # self.done = True
+            # #     self.escape()
+            #     raise AutopatchError("Break-in unsuccessful")
         
         self.info("Successful break-in, Running Avg Resistance = " + str(measuredResistance))
 
-    def _verify_resistance(self):
-        return # * just for testing TODO: remove
+    # def _verify_resistance(self):
+    #     return # * just for testing TODO: remove
 
-        R = self.daq.resistance()
+    #     R = self.daq.resistance()
 
-        if R < self.config.min_R:
-            # print("Resistance is too low (broken tip?)")
-            raise AutopatchError("Resistance is too low (broken tip?)")
-        elif self.config.max_R < R:
-            # print("Resistance is too high (obstructed?)")
-            raise AutopatchError("Resistance is too high (obstructed?)")
+    #     if R < self.config.min_R:
+    #         # print("Resistance is too low (broken tip?)")
+    #         raise AutopatchError("Resistance is too low (broken tip?)")
+    #     elif self.config.max_R < R:
+    #         # print("Resistance is too high (obstructed?)")
+    #         raise AutopatchError("Resistance is too high (obstructed?)")
         
     def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
