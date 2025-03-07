@@ -54,7 +54,7 @@ class ManipulatorUnit(Manipulator):
         axis : axis number starting at 0; if None, all XYZ axes
         x : target position in um.
         '''
-        self.abort_if_requested()
+
         if axis is None:
             # self.info('Moving axis %s to position %s' % (self.axes[axis], x))
             # then we move all axes
@@ -77,7 +77,7 @@ class ManipulatorUnit(Manipulator):
         '''
         Moves the device axes to positions x in um.
         '''
-        self.abort_if_requested()
+
         # self.info('Moving axes %s to position %s' % (axes, x))
         self.dev.absolute_move_group(x, np.array(self.axes)[axes], speed)
         #self.sleep(.05)
@@ -91,7 +91,7 @@ class ManipulatorUnit(Manipulator):
         axis : axis number starting at 0; if None, all XYZ axes
         x : position shift in um.
         '''
-        self.abort_if_requested()
+        # self.abort_if_requested()
         if axis is None:
             # self.info('Moving axes %s by relative amount %s' % (self.axes, x))
             self.dev.relative_move_group(x, self.axes, speed)
@@ -104,7 +104,7 @@ class ManipulatorUnit(Manipulator):
         '''
         Moves the device in um/s.
         '''
-        self.abort_if_requested()
+
         self.dev.absolute_move_group_velocity(vel)
         # self.sleep(.005)
 

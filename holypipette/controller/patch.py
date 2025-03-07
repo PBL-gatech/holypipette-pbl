@@ -50,7 +50,7 @@ class AutoPatcher(TaskController):
         self.break_in_failed = False
         self.first_res = None
         self.atm = False
-        self.done = False
+        # self.done = False
         
 
         self.current_protocol_graph = None
@@ -74,7 +74,7 @@ class AutoPatcher(TaskController):
             self.sleep(0.25)
         if self.config.holding_protocol:
             self.run_holding_protocol()
-        self.done = True
+        # self.done = True
 
     def run_voltage_protocol(self):
         self.info('Running voltage protocol (membrane test)')
@@ -264,7 +264,12 @@ class AutoPatcher(TaskController):
         self.microscope.move_to_floor()
         self.microscope.wait_until_still()
         self.info("Located Cell")
-
+        # daq operations we need to perform capacitance compensation change measurement model
+        # #setup amp for patching
+        self.amplifier.start_patch()
+        self.sleep(0.1)
+        self.daq.setCellMode(True)
+        self.sleep(0.1)
 
     def hunt_cell(self,cell = None):
         '''
@@ -318,7 +323,7 @@ class AutoPatcher(TaskController):
                 # we have moved expected um down and still no cell detected
                 self.calibrated_unit.stop()
                 self.info("No cell detected")
-                self.done = True
+                # self.done = True
                 self.escape()
                 break
             elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
@@ -376,7 +381,7 @@ class AutoPatcher(TaskController):
                 self.amplifier.stop_patch()
                 self.pressure.set_pressure(20)
                 self.amplifier.switch_holding(False)
-                self.done = True
+                # self.done = True
                 # self.escape()
                 raise AutopatchError("Seal unsuccessful: no significant resistance improvement.")
 
@@ -448,7 +453,7 @@ class AutoPatcher(TaskController):
         
         # Check if the gigaseal is lost
         if measuredResistance is not None and measuredResistance < self.config.max_cell_R*1e-6:
-            self.done = True
+            # self.done = True
             raise AutopatchError("Seal lost")
         
         trials = 0
@@ -493,7 +498,7 @@ class AutoPatcher(TaskController):
             if trials > 15:
 
                 self.info("Break-in unsuccessful")
-                self.done = True
+                # self.done = True
             #     self.escape()
                 raise AutopatchError("Break-in unsuccessful")
         
@@ -553,8 +558,7 @@ class AutoPatcher(TaskController):
         if cell is None:
             raise AutopatchError("No cell given to patch!")
 
-        #setup amp for patching
-        self.amplifier.start_patch()
+        self.info("Starting patching process")
         #! phase 1: hunt for cell
         self.hunt_cell(cell)
         # move a bit further down to make sure we're at the cell

@@ -35,14 +35,14 @@ class AutoPatchInterface(TaskInterface):
 
         self.is_selecting_cells = False
         self.cells_to_patch = []
-        self.done = self.current_autopatcher.done
+        # self.done = self.current_autopatcher.done
 
         #call update_camera_cell_list every 0.05 seconds using a QTimer
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_camera_cell_list)
         self.timer.start(50)
         
-
+    
     @blocking_command(category='Patch', description='Break into the cell',
                       task_description='Breaking into the cell')
     def break_in(self):
@@ -77,7 +77,6 @@ class AutoPatchInterface(TaskInterface):
             task_description='Run Protocols on the Cell')
     def run_protocols(self):
         self.execute(self.current_autopatcher.run_protocols)
-    
     
 
     @command(category='Patch', description='Add a mouse position to the list of cells to patch')
@@ -165,7 +164,6 @@ class AutoPatchInterface(TaskInterface):
                 description='Store the position of the safe space',
                 success_message='Safe space position stored')
     def store_safe_position(self) -> None:
-        
         self.current_autopatcher.safe_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
@@ -176,20 +174,20 @@ class AutoPatchInterface(TaskInterface):
                 description='Store the position of the home space',
                 success_message='Home position stored')
     def store_home_position(self) -> None:
-        
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
     
-    @command(category='Recording',
-             description='Check to see if one of the patch methods is complete, whether failed or successful',
-             success_message='Patch method complete')
-    def check_done(self) -> bool:
-        self.done = self.current_autopatcher.done
-        self.current_autopatcher.done = False
-        return self.done()
+    # @command(category='Recording',
+    #          description='Check to see if one of the patch methods is complete, whether failed or successful',
+    #          success_message='Patch method complete')
+    # def check_done(self) -> bool:
+    #     self.done = self.current_autopatcher.done
+    #     if self.done:
+    #         self.current_autopatcher.done = False
+    #     return self.done
 
     @command(category='Patch',
              description='Store the position of the rinsing bath',

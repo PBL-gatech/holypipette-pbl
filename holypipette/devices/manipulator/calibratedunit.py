@@ -331,6 +331,14 @@ class CalibratedUnit(ManipulatorUnit):
         self.abort_if_requested()
         self.pipetteCalHelper.collect_cal_points()
         self.finish_calibration()
+        # self.center_pipette()
+        # self.wait_until_still()
+        # self.autofocus_pipette()
+        # self.wait_until_still()
+        # self.center_pipette()
+        # self.wait_until_still()
+        # self.autofocus_pipette()
+        # self.wait_until_still()
 
 
     def center_pipette(self):

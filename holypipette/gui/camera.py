@@ -412,6 +412,7 @@ class CameraGui(QtWidgets.QMainWindow):
     camera_signal = QtCore.pyqtSignal(MethodType, object)
     camera_reset_signal = QtCore.pyqtSignal(TaskController)
 
+
     def __init__(self, camera, recording_state_manager, image_edit = None, display_edit = None,
                  with_tracking=False, base_directory='.'):
         super().__init__()
@@ -832,6 +833,7 @@ class CameraGui(QtWidgets.QMainWindow):
 
         self.running_task = None
         self.running_task_interface = None
+
 
     def keyPressEvent(self, event):
         # We remove the keypad modifier, since we do not want to make a
