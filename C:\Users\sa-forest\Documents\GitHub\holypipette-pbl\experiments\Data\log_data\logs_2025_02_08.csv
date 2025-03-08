@@ -1,0 +1,59 @@
+Time(HH:MM:SS),Time(ms),Level,Message,Logger Name,Thread ID
+2025-02-08 20:49:57,918,INFO,Program Started,root,8296238912
+2025-02-08 20:49:59,701,DEBUG,matplotlib data path: /opt/homebrew/Caskroom/miniforge/base/envs/moscow/lib/python3.11/site-packages/matplotlib/mpl-data,matplotlib,8296238912
+2025-02-08 20:49:59,704,DEBUG,CONFIGDIR=/Users/kadenstillwagon/.matplotlib,matplotlib,8296238912
+2025-02-08 20:49:59,705,DEBUG,interactive is False,matplotlib,8296238912
+2025-02-08 20:49:59,705,DEBUG,platform is darwin,matplotlib,8296238912
+2025-02-08 20:49:59,761,DEBUG,CACHEDIR=/Users/kadenstillwagon/.matplotlib,matplotlib,8296238912
+2025-02-08 20:49:59,762,DEBUG,Using fontManager instance from /Users/kadenstillwagon/.matplotlib/fontlist-v330.json,matplotlib.font_manager,8296238912
+2025-02-08 20:50:00,019,DEBUG,Setting JobRuntime:name=UNKNOWN_NAME,hydra.core.utils,8296238912
+2025-02-08 20:50:00,019,DEBUG,Setting JobRuntime:name=app,hydra.core.utils,8296238912
+2025-02-08 20:50:02,459,INFO,PatchConfig initialized successfully.,root,8296238912
+2025-02-08 20:50:02,581,INFO,Initializing SAM2 CellSegmentor...,root,8296238912
+2025-02-08 20:50:02,908,INFO,Loaded checkpoint sucessfully,root,8296238912
+2025-02-08 20:50:03,144,DEBUG,STREAM b'IHDR' 16 13,PIL.PngImagePlugin,8296238912
+2025-02-08 20:50:03,144,DEBUG,STREAM b'sRGB' 41 1,PIL.PngImagePlugin,8296238912
+2025-02-08 20:50:03,144,DEBUG,STREAM b'pHYs' 54 9,PIL.PngImagePlugin,8296238912
+2025-02-08 20:50:03,144,DEBUG,STREAM b'IDAT' 75 21949,PIL.PngImagePlugin,8296238912
+2025-02-08 20:50:04,108,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2025_02_08-20_50/,root,8296238912
+2025-02-08 20:50:04,108,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2025_02_08-20_50/,root,8296238912
+2025-02-08 20:50:04,113,DEBUG,Adding config GUI for Calibration,root,8296238912
+2025-02-08 20:50:04,113,DEBUG,Adding config GUI for Calibration,root,8296238912
+2025-02-08 20:50:04,114,WARNING,Use method 'params' via param namespace ,param.CalibrationConfig,8296238912
+2025-02-08 20:50:04,114,WARNING,Use method 'params' via param namespace ,param.CalibrationConfig,8296238912
+2025-02-08 20:50:04,116,DEBUG,Config GUI added,root,8296238912
+2025-02-08 20:50:04,116,DEBUG,Config GUI added,root,8296238912
+2025-02-08 20:50:04,116,DEBUG,Adding config GUI for Patch,root,8296238912
+2025-02-08 20:50:04,116,DEBUG,Adding config GUI for Patch,root,8296238912
+2025-02-08 20:50:04,116,WARNING,Use method 'params' via param namespace ,param.PatchConfig,8296238912
+2025-02-08 20:50:04,116,WARNING,Use method 'params' via param namespace ,param.PatchConfig,8296238912
+2025-02-08 20:50:04,119,DEBUG,Config GUI added,root,8296238912
+2025-02-08 20:50:04,119,DEBUG,Config GUI added,root,8296238912
+2025-02-08 20:50:04,119,DEBUG,Added config GUI.,root,8296238912
+2025-02-08 20:50:04,119,DEBUG,Added config GUI.,root,8296238912
+2025-02-08 20:50:04,119,DEBUG,Added 'Auto Patching' tab.,root,8296238912
+2025-02-08 20:50:04,119,DEBUG,Added 'Auto Patching' tab.,root,8296238912
+2025-02-08 20:50:04,119,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2025_02_08-20_50/,root,8296238912
+2025-02-08 20:50:04,119,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2025_02_08-20_50/,root,8296238912
+2025-02-08 20:50:04,123,DEBUG,Pressure set to: 45,holypipette.devices.pressurecontroller.BasePressureController.FakePressureController,8296238912
+2025-02-08 20:50:04,123,DEBUG,Pressure set to: 45,holypipette.devices.pressurecontroller.BasePressureController.FakePressureController,8296238912
+2025-02-08 20:50:04,217,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2025_02_08-20_50/,root,8296238912
+2025-02-08 20:50:04,217,INFO,FileLogger initialized. Folder path set to: experiments/Data/rig_recorder_data/2025_02_08-20_50/,root,8296238912
+2025-02-08 20:50:06,909,INFO,closing GUI,root,8296238912
+2025-02-08 20:50:06,909,INFO,closing GUI,root,8296238912
+2025-02-08 20:50:08,186,ERROR,Uncaught exception,root,"8296238912
+Traceback (most recent call last):
+  File ""/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/gui/graph.py""", line 448," in closeEvent
+    self.recorder.close()
+  File ""/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/utils/FileLogger.py""", line 169," in close
+    self.write_frame.wait()
+    ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'wait'"
+2025-02-08 20:50:08,186,ERROR,Uncaught exception,root,"8296238912
+Traceback (most recent call last):
+  File ""/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/gui/graph.py""", line 448," in closeEvent
+    self.recorder.close()
+  File ""/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/holypipette/utils/FileLogger.py""", line 169," in close
+    self.write_frame.wait()
+    ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'wait'"
