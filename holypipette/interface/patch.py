@@ -174,11 +174,30 @@ class AutoPatchInterface(TaskInterface):
                 description='Store the position of the home space',
                 success_message='Home position stored')
     def store_home_position(self) -> None:
+        # modifying to store the safe position of the and stage as well.
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
+
+
+    @command(category='Patch',
+                description='Store the position of the home and safe spaces',
+                success_message='Home position stored')
+    def store_calibration_positions(self) -> None:
+        # modifying to store the safe position of the and stage as well.
+        self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
+        angle = np.deg2rad(25)
+        delta = -15000
+        x_pip, y_pip,z_pip  = self.current_autopatcher.home_position
+        self.current_autopatcher.safe_position = np.array([x_pip + delta*np.cos(angle), y_pip , z_pip +delta*np.sin(angle)])
+        x,y = self.pipette_controller.calibrated_stage.position()
+        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
+        self.current_autopatcher.home_stage_position = [x,y,z]
+        self.current_autopatcher.safe_stage_position = self.current_autopatcher.home_stage_position
+        self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
+        self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
     
     # @command(category='Recording',
     #          description='Check to see if one of the patch methods is complete, whether failed or successful',
