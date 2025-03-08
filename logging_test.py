@@ -1,7 +1,7 @@
 import h5py
 import numpy as np
 
-from experiments.DatasetBuilder import DatasetBuilder
+from experiments.Analysis.DatasetBuilder import DatasetBuilder
 
 
 

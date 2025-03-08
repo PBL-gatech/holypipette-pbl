@@ -45,6 +45,12 @@ class AutoPatcher(TaskController):
         self.vholding = None
         self.iholding = None
         self.rig_ready = False
+        self.hunt_cell_failed = False
+        self.gigaseal_failed = False
+        self.break_in_failed = False
+        self.first_res = None
+        self.atm = False
+        # self.done = False
         
 
         self.current_protocol_graph = None
@@ -68,6 +74,7 @@ class AutoPatcher(TaskController):
             self.sleep(0.25)
         if self.config.holding_protocol:
             self.run_holding_protocol()
+        # self.done = True
 
     def run_voltage_protocol(self):
         self.info('Running voltage protocol (membrane test)')
@@ -172,8 +179,98 @@ class AutoPatcher(TaskController):
         except (AutopatchError, ValueError) as e:
             self.rig_ready = False
             raise e
+        
+    def locate_cell(self, cell):
+        '''
+        Performs regional pipette localization to bring pipette above the cell.
+        '''
+         # regional pipette localization: 
+        # move stage and pipette to safe space
+        self.info("Moving to safe space")
+        self.move_to_safe_space()
+        self.info("Setting pressure to 200 mbar")
+        self.pressure.set_pressure(200)
+        # move to home space
+        self.info("Moving to home space")
+        self.move_to_home_space()
+        # center pipette on cell xy 
+        self.info("Centering pipette")
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        
+        # move to cell position 
+        cell_pos, cell_img = cell
 
-    
+        self.info(f" Moving to Cell position: {cell_pos}") 
+        # moving stage to xy position of cell
+        # home position
+        cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
+        self.calibrated_stage.safe_move(np.array(cell_pos))
+        self.calibrated_stage.wait_until_still()
+        self.info("Stage moved to cell position")
+        # move pipette to xy position of cell
+        stage_pos = self.calibrated_stage.pixels_to_um(self.calibrated_stage.reference_position())
+        # print(f"Stage position: {stage_pos}")
+        disp = np.zeros(3)
+        disp[0] = stage_pos[0] - self.home_stage_position[0]
+        disp[1] = stage_pos[1] - self.home_stage_position[1]
+        disp[2] = 0
+        # print(f"Disp: {disp}")
+        pipette_disp = self.calibrated_unit.rotate(disp,2)
+        self.calibrated_unit.relative_move(pipette_disp)
+        self.calibrated_unit.wait_until_still() 
+        # center pipette on cell xy 
+        self.calibrated_unit.center_pipette()
+        
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.info("Pipette centered on cell position")  
+
+        # # # move stage and pipette to 50 um above cell plane, stopping halfway to center pipette on cell 
+        # print("Moving to cell plane")
+        self.info("Moving to cell plane")
+        zdist =  self.home_stage_position[2] - self.microscope.floor_Z 
+        # print(f"Z distance: {zdist}")
+        # # self.move_group_down(-zdist)# for testing on fake rig.
+        self.move_group_down(-zdist/2)# on real rig
+        self.sleep(0.1)
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+        second = zdist/2 + self.config.cell_distance
+        # print(f"Second distance: {second}")
+        self.move_group_down(-second)
+        self.sleep(0.1)
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
+        self.calibrated_unit.wait_until_still()
+
+        self.microscope.move_to_floor()
+        self.microscope.wait_until_still()
+        self.info("Located Cell")
+        # daq operations we need to perform capacitance compensation change measurement model
+        # #setup amp for patching
+        self.amplifier.start_patch()
+        self.sleep(0.1)
+        self.daq.setCellMode(True)
+        self.sleep(0.1)
+
     def hunt_cell(self,cell = None):
         '''
         Moves the pipette down to cell plane and detects a cell using resistance measurements
@@ -188,196 +285,262 @@ class AutoPatcher(TaskController):
         if cell is None:
             raise AutopatchError("No cell given to patch!")
         
-        # move stage and pipette to safe space
-        print("Moving to safe space")
-        self.move_to_safe_space()
-        self.calibrated_stage.wait_until_still()
-        self.calibrated_unit.wait_until_still()
-        # set pipette pressure to 200 mbar
-        print("Setting pressure to 200 mbar")
-        self.pressure.set_pressure(200)
-        # move to home space
-        logging.debug("Moving to home space")
-        self.move_to_home_space()
-        self.calibrated_stage.wait_until_still()
-        self.calibrated_unit.wait_until_still()
-        # center pipette and stage on cell XY
+        stage_pos = self.calibrated_stage.position()
+        # if the stage position is within 10 um of the cell position in the xy-plane, we are already at the cell
         cell_pos, cell_img = cell
-        # print(f"Cell img: {cell_img}")
-
-        print(f" Moving to Cell position: {cell_pos}") # in um i think?
-        # moving stage to xy position of cell
-        # home position
         cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
-        self.calibrated_stage.safe_move(np.array(cell_pos))
-        self.calibrated_stage.wait_until_still()
-
-        # move pipette to xy position of cell
-        stage_pos = self.calibrated_stage.pixels_to_um(self.calibrated_stage.reference_position())
-        disp = np.zeros(3)
-        disp[0] = stage_pos[0] - self.home_stage_position[0]
-        disp[1] = stage_pos[1] - self.home_stage_position[1]
-        disp[2] = 0
-        curr = self.calibrated_unit.position()
-        desired = curr + disp
-        self.calibrated_unit.absolute_move(desired)
-        self.calibrated_unit.wait_until_still()
-        
-        # # move stage and pipette to 20 um above cell plane
-        print("Moving to cell plane")
+        stage_pos = np.array([stage_pos[0], stage_pos[1], 0])
+        dist = np.linalg.norm(cell_pos - stage_pos)
+        if dist < 20:
+            self.info("Already at cell position")
+        else:
+            self.locate_cell(cell)
 
 
-        zdist =  stage_pos[2] - self.microscope.floor_Z + 50
-        print(f"Z distance: {zdist}")
-
-        # self.move_group_down(-zdist)# for testing
-        # self.move_group_down(zdist)# on real rig
-        
-        self.microscope.move_to_floor()
-
-        self.calibrated_unit.relative_move(np.array([0,0, zdist]))
-        self.calibrated_unit.wait_until_still()
-
-        self.microscope.move_to_floor()
-
-        
         # # #ensure "near cell" pressure
+        self.info(f"Setting pressure to {self.config.pressure_near} mbar")
         self.pressure.set_pressure(self.config.pressure_near)
 
-        lastResDeque = collections.deque(maxlen=3)
+        lastResDeque = collections.deque(maxlen=5)
         # get initial resistance
         daqResistance = self.daq.resistance()
         lastResDeque.append(daqResistance)
 
-        # move pipette down at 1um/s and check reistance every 50 ms
+        # move pipette down at 5um/s and check reistance every 40 ms
         # get starting position 
         start_pos = self.calibrated_unit.position()
-
-        self.calibrated_unit.absolute_move_group_velocity(15, [2])
-        # self.calibrated_stage.microscope.absolute_move_velocity(1)
-        
-        while not self._isCellDetected(lastResDeque):
+        # self.info("starting descent....")
+        # self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
+        R = 0
+        for i in range(5):
+            R += self.daq.resistance()
+        self.first_res = R/5
+        self.info(f"Initial resistance: {self.first_res}")
+        self.info ("Manual: starting hunt")
+        while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
             curr_pos = self.calibrated_unit.position()
-            if self.abort_requested:
-                # stop the movement
-                self.calibrated_unit.stop()
-                # self.calibrated_stage.microscope.stop()
-                self.info("Hunt cancelled")
-                break
-            elif abs(curr_pos[2] - start_pos[2]) >= int(self.config.max_distance):
-                # we have moved 25 um down and still no cell detected
-                self.calibrated_unit.stop()
-                # self.calibrated_stage.microscope.stop()
+            if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
+                # we have moved expected um down and still no cell detected
+                # self.calibrated_unit.stop()
                 self.info("No cell detected")
+                # self.done = True
+                self.escape()
                 break
-            elif self._isCellDetected(lastResDeque):
-                self.info("Cell detected")
-                self.calibrated_unit.stop()
-                # self.calibrated_stage.microscope.stop()
+            elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
+                # self.calibrated_unit.stop()
+                self.info("Cell Detected")
+                self.pressure.set_ATM(atm=True)
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
-            self.sleep(0.05)
+            self.sleep(0.04)
             lastResDeque.append(daqResistance)
             daqResistance = self.daq.resistance()
 
         self.calibrated_unit.stop()
+        self.microscope.stop()
 
+    def escape(self):
+        if self.hunt_cell_failed or self.gigaseal_failed or self.break_in_failed or self.abort_requested:
+            self.amplifier.stop_patch()
+            self.calibrated_unit.stop()
+            self.microscope.stop()
+            self.move_group_up(20)
+            self.pressure.set_pressure(50)
+            self.move_to_home_space()
+            self.clean_pipette()
+            self.hunt_cell_failed = False
+            self.gigaseal_failed = False
+            self.break_in_failed = False
+            self.abort_requested = False
+            raise AutopatchError("patch attempt failed")
 
     def gigaseal(self):
-        lastResDeque = collections.deque(maxlen=3)
-        # Release pressure
-        self.info("Cell Detected, Lowering pressure")
-        currPressure = 0
-        self.pressure.set_pressure(currPressure)
-        self.amplifier.set_holding(self.config.Vramp_amplitude)
+        self.info("Attempting to form gigaseal...")
+        self.pressure.set_ATM(atm=True)
+        self.sleep(3)
+
+        # Use a deque to hold the last 5 resistance measurements.
+        lastResDeque = collections.deque(maxlen=5)
         
-        self.sleep(10)
-        t0 = time.time()
-        while daqResistance < self.config.gigaseal_R:
-            t = time.time()
-            if currPressure < -40:
-                currPressure = 0
-            self.pressure.set_pressure(currPressure)
-                
-            if t - t0 >= self.config.seal_deadline:
-                # Time timeout for gigaseal
+        # Prime the deque with initial measurements.
+        for _ in range(5):
+            lastResDeque.append(self.daq.resistance())
+            self.sleep(0.01)
+        avg_resistance = sum(lastResDeque) / len(lastResDeque)
+        max_resistance = avg_resistance  # Best averaged resistance observed.
+        last_progress_time = time.time()
+
+        self.pressure.set_pressure(-5)
+        self.pressure.set_ATM(atm=False)
+
+        while avg_resistance < self.config.gigaseal_R and self.abort_requested == False:
+            current_time = time.time()
+
+            # Abort if no significant improvement has been seen within seal_deadline.
+            if current_time - last_progress_time >= self.config.seal_deadline:
                 self.amplifier.stop_patch()
                 self.pressure.set_pressure(20)
-                raise AutopatchError("Seal unsuccessful")
-            
-            # did we reach gigaseal?
-            daqResistance = self.daq.resistance()
-            lastResDeque.append(daqResistance)
-            if daqResistance > self.config.gigaseal_R or len(lastResDeque) == 3 and all([lastResDeque == None for x in lastResDeque]):
-                success = True
-                break
-            
-            # else, wait a bit and lower pressure
-            self.sleep(5)
-            currPressure -= 10
+                self.amplifier.switch_holding(False)
+                # self.done = True
+                # self.escape()
+                raise AutopatchError("Seal unsuccessful: no significant resistance improvement.")
 
-        if not success:
-            self.pressure.set_pressure(20)
-            raise AutopatchError("Seal unsuccessful")
+            # # Pressure management.
+            # currPressure = self.pressure.get_pressure()
+            # if currPressure < -80:
+            #     self.atm = True
+            #     self.pressure.set_ATM(self.atm)
+            #     self.sleep(0.5)
+            #     self.info("Pressure reset to ATM")
+            # else:
+            #     # ensure atm is false
+            #     if self.atm:
+            #         # reset pressure to -5 mbar
+            #         self.pressure.set_pressure(-15)
+            #         self.sleep(0.05)
+            #         self.atm = False
+            #         self.info("Pressure reset to -15 mbar")
+            #         self.pressure.set_ATM(self.atm)
+            #         self.sleep(1)
 
-        self.info("Seal successful, R = " + str(self.daq.resistance() / 1e6))
+            # Apply holding potential if resistance shows an early sign.
+            if avg_resistance > self.config.gigaseal_R / 10:
+                self.amplifier.set_holding(self.config.Vramp_amplitude)
+                self.amplifier.switch_holding(True)
+
+            # # Lower pressure gradually.
+            # if not self.atm:
+            #     self.sleep(0.75)
+            #     currPressure -= 10
+            #     self.pressure.set_pressure(currPressure)
+
+            # Update the deque with a new resistance reading.
+            new_reading = self.daq.resistance()
+            lastResDeque.append(new_reading)
+            avg_resistance = sum(lastResDeque) / len(lastResDeque)
+
+            # Only update the progress timer if the average improved by at least the minimum delta.
+            if avg_resistance - max_resistance >= self.config.gigaseal_min_delta_R:
+                max_resistance = avg_resistance
+                last_progress_time = current_time
+
+        self.pressure.set_ATM(atm=True)
+        self.info("Seal successful: R = " + str(self.daq.resistance() / 1e6))
 
     def break_in(self):
         '''
-        Breaks in. The pipette must be in cell-attached mode
+        Breaks in. The pipette must be in cell-attached mode.
         '''
-        self.info("Breaking in")
-        measuredResistance = self.daq.resistance()
-        # if R is not None and R < self.config.gigaseal_R:
-        #     raise AutopatchError("Seal lost")
+        self.info("Attempting Break in...")
+        self.pressure.set_ATM(atm=True)
+        self.sleep(3)
+        self.pressure.set_pressure(self.config.pulse_pressure_break_in)
 
-        pressure = 0
-        trials = 0
-        while measuredResistance is None or self.daq.resistance() > self.config.max_cell_R:  # Success when resistance goes below 300 MOhm
-            trials += 1
-            self.debug(f"Trial: {trials}")
-            pressure += self.config.pressure_ramp_increment
-            if abs(pressure) > abs(self.config.pressure_ramp_max):
-                raise AutopatchError("Break-in unsuccessful")
-            if self.config.zap:
-                self.debug('zapping')
-                self.amplifier.zap()
-            self.pressure.ramp(amplitude=pressure, duration=self.config.pressure_ramp_duration)
-            self.sleep(1.3)
+        # Use deques to hold the last 5 measurements for running averages.
+        lastResDeque = collections.deque(maxlen=5)
+        lastCapDeque = collections.deque(maxlen=5)
 
-        self.info("Successful break-in, R = " + str(self.daq.resistance() / 1e6))
-
-    def _verify_resistance(self):
-        return # * just for testing TODO: remove
-
-        R = self.daq.resistance()
-
-        if R < self.config.min_R:
-            # print("Resistance is too low (broken tip?)")
-            raise AutopatchError("Resistance is too low (broken tip?)")
-        elif self.config.max_R < R:
-            # print("Resistance is too high (obstructed?)")
-            raise AutopatchError("Resistance is too high (obstructed?)")
+        # Prime the deques with initial measurements.
+        for _ in range(5):
+            lastResDeque.append(self.daq.resistance())
+            lastCapDeque.append(self.daq.capacitance())
+            self.sleep(0.01)
         
-    def _isCellDetected(self, lastResDeque, cellThreshold = 0.3*10**6):
+        measuredResistance = sum(lastResDeque) / len(lastResDeque)
+        measuredCapacitance = sum(lastCapDeque) / len(lastCapDeque)
+        self.info(f"Initial Resistance: {measuredResistance}; Capacitance: {measuredCapacitance}")
+        self.debug(f"target resistance: {self.config.max_cell_R}; target capacitance: {self.config.min_cell_C}")
+        
+        # Check if the gigaseal is lost
+        if measuredResistance is not None and measuredResistance < self.config.max_cell_R*1e-6:
+            # self.done = True
+            raise AutopatchError("Seal lost")
+        
+        trials = 0
+
+        # Loop until both break-in conditions are met.
+        # Adjusted to use the running averages:
+        #   - Resistance must be below self.config.max_cell_R
+        #   - Capacitance must be above self.config.min_cell_C
+        while measuredResistance > self.config.max_cell_R*1e-6 or measuredCapacitance < self.config.min_cell_C*1e-12:
+            # trials += 1
+            # self.debug(f"Trial: {trials}")
+            
+            # # Apply pressure pulses
+            # self.pressure.set_ATM(atm=False)
+            # self.sleep(0.25)
+            # self.pressure.set_ATM(atm=True)
+            # self.sleep(0.75)
+            # # Optional zapping after a few trials every 3rd trial
+            # osc = trials % 3
+            # if self.config.zap and osc == 0:
+            #     self.info("zapping")
+            #     self.amplifier.zap()
+            #     self.sleep(0.5)
+            #     self.amplifier.zap()
+            #     self.sleep(0.5)
+
+            # self.sleep(0.05)
+            
+            # Take new measurements and update the deques.
+            newResistance = self.daq.resistance()
+            newCapacitance = self.daq.capacitance()
+            lastResDeque.append(newResistance)
+            lastCapDeque.append(newCapacitance)
+            
+            # Compute running averages over the last 5 values.
+            measuredResistance = sum(lastResDeque) / len(lastResDeque)
+            measuredCapacitance = sum(lastCapDeque) / len(lastCapDeque)
+            
+            # self.info(f"Trial {trials}: Running Avg Resistance: {measuredResistance}; Capacitance: {measuredCapacitance}")
+            
+            # # Fail after too many attempts.
+            # if trials > 15:
+
+            #     self.info("Break-in unsuccessful")
+            #     # self.done = True
+            # #     self.escape()
+            #     raise AutopatchError("Break-in unsuccessful")
+        
+        self.info("Successful break-in, Running Avg Resistance = " + str(measuredResistance))
+
+    # def _verify_resistance(self):
+    #     return # * just for testing TODO: remove
+
+    #     R = self.daq.resistance()
+
+    #     if R < self.config.min_R:
+    #         # print("Resistance is too low (broken tip?)")
+    #         raise AutopatchError("Resistance is too low (broken tip?)")
+    #     elif self.config.max_R < R:
+    #         # print("Resistance is too high (obstructed?)")
+    #         raise AutopatchError("Resistance is too high (obstructed?)")
+        
+    def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
         '''
-        print(lastResDeque)
+        # print(lastResDeque)
 
-        # Ensure there are three readings before checking
-        if len(lastResDeque) < 3:
+        # Ensure there are five readings before checking
+        if len(lastResDeque) < 5:
             return False
 
         # Criteria 1: the last three readings must be increasing
-        if not lastResDeque[0] < lastResDeque[1] < lastResDeque[2]:
-            return False  # Last three resistances must be ascending
-
-  
-
+        # if not lastResDeque[0] < lastResDeque[1] < lastResDeque[2]:
+        #     # show the last three resistances
+        #     self.debug(f"Last three resistances: {lastResDeque}")
+        #     return False  # Last three resistances must be ascending
+        
         # Criteria 2: there must be an increase of at least 0.3 mega ohms
-        r_delta = lastResDeque[2] - lastResDeque[0]
-        return cellThreshold <= r_delta
+        r_delta = (lastResDeque[4] - self.first_res)
 
+        # self.info(f"Cell detected, resistance: {r_delta}")
+        detected = cellThreshold <= r_delta
+        if detected:
+            self.info(f"Cell detected: {detected}; resistance: {r_delta}")
+            self.calibrated_unit.stop()
+
+        return cellThreshold <= r_delta
 
     def patch(self, cell=None):
         '''
@@ -395,8 +558,7 @@ class AutoPatcher(TaskController):
         if cell is None:
             raise AutopatchError("No cell given to patch!")
 
-        #setup amp for patching
-        self.amplifier.start_patch()
+        self.info("Starting patching process")
         #! phase 1: hunt for cell
         self.hunt_cell(cell)
         # move a bit further down to make sure we're at the cell
@@ -425,6 +587,7 @@ class AutoPatcher(TaskController):
         if self.safe_position is None:
             raise ValueError('Safe position has not been set')
 
+
         try:
             # Extract individual coordinates from the safe position
             safe_x, safe_y, safe_z = self.safe_position
@@ -434,9 +597,13 @@ class AutoPatcher(TaskController):
             # Step 0: Move the microscope to the safe position
             logging.debug(f'Moving microscope to safe position value: Z={safe_microscope_z}')
             self.microscope.absolute_move(safe_microscope_z)
+            self.microscope.wait_until_still()  # Ensure movement completes
             # Step 1: Move the stage to the safe position
             self.calibrated_stage.absolute_move([safe_stage_x,safe_stage_y])
-
+            self.calibrated_stage.wait_until_still()
+            # # step 1.5: move pipette up if at cleaning position:
+            # if self.cleaning_bath_position is not None and self.calibrated_unit.position()[2] == self.cleaning_bath_position[2]:
+            #     self.calibrated_unit.relative_move(-500, axis=2)
             # Step 2: Move Y axis first to align with the safe position value
             logging.debug(f'Moving Y axis to safe position value: {safe_y}')
             self.calibrated_unit.absolute_move(safe_y, axis=1)
@@ -452,7 +619,7 @@ class AutoPatcher(TaskController):
         
     def move_to_home_space(self):
         '''
-        Moves the pipette to the home space.
+        Moves the pipette and stage to the home space.
         '''
         if self.home_position is None:
             raise ValueError('Home position has not been set')
@@ -464,12 +631,15 @@ class AutoPatcher(TaskController):
             # step 0: move the microscope to the home position
             logging.debug(f'Moving microscope to home position value: Z={microscope_home_z}')
             self.microscope.absolute_move(microscope_home_z)
-            self.sleep(0.1)
+            self.microscope.wait_until_still()
+            # self.sleep(0.5)
             # Step 1: Move the stage to the home position
             logging.debug(f'Moving stage to home position values: X={stage_home_x}, Y={stage_home_y}')
             self.calibrated_stage.absolute_move([stage_home_x,stage_home_y])
             self.calibrated_stage.wait_until_still()
-
+            # # step 1.5: move pipette up if at cleaning position:
+            # if self.cleaning_bath_position is not None and self.calibrated_unit.position()[2] == self.cleaning_bath_position[2]:
+            #     self.calibrated_unit.relative_move(-500, axis=2)
             # Step 2: Move Y axis first to align with the home position value
             logging.debug(f'Moving Y axis to home position value: {home_y}')
             self.calibrated_unit.absolute_move(home_y, axis=1)
@@ -488,7 +658,7 @@ class AutoPatcher(TaskController):
         Moves the microsope and manipulator down by input distance in the z axis
         '''
 
-        print('MOVING GROUP DOWN')
+        self.info('MOVING GROUP DOWN')
 
         try:
             self.calibrated_unit.relative_move(dist, axis=2)

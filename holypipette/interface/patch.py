@@ -35,17 +35,23 @@ class AutoPatchInterface(TaskInterface):
 
         self.is_selecting_cells = False
         self.cells_to_patch = []
+        # self.done = self.current_autopatcher.done
 
         #call update_camera_cell_list every 0.05 seconds using a QTimer
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_camera_cell_list)
         self.timer.start(50)
         
-
+    
     @blocking_command(category='Patch', description='Break into the cell',
                       task_description='Breaking into the cell')
     def break_in(self):
         self.execute(self.current_autopatcher.break_in)
+
+    @blocking_command(category='Patch', description='GigaSeal the cell',
+                      task_description='GigaSealing the cell')
+    def gigaseal(self):
+        self.execute(self.current_autopatcher.gigaseal)
 
     def start_selecting_cells(self):
         self.is_selecting_cells = True
@@ -104,11 +110,13 @@ class AutoPatchInterface(TaskInterface):
             self.cells_to_patch.append((np.array(stage_pos_pixels), img))
             self.is_selecting_cells = False
 
+    # Update the cell list to store both cell coordinates and image.
     def update_camera_cell_list(self) -> None:
         self.current_autopatcher.calibrated_unit.camera.cell_list = []
         for cell, img in self.cells_to_patch:
             camera_pos = -cell + self.current_autopatcher.calibrated_stage.reference_position()
-            self.current_autopatcher.calibrated_unit.camera.cell_list.append(camera_pos[0:2].astype(int))
+            # Append a tuple of (coordinates, image)
+            self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img))
             
 
     @command(category='Patch',
@@ -125,6 +133,17 @@ class AutoPatchInterface(TaskInterface):
                      argument=(cell, img))
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
+
+    @blocking_command(category='Patch',
+                        description='Locate the cell',
+                        task_description='Moving to the cell')
+    def locate_cell(self):
+        cell, img = self.cells_to_patch[0]
+        self.execute(self.current_autopatcher.locate_cell,
+                      argument = (cell, img))
+        time.sleep(2)
+        self.cells_to_patch = self.cells_to_patch[1:]
+    
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
@@ -145,7 +164,6 @@ class AutoPatchInterface(TaskInterface):
                 description='Store the position of the safe space',
                 success_message='Safe space position stored')
     def store_safe_position(self) -> None:
-        
         self.current_autopatcher.safe_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
@@ -156,13 +174,20 @@ class AutoPatchInterface(TaskInterface):
                 description='Store the position of the home space',
                 success_message='Home position stored')
     def store_home_position(self) -> None:
-        
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
     
+    # @command(category='Recording',
+    #          description='Check to see if one of the patch methods is complete, whether failed or successful',
+    #          success_message='Patch method complete')
+    # def check_done(self) -> bool:
+    #     self.done = self.current_autopatcher.done
+    #     if self.done:
+    #         self.current_autopatcher.done = False
+    #     return self.done
 
     @command(category='Patch',
              description='Store the position of the rinsing bath',

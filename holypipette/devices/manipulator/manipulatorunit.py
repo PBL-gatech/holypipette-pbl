@@ -54,15 +54,20 @@ class ManipulatorUnit(Manipulator):
         axis : axis number starting at 0; if None, all XYZ axes
         x : target position in um.
         '''
+
         if axis is None:
+            # self.info('Moving axis %s to position %s' % (self.axes[axis], x))
             # then we move all axes
             if blocking:
                 for i, axis in enumerate(self.axes):
+                    # self.info('Moving axis %s to position %s' % (axis, x[i]))
                     self.dev.absolute_move(x[i], axis, speed)
                     self.dev.wait_until_still([axis])
             else:
+                # self.info('Moving axes %s to position %s' % (self.axes, x))
                 self.dev.absolute_move_group(x, self.axes, speed)
         else:
+            # self.info('Moving axis %s to position %s' % (self.axes[axis], x))
             self.dev.absolute_move(x, self.axes[axis], speed)
             if blocking:
                 self.dev.wait_until_still([self.axes[axis]])
@@ -72,7 +77,8 @@ class ManipulatorUnit(Manipulator):
         '''
         Moves the device axes to positions x in um.
         '''
-        
+
+        # self.info('Moving axes %s to position %s' % (axes, x))
         self.dev.absolute_move_group(x, np.array(self.axes)[axes], speed)
         #self.sleep(.05)
 
@@ -85,30 +91,29 @@ class ManipulatorUnit(Manipulator):
         axis : axis number starting at 0; if None, all XYZ axes
         x : position shift in um.
         '''
+        # self.abort_if_requested()
         if axis is None:
+            # self.info('Moving axes %s by relative amount %s' % (self.axes, x))
             self.dev.relative_move_group(x, self.axes, speed)
         else:
+            # self.info('Moving axis %s by relative amount %s' % (self.axes[axis], x))
             self.dev.relative_move(x, self.axes[axis], speed)
         # self.sleep(.05)
 
-    def absolute_move_group_velocity(self, vel, axes):
+    def absolute_move_group_velocity(self, vel):
         '''
-        Moves the device axes to positions x in um.
+        Moves the device in um/s.
         '''
-        
-        self.dev.absolute_move_group_velocity(vel, np.array(self.axes)[axes])
+
+        self.dev.absolute_move_group_velocity(vel)
         # self.sleep(.005)
 
-    def stop(self, axis = None):
+    def stop(self):
         """
         Stop current movements.
         """
-        if axis is None:
-            # then we stop all axes
-            for i, axis in enumerate(self.axes):
-                self.dev.stop(axis)
-        else:
-            self.dev.stop(self.axes[axis])
+        # self.abort_if_requested()
+        self.dev.stop()
 
     def wait_until_still(self, axes = None):
         """
