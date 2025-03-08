@@ -64,8 +64,13 @@ class DatasetBuilder():
         filtered_hunt_cell_start_logs = curr_demo_hunt_cell_start_logs.drop_duplicates()
 
         #Get Hunt Cell Done Log Message
-        hunt_cell_done_log_messages = log_values['Message'].str.contains('Cell detected: True')
-        hunt_cell_done_log_indices = np.where(hunt_cell_done_log_messages == True)[0]
+        hunt_cell_done_log_messages_success = log_values['Message'].str.contains('Cell detected: True')
+        hunt_cell_done_log_indices = np.where(hunt_cell_done_log_messages_success == True)[0]
+        hunt_cell_done_log_messages_fail = log_values['Message'].str.contains('No cell detected')
+        hunt_cell_done_log_indices = np.concatenate((hunt_cell_done_log_indices, np.where(hunt_cell_done_log_messages_fail == True)[0]))
+        hunt_cell_done_log_messages_abort = log_values['Message'].str.contains('Task "hunt_cell" aborted')
+        hunt_cell_done_log_indices = np.concatenate((hunt_cell_done_log_indices, np.where(hunt_cell_done_log_messages_abort == True)[0]))
+        
         hunt_cell_done_logs = log_values.iloc[hunt_cell_done_log_indices]
         hunt_cell_done_logs['Full Time'] = (pd.to_datetime(hunt_cell_done_logs['Time(HH:MM:SS)'] + '.' + hunt_cell_done_logs['Time(ms)'].astype(str), format='%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(hours=5)).apply(lambda x: x.timestamp())
 
