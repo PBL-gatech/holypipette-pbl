@@ -33,5 +33,6 @@ if False:
         print(hf['data'])
 
 
-datasetConverter = DatasetBuilder(dataset_name='dataset_1.hdf5')
-datasetConverter.add_demo(demo_file_path='2025_02_14-12_57')
+datasetConverter = DatasetBuilder(dataset_name='temp_dataset.hdf5')
+datasetConverter.add_demo(demo_file_path='2025_02_18-18_44', record_to_file=True)
+#datasetConverter.convert_movement_recording_csv_to_new_format(demo_file_path='2025_02_18-18_44')
