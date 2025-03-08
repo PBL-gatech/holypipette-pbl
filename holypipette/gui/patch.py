@@ -375,12 +375,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
-        # # create a timer to check if recording should be stopped by using self.patch_interface.check_done()
-        # self.recording_timer = QtCore.QTimer()
-        # self.recording_timer.timeout.connect(self.patch_interface.check_done)
-        # self.recording_timer.start(1000)
 
-        # Add position boxes using the updated methods (which use CollapsibleGroupBox)
         self.positionAndTareBox(
             'stage position (um)',
             layout,
@@ -395,14 +390,8 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         )
 
         self.stage_calibration = [self.pipette_interface.set_floor, self.pipette_interface.calibrate_stage, self.pipette_interface.move_microscope]
-        self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_home_position, self.pipette_interface.move_pipette_xyz]
-        # # Add box to emit patching states
-        # buttonList = [['Cell Found', 'Gigaseal Reached', 'Whole Cell Achieved'], ['Patch Attempt Start', 'Patch Attempt Failed']]
-        # cmds = [
-        #     [self.emit_cell_found, self.emit_gigaseal, self.emit_whole_cell],
-        #     [self.emit_patch_attempt_start, self.emit_patch_attempt_fail]
-        # ]
-        # self.addButtonList('patching states', layout, buttonList, cmds)
+        self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_calibration_positions, self.patch_interface.move_to_safe_space]
+
 
         # Add a box for calibration setup
         buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position']]
@@ -438,38 +427,12 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         layout.addWidget(self.record_button)
 
         self.setLayout(layout)
-    
-
-        # self.calibrate_pipette = [self.pipette_interface.calibrate_manipulator,self.store_]
-
-        # self.patch_interface.store_home_position()
-        # self.pipette_interface.move_pipette_xyz()
-        # self.patch_interface.store_safe_position()
-
-    def emit_cell_found(self):
-        self.patch_interface.state_emitter("NH Success")
-
-    def emit_gigaseal(self):
-        self.patch_interface.state_emitter("GS success")
-
-    def emit_whole_cell(self):
-        self.patch_interface.state_emitter("WC success")
-
-    def emit_patch_attempt_start(self):
-        self.patch_interface.state_emitter("patching started")
-
-    def emit_patch_attempt_fail(self):
-        self.patch_interface.state_emitter("patching failed")
 
     def toggle_recording(self):
         if self.recording_state_manager.is_recording_enabled():
             self.stop_recording()
         else:
             self.start_recording()
-
-    # def check_done(self):
-    #     if self.patch_interface.check_done():
-    #         self.toggle_recording()
 
     def start_recording(self):
         self.recording_state_manager.set_recording(True)
