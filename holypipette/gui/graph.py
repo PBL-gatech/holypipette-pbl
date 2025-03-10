@@ -16,6 +16,7 @@ import threading
 import numpy as np
 from collections import deque
 from holypipette.devices.amplifier import DAQ
+from holypipette.devices.amplifier import Amplifier
 from holypipette.devices.pressurecontroller import PressureController
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.utils import FileLogger
@@ -262,7 +263,7 @@ class EPhysGraph(QWidget):
     pressureLowerBound = -450
     pressureUpperBound = 730
 
-    def __init__(self, daq: DAQ, pressureController: PressureController, recording_state_manager: RecordingStateManager):
+    def __init__(self, amplifier: Amplifier, daq: DAQ, pressureController: PressureController, recording_state_manager: RecordingStateManager):
         super().__init__()
 
         # Stop matplotlib font warnings
@@ -390,6 +391,24 @@ class EPhysGraph(QWidget):
         self.atmosphericPressureButton = QPushButton("ATM Pressure OFF")
         self.bottomBarLayout.addWidget(self.atmosphericPressureButton)
 
+        # add a zap label
+        self.zapLabel = QLabel("Zap Duration:")
+        self.bottomBarLayout.addWidget(self.zapLabel)
+
+        # add a zap duration box
+        self.zapDurationBox = QLineEdit()
+        self.zapDurationBox.setMaxLength(5)
+        self.zapDurationBox.setFixedWidth(100)
+        self.zapDurationBox.setPlaceholderText("0.1 s")
+        self.zapDurationBox.setValidator(QtGui.QDoubleValidator(0.01, 1, 2))
+        self.zapDurationBox.returnPressed.connect(self.zapDurationBoxReturnPressed)
+
+        # Add a zap button
+        self.zapButton = QPushButton("Zap")
+        self.zapButton.clicked.connect(self.zap)
+
+
+
         # Add spacer to push everything to the left
         self.bottomBarLayout.addStretch(1)
 
@@ -426,6 +445,8 @@ class EPhysGraph(QWidget):
         # Connect buttons
         self.atmosphericPressureButton.clicked.connect(self.togglePressure)
         self.modelType.clicked.connect(self.toggleModelType)
+        self.zapButton.clicked.connect(self.zap)
+
 
         # Connect the signal to the slot
         self.data_updated.connect(self.handle_data_update)
@@ -682,3 +703,19 @@ class EPhysGraph(QWidget):
             logging.warning("Invalid pressure input. Please enter a valid number.")
         except Exception as e:
             logging.error(f"Error in pressureCommandBoxReturnPressed: {e}", exc_info=True)
+
+    def zapDurationBoxReturnPressed(self):
+        """
+        Manually change zap duration based on user input in the zap duration box.
+        """
+        try:
+            text = self.zapDurationBox.text()
+            self.zapDurationBox.clear()
+
+            zap_duration = float(text)
+            # Clamp the zap duration within bounds
+            zap_duration = max(0.01, min(1, zap_duration))
+        except ValueError:
+            logging.warning("Invalid zap duration input. Please enter a valid number.")
+        except Exception as e:
+            logging.error(f"Error in zapDurationBoxReturnPressed: {e}", exc_info=True)

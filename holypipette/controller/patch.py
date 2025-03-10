@@ -45,9 +45,6 @@ class AutoPatcher(TaskController):
         self.vholding = None
         self.iholding = None
         self.rig_ready = False
-        self.hunt_cell_failed = False
-        self.gigaseal_failed = False
-        self.break_in_failed = False
         self.first_res = None
         self.atm = False
         # self.done = False
