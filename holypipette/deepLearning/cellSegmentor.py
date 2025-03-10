@@ -17,18 +17,14 @@ import logging
 #sam2 imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, '..'))
-logging.info(f"repo root: {repo_root}")
+# logging.info(f"repo root: {repo_root}")
 checkpoint = os.path.join(repo_root,  "deepLearning", "cellModel", "sam2", "checkpoints", "sam2.1_hiera_tiny.pt")
 model_cfg = os.path.join(repo_root,  "deepLearning", "cellModel", "sam2", "sam2", "configs", "sam2.1", "sam2.1_hiera_t.yaml")
-logging.info(f"checkpoint: {checkpoint}")
-logging.info(f"model_cfg: {model_cfg}")
-# logging.info(f"sys.path: {sys.path}")
+# logging.info(f"checkpoint: {checkpoint}")
+# logging.info(f"model_cfg: {model_cfg}")
+
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-
-# sys.path.append(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\sam2\configs\sam2.1\sam2.1_hiera_t.yaml")
-
-
 
 
 class CellSegmentor:  

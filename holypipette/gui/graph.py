@@ -1,6 +1,6 @@
 import logging
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton, QDesktopWidget, QDesktopWidget, QSlider, QToolButton, QApplication, QComboBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton,QSlider, QToolButton, QComboBox
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
 from matplotlib.colors import LinearSegmentedColormap, to_hex
@@ -29,9 +29,9 @@ __all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "Holdin
 
 
 class CurrentProtocolGraph(QWidget):
-    def __init__(self, daq: DAQ, rescording_state_manager: RecordingStateManager):
+    def __init__(self, daq: DAQ, recording_state_manager: RecordingStateManager):
         super().__init__()
-        self.recording_state_manager = rescording_state_manager
+        self.recording_state_manager = recording_state_manager
         layout = QVBoxLayout()
         self.setWindowTitle("Current Protocol")
         logging.getLogger("matplotlib.font_manager").disabled = True
@@ -431,6 +431,7 @@ class EPhysGraph(QWidget):
         # Initialize a separate timer for pressure updates
         self.pressureUpdateTimer = QtCore.QTimer()
         self.pressureUpdateTimer.timeout.connect(self.update_pressure)
+        time.sleep(0.1)  # Ensure the pressure controller is ready
         self.pressureUpdateTimer.start(20)  # 50 Hz
 
         # Initialize data variables

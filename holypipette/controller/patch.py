@@ -47,8 +47,7 @@ class AutoPatcher(TaskController):
         self.rig_ready = False
         self.first_res = None
         self.atm = False
-        # self.done = False
-        
+
 
         self.current_protocol_graph = None
         
