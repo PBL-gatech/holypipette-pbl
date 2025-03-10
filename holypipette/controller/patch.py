@@ -355,7 +355,7 @@ class AutoPatcher(TaskController):
             raise AutopatchError("patch attempt failed")
 
     def gigaseal(self):
-        self.info("Attempting to form gigaseal...")
+        self.info("Manual: Attempting to form gigaseal..")
         self.pressure.set_ATM(atm=True)
         self.sleep(3)
 
@@ -431,7 +431,7 @@ class AutoPatcher(TaskController):
         '''
         Breaks in. The pipette must be in cell-attached mode.
         '''
-        self.info("Attempting Break in...")
+        self.info("Manual: Attempting Break in...")
         self.pressure.set_ATM(atm=True)
         self.sleep(3)
         self.pressure.set_pressure(self.config.pulse_pressure_break_in)
