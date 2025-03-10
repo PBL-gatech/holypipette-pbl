@@ -87,17 +87,21 @@ class AutoPatchInterface(TaskInterface):
         position[0] += self.current_autopatcher.calibrated_unit.camera.width / 2
         position[1] += self.current_autopatcher.calibrated_unit.camera.height / 2
         # add the z position of the microscope
-        z_pos = self.current_autopatcher.calibrated_unit.microscope.position()
-        self.debug(f'z position of the microscope: {z_pos}')
+        z_pos = self.current_autopatcher.calibrated_unit.microscope.position()/5
+        self.info(f'z position of the microscope: {z_pos}')
         print(f'adding cell... {self.is_selecting_cells}')
         if self.is_selecting_cells:
-            print('Adding cell at', position, 'to list of cells to patch')
+            print('Adding cell at', position, 'to list of cells to patch in pixels')
             stage_pos_pixels = self.current_autopatcher.calibrated_stage.reference_position()
             stage_pos_pixels[0:2] -= position
             # display stage position
             # add the z_pos to the stage position as a third dimension in the np array
-            np.append(stage_pos_pixels, z_pos)
+
+            stage_pos_pixels = np.array([stage_pos_pixels[0], stage_pos_pixels[1], z_pos])
+
+
             print(f'Stage position dimensions: {np.size(stage_pos_pixels)}')
+            print(f'Stage um position: {stage_pos_pixels}')
             #take a 256x256 image centered on the cell
             img = self.current_autopatcher.calibrated_unit.camera.get_16bit_image()
             img = img[int(position[1]-128):int(position[1]+128), int(position[0]-128):int(position[0]+128)]
@@ -189,7 +193,7 @@ class AutoPatchInterface(TaskInterface):
         # modifying to store the safe position of the and stage as well.
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         angle = np.deg2rad(25)
-        delta = -15000
+        delta = -18000
         x_pip, y_pip,z_pip  = self.current_autopatcher.home_position
         self.current_autopatcher.safe_position = np.array([x_pip + delta*np.cos(angle), y_pip , z_pip +delta*np.sin(angle)])
         x,y = self.pipette_controller.calibrated_stage.position()
