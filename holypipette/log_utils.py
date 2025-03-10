@@ -84,7 +84,7 @@ def setup_logging():
 
     # Define the log folder relative to the repository root.
     log_folder = os.path.join(repo_root, "experiments", "Data", "log_data")
-    print(f"log folder: {log_folder}")
+    logging.info(f"log folder: {log_folder}")
 
     # Create the folder if it doesn't exist.
     os.makedirs(log_folder, exist_ok=True)

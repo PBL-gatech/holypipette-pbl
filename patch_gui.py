@@ -22,8 +22,8 @@ from holypipette.gui.patch import PatchGui
 # from experiments.Analysis.DatasetBuilder import DatasetBuilder
 
 
-# from rig_setup.setup_Moscow_rig import *  
-from rig_setup.setup_fake_rig import * 
+from rig_setup.setup_Moscow_rig import *  
+# from rig_setup.setup_fake_rig import * 
 # from rig_setup.setup_Moscow_rig_camera import *    
 # from rig_setup.setup_Moscow_Pressuretest import *
 
@@ -37,7 +37,7 @@ def main():
     pipette_controller = PipetteInterface(stage, microscope, camera, unit, cellSorterManip, cellSorterController)
     patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller)
     gui = PatchGui(camera, pipette_controller, patch_controller, recording_state_manager)
-    graphs = EPhysGraph(daq, pressure, recording_state_manager)
+    graphs = EPhysGraph(amplifier,daq, pressure, recording_state_manager)
     # graphs.location_on_the_screen()
     graphs.show()
 

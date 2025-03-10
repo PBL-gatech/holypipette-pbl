@@ -1,6 +1,6 @@
 import logging
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton, QDesktopWidget, QDesktopWidget, QSlider, QToolButton, QApplication
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider, QPushButton, QToolButton, QDesktopWidget, QDesktopWidget, QSlider, QToolButton, QApplication, QComboBox
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
 from matplotlib.colors import LinearSegmentedColormap, to_hex
@@ -16,7 +16,7 @@ import threading
 import numpy as np
 from collections import deque
 from holypipette.devices.amplifier import DAQ
-from holypipette.devices.amplifier import Amplifier
+from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.devices.pressurecontroller import PressureController
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.utils import FileLogger
@@ -270,6 +270,7 @@ class EPhysGraph(QWidget):
         logging.getLogger("matplotlib.font_manager").disabled = True
         self.atmtoggle = True
         self.daq = daq
+        self.amplifier = amplifier
 
         # Initialize mode
         self.cellMode = False  # Initially set to Bath Mode
@@ -391,22 +392,25 @@ class EPhysGraph(QWidget):
         self.atmosphericPressureButton = QPushButton("ATM Pressure OFF")
         self.bottomBarLayout.addWidget(self.atmosphericPressureButton)
 
-        # add a zap label
+
+        # --- Zap label ---
         self.zapLabel = QLabel("Zap Duration:")
         self.bottomBarLayout.addWidget(self.zapLabel)
 
-        # add a zap duration box
-        self.zapDurationBox = QLineEdit()
-        self.zapDurationBox.setMaxLength(5)
-        self.zapDurationBox.setFixedWidth(100)
-        self.zapDurationBox.setPlaceholderText("0.1 s")
-        self.zapDurationBox.setValidator(QtGui.QDoubleValidator(0.01, 1, 2))
-        self.zapDurationBox.returnPressed.connect(self.zapDurationBoxReturnPressed)
+        # --- QComboBox for zap durations ---
+        self.zapDurationDropdown = QComboBox()
+        self.zapDurationDropdown.setFixedWidth(100)
+        zap_options = ["25 µs", "50 µs", "100 µs", "200 µs", "500 µs", "1 ms", "10 ms", "20 ms", "50 ms"]
+        for option in zap_options:
+            self.zapDurationDropdown.addItem(option)
+        self.zapDurationDropdown.currentIndexChanged.connect(self.handle_zap_duration_change)
+        self.bottomBarLayout.addWidget(self.zapDurationDropdown)
 
-        # Add a zap button
+        # --- Zap button ---
         self.zapButton = QPushButton("Zap")
-        self.zapButton.clicked.connect(self.zap)
-
+        self.zapButton.setFixedWidth(50)
+        self.zapButton.clicked.connect(self.handle_zap_button_press)
+        self.bottomBarLayout.addWidget(self.zapButton)
 
 
         # Add spacer to push everything to the left
@@ -445,8 +449,6 @@ class EPhysGraph(QWidget):
         # Connect buttons
         self.atmosphericPressureButton.clicked.connect(self.togglePressure)
         self.modelType.clicked.connect(self.toggleModelType)
-        self.zapButton.clicked.connect(self.zap)
-
 
         # Connect the signal to the slot
         self.data_updated.connect(self.handle_data_update)
@@ -704,18 +706,52 @@ class EPhysGraph(QWidget):
         except Exception as e:
             logging.error(f"Error in pressureCommandBoxReturnPressed: {e}", exc_info=True)
 
-    def zapDurationBoxReturnPressed(self):
+    def handle_zap_button_press(self):
         """
-        Manually change zap duration based on user input in the zap duration box.
+        Handles the zap button press:
+        - Turns the button yellow,
+        - Calls the amplifier's zap function,
+        - Resets the button style after 500 ms.
         """
         try:
-            text = self.zapDurationBox.text()
-            self.zapDurationBox.clear()
-
-            zap_duration = float(text)
-            # Clamp the zap duration within bounds
-            zap_duration = max(0.01, min(1, zap_duration))
-        except ValueError:
-            logging.warning("Invalid zap duration input. Please enter a valid number.")
+            # Change zap button background to green for visual feedback
+            self.zapButton.setStyleSheet("background-color: yellow; color:black; border-radius: 5px; padding: 5px;")
+            # Execute the zap functionality
+            logging.info("Zapping...")
+            self.amplifier.zap()
+            # After 500ms, reset the zap button style
+            QtCore.QTimer.singleShot(250, self.reset_zap_button)
         except Exception as e:
-            logging.error(f"Error in zapDurationBoxReturnPressed: {e}", exc_info=True)
+            logging.error(f"Error in handle_zap_button_press: {e}", exc_info=True)
+
+    def reset_zap_button(self):
+        """
+        Resets the zap button to its default appearance.
+        """
+        self.zapButton.setStyleSheet("")
+
+
+    def handle_zap_duration_change(self, index):
+        """
+        Converts the selected zap duration from the dropdown into seconds,
+        sends it to the amplifier, and updates the zap button text.
+        """
+        try:
+            text = self.zapDurationDropdown.currentText()
+            if "µs" in text or "us" in text:
+                # Convert microseconds to seconds
+                value = float(text.replace("µs", "").replace("us", "").strip())
+                zap_duration = value * 1e-6
+            elif "ms" in text:
+                # Convert milliseconds to seconds
+                value = float(text.replace("ms", "").strip())
+                zap_duration = value * 1e-3
+            else:
+                # Fallback: treat as seconds
+                zap_duration = float(text)
+            logging.info(f"Setting zap duration to {zap_duration} seconds")
+            self.amplifier.set_zap_duration(zap_duration)
+            # Update the zap button text (displaying duration in ms)
+            # self.zapButton.setText(f"Zap")
+        except Exception as e:
+            logging.error(f"Error in handle_zap_duration_change: {e}", exc_info=True)

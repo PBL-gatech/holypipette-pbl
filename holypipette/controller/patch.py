@@ -56,7 +56,6 @@ class AutoPatcher(TaskController):
         self.info(f"emitting state: {state}")
 
     def run_protocols(self):
-        # TODO : implement an abort mechanism
         if self.config.voltage_protocol:
             self.run_voltage_protocol()
             self.sleep(0.25)
@@ -202,8 +201,8 @@ class AutoPatcher(TaskController):
         self.info(f" Moving to Cell position: {cell_pos}") 
         # moving stage to xy position of cell
         # home position
-        cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
-        self.calibrated_stage.safe_move(np.array(cell_pos))
+        cell_pos_planar = np.array([cell_pos[0], cell_pos[1], 0])
+        self.calibrated_stage.safe_move(np.array(cell_pos_planar))
         self.calibrated_stage.wait_until_still()
         self.info("Stage moved to cell position")
         # move pipette to xy position of cell
@@ -232,10 +231,14 @@ class AutoPatcher(TaskController):
         # # # move stage and pipette to 50 um above cell plane, stopping halfway to center pipette on cell 
         # print("Moving to cell plane")
         self.info("Moving to cell plane")
-        zdist =  self.home_stage_position[2] - self.microscope.floor_Z 
-        # print(f"Z distance: {zdist}")
+        # zdist =  self.home_stage_position[2] - self.microscope.floor_Z 
+        # print(f" microscope floor Z: {self.microscope.floor_Z}")
+        zdist_cell = self.home_stage_position[2] - cell_pos[2]
+        # print(f"cell position Z: {cell_pos[2]}")
+        # print(f"Z distance to plane: {zdist}")
+        # print(f"Z distance to cell: {zdist_cell}")
         # # self.move_group_down(-zdist)# for testing on fake rig.
-        self.move_group_down(-zdist/2)# on real rig
+        self.move_group_down(-zdist_cell/2)# on real rig
         self.sleep(0.1)
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
@@ -245,7 +248,7 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
-        second = zdist/2 + self.config.cell_distance
+        second = zdist_cell/2 + self.config.cell_distance
         # print(f"Second distance: {second}")
         self.move_group_down(-second)
         self.sleep(0.1)
@@ -284,6 +287,7 @@ class AutoPatcher(TaskController):
         
         stage_pos = self.calibrated_stage.position()
         # if the stage position is within 10 um of the cell position in the xy-plane, we are already at the cell
+        # if the pipette is within 10 um of the cell position in the xy-plane, we are already at the cell
         cell_pos, cell_img = cell
         cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
         stage_pos = np.array([stage_pos[0], stage_pos[1], 0])
