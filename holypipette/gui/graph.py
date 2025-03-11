@@ -167,8 +167,8 @@ class VoltageProtocolGraph(QWidget):
 
         if self.daq.voltage_protocol_data is not None:
             self.vprotocolPlot.clear()
-            # print(self.daq.voltage_protocol_data[0, :])
-            # print(self.daq.voltage_protocol_data[1, :])
+            print(self.daq.voltage_protocol_data[0, :])
+            print(self.daq.voltage_protocol_data[1, :])
             
             colors = ["k"]
             self.vprotocolPlot.plot(self.daq.voltage_protocol_data[0, :], self.daq.voltage_protocol_data[1, :], pen=colors[0])

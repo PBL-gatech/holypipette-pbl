@@ -168,6 +168,8 @@ class AutoPatcher(TaskController):
                 raise ValueError('Safe position has not been set')
             if self.home_position is None:
                 raise ValueError('Home position has not been set')
+            if self.cleaning_bath_position is None:
+                raise ValueError('Cleaning bath position has not been set')
             if self.microscope.floor_Z is None:
                 raise AutopatchError("Cell Plane not set")
             self.rig_ready = True
@@ -262,9 +264,13 @@ class AutoPatcher(TaskController):
 
         self.microscope.move_to_floor()
         self.microscope.wait_until_still()
+        z_pos = self.microscope.position()/5.0
+        zdistleft  = z_pos - cell_pos[2]
+        self.microscope.relative_move(zdistleft)
+        self.info(f"Distance to cell of interest: {zdistleft}")
+        self.microscope.wait_until_still()
         self.info("Located Cell")
-        # daq operations we need to perform capacitance compensation change measurement model
-        # #setup amp for patching
+
         self.amplifier.start_patch()
         self.sleep(0.1)
         self.daq.setCellMode(True)
@@ -300,6 +306,7 @@ class AutoPatcher(TaskController):
         # # #ensure "near cell" pressure
         self.info(f"Setting pressure to {self.config.pressure_near} mbar")
         self.pressure.set_pressure(self.config.pressure_near)
+        self.sleep(2) #let the resistance stabilize
 
         lastResDeque = collections.deque(maxlen=5)
         # get initial resistance
@@ -324,7 +331,7 @@ class AutoPatcher(TaskController):
                 # self.calibrated_unit.stop()
                 self.info("No cell detected")
                 # self.done = True
-                self.escape()
+                # self.escape()
                 break
             elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
                 # self.calibrated_unit.stop()
@@ -340,19 +347,18 @@ class AutoPatcher(TaskController):
         self.microscope.stop()
 
     def escape(self):
-        if self.hunt_cell_failed or self.gigaseal_failed or self.break_in_failed or self.abort_requested:
             self.amplifier.stop_patch()
             self.calibrated_unit.stop()
             self.microscope.stop()
+            self.pressure.set_pressure(700)
+            self.pressure.set_ATM(atm=False)
+            self.sleep(1)
             self.move_group_up(20)
-            self.pressure.set_pressure(50)
+            self.sleep(1)
             self.move_to_home_space()
             self.clean_pipette()
-            self.hunt_cell_failed = False
-            self.gigaseal_failed = False
-            self.break_in_failed = False
-            self.abort_requested = False
-            raise AutopatchError("patch attempt failed")
+
+
 
     def gigaseal(self):
         self.info("Manual: Attempting to form gigaseal..")
@@ -372,9 +378,11 @@ class AutoPatcher(TaskController):
 
         self.pressure.set_pressure(-5)
         self.pressure.set_ATM(atm=False)
+        switched = False
 
         while avg_resistance < self.config.gigaseal_R and self.abort_requested == False:
             current_time = time.time()
+
 
             # Abort if no significant improvement has been seen within seal_deadline.
             if current_time - last_progress_time >= self.config.seal_deadline:
@@ -404,9 +412,10 @@ class AutoPatcher(TaskController):
             #         self.sleep(1)
 
             # Apply holding potential if resistance shows an early sign.
-            if avg_resistance > self.config.gigaseal_R / 10:
+            if avg_resistance > self.config.gigaseal_R / 10 and not switched:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
                 self.amplifier.switch_holding(True)
+                switched = True
 
             # # Lower pressure gradually.
             # if not self.atm:
@@ -426,6 +435,7 @@ class AutoPatcher(TaskController):
 
         self.pressure.set_ATM(atm=True)
         self.info("Seal successful: R = " + str(self.daq.resistance() / 1e6))
+        switched = False
 
     def break_in(self):
         '''
@@ -562,7 +572,7 @@ class AutoPatcher(TaskController):
         #! phase 1: hunt for cell
         self.hunt_cell(cell)
         # move a bit further down to make sure we're at the cell
-        self.calibrated_unit.relative_move(1, axis=2)
+        # self.calibrated_unit.relative_move(1, axis=2)
         #! phase 2: attempt to form a gigaseal
         self.gigaseal()
 
@@ -704,6 +714,7 @@ class AutoPatcher(TaskController):
 
             # Step 4: Cleaning
             # Fill up with the Alconox
+            self.pressure.set_ATM(atm=False)
             self.pressure.set_pressure(-600)
             self.sleep(1)
             # 5 cycles of tip cleaning

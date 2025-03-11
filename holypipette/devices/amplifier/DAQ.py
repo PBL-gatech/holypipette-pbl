@@ -715,7 +715,7 @@ class ArduinoDAQ:
             # print(f"Latest membrane capacitance: {self.voltageMembraneCapacitance}")
         except Exception as e:
             self.voltage_protocol_data, self.voltage_command_data = None, None
-            # logging.error(f"Error in getDataFromVoltageProtocol: {e}")
+            logging.error(f"Error in getDataFromVoltageProtocol: {e}")
         finally:
             self.isRunningProtocol = False
         return self.voltageMembraneCapacitance
