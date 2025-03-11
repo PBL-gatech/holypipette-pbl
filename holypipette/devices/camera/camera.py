@@ -369,8 +369,8 @@ class Camera(object):
                 if total_area > 0.03 * image_area:
                     continue
 
-                cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
-                img = cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), 1)
+                # cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
+                # img = cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), 1)
 
         if self.flipped:
             img = img[:, ::-1]
