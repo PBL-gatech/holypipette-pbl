@@ -148,6 +148,7 @@ class AutoPatchInterface(TaskInterface):
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
     
+    
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
@@ -157,6 +158,15 @@ class AutoPatchInterface(TaskInterface):
                       argument = (cell, img))
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
+
+    @blocking_command(category='Patch',
+                        description='escape the cell',
+                        task_description='Moving away from the cell, cleaning pipette and moving to home space')
+    def escape_cell(self):
+
+        self.execute(self.current_autopatcher.escape)
+        time.sleep(2)
+
 
     @command(category='Patch',
              description='Store the position of the washing bath',
