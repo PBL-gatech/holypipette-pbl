@@ -6,8 +6,6 @@ import numpy as np
 from . import *
 import warnings
 import pco
-from holypipette.deepLearning.pipetteFinder import PipetteFinder
-from holypipette.deepLearning.pipetteFocuser import PipetteFocuser
 
 
 try:
@@ -62,8 +60,7 @@ class PcoCamera(Camera):
         self.last_frame_time = None
         self.fps = 0
 
-        # self.pipetteFinder = PipetteFinder()
-        self.pipetteFocuser = PipetteFocuser()
+
 
         self.normalize() #normalize image on startup
 
@@ -163,10 +160,6 @@ class PcoCamera(Camera):
         if img is None:
             return None
 
-        # if img is not None:
-        #     focusLvl = self.pipetteFocuser.get_pipette_focus(img)
-        #     print(focusLvl)
-
         # apply upper / lower bounds (normalization)
         span = np.maximum(self.upperBound - self.lowerBound, 1)  # Avoid division by zero
 
@@ -175,21 +168,5 @@ class PcoCamera(Camera):
         # resize if needed
         if self.width != None and self.height != None:
             img = cv2.resize(img, (self.width, self.height), interpolation = cv2.INTER_LINEAR)
-
-        # if img is not None:
-        #     out = self.pipetteFinder.find_pipette(img)
-        #     if out is not None:
-        #         img = cv2.circle(img, out, 2, 0, 2)
-
-        # find good points to track
-        # corners = cv2.goodFeaturesToTrack(img, 250, 0.005, 10)
-        # corners = np.int0(corners)
-        
-        # draw points on image
-
-        # we only want the top 100 corners
-
-        # if self.lastFrame is not None:
-        #     flow = cv2.calcOpticalFlowFarneback(self.lastFrame, img, None, 0.5, 3, 15, 3, 5, 1.2, 0)
 
         return img

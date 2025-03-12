@@ -37,13 +37,14 @@ class AutoPatchInterface(TaskInterface):
 
         self.is_selecting_cells = False
         self.cells_to_patch = []
+        # self.done = self.current_autopatcher.done
 
         #call update_camera_cell_list every 0.05 seconds using a QTimer
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_camera_cell_list)
         self.timer.start(50)
         
-
+    
     @blocking_command(category='Patch', description='Break into the cell',
                       task_description='Breaking into the cell')
     def break_in(self):
@@ -88,17 +89,21 @@ class AutoPatchInterface(TaskInterface):
         position[0] += self.current_autopatcher.calibrated_unit.camera.width / 2
         position[1] += self.current_autopatcher.calibrated_unit.camera.height / 2
         # add the z position of the microscope
-        z_pos = self.current_autopatcher.calibrated_unit.microscope.position()
-        self.debug(f'z position of the microscope: {z_pos}')
+        z_pos = self.current_autopatcher.calibrated_unit.microscope.position()/5
+        self.info(f'z position of the microscope: {z_pos}')
         print(f'adding cell... {self.is_selecting_cells}')
         if self.is_selecting_cells:
-            print('Adding cell at', position, 'to list of cells to patch')
+            print('Adding cell at', position, 'to list of cells to patch in pixels')
             stage_pos_pixels = self.current_autopatcher.calibrated_stage.reference_position()
             stage_pos_pixels[0:2] -= position
             # display stage position
             # add the z_pos to the stage position as a third dimension in the np array
-            np.append(stage_pos_pixels, z_pos)
+
+            stage_pos_pixels = np.array([stage_pos_pixels[0], stage_pos_pixels[1], z_pos])
+
+
             print(f'Stage position dimensions: {np.size(stage_pos_pixels)}')
+            print(f'Stage um position: {stage_pos_pixels}')
             #take a 256x256 image centered on the cell
             img = self.current_autopatcher.calibrated_unit.camera.get_16bit_image()
             img = img[int(position[1]-128):int(position[1]+128), int(position[0]-128):int(position[0]+128)]
@@ -128,13 +133,24 @@ class AutoPatchInterface(TaskInterface):
                 
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
-
     def patch(self) -> None:
         cell, img = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.patch,
                      argument=(cell, img))
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
+
+    @blocking_command(category='Patch',
+                        description='Locate the cell',
+                        task_description='Moving to the cell')
+    def locate_cell(self):
+        cell, img = self.cells_to_patch[0]
+        self.execute(self.current_autopatcher.locate_cell,
+                      argument = (cell, img))
+        time.sleep(2)
+        self.cells_to_patch = self.cells_to_patch[1:]
+    
+    
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
@@ -144,6 +160,15 @@ class AutoPatchInterface(TaskInterface):
                       argument = (cell, img))
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
+
+    @blocking_command(category='Patch',
+                        description='escape the cell',
+                        task_description='Moving away from the cell, cleaning pipette and moving to home space')
+    def escape_cell(self):
+
+        self.execute(self.current_autopatcher.escape)
+        time.sleep(2)
+
 
     @command(category='Patch',
              description='Store the position of the washing bath',
@@ -155,7 +180,6 @@ class AutoPatchInterface(TaskInterface):
                 description='Store the position of the safe space',
                 success_message='Safe space position stored')
     def store_safe_position(self) -> None:
-        
         self.current_autopatcher.safe_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
@@ -166,13 +190,39 @@ class AutoPatchInterface(TaskInterface):
                 description='Store the position of the home space',
                 success_message='Home position stored')
     def store_home_position(self) -> None:
-        
+        # modifying to store the safe position of the and stage as well.
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
+
+
+    @command(category='Patch',
+                description='Store the position of the home and safe spaces',
+                success_message='Home position stored')
+    def store_calibration_positions(self) -> None:
+        # modifying to store the safe position of the and stage as well.
+        self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
+        angle = np.deg2rad(25)
+        delta = -18000
+        x_pip, y_pip,z_pip  = self.current_autopatcher.home_position
+        self.current_autopatcher.safe_position = np.array([x_pip + delta*np.cos(angle), y_pip , z_pip +delta*np.sin(angle)])
+        x,y = self.pipette_controller.calibrated_stage.position()
+        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
+        self.current_autopatcher.home_stage_position = [x,y,z]
+        self.current_autopatcher.safe_stage_position = self.current_autopatcher.home_stage_position
+        self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
+        self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
     
+    # @command(category='Recording',
+    #          description='Check to see if one of the patch methods is complete, whether failed or successful',
+    #          success_message='Patch method complete')
+    # def check_done(self) -> bool:
+    #     self.done = self.current_autopatcher.done
+    #     if self.done:
+    #         self.current_autopatcher.done = False
+    #     return self.done
 
     @command(category='Patch',
              description='Store the position of the rinsing bath',

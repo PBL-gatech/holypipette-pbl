@@ -63,7 +63,7 @@ class Microscope(Manipulator):
         ----------
         x : target position in um.
         '''
-        self.abort_if_requested()
+        ##self.abort_if_requested()
         self.dev.absolute_move(x, self.axis)
         self.sleep(.05)
 
@@ -75,7 +75,7 @@ class Microscope(Manipulator):
         ----------
         vel : velocity in um/s.
         '''
-        self.abort_if_requested()
+        ###self.abort_if_requested()
         velarr = [0,0,vel]
         self.dev.absolute_move_group_velocity(velarr)
 
@@ -85,7 +85,7 @@ class Microscope(Manipulator):
         '''
         Moves the device axis to the floor position.
         '''
-        self.abort_if_requested()
+        ##self.abort_if_requested()
         self.dev.absolute_move(self.floor_Z, self.axis)
         self.dev.wait_until_still([self.axis])
         print(f"Moved to floor at {self.floor_Z} um")
@@ -97,7 +97,7 @@ class Microscope(Manipulator):
         Moves the device axis to a position and back to the original position.
         This is to fix backlash.
         '''
-        self.abort_if_requested()
+        ##self.abort_if_requested()
         curr_pos = self.position()
         self.absolute_move(curr_pos + 200)
         self.wait_until_still()
@@ -112,7 +112,7 @@ class Microscope(Manipulator):
         ----------
         x : position shift in um.
         '''
-        self.abort_if_requested()
+        ##self.abort_if_requested()
         self.dev.relative_move(x, self.axis)
         self.sleep(.05)
 
@@ -123,7 +123,7 @@ class Microscope(Manipulator):
         ----------
         distance : step size in um.
         '''
-        self.abort_if_requested()
+        ###self.abort_if_requested()
         self.dev.step_move(distance, self.axis)
 
     def stop(self):

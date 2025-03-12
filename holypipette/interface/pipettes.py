@@ -86,6 +86,8 @@ class PipetteInterface(TaskInterface):
     def move_pipette_x(self, distance):
         self.calibrated_unit.relative_move(distance, axis=0)
 
+    
+
     @command(category='Manipulators',
                 description='Write current calibration to file')
     def write_calibration(self):
@@ -115,10 +117,20 @@ class PipetteInterface(TaskInterface):
     def move_pipette_z(self, distance):
         self.calibrated_unit.relative_move(distance, axis=2)
 
+    @command(category='Manipulators',
+             description='Move pipette in xyz direction by {:.0f}μm',
+             default_arg=-500)
+    def move_pipette_xyz(self, distance):
+        # currently utilized for automatic safe space saving
+        angle = (np.radians(25))
+        distance = np.array([distance*np.cos(angle),0,distance*np.sin(angle)])
+        self.calibrated_unit.relative_move(distance)
+        
     @command(category='Microscope',
              description='Move microscope by {:.0f}μm',
-             default_arg=10)
+             default_arg=-1000)
     def move_microscope(self, distance):
+        # self.info(f'Moving microscope by {distance}μm')
         self.microscope.relative_move(distance)
 
     @command(category='Microscope',
@@ -130,7 +142,7 @@ class PipetteInterface(TaskInterface):
 
     @command(category='Stage',
              description='Move stage vertically by {:.0f}μm',
-             default_arg=10)
+             default_arg=-50)
     def move_stage_vertical(self, distance):
         self.calibrated_stage.relative_move(distance, axis=1)
 

@@ -41,26 +41,9 @@ class PatchGui(ManipulatorGui):
         self.patch_interface.moveToThread(pipette_interface.thread())
         self.interface_signals[self.patch_interface] = (self.patch_command_signal,
                                                         self.patch_reset_signal)
-    
-        try:
-            # Add patching button tab
-            # button_tab = PatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
-            self.add_config_gui(self.patch_interface.config)
-            logging.debug("Added config GUI.")
-            # self.add_tab(button_tab, 'Auto Patching', index=0)
-            logging.debug("Added 'Auto Patching' tab.")
-        except Exception as e:
-            logging.error("Exception during PatchGui initialization: %s", e, exc_info=True)
-            raise
-        # #add cell sorter button tab
-        # cellsorter_tab = CellSorterButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals)
-        # self.add_tab(cellsorter_tab, 'Cell Sorter', index = 0)
-
-        # add manual patching button tab
-        # manual_patching_tab = ManualPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
-        # self.add_tab(manual_patching_tab, 'Manual Patching', index = 0)
-        # add semi-auto patching button tab
-        semi_auto_patching_tab = SemiAutoPatchButtons(self.patch_interface, pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
+        self.add_config_gui(self.patch_interface.config)
+        logging.debug("Added config GUI.")
+        semi_auto_patching_tab = SemiAutoPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
         self.add_tab(semi_auto_patching_tab, 'Semi-Auto Patching', index = 0)
 
         # Update the pressure and information in the status bar every 16ms
@@ -70,7 +53,6 @@ class PatchGui(ManipulatorGui):
         self.patch_interface.set_pressure_near()
 
     def display_pressure(self):
-
         current_pressure = self.patch_interface.pressure.getLastVal()
         self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(current_pressure))
 
@@ -88,7 +70,6 @@ class PatchGui(ManipulatorGui):
                                  self.patch_interface.store_rinsing_position)
         self.register_key_action(Qt.Key_F4, None,
                                  self.patch_interface.clean_pipette)
-
 
 class TrackingPatchGui(PatchGui):
     def __init__(self, camera, pipette_interface, patch_interface,
@@ -204,8 +185,53 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self.interface_signals = {}
         self.start_task = None
 
+
     def do_nothing(self):
         pass  # a dummy function for buttons that aren't implemented yet
+    
+    def run_sequential_commands(self, cmds):
+        # Ensure cmds is a list
+        if not isinstance(cmds, list):
+            cmds = [cmds]
+        # Store the command list and reset index
+        self._seq_cmds = cmds
+        self._seq_index = 0
+        self._run_next_seq_command()
+
+    def _run_next_seq_command(self):
+            if self._seq_index >= len(self._seq_cmds):
+                # No more commands; sequence complete
+                return
+
+            cmd = self._seq_cmds[self._seq_index]
+            self._seq_index += 1
+
+            # Check if the command is asynchronous (has task_description)
+            if hasattr(cmd, 'task_description'):
+                interface = cmd.__self__
+                # Define a temporary slot that waits for the command to finish
+                def on_finished(exit_code, message):
+                    try:
+                        interface.task_finished.disconnect(on_finished)
+                    except Exception:
+                        pass
+                    # Launch next command after current one finishes
+                    self._run_next_seq_command()
+                # Connect to the task_finished signal
+                interface.task_finished.connect(on_finished)
+                # Start the task and execute the command
+                self.start_task(cmd.task_description, interface)
+                if interface in self.interface_signals:
+                    command_signal, _ = self.interface_signals[interface]
+                    command_signal.emit(cmd, None)
+                else:
+                    cmd(None)
+            else:
+                # Synchronous command: run it immediately
+                cmd()
+                self._run_next_seq_command()
+
+
 
     def run_command(self, cmds):
         if isinstance(cmds, list):
@@ -217,6 +243,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
                     self.execute_command(cmd)
         else:
             self.execute_command(cmds)
+    
 
     def execute_command(self, cmd):
         logging.info(f"Executing command: {cmd}")
@@ -289,7 +316,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         pos_timer.start(40)
         self.pos_update_timers.append(pos_timer)
 
-    def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds):
+    def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds, sequential=False):
         # Use CollapsibleGroupBox instead of QGroupBox
         box = CollapsibleGroupBox(box_name)
         rows = QtWidgets.QVBoxLayout()
@@ -307,7 +334,11 @@ class ButtonTabWidget(QtWidgets.QWidget):
                 # Use a lambda function with default arguments to correctly capture the command
                 if i < len(cmds) and j < len(cmds[i]):
                     button_cmd = cmds[i][j]
-                    button.clicked.connect(lambda state, cmd=button_cmd: self.run_command(cmd))
+                    if sequential:
+                        print("Sequential commands")
+                        button.clicked.connect(lambda state, cmd=button_cmd: self.run_sequential_commands(cmd))
+                    else:
+                        button.clicked.connect(lambda state, cmd=button_cmd: self.run_command(cmd))
                 else:
                     button.clicked.connect(self.do_nothing)
 
@@ -317,7 +348,6 @@ class ButtonTabWidget(QtWidgets.QWidget):
         box.setContentLayout(rows)
         layout.addWidget(box)
 
-
 class SemiAutoPatchButtons(ButtonTabWidget):
     def __init__(self, patch_interface: AutoPatchInterface, pipette_interface: PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
         super().__init__()
@@ -325,6 +355,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         self.pipette_interface = pipette_interface
 
         self.start_task = start_task
+
         self.interface_signals = interface_signals
 
         self.recording_state_manager = recording_state_manager
@@ -344,7 +375,7 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
-        # Add position boxes using the updated methods (which use CollapsibleGroupBox)
+
         self.positionAndTareBox(
             'stage position (um)',
             layout,
@@ -358,23 +389,16 @@ class SemiAutoPatchButtons(ButtonTabWidget):
             tare_func=self.tare_pipette
         )
 
-        # # Add box to emit patching states
-        # buttonList = [['Cell Found', 'Gigaseal Reached', 'Whole Cell Achieved'], ['Patch Attempt Start', 'Patch Attempt Failed']]
-        # cmds = [
-        #     [self.emit_cell_found, self.emit_gigaseal, self.emit_whole_cell],
-        #     [self.emit_patch_attempt_start, self.emit_patch_attempt_fail]
-        # ]
-        # self.addButtonList('patching states', layout, buttonList, cmds)
+        self.stage_calibration = [self.pipette_interface.set_floor, self.pipette_interface.calibrate_stage, self.pipette_interface.move_microscope]
+        self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_calibration_positions, self.patch_interface.move_to_safe_space]
+
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cell Plane'],['Store Safe Position','Store Home Position'],['Store Cleaning Position']]
-        cmds = [[self.pipette_interface.calibrate_stage, self.pipette_interface.calibrate_manipulator],
-                [self.pipette_interface.set_floor],
-                [self.patch_interface.store_safe_position,
-                self.patch_interface.store_home_position],
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position']]
+        cmds = [[self.stage_calibration, self.pipette_calibration],
                 [self.patch_interface.store_cleaning_position]
         ]
-        self.addButtonList('calibration', layout, buttonList, cmds)
+        self.addButtonList('calibration', layout, buttonList, cmds,sequential=True)
         # Add a box for movement commands
         buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane'],['Center Pipette','Clean pipette','Focus Pipette']]
         cmds = [
@@ -383,18 +407,16 @@ class SemiAutoPatchButtons(ButtonTabWidget):
             [self.pipette_interface.go_to_floor],
             [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
         ]
-        self.addButtonList('movement', layout, buttonList, cmds)
+        self.addButtonList('movement', layout, buttonList, cmds,sequential=False)
 
         # Add a box for patching commands
-        buttonList = [['Select Cell','Remove Last Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell']]
-        cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell],
-                [self.patch_interface.hunt_cell,self.patch_interface.break_in],
-                [self.patch_interface.gigaseal,[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]],
-                [[self.toggle_recording,self.patch_interface.patch]]
+        buttonList = [['Select Cell','Remove Last Cell','Locate Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
+        cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.locate_cell],
+                [[self.patch_interface.hunt_cell,self.toggle_recording],self.patch_interface.gigaseal],
+                [self.patch_interface.break_in,[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]],
+                [[self.toggle_recording,self.patch_interface.patch],[self.toggle_recording,self.patch_interface.escape_cell]]
 ]
-            
-    
-        self.addButtonList('patching', layout, buttonList, cmds)
+        self.addButtonList('patching', layout, buttonList, cmds,sequential=False)
 
         # Add a box for Rig Recorder
         self.record_button = QtWidgets.QPushButton("Start Recording")
@@ -405,23 +427,6 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         layout.addWidget(self.record_button)
 
         self.setLayout(layout)
-    
-
-
-    def emit_cell_found(self):
-        self.patch_interface.state_emitter("NH Success")
-
-    def emit_gigaseal(self):
-        self.patch_interface.state_emitter("GS success")
-
-    def emit_whole_cell(self):
-        self.patch_interface.state_emitter("WC success")
-
-    def emit_patch_attempt_start(self):
-        self.patch_interface.state_emitter("patching started")
-
-    def emit_patch_attempt_fail(self):
-        self.patch_interface.state_emitter("patching failed")
 
     def toggle_recording(self):
         if self.recording_state_manager.is_recording_enabled():

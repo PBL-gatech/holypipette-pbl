@@ -18,7 +18,7 @@ class PatchConfig(Config):
     min_R = NumberWithUnit(2e6, bounds=(0, 1000e6), doc='Minimum normal resistance', unit='MΩ', magnitude=1e6)
     max_R = NumberWithUnit(25e6, bounds=(0, 1000e6), doc='Maximum normal resistance', unit='MΩ', magnitude=1e6)
     max_cell_R = NumberWithUnit(300e6, bounds=(0, 1000e6), doc='Maximum cell resistance', unit='MΩ', magnitude=1e6)
-    min_cell_C = NumberWithUnit(0.1e-12, bounds=(0, 1), doc='Minimum cell capacitance', unit='F', magnitude=1e-12)
+    min_cell_C = NumberWithUnit(0.1e-12, bounds=(0, 1), doc='Minimum cell capacitance', unit='pF', magnitude=1e-12)
     cell_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell', unit='μm')
     max_distance = NumberWithUnit(30, bounds=(0, 100), doc='Maximum movement during approach', unit='μm')
 
@@ -33,7 +33,7 @@ class PatchConfig(Config):
     Vramp_duration = NumberWithUnit(10., bounds=(0, 60), doc='Voltage ramp duration', unit='s')
     Vramp_amplitude = NumberWithUnit(-70e-3, bounds=(-200e-3, 0), doc='Holding Potential', unit='mV', magnitude=1e-3)
 
-    zap = Boolean(False, doc='Zap the cell to break the seal')
+    zap = Boolean(True, doc='Zap the cell to break the seal')
 
     voltage_protocol = Boolean(default = True, doc='Run the Voltage Protocol automatically')
     current_protocol = Boolean(default = True, doc='Run the Current Protocol automatically')
@@ -47,7 +47,7 @@ class PatchConfig(Config):
     categories = [
         ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance', 'max_distance', 'cell_R_increase']),
         ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_duration', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
-        ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R']),
+        ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R','min_cell_C']),
         ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol']),
         ('Current Clamp', ['custom_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end']),
     ]
