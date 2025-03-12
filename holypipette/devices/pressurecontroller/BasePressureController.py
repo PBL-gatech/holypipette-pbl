@@ -49,7 +49,6 @@ class PressureController(TaskController):
         self.state = atm
         pass
 
-
 class FakePressureController(PressureController):
     def __init__(self):
         super(FakePressureController, self).__init__()

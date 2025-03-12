@@ -15,7 +15,7 @@ import threading
 
 import numpy as np
 from collections import deque
-from holypipette.devices.amplifier import DAQ
+from holypipette.devices.amplifier import NiDAQ
 from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.devices.pressurecontroller import PressureController
 from holypipette.utils.RecordingStateManager import RecordingStateManager
@@ -29,7 +29,7 @@ __all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "Holdin
 
 
 class CurrentProtocolGraph(QWidget):
-    def __init__(self, daq: DAQ, recording_state_manager: RecordingStateManager):
+    def __init__(self, daq: NiDAQ, recording_state_manager: RecordingStateManager):
         super().__init__()
         self.recording_state_manager = recording_state_manager
         layout = QVBoxLayout()
@@ -114,7 +114,7 @@ class CurrentProtocolGraph(QWidget):
         self.latestDisplayedData = self.daq.current_protocol_data.copy()
         
 class VoltageProtocolGraph(QWidget):
-    def __init__(self, daq: DAQ, recording_state_manager: RecordingStateManager):
+    def __init__(self, daq: NiDAQ, recording_state_manager: RecordingStateManager):
         super().__init__()
         self.recording_state_manager = recording_state_manager
         layout = QVBoxLayout()
@@ -186,7 +186,7 @@ class VoltageProtocolGraph(QWidget):
             self.daq.voltage_protocol_data = None # This causes a crash
 
 class HoldingProtocolGraph(QWidget):
-    def __init__(self, daq : DAQ, recording_state_manager: RecordingStateManager):
+    def __init__(self, daq : NiDAQ, recording_state_manager: RecordingStateManager):
         super().__init__()
         self.recording_state_manager = recording_state_manager
         layout = QVBoxLayout()
@@ -261,7 +261,7 @@ class EPhysGraph(QWidget):
     pressureLowerBound = -450
     pressureUpperBound = 730
 
-    def __init__(self, amplifier: Amplifier, daq: DAQ, pressureController: PressureController, recording_state_manager: RecordingStateManager):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressureController: PressureController, recording_state_manager: RecordingStateManager):
         super().__init__()
 
         # Stop matplotlib font warnings

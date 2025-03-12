@@ -86,19 +86,19 @@ class CameraInterface(TaskInterface):
         self.camera.change_exposure(-decrease)
         self.signal_updated_exposure()
 
-    @command(category='Camera',
-             description='Save the current image to a file')
-    def save_image(self):
-        try:
-            from PIL import Image
-        except ImportError:
-            self.error('Saving images needs the PIL or Pillow module')
-            return
-        frame, _ = self.camera.snap()
-        if frame is None:
-            self.error('No image to save')
-            return
-        else: 
-            index = self.recording_state_manager.sample_number + 1 # just in case protocol hasn't been run yet
+    # @command(category='Camera',
+    #          description='Save the current image to a file')
+    # def save_image(self):
+    #     try:
+    #         from PIL import Image
+    #     except ImportError:
+    #         self.error('Saving images needs the PIL or Pillow module')
+    #         return
+    #     frame, _ = self.camera.snap()
+    #     if frame is None:
+    #         self.error('No image to save')
+    #         return
+    #     else: 
+    #         index = self.recording_state_manager.sample_number + 1 # just in case protocol hasn't been run yet
 
-            self.ephys_logger.save_image(frame, index)        
+    #         self.ephys_logger.save_image(frame, index)        

@@ -2,14 +2,10 @@
 Setup for Moscow Pressuretest
 '''
 import serial
-from holypipette.devices.amplifier.multiclamp import MultiClampChannel
 from holypipette.devices.amplifier.amplifier import FakeAmplifier
-from holypipette.devices.amplifier.DAQ import FakeDAQ, DAQ
-from holypipette.devices.camera.pcocamera import PcoCamera
-# from holypipette.devices.camera.qimagingcam import QImagingCam
-from holypipette.devices.pressurecontroller import IBBPressureController, FakePressureController, TestPressureController, MoscowPressureController
-from holypipette.devices.camera.camera import FakeCamera
-from holypipette.devices.camera import FakeCalCamera, FakePipetteManipulator
+from holypipette.devices.amplifier.DAQ import  FakeDAQ
+from holypipette.devices.pressurecontroller import MoscowPressureController
+from holypipette.devices.camera import FakeCalCamera
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 

@@ -485,7 +485,6 @@ class SemiAutoPatchButtons(ButtonTabWidget):
             label = self.pos_labels[ind]
             label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
 
-
     def tare_stage_x(self):
         xPos = self.pipette_interface.calibrated_stage.position(0)
         self.currx_stage_pos = [xPos, 0, 0]
