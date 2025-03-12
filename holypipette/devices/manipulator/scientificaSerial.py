@@ -204,6 +204,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         self.comPort : serial.Serial = comPort
         self._lock = threading.Lock()
         self.current_pos = [0, 0, 0]
+        self.correction = 0.01 # unit correction 
         
         self.set_max_accel(accel)
         self.set_max_speed(speed)
@@ -263,9 +264,9 @@ class ScientificaSerialNoEncoder(Manipulator):
                 xyz = xyz.split('\t')
                 
                 try:
-                    xPos = int(xyz[0]) / 10.0
-                    yPos = int(xyz[1]) / 10.0
-                    zPos = int(xyz[2]) / 10.0
+                    xPos = int(xyz[0]) * self.correction
+                    yPos = int(xyz[1]) * self.correction
+                    zPos = int(xyz[2]) * self.correction
                     self.current_pos = [xPos, yPos, zPos]
                 except:
                     print('error reading position')
@@ -277,18 +278,18 @@ class ScientificaSerialNoEncoder(Manipulator):
     def absolute_move(self, pos, axis, speed=None):
         '''Moves the device to an absolute position in um.
         '''
-        # self.abort_if_requested()
+        #self.abort_if_requested()
         try: 
             if axis == 1:
                 yPos = self.position(axis=2)
-                resp = self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos * 10) , int(yPos * 10)))
+                resp = self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos ) , int(yPos )))
                 print(resp)
             if axis == 2:
                 xPos = self.position(axis=1)
-                resp = self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(pos * 10)))
+                resp = self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos ), int(pos )))
                 print(resp)
             if axis == 3:
-                resp = self._sendCmd(SerialCommands.SET_Z_POS.format(int(pos * 10)))
+                resp = self._sendCmd(SerialCommands.SET_Z_POS.format(int(pos )))
                 print(resp)
         except Exception as e:
             self.error(f"Error in absolute_move: {e}")
@@ -301,7 +302,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         axes : list of axis numbers
         x : target position in um (vector or list).
         '''
-        # self.abort_if_requested()
+        #self.abort_if_requested()
         x = list(x)
         axes = list(axes)
 
@@ -309,14 +310,14 @@ class ScientificaSerialNoEncoder(Manipulator):
             # Move X and Y axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
-            resp = self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
+            resp = self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos ), int(yPos )))
 
         elif 1 in axes and 2 in axes and 3 in axes:
             # Move X, Y and Z axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
-            resp = self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
+            resp = self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos ), int(yPos ), int(zPos )))
             print(resp)
 
         else:
@@ -329,7 +330,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         ----------
         vel : list of velocities for each axis
         '''
-        # self.abort_if_requested()   
+        #self.abort_if_requested()   
         try: 
             vel = list(vel)
             if len(vel) != 3:
@@ -346,7 +347,7 @@ class ScientificaSerialNoEncoder(Manipulator):
         axis : axis number starting at 0; if None, all XYZ axes
         pos : position shift in um.
         '''
-        # self.abort_if_requested()
+        # #self.abort_if_requested()
         if axis == 1:
             self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(pos, 0))
         if axis == 2:
@@ -363,13 +364,13 @@ class ScientificaSerialNoEncoder(Manipulator):
         axes : list of axis numbers
         x : position shift in um (vector or list).
         '''
-        # self.abort_if_requested()
+        #self.abort_if_requested()
         cmd = [0, 0, 0]
         for pos, axis in zip(x, axes):
             cmd[axis  - 1] = pos
         
         if cmd[0] != 0 or cmd[1] != 0:
-            resp = self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] * 10), int(cmd[1] * 10)))
+            resp = self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] ), int(cmd[1] )))
             print(resp)
         if cmd[2] != 0:
             resp = self.relative_move(cmd[2], 3)

@@ -137,7 +137,7 @@ class FakeManipulator(Manipulator):
         speed : int or None
             Speed in the same units as set_max_speed. If None, the max speed is used.
         """
-        self.abort_if_requested()
+        #self.abort_if_requested()
         if self.update_axis(axis):
             raise RuntimeError("Cannot move while another command is running on axis {}".format(axis))
 
@@ -172,7 +172,7 @@ class FakeManipulator(Manipulator):
         speed : int or None
             Speed to use for all axes (if provided).
         """
-        self.abort_if_requested()
+        #self.abort_if_requested()
         for target, axis in zip(x, axes):
             self.absolute_move(target, axis, speed)
 
@@ -189,7 +189,7 @@ class FakeManipulator(Manipulator):
         speed : int or None
             Speed (if provided, otherwise max_speed is used).
         """
-        self.abort_if_requested()
+        #self.abort_if_requested()
         current_pos = self.position(axis)
         new_target = current_pos + dx
         self.absolute_move(new_target, axis, speed)
@@ -239,7 +239,7 @@ class FakeManipulator(Manipulator):
         infinite value (in the correct direction) so that the axis keeps moving
         until a stop command is issued.
         """
-        self.abort_if_requested()
+        #self.abort_if_requested()
         current_time = time.time()
         try:
             iter(vel)
