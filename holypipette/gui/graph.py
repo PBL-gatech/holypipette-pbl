@@ -250,11 +250,9 @@ class HoldingProtocolGraph(QWidget):
 
         # self.latestDisplayedData = self.daq.holding_protocol_data.copy()
 
-
-
 class EPhysGraph(QWidget):
     """
-    A window that plots electrophysiology data from the DAQ
+    A window that plots electrophysiology data from the DAQ, amplifier, and pressure controller. Also provides inputs for controlling pressure and ephys measurements
     """
 
     # Define a signal that can accept DAQ data
@@ -359,13 +357,13 @@ class EPhysGraph(QWidget):
         self.pressureCommandBox = QLineEdit()
         self.pressureCommandBox.setMaxLength(5)
         self.pressureCommandBox.setFixedWidth(100)
-        self.pressureCommandBox.setPlaceholderText(f"{self.pressureController.measure()} mbar")
+        self.pressureCommandBox.setPlaceholderText(f"{self.pressureController.getLastVal} mbar")
         self.pressureCommandBox.setValidator(QtGui.QIntValidator(EPhysGraph.pressureLowerBound, EPhysGraph.pressureUpperBound))
         self.pressureCommandBox.returnPressed.connect(self.pressureCommandBoxReturnPressed)
 
         # Add pressure command slider
         self.pressureCommandSlider = QSlider(Qt.Horizontal)
-        self.pressureCommandSlider.setValue(int(self.pressureController.measure()))
+        self.pressureCommandSlider.setValue(int(self.pressureController.getLastVal()))
         self.pressureCommandSlider.setMinimum(EPhysGraph.pressureLowerBound)
         self.pressureCommandSlider.setMaximum(EPhysGraph.pressureUpperBound)
         self.pressureCommandSlider.setTickInterval(100)
@@ -730,7 +728,6 @@ class EPhysGraph(QWidget):
         Resets the zap button to its default appearance.
         """
         self.zapButton.setStyleSheet("")
-
 
     def handle_zap_duration_change(self, index):
         """

@@ -12,11 +12,11 @@ import time
 import threading
 import logging
 
-
+from holypipette.controller.base import TaskController
 
 __all__ = ['DAQ','ArduinoDAQ','FakeDAQ']
 
-class DAQ:
+class DAQ(TaskController):
     C_CLAMP_AMP_PER_VOLT = 400 * 1e-12 #400 pA (supplied cell) / V (DAQ out)
     C_CLAMP_VOLT_PER_VOLT = (10 * 1e-3) / (1e-3) #10 mV (DAQ input) / V (cell out)
     V_CLAMP_VOLT_PER_VOLT = (20 * 1e-3) #20 mV (supplied cell) / V (DAQ out)
@@ -58,7 +58,7 @@ class DAQ:
         # ! False is for BATH mode, True is for CELL mode
         self.cellMode = False
 
-        logging.info(f'Using {self.readDev}/{self.readChannel} for reading the output of {self.cmdDev}/{self.cmdChannel} and {self.respDev}/{self.respChannel} for response.')
+        self.info(f'Using {self.readDev}/{self.readChannel} for reading the output of {self.cmdDev}/{self.cmdChannel} and {self.respDev}/{self.respChannel} for response.')
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         # ?? HOW DO WE KNOW THE UNITS?
@@ -131,8 +131,8 @@ class DAQ:
         if self.voltageMembraneCapacitance is None or self.voltageMembraneCapacitance is 0:
             self.voltageMembraneCapacitance = 0 
             # logging.warn("Is system set to cell mode?")
-            # logging.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
-            # logging.error("Returning None,Current clamp protocol cannot be run.")
+            # self.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
+            # self.error("Returning None,Current clamp protocol cannot be run.")
             return None, None, None
         
         if not custom:
@@ -143,11 +143,11 @@ class DAQ:
             if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
                 raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided when custom is True.")
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
-        logging.info(f'Starting Current Protocol with start: {startCurrentPicoAmp}, end: {endCurrentPicoAmp}, step: {stepCurrentPicoAmp}.')
+        self.info(f'Starting Current Protocol with start: {startCurrentPicoAmp}, end: {endCurrentPicoAmp}, step: {stepCurrentPicoAmp}.')
         self.pulses = np.arange(startCurrentPicoAmp, endCurrentPicoAmp + stepCurrentPicoAmp, stepCurrentPicoAmp)
         if 0 not in self.pulses:
             self.pulses = np.insert(self.pulses, len(self.pulses) // 2, 0)
-        logging.info(f'Pulses: {self.pulses}')
+        self.info(f'Pulses: {self.pulses}')
         self.pulseRange = len(self.pulses)
         self.isRunningProtocol = True
         self.latest_protocol_data = None # clear data
@@ -170,7 +170,7 @@ class DAQ:
             amp_pulse = (-20*1e-12)/self.C_CLAMP_AMP_PER_VOLT
             wave_pulse = 1 / (2 * highTimeMs/2 * 1e-3)
             recording_pulse = 3 * highTimeMs/2 * 1e-3
-            logging.info(f'Sending param pulse at -20 pA square wave.')
+            self.info(f'Sending param pulse at -20 pA square wave.')
             self._deviceLock.acquire()
             sendTask = self._sendSquareWaveCurrent(wave_pulse, samplesPerSec, 0.5, amp_pulse, recording_pulse)
             sendTask.start()
@@ -182,11 +182,11 @@ class DAQ:
             respData0 = data[1] # Current response from the cell
             readData0 = data[0] # voltage sent to the cell
             respData0 = respData0 / self.C_CLAMP_VOLT_PER_VOLT
-            time.sleep(0.5)
-            # logging.info(f'obtain parameters from  cell with -20 pA square wave.')
+            self.sleep(0.5)
+            # self.info(f'obtain parameters from  cell with -20 pA square wave.')
             
             currentAmps = self.pulses[i]*1e-12
-            logging.info(f'Sending {currentAmps * 1e12} pA square wave.')
+            self.info(f'Sending {currentAmps * 1e12} pA square wave.')
             #convert to DAQ output
             amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
             # print("Amplitude", amplitude)
@@ -209,7 +209,7 @@ class DAQ:
             readData = np.concatenate((readData0, readData1))
             triggeredSamples = respData.shape[0]
             timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
-            time.sleep(0.5)
+            self.sleep(0.5)
             #combine data
 
         
@@ -257,11 +257,11 @@ class DAQ:
                 if self.voltageMembraneCapacitance != 0:
                     break  # exit loop if capacitance is non-zero
                 else:
-                    logging.warning(f"Attempt {attempts}: Capacitance is zero, retrying...")
+                    self.warning(f"Attempt {attempts}: Capacitance is zero, retrying...")
             # print(f"Latest membrane capacitance: {self.voltageMembraneCapacitance}")
         except Exception as e:
             self.voltage_protocol_data, self.voltage_command_data = None, None
-            # logging.error(f"Error in getDataFromVoltageProtocol: {e}")
+            # self.error(f"Error in getDataFromVoltageProtocol: {e}")
         finally:
             self.isRunningProtocol = False
         return self.voltageMembraneCapacitance
@@ -280,7 +280,7 @@ class DAQ:
             numSamples = int(samplesPerSec * recordingTime)
 
             if data is not None and data.shape[1] == numSamples:
-                # logging.info(f"Data shape: {data.shape[1]}")
+                # self.info(f"Data shape: {data.shape[1]}")
                 try:
                     triggeredSamples = data.shape[1]
                     timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
@@ -295,16 +295,16 @@ class DAQ:
                     
                     if abs(max_grad) - abs(min_grad) < 1000:
                         self.equalizer = True
-                        # logging.error(f"gradients equal: {equalizer}")
+                        # self.error(f"gradients equal: {equalizer}")
                     else:
                         self.equalizer = False
-                        # logging.warning(f"gradients not equal: {equalizer}")
-                        # logging.info(f"Max grad value: {gradientData[max_index]}, Max value: {data[0][max_index]}, Max index: {max_index}")
-                        # logging.info(f"Min grad value: {gradientData[min_index]}, Max value: {data[0][min_index]}, Min index: {min_index}")
+                        # self.warning(f"gradients not equal: {equalizer}")
+                        # self.info(f"Max grad value: {gradientData[max_index]}, Max value: {data[0][max_index]}, Max index: {max_index}")
+                        # self.info(f"Min grad value: {gradientData[min_index]}, Max value: {data[0][min_index]}, Min index: {min_index}")
 
                 except Exception as e:
-                    # logging.error(f"Error in getDataFromSquareWave: {e}")
-                    # logging.info(f"Data shape: {data.shape[1]}")
+                    # self.error(f"Error in getDataFromSquareWave: {e}")
+                    # self.info(f"Data shape: {data.shape[1]}")
                     return None, None, None, None, None, None
 
         if self.equalizer:
@@ -340,8 +340,8 @@ class DAQ:
 
                 return np.array([timeData, respData]), np.array([timeData, readData]), self.totalResistance, self.latestMembraneResistance, self.latestAccessResistance, self.latestMembraneCapacitance
             except Exception as e:
-                # logging.error(f"Error in getDataFromSquareWave: {e}")
-                # logging.info(f"resistance: {self.totalResistance}, membrane resistance: {self.latestMembraneResistance}, membrane capacitance: {self.latestMembraneCapacitance}")
+                # self.error(f"Error in getDataFromSquareWave: {e}")
+                # self.info(f"resistance: {self.totalResistance}, membrane resistance: {self.latestMembraneResistance}, membrane capacitance: {self.latestMembraneCapacitance}")
                 
                 return None, None, None, None, None, None
    
@@ -370,7 +370,7 @@ class DAQ:
             
         except Exception as e:
             # * we got an invalid square wave, or division by zero
-            # logging.error(f"Error in getResistancefromCurrent: {e}")
+            # self.error(f"Error in getResistancefromCurrent: {e}")
             return None
         
     def _getParamsfromCurrent(self, readData, respData, timeData, amplitude) -> tuple:
@@ -381,7 +381,7 @@ class DAQ:
                 # Create a data frame to obtain the peak and minimum values
                 df = pd.DataFrame({'T': timeData, 'X': readData, 'Y': respData})
                 #print first line
-                # logging.info(f"First line: {df.iloc[0]}")
+                # self.info(f"First line: {df.iloc[0]}")
                 #shift time axis to zero
                 start = df['T'].iloc[0]
                 df['T'] = df['T'] - start
@@ -395,19 +395,19 @@ class DAQ:
             
                 self.holding_current = I_prev_pA
 
-                # logging.info("Data filtered")
+                # self.info("Data filtered")
                 peak_time, peak_index, min_time, min_index = plot_params
                 #get peak and min values
                 I_peak_pA = df.loc[peak_index + 1, 'Y_pA']
                 I_peak_time = df.loc[peak_index + 1, 'T_ms']
-                # logging.info(f"Peak Current (pA): {I_peak_pA} at index: {peak_index}")
-                # logging.info(f"steady state current (pA): {I_post_pA} at index: {min_index-10}")
-                # logging.info(f"Peak time: {peak_time}, Peak index: {peak_index}, Min time: {min_time}, Min index: {min_index}")
-                # logging.info(f"I_prev_pA: {I_prev_pA}, I_post_pA: {I_post_pA}, I_peak_pA: {I_peak_pA}")
+                # self.info(f"Peak Current (pA): {I_peak_pA} at index: {peak_index}")
+                # self.info(f"steady state current (pA): {I_post_pA} at index: {min_index-10}")
+                # self.info(f"Peak time: {peak_time}, Peak index: {peak_index}, Min time: {min_time}, Min index: {min_index}")
+                # self.info(f"I_prev_pA: {I_prev_pA}, I_post_pA: {I_post_pA}, I_peak_pA: {I_peak_pA}")
                 #group filtered_data, filtered_time, and filtered_command into a data frame
                 fit_data = pd.DataFrame({'T_ms': filtered_time, 'X_mV': filtered_command, 'Y_pA': filtered_data})
                 #print first line of fit_data
-                # logging.info(f"First line of fit_data: {fit_data.iloc[0]}")
+                # self.info(f"First line of fit_data: {fit_data.iloc[0]}")
                 # calculate mean voltage from filtered_command
                 mean_voltage = filtered_command.mean()
                 start = fit_data['T_ms'].iloc[0]
@@ -418,17 +418,17 @@ class DAQ:
                     tau = 1 / t
                     # Calculate parameters
                     R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, mean_voltage, I_peak_pA, I_prev_pA, I_post_pA)
-                    # logging.info(f"R_a: {R_a_MOhms}, R_m: {R_m_MOhms}, C_m: {C_m_pF}")
+                    # self.info(f"R_a: {R_a_MOhms}, R_m: {R_m_MOhms}, C_m: {C_m_pF}")
                     
             
             except Exception as e:
-                # logging.error(f"Error in getParamsfromCurrent: {e}")
+                # self.error(f"Error in getParamsfromCurrent: {e}")
                 return None, None, None
                 # return 0, 0, 0
         else:
-            # logging.error("One or more of the data arrays is empty")
+            # self.error("One or more of the data arrays is empty")
             return 0,0,0
-        # logging.info("Returning parameters")
+        # self.info("Returning parameters")
         return R_a_MOhms, R_m_MOhms, C_m_pF
 
     def filter_data(self, data):
@@ -481,7 +481,7 @@ class DAQ:
 
     def optimizer(self, fit_data, I_peak_pA, I_peak_time, I_ss):
         start = fit_data['T_ms'].iloc[0]
-        # logging.info(f"Unshifted Start time: {start}")
+        # self.info(f"Unshifted Start time: {start}")
         # Shift the data to start at 0
         fit_data['T_ms'] = fit_data['T_ms'] - start
         #print all of the fit data  to copy to a txt
@@ -492,7 +492,7 @@ class DAQ:
 
         # Save T_ms and Y_pA to a single CSV file and overwrite it each time
         # fit_data[['T_ms', 'Y_pA']].to_csv(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_patch_clamp_data\test_data.csv", index=False)
-        # logging.info("Data saved to CSV")
+        # self.info("Data saved to CSV")
         # print("I_SS: ", I_ss)
         p0 = (I_peak_pA, I_peak_time, I_ss)
         # print("P0", p0)
@@ -505,13 +505,13 @@ class DAQ:
             # print("Params", m, t, b)
             return m, t, b
         except Exception as e:
-            # logging.error(f"Error in the optimizer: {e}")
+            # self.error(f"Error in the optimizer: {e}")
             return None, None, None
 
     def calc_param(self, tau, mean_voltage, I_peak, I_prev, I_ss):
         I_d = I_peak - I_prev  # in pA
         I_dss = I_ss - I_prev  # in pA
-        # logging.info(f"tau: {tau}, dmV: {mean_voltage}, I_d: {I_d}, I_dss: {I_dss}")
+        # self.info(f"tau: {tau}, dmV: {mean_voltage}, I_d: {I_d}, I_dss: {I_dss}")
         # calculate access resistance:
         R_a_Mohms = ((mean_voltage*1e-3) / (I_d*1e-12))*1e-6 # 10 mV / 800 pA = 12.5 MOhms --> supposed to be 10 MOhms
         # print("R_a_MOhms in calc", R_a_Mohms)
@@ -524,7 +524,7 @@ class DAQ:
 
 
 
-class ArduinoDAQ:
+class ArduinoDAQ(DAQ):
     # Calibration Constants
     C_CLAMP_AMP_PER_VOLT = 400 * 1e-12  # 400 pA / V (DAQ out)
     C_CLAMP_VOLT_PER_VOLT = (10 * 1e-3) / (1e-3)  # 10 mV / V (DAQ input)
@@ -540,10 +540,10 @@ class ArduinoDAQ:
         """
         if DAQSerial is not None and isinstance(DAQSerial, serial.Serial):
             self.DAQSerial = DAQSerial
-            logging.info(f"ArduinoDAQ initialized with serial port: {self.DAQSerial.port} at {self.DAQSerial.baudrate} baud.")
+            self.info(f"ArduinoDAQ initialized with serial port: {self.DAQSerial.port} at {self.DAQSerial.baudrate} baud.")
         else:
             self.DAQSerial = None
-            logging.error("DAQSerial must be an instance of serial.Serial and already opened.")
+            self.error("DAQSerial must be an instance of serial.Serial and already opened.")
             raise ValueError("DAQSerial must be an instance of serial.Serial and already opened.")
 
         # Initialize DAQ variables
@@ -575,7 +575,7 @@ class ArduinoDAQ:
         # False is for BATH mode, True is for CELL mode
         self.cellMode = False
 
-        logging.info(f'Using {self.DAQSerial.port} for reading and writing.')
+        self.info(f'Using {self.DAQSerial.port} for reading and writing.')
     def getDataFromCurrentProtocol(self, custom = False,factor = None,startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, highTimeMs=400):
         '''Sends a series of square waves from startCurrentPicoAmp to endCurrentPicoAmp (inclusive) with stepCurrentPicoAmp pA increments.
            Square wave period is 2 * highTimeMs ms. Returns a 2d array of data with each row being a square wave.
@@ -585,8 +585,8 @@ class ArduinoDAQ:
         if self.voltageMembraneCapacitance is None or self.voltageMembraneCapacitance is 0:
             self.voltageMembraneCapacitance = 0 
             # logging.warn("Is system set to cell mode?")
-            # logging.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
-            # logging.error("Returning None,Current clamp protocol cannot be run.")
+            # self.error("Voltage membrane capacitance is not set. Please run voltage protocol first.")
+            # self.error("Returning None,Current clamp protocol cannot be run.")
             return None, None, None
         
         if not custom:
@@ -597,11 +597,11 @@ class ArduinoDAQ:
             if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
                 raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided when custom is True.")
         # create a spaced list and count number of pulses from startCurrentPicoAmp to endCurrentPicoAmp based off of stepCurrentPicoAmp
-        logging.info(f'Starting Current Protocol with start: {startCurrentPicoAmp}, end: {endCurrentPicoAmp}, step: {stepCurrentPicoAmp}.')
+        self.info(f'Starting Current Protocol with start: {startCurrentPicoAmp}, end: {endCurrentPicoAmp}, step: {stepCurrentPicoAmp}.')
         self.pulses = np.arange(startCurrentPicoAmp, endCurrentPicoAmp + stepCurrentPicoAmp, stepCurrentPicoAmp)
         if 0 not in self.pulses:
             self.pulses = np.insert(self.pulses, len(self.pulses) // 2, 0)
-        logging.info(f'Pulses: {self.pulses}')
+        self.info(f'Pulses: {self.pulses}')
         self.pulseRange = len(self.pulses)
         self.isRunningProtocol = True
         self.latest_protocol_data = None # clear data
@@ -624,7 +624,7 @@ class ArduinoDAQ:
             amp_pulse = (-20*1e-12)/self.C_CLAMP_AMP_PER_VOLT
             wave_pulse = 1 / (2 * highTimeMs/2 * 1e-3)
             recording_pulse = 3 * highTimeMs/2 * 1e-3
-            logging.info(f'Sending param pulse at -20 pA square wave.')
+            self.info(f'Sending param pulse at -20 pA square wave.')
             self._deviceLock.acquire()
             sendTask = self._sendSquareWaveCurrent(wave_pulse, samplesPerSec, 0.5, amp_pulse, recording_pulse)
             sendTask.start()
@@ -636,11 +636,11 @@ class ArduinoDAQ:
             respData0 = data[1] # Current response from the cell
             readData0 = data[0] # voltage sent to the cell
             respData0 = respData0 / self.C_CLAMP_VOLT_PER_VOLT
-            time.sleep(0.5)
-            # logging.info(f'obtain parameters from  cell with -20 pA square wave.')
+            self.sleep(0.5)
+            # self.info(f'obtain parameters from  cell with -20 pA square wave.')
             
             currentAmps = self.pulses[i]*1e-12
-            logging.info(f'Sending {currentAmps * 1e12} pA square wave.')
+            self.info(f'Sending {currentAmps * 1e12} pA square wave.')
             #convert to DAQ output
             amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
             # print("Amplitude", amplitude)
@@ -663,7 +663,7 @@ class ArduinoDAQ:
             readData = np.concatenate((readData0, readData1))
             triggeredSamples = respData.shape[0]
             timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
-            time.sleep(0.5)
+            self.sleep(0.5)
             #combine data
 
         
@@ -711,11 +711,11 @@ class ArduinoDAQ:
                 if self.voltageMembraneCapacitance != 0:
                     break  # exit loop if capacitance is non-zero
                 else:
-                    logging.warning(f"Attempt {attempts}: Capacitance is zero, retrying...")
+                    self.warning(f"Attempt {attempts}: Capacitance is zero, retrying...")
             # print(f"Latest membrane capacitance: {self.voltageMembraneCapacitance}")
         except Exception as e:
             self.voltage_protocol_data, self.voltage_command_data = None, None
-            logging.error(f"Error in getDataFromVoltageProtocol: {e}")
+            self.error(f"Error in getDataFromVoltageProtocol: {e}")
         finally:
             self.isRunningProtocol = False
         return self.voltageMembraneCapacitance
@@ -737,7 +737,7 @@ class ArduinoDAQ:
             RuntimeError: If the number of samples received does not match the expected count.
         """
         if self.DAQSerial is None:
-            logging.error("Serial port not initialized.")
+            self.error("Serial port not initialized.")
             raise RuntimeError("Serial port not initialized.")
 
         numSamplesExpected = int(recordingTime * samplesPerSec) 
@@ -751,9 +751,9 @@ class ArduinoDAQ:
                 line = self.DAQSerial.readline().decode('utf-8').strip()
                 if line == "start":
                     collecting_data = True
-                    # logging.debug("Data collection started")
+                    # self.debug("Data collection started")
                 elif line == "end":
-                    # logging.debug("Data collection ended")
+                    # self.debug("Data collection ended")
                     break
                 elif collecting_data:
                     # Split the line by comma to get command and response values
@@ -764,15 +764,15 @@ class ArduinoDAQ:
                         response_value  = float(response_value)*ADC_scale
                         command.append( (command_value))
                         response.append((response_value))
-                        # logging.debug(f"Received: Command={(command_value)}, Response={(response_value)}")
+                        # self.debug(f"Received: Command={(command_value)}, Response={(response_value)}")
                     else:
-                        logging.error(f"Unexpected data format: {line}")
+                        self.error(f"Unexpected data format: {line}")
 
 
         readData = np.array(command, dtype=float)
         respData = np.array(response, dtype=float)
         
-        # logging.debug(f"Read data shape: {readData.shape}, Response data shape: {respData.shape}")
+        # self.debug(f"Read data shape: {readData.shape}, Response data shape: {respData.shape}")
         return np.array([readData, respData])
 
     def _sendSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
@@ -788,7 +788,7 @@ class ArduinoDAQ:
         """
         scaling = 1024  # 10-bit DAC scaling
         if self.DAQSerial is None:
-            logging.error("Serial port not initialized.")
+            self.error("Serial port not initialized.")
             raise RuntimeError("Serial port not initialized.")
 
         signalDurationMicros = int(recordingTime * 1e6)  # Duration in microseconds
@@ -804,7 +804,7 @@ class ArduinoDAQ:
         self.DAQSerial.reset_input_buffer()
         self.DAQSerial.reset_output_buffer()
         self.DAQSerial.write(command.encode())
-        # logging.debug(f"Sent command: {command.strip()}")
+        # self.debug(f"Sent command: {command.strip()}")
 
     def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         """
@@ -824,17 +824,17 @@ class ArduinoDAQ:
         
         while not self.equalizer:
 
-            # logging.info(f"Sending square wave with frequency: {wave_freq} Hz, amplitude: {amplitude}, recording time: {recordingTime} s.")
+            # self.info(f"Sending square wave with frequency: {wave_freq} Hz, amplitude: {amplitude}, recording time: {recordingTime} s.")
             self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
-            # logging.info("Reading analog input...")
+            # self.info("Reading analog input...")
             data = self._readAnalogInput(samplesPerSec, recordingTime)
 
             numSamples = int(samplesPerSec * recordingTime)
 
 
             if data is not None and data.shape[1] == numSamples:
-                # logging.info(f"Data shape: {data.shape[1]}")
-                # logging.info(f"Data: {data}")
+                # self.info(f"Data shape: {data.shape[1]}")
+                # self.info(f"Data: {data}")
                 try:
                     triggeredSamples = data.shape[1]
                     timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
@@ -849,16 +849,16 @@ class ArduinoDAQ:
                     
                     if abs(max_grad) - abs(min_grad) < 1000:
                         self.equalizer = True
-                        # logging.error(f"gradients equal: {equalizer}")
+                        # self.error(f"gradients equal: {equalizer}")
                     else:
                         self.equalizer = False
-                        # logging.warning(f"gradients not equal: {equalizer}")
-                        # logging.info(f"Max grad value: {gradientData[max_index]}, Max value: {data[0][max_index]}, Max index: {max_index}")
-                        # logging.info(f"Min grad value: {gradientData[min_index]}, Max value: {data[0][min_index]}, Min index: {min_index}")
+                        # self.warning(f"gradients not equal: {equalizer}")
+                        # self.info(f"Max grad value: {gradientData[max_index]}, Max value: {data[0][max_index]}, Max index: {max_index}")
+                        # self.info(f"Min grad value: {gradientData[min_index]}, Max value: {data[0][min_index]}, Min index: {min_index}")
 
                 except Exception as e:
-                    # logging.error(f"Error in getDataFromSquareWave: {e}")
-                    # logging.info(f"Data shape: {data.shape[1]}")
+                    # self.error(f"Error in getDataFromSquareWave: {e}")
+                    # self.info(f"Data shape: {data.shape[1]}")
                     return None, None, None, None, None, None
 
         if self.equalizer:
@@ -894,8 +894,8 @@ class ArduinoDAQ:
 
                 return np.array([timeData, respData]), np.array([timeData, readData]), self.totalResistance, self.latestMembraneResistance, self.latestAccessResistance, self.latestMembraneCapacitance
             except Exception as e:
-                # logging.error(f"Error in getDataFromSquareWave: {e}")
-                # logging.info(f"resistance: {self.totalResistance}, membrane resistance: {self.latestMembraneResistance}, membrane capacitance: {self.latestMembraneCapacitance}")
+                # self.error(f"Error in getDataFromSquareWave: {e}")
+                # self.info(f"resistance: {self.totalResistance}, membrane resistance: {self.latestMembraneResistance}, membrane capacitance: {self.latestMembraneCapacitance}")
                 
                 return None, None, None, None, None, None
 
@@ -925,7 +925,7 @@ class ArduinoDAQ:
             
         except Exception as e:
             # * we got an invalid square wave, or division by zero
-            # logging.error(f"Error in getResistancefromCurrent: {e}")
+            # self.error(f"Error in getResistancefromCurrent: {e}")
             return None
         
     def _getParamsfromCurrent(self, readData, respData, timeData, amplitude) -> tuple:
@@ -936,7 +936,7 @@ class ArduinoDAQ:
                 # Create a data frame to obtain the peak and minimum values
                 df = pd.DataFrame({'T': timeData, 'X': readData, 'Y': respData})
                 #print first line
-                # logging.info(f"First line: {df.iloc[0]}")
+                # self.info(f"First line: {df.iloc[0]}")
                 #shift time axis to zero
                 start = df['T'].iloc[0]
                 df['T'] = df['T'] - start
@@ -949,21 +949,21 @@ class ArduinoDAQ:
                 filtered_data, filtered_time, filtered_command, plot_params, I_prev_pA, I_post_pA = self.filter_data(df)
             
                 self.holding_current = I_prev_pA
-                logging.info(f"Holding current: {self.holding_current}")
+                self.info(f"Holding current: {self.holding_current}")
 
-                # logging.info("Data filtered")
+                # self.info("Data filtered")
                 peak_time, peak_index, min_time, min_index = plot_params
                 #get peak and min values
                 I_peak_pA = df.loc[peak_index + 1, 'Y_pA']
                 I_peak_time = df.loc[peak_index + 1, 'T_ms']
-                # logging.info(f"Peak Current (pA): {I_peak_pA} at index: {peak_index}")
-                # logging.info(f"steady state current (pA): {I_post_pA} at index: {min_index-10}")
-                # logging.info(f"Peak time: {peak_time}, Peak index: {peak_index}, Min time: {min_time}, Min index: {min_index}")
-                # logging.info(f"I_prev_pA: {I_prev_pA}, I_post_pA: {I_post_pA}, I_peak_pA: {I_peak_pA}")
+                # self.info(f"Peak Current (pA): {I_peak_pA} at index: {peak_index}")
+                # self.info(f"steady state current (pA): {I_post_pA} at index: {min_index-10}")
+                # self.info(f"Peak time: {peak_time}, Peak index: {peak_index}, Min time: {min_time}, Min index: {min_index}")
+                # self.info(f"I_prev_pA: {I_prev_pA}, I_post_pA: {I_post_pA}, I_peak_pA: {I_peak_pA}")
                 #group filtered_data, filtered_time, and filtered_command into a data frame
                 fit_data = pd.DataFrame({'T_ms': filtered_time, 'X_mV': filtered_command, 'Y_pA': filtered_data})
                 #print first line of fit_data
-                # logging.info(f"First line of fit_data: {fit_data.iloc[0]}")
+                # self.info(f"First line of fit_data: {fit_data.iloc[0]}")
                 # calculate mean voltage from filtered_command
                 mean_voltage = filtered_command.mean()
                 start = fit_data['T_ms'].iloc[0]
@@ -974,17 +974,17 @@ class ArduinoDAQ:
                     tau = 1 / t
                     # Calculate parameters
                     R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, mean_voltage, I_peak_pA, I_prev_pA, I_post_pA)
-                    # logging.info(f"R_a: {R_a_MOhms}, R_m: {R_m_MOhms}, C_m: {C_m_pF}")
+                    # self.info(f"R_a: {R_a_MOhms}, R_m: {R_m_MOhms}, C_m: {C_m_pF}")
                     
             
             except Exception as e:
-                # logging.error(f"Error in getParamsfromCurrent: {e}")
+                # self.error(f"Error in getParamsfromCurrent: {e}")
                 return None, None, None
                 # return 0, 0, 0
         else:
-            # logging.error("One or more of the data arrays is empty")
+            # self.error("One or more of the data arrays is empty")
             return 0,0,0
-        # logging.info("Returning parameters")
+        # self.info("Returning parameters")
         return R_a_MOhms, R_m_MOhms, C_m_pF
 
     def filter_data(self, data):
@@ -1037,7 +1037,7 @@ class ArduinoDAQ:
 
     def optimizer(self, fit_data, I_peak_pA, I_peak_time, I_ss):
         start = fit_data['T_ms'].iloc[0]
-        # logging.info(f"Unshifted Start time: {start}")
+        # self.info(f"Unshifted Start time: {start}")
         # Shift the data to start at 0
         fit_data['T_ms'] = fit_data['T_ms'] - start
         #print all of the fit data  to copy to a txt
@@ -1048,7 +1048,7 @@ class ArduinoDAQ:
 
         # Save T_ms and Y_pA to a single CSV file and overwrite it each time
         # fit_data[['T_ms', 'Y_pA']].to_csv(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_patch_clamp_data\test_data.csv", index=False)
-        # logging.info("Data saved to CSV")
+        # self.info("Data saved to CSV")
         # print("I_SS: ", I_ss)
         p0 = (I_peak_pA, I_peak_time, I_ss)
         # print("P0", p0)
@@ -1061,13 +1061,13 @@ class ArduinoDAQ:
             # print("Params", m, t, b)
             return m, t, b
         except Exception as e:
-            # logging.error(f"Error in the optimizer: {e}")
+            # self.error(f"Error in the optimizer: {e}")
             return None, None, None
 
     def calc_param(self, tau, mean_voltage, I_peak, I_prev, I_ss):
         I_d = I_peak - I_prev  # in pA
         I_dss = I_ss - I_prev  # in pA
-        # logging.info(f"tau: {tau}, dmV: {mean_voltage}, I_d: {I_d}, I_dss: {I_dss}")
+        # self.info(f"tau: {tau}, dmV: {mean_voltage}, I_d: {I_d}, I_dss: {I_dss}")
         # calculate access resistance:
         R_a_Mohms = ((mean_voltage*1e-3) / (I_d*1e-12))*1e-6 # 10 mV / 800 pA = 12.5 MOhms --> supposed to be 10 MOhms
         # print("R_a_MOhms in calc", R_a_Mohms)
@@ -1079,7 +1079,7 @@ class ArduinoDAQ:
         return R_a_Mohms, R_m_Mohms, C_m_pF
    
 
-class FakeDAQ:
+class FakeDAQ(DAQ):
     def __init__(self):
         self.totalResistance = 6 * 10 ** 6
         self.latest_protocol_data = None
