@@ -140,8 +140,8 @@ class StageCalHelper():
     '''A helper class to aid with Stage Calibration
     '''
     
-    CAL_MAX_SPEED = 1000
-    NORMAL_MAX_SPEED = 10000
+    CAL_MAX_SPEED = 200
+    NORMAL_MAX_SPEED = 500
 
     def __init__(self, stage: Manipulator, camera: Camera, frameLag: int):
         self.stage : Manipulator = stage

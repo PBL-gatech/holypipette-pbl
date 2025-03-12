@@ -44,7 +44,7 @@ class CalibrationConfig(Config):
     
     stage_diag_move = NumberWithUnit(500, unit='um',
                                      doc='x, y dist to move for stage cal.',
-                                     bounds=(0, 10000))
+                                     bounds=(-10000, 10000))
     
     frame_lag = NumberWithUnit(4, unit='frames',
                                      doc='number of frames between for computing change with optical flow',

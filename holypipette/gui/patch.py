@@ -389,13 +389,21 @@ class SemiAutoPatchButtons(ButtonTabWidget):
             tare_func=self.tare_pipette
         )
 
-        self.stage_calibration = [self.pipette_interface.set_floor, self.pipette_interface.calibrate_stage, self.pipette_interface.move_microscope]
-        self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_calibration_positions, self.patch_interface.move_to_safe_space]
+        # self.stage_calibration = [self.pipette_interface.set_floor, self.pipette_interface.calibrate_stage, self.pipette_interface.move_microscope]
+        # self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_calibration_positions, self.patch_interface.move_to_safe_space]
 
 
-        # Add a box for calibration setup
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position']]
-        cmds = [[self.stage_calibration, self.pipette_calibration],
+        # # Add a box for calibration setup
+        # buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position']]
+        # cmds = [[self.stage_calibration, self.pipette_calibration],
+        #         [self.patch_interface.store_cleaning_position]
+        # ]
+        # self.addButtonList('calibration', layout, buttonList, cmds,sequential=True)
+
+        #Add a box for granular calibration setup
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Safe Position','Store Home Position'],['Store Cleaning Position']]
+        cmds = [[[self.pipette_interface.set_floor,self.pipette_interface.calibrate_stage], self.pipette_interface.calibrate_manipulator], 
+                [self.patch_interface.store_safe_position,self.patch_interface.store_home_position],
                 [self.patch_interface.store_cleaning_position]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds,sequential=True)

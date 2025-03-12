@@ -16,10 +16,10 @@ from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSor
 
 
 controllerSerial = serial.Serial('COM20',baudrate=38400,timeout=3)
-controller = ScientificaSerialNoEncoder(controllerSerial,speed = 4000, accel = 19500)
+controller = ScientificaSerialNoEncoder(controllerSerial,speed = 500, accel = 19500)
 
 pipetteSerial = serial.Serial('COM19',baudrate=38400,timeout=3)
-pipetteManip = ScientificaSerialNoEncoder(pipetteSerial,speed = 1000, accel = 19500)
+pipetteManip = ScientificaSerialNoEncoder(pipetteSerial,speed = 500, accel = 19500)
 stage = ManipulatorUnit(controller, [1, 2])
 
 # controller = FakeManipulator(min=[-240000, 50000, 280000],
@@ -36,7 +36,7 @@ cellSorterManip = FakeCellSorterManip()
 camera = ElectroCamera()
 
 # camera = FakeCalCamera(stageManip=controller, pipetteManip=pipetteManip, image_z=100, cellSorterManip=cellSorterManip)
-microscope = Microscope(controller, 3,speed=10000,accel=19500)
+microscope = Microscope(controller, 3,speed=50,accel=19500)
 microscope.up_direction = 1.0
 
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
