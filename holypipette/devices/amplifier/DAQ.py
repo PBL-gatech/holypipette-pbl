@@ -14,14 +14,19 @@ from holypipette.controller.base import TaskController
 
 __all__ = ['NiDAQ', 'ArduinoDAQ', 'FakeDAQ']
 
+import threading
+import numpy as np
+import scipy.optimize
+# Remove pandas import since it is no longer used in performance-critical code.
+# import pandas as pd
+
 class DAQ(TaskController):
     """
     Base DAQ class with common methods for patch-clamp protocols.
     Subclasses must override the _readAnalogInput() and _sendSquareWave()
     methods to handle device-specific operations.
     """
-
-    # These constants can be defined at the class level and/or overwritten by subclasses.
+    # Class-level constants (may be overwritten by subclasses)
     C_CLAMP_AMP_PER_VOLT = None
     C_CLAMP_VOLT_PER_VOLT = None
     V_CLAMP_VOLT_PER_VOLT = None
@@ -90,7 +95,6 @@ class DAQ(TaskController):
         while not self.equalizer:
             with self._deviceLock:
                 sendTask = self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
-                # Some device tasks (e.g. NI) may return an object with start/stop/close methods.
                 if hasattr(sendTask, 'start'):
                     sendTask.start()
                 data = self._readAnalogInput(samplesPerSec, recordingTime)
@@ -304,31 +308,122 @@ class DAQ(TaskController):
         except Exception as e:
             return None
 
+    def filter_data(self, T_ms, X_mV, Y_pA):
+        """
+        Process the acquired data to extract the relevant segment for curve-fitting,
+        using NumPy arrays instead of a pandas DataFrame.
+        
+        Parameters:
+          T_ms: np.array of time in milliseconds (shifted so first element is 0)
+          X_mV: np.array of command voltages in millivolts
+          Y_pA: np.array of responses in picoamps
+          
+        Returns:
+          sub_data: portion of Y_pA between the peak and negative peak indices
+          sub_time: corresponding time points from T_ms
+          sub_command: corresponding X_mV values
+          plot_params: list of [peak_time, peak_current_index, negative_peak_time, negative_peak_index]
+          mean_pre_peak: mean of Y_pA from start until the positive peak in dX/dT
+          mean_post_peak: mean of Y_pA from the first near-zero gradient point to the negative peak
+        """
+        # Compute gradient of the command signal
+        X_dT = np.gradient(X_mV, T_ms)
+        positive_peak_index = np.argmax(X_dT)
+        negative_peak_index = np.argmin(X_dT)
+        peak_current_index = np.argmax(Y_pA)
+        peak_time = T_ms[peak_current_index]
+        negative_peak_time = T_ms[negative_peak_index]
+        pre_peak_current = Y_pA[:positive_peak_index+1]
+        sub_data = Y_pA[peak_current_index:negative_peak_index+1]
+        sub_time = T_ms[peak_current_index:negative_peak_index+1]
+        sub_command = X_mV[peak_current_index:negative_peak_index+1]
+        mean_pre_peak = pre_peak_current.mean()
+        sub_gradient = np.gradient(sub_data, sub_time)
+        close_to_zero_index = np.where(np.isclose(sub_gradient, 0, atol=1e-2))[0]
+        zero_gradient_time = None
+        if close_to_zero_index.size > 0:
+            zero_gradient_index = close_to_zero_index[0]
+            zero_gradient_time = sub_time[zero_gradient_index]
+        if zero_gradient_time is not None:
+            mask = (T_ms >= zero_gradient_time) & (T_ms <= T_ms[negative_peak_index])
+            mean_post_peak = Y_pA[mask].mean() if np.any(mask) else None
+        else:
+            mean_post_peak = None
+        plot_params = [peak_time, peak_current_index, negative_peak_time, negative_peak_index]
+        return sub_data, sub_time, sub_command, plot_params, mean_pre_peak, mean_post_peak
+
+    def monoExp(self, x, m, t, b):
+        return m * np.exp(-t * x) + b
+
+    def optimizer(self, fit_data, I_peak_pA, I_peak_time, I_ss):
+        """
+        Fit the mono-exponential decay model using NumPy arrays.
+        
+        Parameters:
+          fit_data: dict with keys 'T_ms', 'X_mV', 'Y_pA' (all numpy arrays)
+          I_peak_pA: Peak current (pA) to help seed the fit
+          I_peak_time: Time corresponding to the peak current (ms)
+          I_ss: Steady-state current (pA)
+          
+        Returns:
+          m, t, b: Fitted parameters of the model: m * exp(-t*x) + b
+        """
+        xdata = fit_data['T_ms']
+        ydata = fit_data['Y_pA']
+        p0 = [I_peak_pA, I_peak_time, I_ss]
+
+        def residuals(params, x, y):
+            return self.monoExp(x, *params) - y
+
+        def jac(params, x, y):
+            m, t, b = params
+            exp_val = np.exp(-t * x)
+            J0 = exp_val                   # d/dm
+            J1 = -m * x * exp_val          # d/dt
+            J2 = np.ones_like(x)           # d/db
+            return np.vstack((J0, J1, J2)).T
+
+        res = scipy.optimize.least_squares(
+            residuals, p0, jac=jac, args=(xdata, ydata), max_nfev=1000000
+        )
+        if res.success:
+            m, t, b = res.x
+            return m, t, b
+        else:
+            return None, None, None
+
     def _getParamsfromCurrent(self, readData, respData, timeData, amplitude) -> tuple:
         """
         Calculate access resistance, membrane resistance, and membrane capacitance
-        from the response of a voltage protocol.
+        from the response of a voltage protocol using NumPy arrays instead of pandas.
         """
         R_a_MOhms, R_m_MOhms, C_m_pF = None, None, None
-        if len(readData) != 0 and len(respData) != 0 and len(timeData) != 0:
+        if len(readData) and len(respData) and len(timeData):
             try:
-                df = pd.DataFrame({'T': timeData, 'X': readData, 'Y': respData})
-                # Shift time axis to start at zero
-                start = df['T'].iloc[0]
-                df['T'] = df['T'] - start
-                df['T_ms'] = df['T'] * 1000  # seconds -> milliseconds
-                df['X_mV'] = df['X'] * 1000   # volts -> millivolts
-                df['Y_pA'] = df['Y'] * 1e12   # amps -> picoamps
+                # Shift time to start at zero and convert units:
+                T = timeData - timeData[0]           # seconds (shifted)
+                T_ms = T * 1000                      # convert to milliseconds
+                X_mV = readData * 1000               # volts -> millivolts
+                Y_pA = respData * 1e12               # amps -> picoamps
 
-                filtered_data, filtered_time, filtered_command, plot_params, I_prev_pA, I_post_pA = self.filter_data(df)
+                # Use the numpy-based filter_data function.
+                filtered_data, filtered_time, filtered_command, plot_params, I_prev_pA, I_post_pA = \
+                    self.filter_data(T_ms, X_mV, Y_pA)
                 self.holding_current = I_prev_pA
-                peak_time, peak_index, min_time, min_index = plot_params
-                I_peak_pA = df.loc[peak_index + 1, 'Y_pA']
-                I_peak_time = df.loc[peak_index + 1, 'T_ms']
-                fit_data = pd.DataFrame({'T_ms': filtered_time, 'X_mV': filtered_command, 'Y_pA': filtered_data})
+                peak_time, peak_index, negative_peak_time, negative_peak_index = plot_params
+                if peak_index + 1 < len(Y_pA):
+                    I_peak_pA = Y_pA[peak_index + 1]
+                    I_peak_time = T_ms[peak_index + 1]
+                else:
+                    I_peak_pA = Y_pA[peak_index]
+                    I_peak_time = T_ms[peak_index]
+                # Prepare the data for curve fitting. Time axis zeroed.
+                fit_data = {
+                    'T_ms': filtered_time - filtered_time[0],
+                    'X_mV': filtered_command,
+                    'Y_pA': filtered_data
+                }
                 mean_voltage = filtered_command.mean()
-                start = fit_data['T_ms'].iloc[0]
-                fit_data['T_ms'] = fit_data['T_ms'] - start
                 m, t, b = self.optimizer(fit_data, I_peak_pA, I_peak_time, I_post_pA)
                 if m is not None and t is not None and b is not None:
                     tau = 1 / t
@@ -338,57 +433,6 @@ class DAQ(TaskController):
         else:
             return 0, 0, 0
         return R_a_MOhms, R_m_MOhms, C_m_pF
-
-    def filter_data(self, data):
-        """
-        Process the acquired data to extract the relevant segment for curve-fitting.
-        """
-        X_mV = data['X_mV'].to_numpy()
-        T_ms = data['T_ms'].to_numpy()
-        Y_pA = data['Y_pA'].to_numpy()
-        X_dT = np.gradient(X_mV, T_ms)
-        data["X_dT"] = X_dT
-        positive_peak_index = np.argmax(X_dT)
-        negative_peak_index = np.argmin(X_dT)
-        peak_current_index = np.argmax(data['Y_pA'])
-        peak_time = data.loc[peak_current_index, 'T_ms']
-        negative_peak_time = data.loc[negative_peak_index, 'T_ms']
-        pre_peak_current = data.loc[:positive_peak_index, "Y_pA"]
-        sub_data = data.loc[peak_current_index:negative_peak_index, "Y_pA"]
-        sub_time = data.loc[peak_current_index:negative_peak_index, "T_ms"]
-        sub_command = data.loc[peak_current_index:negative_peak_index, "X_mV"]
-        mean_pre_peak = pre_peak_current.mean()
-        gradient = np.gradient(sub_data, sub_time)
-        close_to_zero_index = np.where(np.isclose(gradient, 0, atol=1e-2))[0]
-        zero_gradient_time = None
-        if close_to_zero_index.size > 0:
-            zero_gradient_index = close_to_zero_index[0]
-            zero_gradient_time = sub_time.iloc[zero_gradient_index]
-        if zero_gradient_time:
-            post_peak_current_data = data[(data['T_ms'] >= zero_gradient_time) &
-                                          (data['T_ms'] <= data.loc[negative_peak_index, 'T_ms'])]
-            mean_post_peak = post_peak_current_data['Y_pA'].mean()
-        else:
-            mean_post_peak = None
-        return sub_data, sub_time, sub_command, [peak_time, peak_current_index, negative_peak_time, negative_peak_index], mean_pre_peak, mean_post_peak
-
-    def monoExp(self, x, m, t, b):
-        return m * np.exp(-t * x) + b
-
-    def optimizer(self, fit_data, I_peak_pA, I_peak_time, I_ss):
-        """
-        Use curve fitting to extract the decay time constant.
-        """
-        start = fit_data['T_ms'].iloc[0]
-        fit_data['T_ms'] = fit_data['T_ms'] - start
-        p0 = (I_peak_pA, I_peak_time, I_ss)
-        try:
-            params, _ = scipy.optimize.curve_fit(self.monoExp, fit_data['T_ms'], fit_data['Y_pA'],
-                                                   maxfev=1000000, p0=p0)
-            m, t, b = params
-            return m, t, b
-        except Exception as e:
-            return None, None, None
 
     def calc_param(self, tau, mean_voltage, I_peak, I_prev, I_ss):
         """
