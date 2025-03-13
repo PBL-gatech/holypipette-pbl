@@ -46,15 +46,15 @@ class PatchGui(ManipulatorGui):
         semi_auto_patching_tab = SemiAutoPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
         self.add_tab(semi_auto_patching_tab, 'Semi-Auto Patching', index = 0)
 
-        # Update the pressure and information in the status bar every 16ms
-        self.pressure_timer = QtCore.QTimer()
-        self.pressure_timer.timeout.connect(self.display_pressure)
-        self.pressure_timer.start(16)
-        self.patch_interface.set_pressure_near()
+    #     # Update the pressure and information in the status bar every 16ms
+    #     self.pressure_timer = QtCore.QTimer()
+    #     self.pressure_timer.timeout.connect(self.display_pressure)
+    #     self.pressure_timer.start(16)
+    #     self.patch_interface.set_pressure_near()
 
-    def display_pressure(self):
-        current_pressure = self.patch_interface.pressure.getLastVal()
-        self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(current_pressure))
+    # def display_pressure(self):
+    #     current_pressure = self.patch_interface.pressure.get_last_acquisition()
+    #     self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(current_pressure))
 
     def register_commands(self):
         super(PatchGui, self).register_commands()

@@ -17,8 +17,90 @@ __all__ = ['NiDAQ', 'ArduinoDAQ', 'FakeDAQ']
 import threading
 import numpy as np
 import scipy.optimize
-# Remove pandas import since it is no longer used in performance-critical code.
-# import pandas as pd
+import collections
+
+
+class DAQAcquisitionThread(threading.Thread):
+    """
+    A thread that continuously sends a square wave through the DAQ,
+    acquires the response, calculates resistance and capacitance,
+    and stores only the most recent measurement in a queue (maxlen=1).
+
+    Parameters:
+      daq: An instance of a DAQ subclass (e.g. NiDAQ, ArduinoDAQ, or FakeDAQ)
+      wave_freq: Frequency of the square wave (Hz)
+      samplesPerSec: Sampling rate in samples per second
+      dutyCycle: Duty cycle for the square wave (between 0 and 1)
+      amplitude: Amplitude of the square wave (in DAQ output units)
+      recordingTime: Duration of each acquisition (seconds)
+      callback: Optional function to call with the acquired data.
+                The callback receives:
+                  totalResistance, accessResistance, membraneResistance,
+                  membraneCapacitance, respData, readData.
+      interval: Time (seconds) to wait between acquisitions (default is recordingTime).
+    """
+    def __init__(self, daq, wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
+                 amplitude=0.5, recordingTime=0.025, callback=None, interval=None):
+        super().__init__(daemon=True)
+        self.daq = daq
+        self.wave_freq = wave_freq
+        self.samplesPerSec = samplesPerSec
+        self.dutyCycle = dutyCycle
+        self.amplitude = amplitude
+        self.recordingTime = recordingTime
+        self.callback = callback
+        self.interval = interval if interval is not None else recordingTime
+        self.running = True
+        # A deque with maxlen=1 ensures only the latest measurement is stored.
+        self._last_data_queue = collections.deque(maxlen=1)
+
+    def run(self):
+        while self.running:
+            try:
+                data = self.daq.getDataFromSquareWave(
+                    self.wave_freq,
+                    self.samplesPerSec,
+                    self.dutyCycle,
+                    self.amplitude,
+                    self.recordingTime
+                )
+                if data:
+                    (timeData, respData), (timeData, readData), totalResistance, \
+                        membraneResistance, accessResistance, membraneCapacitance = data
+
+                    measurement = {
+                        "timeData": timeData,
+                        "respData": respData,
+                        "readData": readData,
+                        "totalResistance": totalResistance,
+                        "membraneResistance": membraneResistance,
+                        "accessResistance": accessResistance,
+                        "membraneCapacitance": membraneCapacitance
+                    }
+                    
+                    self._last_data_queue.append(measurement)
+                    
+                    if self.callback is not None:
+                        self.callback(
+                            totalResistance,
+                            accessResistance,
+                            membraneResistance,
+                            membraneCapacitance,
+                            respData,
+                            readData
+                        )
+            except Exception as e:
+                self.error(f"Error in DAQAcquisitionThread: {e}")
+            time.sleep(self.interval)
+
+    def get_last_data(self):
+        """Return the most recent measurement or None if not available."""
+        return self._last_data_queue[-1] if self._last_data_queue else None
+
+    def stop(self):
+        """Stop the acquisition thread."""
+        self.running = False
+
 
 class DAQ(TaskController):
     """
@@ -55,7 +137,55 @@ class DAQ(TaskController):
 
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
+    # --------------------------
+    # Acquisition Methods
+    # --------------------------
+    def start_acquisition(self, wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
+                          amplitude=0.5, recordingTime=0.025, interval=None, callback=None):
+        """
+        Start the asynchronous acquisition thread for continuous DAQ measurements.
+        Parameters:
+          wave_freq: Frequency of the square wave in Hz.
+          samplesPerSec: Sampling rate (samples per second).
+          dutyCycle: Duty cycle (0 to 1) of the square wave.
+          amplitude: Amplitude for the square wave.
+          recordingTime: Duration for each acquisition (seconds).
+          interval: Time (seconds) between acquisitions (defaults to recordingTime).
+          callback: Optional function to call with new data.
+        """
+        if not hasattr(self, "_daq_acq_thread") or self._daq_acq_thread is None:
+            self._daq_acq_thread = DAQAcquisitionThread(
+                daq=self,
+                wave_freq=wave_freq,
+                samplesPerSec=samplesPerSec,
+                dutyCycle=dutyCycle,
+                amplitude=amplitude,
+                recordingTime=recordingTime,
+                callback=callback,
+                interval=interval
+            )
+            self._daq_acq_thread.start()
 
+    def get_last_acquisition(self):
+        """
+        Retrieve the most recent measurement from the acquisition thread.
+        Returns a dictionary with keys:
+          "timeData", "respData", "readData", "totalResistance",
+          "membraneResistance", "accessResistance", "membraneCapacitance"
+        or None if no data is available.
+        """
+        if hasattr(self, "_daq_acq_thread") and self._daq_acq_thread:
+            return self._daq_acq_thread.get_last_data()
+        return None
+
+    def stop_acquisition(self):
+        """
+        Stop the asynchronous DAQ acquisition thread.
+        """
+        if hasattr(self, "_daq_acq_thread") and self._daq_acq_thread:
+            self._daq_acq_thread.stop()
+            self._daq_acq_thread.join()
+            self._daq_acq_thread = None
     # --------------------------
     # ABSTRACT (DEVICE-SPECIFIC)
     # --------------------------
@@ -471,6 +601,9 @@ class NiDAQ(DAQ):
         self.info(f'Using {self.readDev}/{self.readChannel} for reading; '
                   f'{self.cmdDev}/{self.cmdChannel} for command; '
                   f'and {self.respDev}/{self.respChannel} for response.')
+        # Initialize the DAQ device and set up channels, start the acquisition thread
+        self.start_acquisition(wave_freq=80, samplesPerSec=100000, dutyCycle=0.5,
+                                amplitude=0.5, recordingTime=0.0125, interval=0.0125)
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         numSamples = int(samplesPerSec * recordingTime)
@@ -513,6 +646,7 @@ class NiDAQ(DAQ):
             data[i + onTime:i + period] = 0
         task.write(data)
         return task
+
 # ========================================================
 #  ArduinoDAQ Subclass
 # ========================================================

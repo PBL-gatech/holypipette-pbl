@@ -6,7 +6,7 @@ import cv2
 from numpy import *
 from holypipette.interface import TaskInterface, command, blocking_command
 import logging
-from holypipette.utils import EPhysLogger
+# from holypipette.utils import EPhysLogger
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 
 
@@ -17,7 +17,7 @@ class CameraInterface(TaskInterface):
         super().__init__()
         self.camera = camera
         self.with_tracking = with_tracking
-        self.ephys_logger = EPhysLogger()
+        # self.ephys_logger = EPhysLogger()
         self.recording_state_manager = RecordingStateManager()
 
     def connect(self, main_gui):

@@ -115,10 +115,6 @@ class TestPressureController(PressureController):
 
         return pressureVal
 
-    
-    
-    def getLastVal(self):
-        return self.lastVal
       
     def measure(self):
         return self.get_pressure()

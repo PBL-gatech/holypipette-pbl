@@ -44,20 +44,13 @@ class MoscowPressureController(PressureController):
         self.channel = channel
         self.isATM = None
         self.setpoint_raw = None
-        self.expectedResponses = collections.deque() # use a deque instead of a list for O(1) pop from beginning
-
         self.lastVal = 0.0
 
         # set initial configuration of pressure controller
         self.set_ATM(False)
         self.set_pressure(0) # set initial pressure to 0 mbar
+        self.start_acquisition() # start pressure acquisition thread at 60 hz
 
-    def autodetectSerial(self):
-        '''
-        Use VID and name of serial devices to figure out which one is the Moscow Pressure box
-        '''
-        allPorts = [COMPort for COMPort in serial.tools.list_ports.comports()]
-        self.info(f"Attempting to find Moscow Pressure Box from: {[(p.product, hex(p.vid) if p.vid != None else None, p.name) for p in allPorts]}")
 
     def set_pressure(self, pressure):
         '''
@@ -73,7 +66,7 @@ class MoscowPressureController(PressureController):
         '''
         raw_pressure = int((pressure * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero))
         return min(max(raw_pressure, 0), MoscowPressureController.nativeZero*2) # clamp native units to 0-3924
-        # return min(max(raw_pressure, 0), 4095) # clamp native units to 0-4095
+
 
     def nativeToMbar(self, raw_pressure) -> float:
         '''
@@ -95,27 +88,13 @@ class MoscowPressureController(PressureController):
         self.controllerSerial.flush()
         self.info(f"Sent command: {cmd}")
 
-        # add expected arduino responces
-        self.expectedResponses.append((time.time(), f"set {self.channel} {raw_pressure}"))
-        self.expectedResponses.append((time.time(), f"set"))
-        self.expectedResponses.append((time.time(), f"{self.channel}"))
-        self.expectedResponses.append((time.time(), f"{raw_pressure}"))
-
-    def get_setpoint(self) -> float:
+    def get_pressure(self) -> float:
         '''
         Gets the current setpoint in millibar
         '''
         return self.nativeToMbar(self.setpoint_raw)
 
-    def get_setpoint_raw(self):
-        '''
-        Gets the current setpoint in native DAC units
-        '''
-        # self.info(f"Current setpoint: {self.nativeToMbar(self.setpoint_raw)} mbar (raw: {self.setpoint_raw})")
-        return self.setpoint_raw
-    
-
-    def get_pressure(self) -> float:
+    def measure(self) -> float:
         '''
         Read the pressure sensor value from the Arduino
         '''
@@ -138,12 +117,6 @@ class MoscowPressureController(PressureController):
         else:
             self.warning("No data received from pressure sensor")
         return pressureVal
-
-    def getLastVal(self) -> float:
-        return self.lastVal
-
-    def measure(self) -> float:
-        return self.get_pressure()
     
     def pulse(self, delayMs):
         '''Tell the onboard arduino to pulse pressure for a certain period of time
