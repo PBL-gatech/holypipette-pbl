@@ -18,6 +18,7 @@ import threading
 import numpy as np
 import scipy.optimize
 import collections
+import logging
 
 
 class DAQAcquisitionThread(threading.Thread):
@@ -89,7 +90,7 @@ class DAQAcquisitionThread(threading.Thread):
                             readData
                         )
             except Exception as e:
-                self.error(f"Error in DAQAcquisitionThread: {e}")
+                logging.warning(f"Error in DAQAcquisitionThread: {e}")
             time.sleep(self.interval)
 
     def get_last_data(self):
@@ -99,8 +100,6 @@ class DAQAcquisitionThread(threading.Thread):
     def stop(self):
         """Stop the acquisition thread."""
         self.running = False
-
-
 class DAQ(TaskController):
     """
     Base DAQ class with common methods for patch-clamp protocols.
@@ -225,6 +224,7 @@ class DAQ(TaskController):
           - totalResistance, membraneResistance, accessResistance, membraneCapacitance
         """
         self.equalizer = False
+
         while not self.equalizer:
             with self._deviceLock:
                 sendTask = self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
@@ -274,18 +274,19 @@ class DAQ(TaskController):
                 self.latestMembraneCapacitance = 0
                 if self.getCellMode():
                     (self.latestAccessResistance, self.latestMembraneResistance,
-                     self.latestMembraneCapacitance) = self._getParamsfromCurrent(
+                    self.latestMembraneCapacitance) = self._getParamsfromCurrent(
                         readData, respData, timeData, amplitude * self.V_CLAMP_VOLT_PER_VOLT
                     )
 
                 self.totalResistance = 0
-                if self.getCellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
+                if self.getCellMode() and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
                     self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
                 else:
                     self.totalResistance = self._getResistancefromCurrent(
                         respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT
                     )
-                    self.totalResistance *= 1e-6  # convert to MOhms
+                    if self.totalResistance is not None:
+                        self.totalResistance *= 1e-6  # convert to MOhms
 
                 return (np.array([timeData, respData]),
                         np.array([timeData, readData]),
@@ -295,6 +296,7 @@ class DAQ(TaskController):
                         self.latestMembraneCapacitance)
             except Exception as e:
                 return None, None, None, None, None, None
+
 
     def getDataFromCurrentProtocol(self, custom=False, factor=None,
                                    startCurrentPicoAmp=None, endCurrentPicoAmp=None,
@@ -426,6 +428,20 @@ class DAQ(TaskController):
         finally:
             self.isRunningProtocol = False
         return self.voltageMembraneCapacitance
+    
+    def capacitance(self):
+        """
+        Returns the latest membrane capacitance measurement.
+        If no measurement is available, returns None.
+        """
+        return self.latestMembraneCapacitance
+
+    def resistance(self):
+        """
+        Returns the latest total resistance measurement.
+        If no measurement is available, returns None.
+        """
+        return self.totalResistance
 
     # --------------------------
     # COMMON CALCULATION METHODS
@@ -604,8 +620,8 @@ class NiDAQ(DAQ):
                   f'{self.cmdDev}/{self.cmdChannel} for command; '
                   f'and {self.respDev}/{self.respChannel} for response.')
         # Initialize the DAQ device and set up channels, start the acquisition thread
-        self.start_acquisition(wave_freq=80, samplesPerSec=100000, dutyCycle=0.5,
-                                amplitude=0.5, recordingTime=0.0125, interval=0.0125)
+        self.start_acquisition(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
+                                amplitude=0.5, recordingTime=0.025, interval=None)
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         numSamples = int(samplesPerSec * recordingTime)
