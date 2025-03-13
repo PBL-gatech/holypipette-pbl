@@ -52,6 +52,7 @@ class PressureController(TaskController):
         self._pressure = collections.defaultdict(int)
         # Holder for the acquisition thread; child classes can start it.
         self._pressure_acq_thread = None
+        self.state = False  # True if the pressure controller is in ATM mode, False otherwise
 
     def measure(self, port=0):
         """
@@ -89,6 +90,12 @@ class PressureController(TaskController):
         Sets the atmospheric pressure state.
         """
         self.state = atm
+
+    def get_ATM(self):
+        """
+        Gets the current atmospheric pressure state.
+        """
+        return self.state
 
     # --- Pressure Acquisition System Methods ---
     def start_acquisition(self, interval=0.016, callback=None):

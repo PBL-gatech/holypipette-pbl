@@ -42,7 +42,7 @@ class MoscowPressureController(PressureController):
             self.error("No reader serial port available")
 
         self.channel = channel
-        self.isATM = None
+        self.state = None
         self.setpoint_raw = None
         self.lastVal = 0.0
 
@@ -139,5 +139,5 @@ class MoscowPressureController(PressureController):
             self.info("Switching to Pressure")
         self.controllerSerial.write(bytes(cmd, 'ascii'))
         self.controllerSerial.flush()
-        self.isATM = atm
+        self.state = atm
 

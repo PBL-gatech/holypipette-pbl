@@ -51,7 +51,6 @@ class DAQAcquisitionThread(threading.Thread):
         self.callback = callback
         self.interval = interval if interval is not None else recordingTime
         self.running = True
-        # A deque with maxlen=1 ensures only the latest measurement is stored.
         self._last_data_queue = collections.deque(maxlen=1)
 
     def run(self):
@@ -137,6 +136,10 @@ class DAQ(TaskController):
 
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
+        self.info(f"Setting cell mode to {mode}")
+
+    def getCellMode(self) -> bool:
+        return self.cellMode
     # --------------------------
     # Acquisition Methods
     # --------------------------
@@ -269,14 +272,14 @@ class DAQ(TaskController):
                 self.latestAccessResistance = 0
                 self.latestMembraneResistance = 0
                 self.latestMembraneCapacitance = 0
-                if self.cellMode:
+                if self.getCellMode():
                     (self.latestAccessResistance, self.latestMembraneResistance,
                      self.latestMembraneCapacitance) = self._getParamsfromCurrent(
                         readData, respData, timeData, amplitude * self.V_CLAMP_VOLT_PER_VOLT
                     )
 
                 self.totalResistance = 0
-                if self.cellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
+                if self.getCellMode and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
                     self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
                 else:
                     self.totalResistance = self._getResistancefromCurrent(
@@ -311,7 +314,6 @@ class DAQ(TaskController):
         else:
             if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
                 raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided when custom is True.")
-
         self.info(f'Starting Current Protocol with start: {startCurrentPicoAmp}, '
                   f'end: {endCurrentPicoAmp}, step: {stepCurrentPicoAmp}.')
         self.pulses = np.arange(startCurrentPicoAmp, endCurrentPicoAmp + stepCurrentPicoAmp, stepCurrentPicoAmp)

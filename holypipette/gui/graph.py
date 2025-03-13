@@ -15,7 +15,7 @@ import threading
 
 import numpy as np
 from collections import deque
-from holypipette.devices.amplifier import NiDAQ
+from holypipette.devices.amplifier import DAQ
 from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.devices.pressurecontroller import PressureController
 from holypipette.utils.RecordingStateManager import RecordingStateManager
@@ -33,12 +33,13 @@ __all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "Holdin
 
 
 class ProtocolGraph(QWidget):
-    def __init__(self, daq: NiDAQ, recording_state_manager: RecordingStateManager,
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager,
                  window_title: str, y_label: str, y_unit: str,
                  x_label: str, x_unit: str, ephys_filename: str):
         super().__init__()
         self.recording_state_manager = recording_state_manager
-        self.daq = daq
+        self.graph_interface= graph_interface
+     
 
         # Set window title and layout
         self.setWindowTitle(window_title)
@@ -78,11 +79,9 @@ class ProtocolGraph(QWidget):
     def update_plot(self):
         """This method should be overridden by subclasses."""
         raise NotImplementedError("Subclasses must implement update_plot()")
-
-
 class CurrentProtocolGraph(ProtocolGraph):
-    def __init__(self, daq: NiDAQ, recording_state_manager: RecordingStateManager):
-        super().__init__(daq, recording_state_manager,
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        super().__init__(graph_interface, recording_state_manager,
                          window_title="Current Protocol",
                          y_label="Voltage", y_unit="V",
                          x_label="Time", x_unit="s",
@@ -90,7 +89,7 @@ class CurrentProtocolGraph(ProtocolGraph):
 
     def update_plot(self):
         # Check if new data exists and if it’s different from what was last displayed
-        if self.daq.current_protocol_data is None or self.latestDisplayedData == self.daq.current_protocol_data:
+        if self.graph_interface.daq.current_protocol_data is None or self.latestDisplayedData == self.graph_interface.daq.current_protocol_data:
             return
 
         index = self.recording_state_manager.sample_number
@@ -100,18 +99,18 @@ class CurrentProtocolGraph(ProtocolGraph):
             self.setHidden(False)
 
         # Create a gradient color list based on the number of pulses
-        color_range = self.daq.pulseRange
+        color_range = self.graph_interface.daq.pulseRange
         logging.debug(f"color range: {color_range}")
         start_color = "#003153"  # Prussian Blue
         end_color = "#ffffff"    # White
         cmap = LinearSegmentedColormap.from_list("", [start_color, end_color])
         colors = [to_hex(cmap(float(i) / color_range)) for i in range(color_range)]
-        pulses = self.daq.pulses
+        pulses = self.graph_interface.daq.pulses
 
         self.plotWidget.clear()
 
         # Plot each pulse and log its data
-        for i, graph in enumerate(self.daq.current_protocol_data):
+        for i, graph in enumerate(self.graph_interface.daq.current_protocol_data):
             timeData = graph[0]
             respData = graph[1]
             readData = graph[2]
@@ -123,16 +122,14 @@ class CurrentProtocolGraph(ProtocolGraph):
             if i == color_range - 1:
                 logging.info("Saving current ephys plot")
                 self.ephys_logger.save_ephys_plot(index, self.plotWidget)
-                self.daq.current_protocol_data = None  # Reset after saving
+                self.graph_interface.daq.current_protocol_data = None  # Reset after saving
 
         # Update latestDisplayedData (make a copy if data is still present)
-        self.latestDisplayedData = (self.daq.current_protocol_data.copy() 
-                                    if self.daq.current_protocol_data is not None else None)
-
-
+        self.latestDisplayedData = (self.graph_interface.daq.current_protocol_data.copy() 
+                                    if self.graph_interface.daq.current_protocol_data is not None else None)
 class VoltageProtocolGraph(ProtocolGraph):
-    def __init__(self, daq: NiDAQ, recording_state_manager: RecordingStateManager):
-        super().__init__(daq, recording_state_manager,
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        super().__init__(graph_interface, recording_state_manager,
                          window_title="Voltage Protocol (Membrane Test)",
                          y_label="PicoAmps", y_unit="A",
                          x_label="Time", x_unit="s",
@@ -140,9 +137,9 @@ class VoltageProtocolGraph(ProtocolGraph):
 
     def update_plot(self):
         # Compare arrays; if no new data or data is None, exit early.
-        if (self.daq.voltage_protocol_data is None or 
+        if (self.graph_interface.daq.voltage_protocol_data is None or 
             (self.latestDisplayedData is not None and 
-             np.array_equal(np.array(self.latestDisplayedData), np.array(self.daq.voltage_protocol_data)))):
+             np.array_equal(np.array(self.latestDisplayedData), np.array(self.graph_interface.daq.voltage_protocol_data)))):
             return
 
         index = self.recording_state_manager.sample_number
@@ -153,32 +150,30 @@ class VoltageProtocolGraph(ProtocolGraph):
         self.plotWidget.clear()
         colors = ["k"]
         # Plot voltage protocol data
-        self.plotWidget.plot(self.daq.voltage_protocol_data[0, :],
-                             self.daq.voltage_protocol_data[1, :],
+        self.plotWidget.plot(self.graph_interface.daq.voltage_protocol_data[0, :],
+                             self.graph_interface.daq.voltage_protocol_data[1, :],
                              pen=colors[0])
 
         # Prepare data for logging
-        timeData = self.daq.voltage_protocol_data[0, :]
-        respData = self.daq.voltage_protocol_data[1, :]
-        readData = self.daq.voltage_command_data[1, :]
+        timeData = self.graph_interface.daq.voltage_protocol_data[0, :]
+        respData = self.graph_interface.daq.voltage_protocol_data[1, :]
+        readData = self.graph_interface.daq.voltage_command_data[1, :]
 
         self.ephys_logger.write_ephys_data(index, timeData, readData, respData, colors[0])
         self.ephys_logger.save_ephys_plot(index, self.plotWidget)
 
-        self.latestDisplayedData = self.daq.voltage_protocol_data.copy()
-        self.daq.voltage_protocol_data = None  # Reset after plotting
-
-
+        self.latestDisplayedData = self.graph_interface.daq.voltage_protocol_data.copy()
+        self.graph_interface.daq.voltage_protocol_data = None  # Reset after plotting
 class HoldingProtocolGraph(ProtocolGraph):
-    def __init__(self, daq: NiDAQ, recording_state_manager: RecordingStateManager):
-        super().__init__(daq, recording_state_manager,
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        super().__init__(graph_interface, recording_state_manager,
                          window_title="Holding Protocol (E/I PSC Test)",
                          y_label="PicoAmps", y_unit="A",
                          x_label="Time", x_unit="s",
                          ephys_filename="HoldingProtocol")
 
     def update_plot(self):
-        if self.daq.holding_protocol_data is None:
+        if self.graph_interface.daq.holding_protocol_data is None:
             return
 
         index = self.recording_state_manager.sample_number
@@ -188,40 +183,23 @@ class HoldingProtocolGraph(ProtocolGraph):
 
         self.plotWidget.clear()
         colors = ["k"]
-        self.plotWidget.plot(self.daq.holding_protocol_data[0, :],
-                             self.daq.holding_protocol_data[1, :],
+        self.plotWidget.plot(self.graph_interface.daq.holding_protocol_data[0, :],
+                             self.graph_interface.daq.holding_protocol_data[1, :],
                              pen=colors[0])
         self.ephys_logger.write_ephys_data(index,
-                                           self.daq.holding_protocol_data[0, :],
-                                           self.daq.holding_protocol_data[1, :],
-                                           self.daq.holding_protocol_data[2, :],
+                                           self.graph_interface.daq.holding_protocol_data[0, :],
+                                           self.graph_interface.daq.holding_protocol_data[1, :],
+                                           self.graph_interface.daq.holding_protocol_data[2, :],
                                            colors[0])
         self.ephys_logger.save_ephys_plot(index, self.plotWidget)
 
-        self.latestDisplayedData = self.daq.holding_protocol_data.copy()
-        self.daq.holding_protocol_data = None  # Reset after plotting
-
-import logging
-import time
-from datetime import datetime
-from collections import deque
-
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSlider,
-    QPushButton, QToolButton, QComboBox
-)
-from PyQt5 import QtCore, QtGui
-from pyqtgraph import PlotWidget
-
-from holypipette.utils.RecordingStateManager import RecordingStateManager
-from holypipette.utils import FileLogger
-from holypipette.interface.graph import GraphInterface
-
+        self.latestDisplayedData = self.graph_interface.daq.holding_protocol_data.copy()
+        self.graph_interface.daq.holding_protocol_data = None  # Reset after plotting
 class EPhysGraph(QWidget):
     pressureLowerBound = -450
     pressureUpperBound = 730
 
-    def __init__(self, graph_interface: GraphInterface, recording_state_manager):
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
         """
         Initialize the electrophysiology GUI.
         :param graph_interface: An instance of GraphInterface that abstracts hardware operations.
@@ -255,6 +233,7 @@ class EPhysGraph(QWidget):
         # Build bottom control bar.
         self.bottomBar = QWidget()
         bottomBarLayout = QHBoxLayout()
+        bottomBarLayout.setContentsMargins(0, 0, 0, 0)  # Preserve zero margins as in old UI.
         self.bottomBar.setLayout(bottomBarLayout)
 
         self.resistanceLabel = QLabel("Resistance:")
@@ -292,7 +271,7 @@ class EPhysGraph(QWidget):
         self.pressureCommandSlider.setValue(initial_pressure)
         self.pressureCommandSlider.setTickInterval(100)
         self.pressureCommandSlider.setTickPosition(QSlider.TicksBelow)
-        self.pressureCommandSlider.valueChanged.connect(self.updatePressureLabel)
+        # self.pressureCommandSlider.valueChanged.connect(self.updatePressureBox)
         self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
         bottomBarLayout.addWidget(self.pressureCommandSlider)
 
@@ -354,11 +333,11 @@ class EPhysGraph(QWidget):
             recorder_filename="graph_recording"
         )
 
-        # Connect the model type toggle. (Assumes GraphInterface now provides toggle_cell_mode() and get_cell_mode().)
-        self.modelType.clicked.connect(self.toggleModelType)
+        # cellMode type switch
+        self.modelType.clicked.connect(self.toggleModeType)
 
-        # QTimer for periodic GUI updates (approximately 20 hz).
-        self.updateDt = 50 # ms
+        # QTimer for periodic GUI updates 
+        self.updateDt = 50  # ms
         self.updateTimer = QtCore.QTimer()
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
@@ -371,13 +350,16 @@ class EPhysGraph(QWidget):
         Periodically update plots with the latest pressure and DAQ data retrieved via GraphInterface.
         """
         # --- Update Pressure Plot ---
-        pressure = self.graph_interface.get_last_pressure()
+        pressure = int(self.graph_interface.get_last_pressure())
+        pressure_set = int(self.graph_interface.get_pressure())
         if pressure is not None:
             self.pressureData.append(pressure)
             pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
             self.pressurePlot.clear()
             self.pressurePlot.plot(pressureX, list(self.pressureData))
-            self.pressureCommandBox.setPlaceholderText(f"{pressure} mbar")
+            self.pressureCommandBox.setPlaceholderText(f"Set to: {pressure_set} mbar")
+            # update the perssure label with the current pressure
+            self.pressureLabel.setText(f"Pressure: {pressure:.2f} mbar")
 
         # --- Update DAQ Data (Command & Response) ---
         daq_data = self.graph_interface.get_last_data()
@@ -413,6 +395,7 @@ class EPhysGraph(QWidget):
             if membraneCapacitance is not None:
                 self.membraneCapacitanceLabel.setText(f"Membrane Capacitance: {membraneCapacitance:.2f} pF")
 
+
             # --- Data Recording ---
             if self.recording_state_manager.is_recording_enabled():
                 timestamp = datetime.now().timestamp()
@@ -428,8 +411,7 @@ class EPhysGraph(QWidget):
                 except Exception as e:
                     logging.error(f"Error writing graph data: {e}")
 
-    def updatePressureLabel(self, value):
-        self.pressureCommandBox.setPlaceholderText(f"Set to: {value} mbar")
+
 
     def pressureCommandSliderChanged(self):
         """
@@ -437,20 +419,23 @@ class EPhysGraph(QWidget):
         """
         pressure = self.pressureCommandSlider.value()
         self.graph_interface.set_pressure(pressure)
-        self.pressureCommandBox.setPlaceholderText(f"{pressure} mbar")
+        # Update the text with the new set pressure.
+ 
 
     def pressureCommandBoxReturnPressed(self):
         """
         When a pressure value is entered in the text box, update the setpoint.
+        it triggers the slider to change which updates the pressure.
+
         """
         try:
-            text = self.pressureCommandBox.text()
+            text = self.pressureCommandBox.text().replace("Set to:", "").replace("mbar", "").strip()
             self.pressureCommandBox.clear()
             pressure = float(text)
             pressure = max(self.pressureLowerBound, min(self.pressureUpperBound, pressure))
-            self.graph_interface.set_pressure(pressure)
             self.pressureCommandSlider.setValue(int(pressure))
-            self.pressureCommandSlider.sliderReleased.emit()
+            self.pressureCommandSliderChanged()
+
         except ValueError:
             logging.warning("Invalid pressure input.")
         except Exception as e:
@@ -484,13 +469,23 @@ class EPhysGraph(QWidget):
             self.graph_interface.set_ATM(False)
         self.atmtoggle = not self.atmtoggle
 
-    def toggleModelType(self):
+    def toggleModeType(self):
         """
         Toggle between cell and bath modes using GraphInterface.
         This requires GraphInterface to provide toggle_cell_mode() and get_cell_mode() methods.
         """
-        self.graph_interface.toggle_cell_mode()
-        if self.graph_interface.get_cell_mode():
+        mode = self.graph_interface.getCellMode()
+        if  not mode:
+            self.modelType.setStyleSheet("background-color: green; color: white; border-radius: 5px; padding: 5px;")
+            self.modelType.setText("Cell Mode")
+        else:
+            self.modelType.setStyleSheet("background-color: blue; color: white; border-radius: 5px; padding: 5px;")
+            self.modelType.setText("Bath Mode")
+
+        self.graph_interface.setCellMode(not mode)
+
+    def updateModeType(self):
+        if self.graph_interface.getCellMode():
             self.modelType.setStyleSheet("background-color: green; color: white; border-radius: 5px; padding: 5px;")
             self.modelType.setText("Cell Mode")
         else:
@@ -509,7 +504,7 @@ class EPhysGraph(QWidget):
     def reset_zap_button(self):
         self.zapButton.setStyleSheet("")
 
-    def handle_zap_duration_change(self, index):
+    def handle_zap_duration_change(self):
         """
         Convert the selected zap duration to seconds and update via GraphInterface.
         """

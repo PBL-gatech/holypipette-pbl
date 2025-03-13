@@ -43,9 +43,9 @@ def main():
     # graphs.location_on_the_screen()
     graphs.show()
 
-    currentProtocolGraph = CurrentProtocolGraph(daq, recording_state_manager)
-    voltageProtocolGraph = VoltageProtocolGraph(daq, recording_state_manager)
-    holdingProtocolGraph = HoldingProtocolGraph(daq, recording_state_manager)
+    currentProtocolGraph = CurrentProtocolGraph(graph_interface, recording_state_manager)
+    voltageProtocolGraph = VoltageProtocolGraph(graph_interface, recording_state_manager)
+    holdingProtocolGraph = HoldingProtocolGraph(graph_interface, recording_state_manager)
 
 
     gui.initialize()
