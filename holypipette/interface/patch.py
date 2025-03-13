@@ -228,6 +228,18 @@ class AutoPatchInterface(TaskInterface):
     def store_rinsing_position(self) -> None:
         self.current_autopatcher.rinsing_bath_position = self.pipette_controller.calibrated_unit.position()
 
+    @command(category='Patch',
+             description='clear all stored positions',
+                success_message='All positions cleared')
+    def clear_positions(self) -> None:
+        self.current_autopatcher.cleaning_bath_position = None
+        self.current_autopatcher.rinsing_bath_position = None
+        self.current_autopatcher.home_position = None
+        self.current_autopatcher.safe_position = None
+        self.current_autopatcher.home_stage_position = None
+        self.current_autopatcher.safe_stage_position = None
+        self.info('All positions cleared')
+
     @blocking_command(category='Patch',
                       description='Clean the pipette (wash and rinse)',
                       task_description='Cleaning the pipette')

@@ -98,7 +98,7 @@ class PressureController(TaskController):
         return self.state
 
     # --- Pressure Acquisition System Methods ---
-    def start_acquisition(self, interval=0.016, callback=None):
+    def start_acquisition(self, interval=0.05, callback=None):
         """
         Starts continuous pressure acquisition in a separate thread.
         Child classes should call this method to begin measuring pressure.
