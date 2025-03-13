@@ -56,42 +56,45 @@ class DAQAcquisitionThread(threading.Thread):
 
     def run(self):
         while self.running:
-            try:
-                data = self.daq.getDataFromSquareWave(
-                    self.wave_freq,
-                    self.samplesPerSec,
-                    self.dutyCycle,
-                    self.amplitude,
-                    self.recordingTime
-                )
-                if data:
-                    (timeData, respData), (timeData, readData), totalResistance, \
-                        membraneResistance, accessResistance, membraneCapacitance = data
+            if not self.daq.isRunningProtocol:
+                try:
+                    data = self.daq.getDataFromSquareWave(
+                        self.wave_freq,
+                        self.samplesPerSec,
+                        self.dutyCycle,
+                        self.amplitude,
+                        self.recordingTime
+                    )
+                    if data:
+                        (timeData, respData), (timeData, readData), totalResistance, \
+                            membraneResistance, accessResistance, membraneCapacitance = data
 
-                    measurement = {
-                        "timeData": timeData,
-                        "respData": respData,
-                        "readData": readData,
-                        "totalResistance": totalResistance,
-                        "membraneResistance": membraneResistance,
-                        "accessResistance": accessResistance,
-                        "membraneCapacitance": membraneCapacitance
-                    }
-                    
-                    self._last_data_queue.append(measurement)
-                    
-                    if self.callback is not None:
-                        self.callback(
-                            totalResistance,
-                            accessResistance,
-                            membraneResistance,
-                            membraneCapacitance,
-                            respData,
-                            readData
-                        )
-            except Exception as e:
-                logging.warning(f"Error in DAQAcquisitionThread: {e}")
-            time.sleep(self.interval)
+                        measurement = {
+                            "timeData": timeData,
+                            "respData": respData,
+                            "readData": readData,
+                            "totalResistance": totalResistance,
+                            "membraneResistance": membraneResistance,
+                            "accessResistance": accessResistance,
+                            "membraneCapacitance": membraneCapacitance
+                        }
+                        
+                        self._last_data_queue.append(measurement)
+                        
+                        if self.callback is not None:
+                            self.callback(
+                                totalResistance,
+                                accessResistance,
+                                membraneResistance,
+                                membraneCapacitance,
+                                respData,
+                                readData
+                            )
+                except Exception as e:
+                    logging.warning(f"Error in DAQAcquisitionThread: {e}")
+                time.sleep(self.interval)
+            else:
+                continue
 
     def get_last_data(self):
         """Return the most recent measurement or None if not available."""
@@ -122,7 +125,6 @@ class DAQ(TaskController):
         self.holding_protocol_data = None
         self._deviceLock = threading.Lock()
         self.isRunningProtocol = False
-        self.isRunningVoltageProtocol = False
         self.totalResistance = None
         self.latestAccessResistance = None
         self.latestMembraneResistance = None

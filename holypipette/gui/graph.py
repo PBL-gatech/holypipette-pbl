@@ -271,7 +271,6 @@ class EPhysGraph(QWidget):
         self.pressureCommandSlider.setValue(initial_pressure)
         self.pressureCommandSlider.setTickInterval(100)
         self.pressureCommandSlider.setTickPosition(QSlider.TicksBelow)
-        # self.pressureCommandSlider.valueChanged.connect(self.updatePressureBox)
         self.pressureCommandSlider.sliderReleased.connect(self.pressureCommandSliderChanged)
         bottomBarLayout.addWidget(self.pressureCommandSlider)
 
@@ -357,9 +356,13 @@ class EPhysGraph(QWidget):
             pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
             self.pressurePlot.clear()
             self.pressurePlot.plot(pressureX, list(self.pressureData))
+            # update the slider
+            self.pressureCommandSlider.setValue(pressure)
             self.pressureCommandBox.setPlaceholderText(f"Set to: {pressure_set} mbar")
             # update the perssure label with the current pressure
             self.pressureLabel.setText(f"Pressure: {pressure:.2f} mbar")
+            # update the atmospheric pressure button
+            self.updatePressureATM()
 
         # --- Update DAQ Data (Command & Response) ---
         daq_data = self.graph_interface.get_last_data()
@@ -394,6 +397,9 @@ class EPhysGraph(QWidget):
                 self.membraneResistanceLabel.setText(f"Membrane Resistance: {membraneResistance:.2f} MΩ")
             if membraneCapacitance is not None:
                 self.membraneCapacitanceLabel.setText(f"Membrane Capacitance: {membraneCapacitance:.2f} pF")
+            
+            # --- Cell Mode ---
+            self.updateModeType()
 
 
             # --- Data Recording ---
@@ -410,8 +416,6 @@ class EPhysGraph(QWidget):
                     )
                 except Exception as e:
                     logging.error(f"Error writing graph data: {e}")
-
-
 
     def pressureCommandSliderChanged(self):
         """
@@ -468,6 +472,17 @@ class EPhysGraph(QWidget):
             self.atmosphericPressureButton.setText("ATM Pressure OFF")
             self.graph_interface.set_ATM(False)
         self.atmtoggle = not self.atmtoggle
+
+    def updatePressureATM(self):
+        """
+        Update the atmospheric pressure button based on the current state.
+        """
+        if self.graph_interface.get_ATM():
+            self.atmosphericPressureButton.setStyleSheet("background-color: green; color: white; border-radius: 5px; padding: 5px;")
+            self.atmosphericPressureButton.setText("ATM Pressure ON")
+        else:
+            self.atmosphericPressureButton.setStyleSheet("")
+            self.atmosphericPressureButton.setText("ATM Pressure OFF")
 
     def toggleModeType(self):
         """
