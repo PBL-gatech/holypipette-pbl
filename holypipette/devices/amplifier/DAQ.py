@@ -145,8 +145,8 @@ class DAQ(TaskController):
     # --------------------------
     # Acquisition Methods
     # --------------------------
-    def start_acquisition(self, wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
-                          amplitude=0.5, recordingTime=0.025, interval=None, callback=None):
+    def start_acquisition(self, wave_freq=80, samplesPerSec=10000, dutyCycle=0.5,
+                          amplitude=0.5, recordingTime=0.012, interval=None, callback=None):
         """
         Start the asynchronous acquisition thread for continuous DAQ measurements.
         Parameters:
