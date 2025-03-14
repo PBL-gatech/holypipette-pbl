@@ -46,16 +46,6 @@ class PatchGui(ManipulatorGui):
         semi_auto_patching_tab = SemiAutoPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
         self.add_tab(semi_auto_patching_tab, 'Semi-Auto Patching', index = 0)
 
-        # Update the pressure and information in the status bar every 16ms
-        self.pressure_timer = QtCore.QTimer()
-        self.pressure_timer.timeout.connect(self.display_pressure)
-        self.pressure_timer.start(16)
-        self.patch_interface.set_pressure_near()
-
-    def display_pressure(self):
-        current_pressure = self.patch_interface.pressure.getLastVal()
-        self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(current_pressure))
-
     def register_commands(self):
         super(PatchGui, self).register_commands()
         # self.register_mouse_action(Qt.LeftButton, Qt.ShiftModifier,
@@ -394,9 +384,10 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position']]
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Clear Calibration']]
         cmds = [[self.stage_calibration, self.pipette_calibration],
-                [self.patch_interface.store_cleaning_position]
+                [self.patch_interface.store_cleaning_position],
+                [self.patch_interface.clear_positions]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds,sequential=True)
         # Add a box for movement commands
@@ -410,11 +401,11 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         self.addButtonList('movement', layout, buttonList, cmds,sequential=False)
 
         # Add a box for patching commands
-        buttonList = [['Select Cell','Remove Last Cell','Locate Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell']]
+        buttonList = [['Select Cell','Remove Last Cell','Locate Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.locate_cell],
-                [[self.patch_interface.hunt_cell,self.toggle_recording],self.patch_interface.gigaseal],
+                [[self.patch_interface.hunt_cell,self.start_recording],self.patch_interface.gigaseal],
                 [self.patch_interface.break_in,[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]],
-                [[self.toggle_recording,self.patch_interface.patch]]
+                [[self.start_recording,self.patch_interface.patch],[self.stop_recording,self.patch_interface.escape_cell]]
 ]
         self.addButtonList('patching', layout, buttonList, cmds,sequential=False)
 
@@ -484,7 +475,6 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
             label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
-
 
     def tare_stage_x(self):
         xPos = self.pipette_interface.calibrated_stage.position(0)

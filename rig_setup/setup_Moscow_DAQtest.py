@@ -3,7 +3,7 @@
 '''
 
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
-from holypipette.devices.amplifier.DAQ import  DAQ
+from holypipette.devices.amplifier.DAQ import  NiDAQ
 from holypipette.devices.pressurecontroller import FakePressureController
 from holypipette.devices.camera import FakeCalCamera
 from holypipette.devices.manipulator import *
@@ -31,6 +31,6 @@ unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 DAQ  and Pressure setup
 '''
 
-daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
+daq = NiDAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
 amplifier = MultiClampChannel(channel=1)
 pressure = FakePressureController()

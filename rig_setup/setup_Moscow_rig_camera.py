@@ -1,12 +1,10 @@
 '''
 This script sets up the Moscow rig. It is used to set up the devices and their connections. The devices are then used in the main script.
 '''
-import serial
-from holypipette.devices.amplifier.multiclamp import MultiClampChannel
-from holypipette.devices.amplifier.DAQ import  DAQ, FakeDAQ
+from holypipette.devices.amplifier.DAQ import FakeDAQ
 from holypipette.devices.amplifier.amplifier import FakeAmplifier
 from holypipette.devices.camera.pcocamera import PcoCamera
-from holypipette.devices.pressurecontroller import MoscowPressureController, FakePressureController
+from holypipette.devices.pressurecontroller import  FakePressureController
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 
