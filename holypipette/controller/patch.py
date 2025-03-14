@@ -4,7 +4,7 @@ import numpy as np
 import cv2
 import ctypes
 from holypipette.devices.amplifier.amplifier import Amplifier
-from holypipette.devices.amplifier.DAQ import DAQ
+from holypipette.devices.amplifier.DAQ import NiDAQ
 from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
 from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.pressurecontroller import PressureController
@@ -25,7 +25,7 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, config : PatchConfig):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, config : PatchConfig):
         super().__init__()
         self.config = config
         self.amplifier = amplifier
@@ -55,6 +55,7 @@ class AutoPatcher(TaskController):
         self.info(f"emitting state: {state}")
 
     def run_protocols(self):
+        self.daq.setCellMode(True)
         if self.config.voltage_protocol:
             self.run_voltage_protocol()
             self.sleep(0.25)
@@ -352,12 +353,12 @@ class AutoPatcher(TaskController):
             self.microscope.stop()
             self.pressure.set_pressure(700)
             self.pressure.set_ATM(atm=False)
+            self.daq.setCellMode(False)
             self.sleep(1)
             self.move_group_up(20)
             self.sleep(1)
             self.move_to_home_space()
             self.clean_pipette()
-
 
 
     def gigaseal(self):
@@ -541,7 +542,7 @@ class AutoPatcher(TaskController):
         #     self.debug(f"Last three resistances: {lastResDeque}")
         #     return False  # Last three resistances must be ascending
         
-        # Criteria 2: there must be an increase of at least 0.3 mega ohms
+        # Criteria 2: there must be an increase by at least the cellThreshold
         r_delta = (lastResDeque[4] - self.first_res)
 
         # self.info(f"Cell detected, resistance: {r_delta}")

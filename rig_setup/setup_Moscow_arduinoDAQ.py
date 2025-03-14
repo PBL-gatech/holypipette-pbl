@@ -4,7 +4,7 @@
 import serial
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
 from holypipette.devices.amplifier.amplifier import FakeAmplifier
-from holypipette.devices.amplifier.DAQ import FakeDAQ, DAQ, ArduinoDAQ
+from holypipette.devices.amplifier.DAQ import  ArduinoDAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.pressurecontroller import  FakePressureController,  MoscowPressureController
 from holypipette.devices.camera.camera import FakeCamera
@@ -41,9 +41,6 @@ unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 
 ArdDAQserial = serial.Serial(port='COM11', baudrate=500000, timeout=1)
 daq = ArduinoDAQ(DAQSerial=ArdDAQserial)
-# daq = FakeDAQ()
-# amplifier = FakeAmplifier()
-# pressure = FakePressureController()
 amplifier = MultiClampChannel(channel=1)
 
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)

@@ -3,6 +3,7 @@ from datetime import datetime
 import threading
 import os
 from PyQt5 import QtGui
+import imageio
 
 class EPhysLogger(threading.Thread):
     def __init__(self, recording_state_manager, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
@@ -23,6 +24,7 @@ class EPhysLogger(threading.Thread):
         self.index_color_dict = {}
         # Lock for thread-safe access to the dictionary
         self.index_color_lock = threading.Lock()
+        self.image_type  = "webp"
 
     def create_folder(self):
         if not self.folder_created:
@@ -78,6 +80,17 @@ class EPhysLogger(threading.Thread):
             logging.info("Saved plot to %s", image_path)
         else:
             logging.error("Failed to save plot to %s", image_path)
+
+    def save_image(self, index, image):
+        self.create_folder()
+        image_path = f"cell_{index}.webp"
+        if image is None:
+            logging.error("No image to save")
+            return
+        else:
+            imageio.imwrite(self.folder_path + image_path, image)
+            logging.info("Saved image to %s", self.folder_path + image_path)
+
 
     def close(self):
         if self.file is not None:
