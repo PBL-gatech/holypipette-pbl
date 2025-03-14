@@ -22,8 +22,8 @@ class PatchConfig(Config):
     cell_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell', unit='μm')
     max_distance = NumberWithUnit(30, bounds=(0, 100), doc='Maximum movement during approach', unit='μm')
 
-    max_R_increase = NumberWithUnit(1e6, bounds=(0, 100e6), doc='Increase in resistance indicating obstruction', unit='MΩ', magnitude=1e6)
-    cell_R_increase = Number(0.15, bounds=(0, 1), doc='Proportional increase in resistance indicating cell presence during approach') # in MOhm
+    max_R_increase = NumberWithUnit(1e6, bounds=(0, 500e6), doc='Increase in resistance over time', unit='MΩ', magnitude=1e6)
+    cell_R_increase = Number(0.300, bounds=(0, 1), doc='Proportional increase in resistance indicating cell presence during approach') # in MOhm
     gigaseal_R = Number(1000, bounds=(100, 20000), doc='Gigaseal resistance')  # in MOhm
     gigaseal_min_delta_R = Number(15, bounds=(0, 1000), doc='Minimum resistance increase to extend deadline') # in MOhm
 
