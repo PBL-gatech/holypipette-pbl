@@ -321,7 +321,7 @@ class AutoPatcher(TaskController):
         self.first_res = self.resistanceRamp()
         self.info(f"Initial resistance: {self.first_res}")
         self.info("starting descent....")
-        self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
+        # self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
 
         # self.info (Manual: starting hunt)
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
@@ -376,7 +376,7 @@ class AutoPatcher(TaskController):
 
 
     def gigaseal(self):
-        self.info("Attempting to form gigaseal...")
+        self.info("Manual: Attempting to form gigaseal...")
         self.info("Collecting baseline resistance...")
 
         avg_resistance = self.resistanceRamp()
@@ -385,8 +385,8 @@ class AutoPatcher(TaskController):
         for _ in range(10):
             self.sleep(0.5)
 
-        currPressure = -5
-        self.pressure.set_pressure(currPressure)
+        # currPressure = -5
+        # self.pressure.set_pressure(currPressure)
 
         switched = False
         last_progress_time = time.time()
@@ -399,26 +399,26 @@ class AutoPatcher(TaskController):
             avg_resistance = self.resistanceRamp()
 
             delta_resistance = avg_resistance - prev_resistance
-            rate_mohm_per_sec = delta_resistance / (5 * 0.2)
+            # rate_mohm_per_sec = delta_resistance / (5 * 0.2)
 
             if delta_resistance >= self.config.gigaseal_min_delta_R:
                 last_progress_time = time.time()
 
-            if rate_mohm_per_sec < self.config.gigaseal_R/1000:
-                currPressure -= 5
-            elif self.config.gigaseal_R/1000 <= rate_mohm_per_sec <= self.config.gigaseal_R/10:
-                pass  # Maintain current pressure
-            elif self.config.gigaseal_R/10 < rate_mohm_per_sec <= self.config.gigaseal_R/5:
-                currPressure += 5
+            # if rate_mohm_per_sec < self.config.gigaseal_R/1000:
+            #     currPressure -= 5
+            # elif self.config.gigaseal_R/1000 <= rate_mohm_per_sec <= self.config.gigaseal_R/10:
+            #     pass  # Maintain current pressure
+            # elif self.config.gigaseal_R/10 < rate_mohm_per_sec <= self.config.gigaseal_R/5:
+            #     currPressure += 5
 
-            currPressure = max(currPressure, -60)
-            self.pressure.set_pressure(currPressure)
+            # currPressure = max(currPressure, -60)
+            # self.pressure.set_pressure(currPressure)
 
-            if currPressure <= -60:
-                self.pressure.set_ATM(True)
-                self.sleep(5)
-                currPressure = -5
-                self.pressure.set_pressure(currPressure)
+            # if currPressure <= -60:
+            #     self.pressure.set_ATM(True)
+            #     self.sleep(5)
+            #     currPressure = -5
+            #     self.pressure.set_pressure(currPressure)
 
             if avg_resistance >= self.config.gigaseal_R/10 and not switched:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
@@ -487,8 +487,8 @@ class AutoPatcher(TaskController):
             # # Fail after too many attempts.
             # if trials > 15:
 
-                self.info("Break-in unsuccessful")
-                raise AutopatchError("Break-in unsuccessful")
+                # self.info("Break-in unsuccessful")
+                # raise AutopatchError("Break-in unsuccessful")
         
         self.info("Successful break-in, Running Avg Resistance = " + str(measuredResistance))
 
