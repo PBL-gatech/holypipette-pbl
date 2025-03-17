@@ -403,11 +403,11 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Locate Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.locate_cell],
-                [[self.patch_interface.hunt_cell,self.start_recording],self.patch_interface.gigaseal],
-                [self.patch_interface.break_in,[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]],
+                [[self.start_recording,self.patch_interface.hunt_cell],self.patch_interface.gigaseal],
+                [self.patch_interface.break_in,[self.stop_recording,self.recording_state_manager.increment_sample_number,self.patch_interface.run_protocols,self.start_recording]],
                 [[self.start_recording,self.patch_interface.patch],[self.stop_recording,self.patch_interface.escape_cell]]
 ]
-        self.addButtonList('patching', layout, buttonList, cmds,sequential=False)
+        self.addButtonList('patching', layout, buttonList, cmds,sequential=True)
 
         # Add a box for Rig Recorder
         self.record_button = QtWidgets.QPushButton("Start Recording")

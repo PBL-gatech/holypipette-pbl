@@ -313,9 +313,16 @@ class DAQ(TaskController):
             return None, None, None
 
         if not custom:
-            factor = 2
+            factor = 1
             startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
             endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
+            # clamp the current to +-200 pA 
+            self.warning(f"starting current too great: {startCurrentPicoAmp}")
+            if startCurrentPicoAmp < -200:
+                startCurrentPicoAmp = -200
+            if endCurrentPicoAmp > 200:
+                endCurrentPicoAmp = 200
+            self.info(f"starting current limited to: {startCurrentPicoAmp}")
         else:
             if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
                 raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided when custom is True.")
@@ -335,7 +342,7 @@ class DAQ(TaskController):
         self.info(f"Start Current: {startCurrent}")
         # Determine the square wave frequency (Hz)
         wave_freq = 1 / (2 * highTimeMs * 1e-3)
-        samplesPerSec = 20000
+        samplesPerSec = 100000
         recTime = 4 * highTimeMs * 1e-3
 
         for i in range(num_waves - 1):
@@ -415,7 +422,7 @@ class DAQ(TaskController):
             self.isRunningProtocol = True
             while attempts < max_attempts:
                 attempts += 1
-                result = self.getDataFromSquareWave(20, 20000, 0.5, 0.5, 0.05)
+                result = self.getDataFromSquareWave(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5, amplitude=0.5, recordingTime=0.025)
                 if result is None:
                     continue
                 (self.voltage_protocol_data, self.voltage_command_data,

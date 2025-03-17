@@ -131,7 +131,7 @@ class AutoPatcher(TaskController):
             self.daq.getDataFromCurrentProtocol(custom =self.config.custom_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), highTimeMs=400)                                            
         else:
             self.debug('running default current protocol')
-            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_protocol, factor=2, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, highTimeMs=400)
+            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, highTimeMs=400)
         self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')
@@ -350,7 +350,7 @@ class AutoPatcher(TaskController):
             self.amplifier.stop_patch()
             self.calibrated_unit.stop()
             self.microscope.stop()
-            self.pressure.set_pressure(700)
+            self.pressure.set_pressure(200)
             self.pressure.set_ATM(atm=False)
             self.daq.setCellMode(False)
             self.sleep(1)
@@ -549,24 +549,27 @@ class AutoPatcher(TaskController):
         self.info("Starting patching process")
         #! phase 1: hunt for cell
         self.hunt_cell(cell)
+        self.sleep(2)
         # move a bit further down to make sure we're at the cell
         # self.calibrated_unit.relative_move(1, axis=2)
         #! phase 2: attempt to form a gigaseal
         self.gigaseal()
+        self.sleep(2)
 
         #! Phase 3: break into cell
         self.break_in()
-
+        self.sleep(5)
         #! Phase 4: run protocols
         self.run_protocols()
 
         #! Phase 5: clean pipette
-        # move set pipette pressure to 25 mbar
-        self.pressure.set_pressure(25)
-        # move pipette and stage up 25 um
-        self.move_group_up(dist=25)
-        self.sleep(0.1)
-        self.clean_pipette()
+        self.escape()
+        # # move set pipette pressure to 25 mbar
+        # self.pressure.set_pressure(25)
+        # # move pipette and stage up 25 um
+        # self.move_group_up(dist=25)
+        # self.sleep(0.1)
+        # self.clean_pipette()
 
     def move_to_safe_space(self):
         '''
