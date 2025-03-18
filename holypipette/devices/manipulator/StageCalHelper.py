@@ -140,7 +140,7 @@ class StageCalHelper():
     '''A helper class to aid with Stage Calibration
     '''
     
-    CAL_MAX_SPEED = 200
+    CAL_MAX_SPEED = 50
     NORMAL_MAX_SPEED = 500
 
     def __init__(self, stage: Manipulator, camera: Camera, frameLag: int):
@@ -240,9 +240,24 @@ class StageCalHelper():
 
         print('completed optical flow. matrix:')
         print(mat)
+        # rotate matrix 90 degrees, as x-y seems to be flipped
+
+        # Define 90° counterclockwise rotation matrix
+        R90 = np.array([[0, -1],
+                        [1,  0]])
+        # define a y axis reflection matrix
+        F_y = np.array([[1,  0],
+                    [0, -1]])
+
+        # Construct the new calibration matrix
+        rotated_submatrix = F_y @ (R90 @ mat[:, :2])
+
+        new_calib = np.hstack([rotated_submatrix, mat[:, 2:3]])
+        print('rotated matrix')
+        print(new_calib)
 
         #return transformation matrix
-        return mat
+        return new_calib
 
     def calcOpticalFlowP0(self, firstFrame):
         #params for corner detector

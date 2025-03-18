@@ -374,7 +374,7 @@ class ScientificaSerialNoEncoder(Manipulator):
             cmd[axis  - 1] = pos
         
         if cmd[0] != 0 or cmd[1] != 0:
-            resp = self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] ), int(cmd[1] )))
+            resp = self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] )/self.correction, int(cmd[1] )/self.correction))
             print(resp)
         if cmd[2] != 0:
             resp = self.relative_move(cmd[2], 3)

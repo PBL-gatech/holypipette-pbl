@@ -57,10 +57,10 @@ class CalibrationConfig(Config):
                                 doc='Flip the x axis of the stage')
     stage_y_axis_flip = Boolean(True, 
                                 doc='Flip the y axis of the stage')
-    pipette_z_rotation = NumberWithUnit(-60.75, unit = 'degrees',
+    pipette_z_rotation = NumberWithUnit(-52.50, unit = 'degrees',
                                 doc='Rotation of the pipette in the xy plane (degrees)',
                                 bounds=(-360, 360))
-    pipette_y_rotation = NumberWithUnit(25, unit = 'degrees',
+    pipette_y_rotation = NumberWithUnit(26, unit = 'degrees',
                                 doc='Rotation of the pipette in the xz plane (degrees)',
                                 bounds=(-90, 90))
     
@@ -333,12 +333,12 @@ class CalibratedUnit(ManipulatorUnit):
         self.finish_calibration()
         self.center_pipette()
         self.wait_until_still()
-        self.autofocus_pipette()
-        self.wait_until_still()
+        # self.autofocus_pipette()
+        # self.wait_until_still()
         self.center_pipette()
         self.wait_until_still()
-        self.autofocus_pipette()
-        self.wait_until_still()
+        # # self.autofocus_pipette()
+        # self.wait_until_still()
 
 
     def center_pipette(self):
@@ -479,7 +479,7 @@ class CalibratedUnit(ManipulatorUnit):
 
         self.debug(f'New offsets: {self.r0}, {self.r0_inv}')
 
-    def follow_stage(self, movement = 250):
+    def follow_stage(self, movement = 10):
         '''
         Moves the pipette to follow the stage, method used for testing/calibration.
         '''
@@ -602,6 +602,7 @@ class CalibratedStage(CalibratedUnit):
 
         #self.abort_if_requested()
         pos_microns = dot(self.Minv, pos_pix)
+        print(f"Position in Microns: {pos_microns}")
         self.relative_move(pos_microns)
 
     def calibrate(self):
