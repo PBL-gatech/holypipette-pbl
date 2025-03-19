@@ -356,8 +356,9 @@ class EPhysGraph(QWidget):
             pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
             self.pressurePlot.clear()
             self.pressurePlot.plot(pressureX, list(self.pressureData))
-            # update the slider
-            self.pressureCommandSlider.setValue(pressure)
+            # Update the slider only if the user is not interacting with it.
+            if not self.pressureCommandSlider.isSliderDown():
+                self.pressureCommandSlider.setValue(pressure)
             self.pressureCommandBox.setPlaceholderText(f"Set to: {pressure_set} mbar")
             # update the perssure label with the current pressure
             self.pressureLabel.setText(f"Pressure: {pressure:.2f} mbar")
