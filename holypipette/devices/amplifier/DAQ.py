@@ -452,6 +452,12 @@ class DAQ(TaskController):
         If no measurement is available, returns None.
         """
         return self.totalResistance
+    def accessResistance(self):
+        """
+        Returns the latest access resistance measurement.
+        If no measurement is available, returns None.
+        """
+        return self.latestAccessResistance
 
     # --------------------------
     # COMMON CALCULATION METHODS

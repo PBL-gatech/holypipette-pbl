@@ -113,7 +113,7 @@ class PipetteInterface(TaskInterface):
 
     @command(category='Manipulators',
              description='Move pipette in z direction by {:.0f}μm',
-             default_arg=10)
+             default_arg=-1000)
     def move_pipette_z(self, distance):
         self.calibrated_unit.relative_move(distance, axis=2)
 

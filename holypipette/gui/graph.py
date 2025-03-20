@@ -307,6 +307,7 @@ class EPhysGraph(QWidget):
         self.zapButton.setFixedWidth(50)
         self.zapButton.clicked.connect(self.handle_zap_button_press)
         bottomBarLayout.addWidget(self.zapButton)
+        self.graph_interface.set_zap_duration(25e-6)  # Default zap duration in seconds
 
         bottomBarLayout.addStretch(1)
         self.bottomBar.setMaximumHeight(20)

@@ -269,7 +269,11 @@ class AutoPatchInterface(TaskInterface):
                         task_description='Moving the group up')
     def move_group_up(self):
         self.execute(self.current_autopatcher.move_group_up)
-
+    @blocking_command(category='Patch',
+                      description='Move the pipette up',
+                      task_description='Moving the pipette up')
+    def move_pipette_up(self):
+        self.execute(self.current_autopatcher.move_pipette_up)
 
     @blocking_command(category='Patch',
                       description='Sequential patching and cleaning for multiple cells',

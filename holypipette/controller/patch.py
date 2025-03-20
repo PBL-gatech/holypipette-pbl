@@ -274,8 +274,8 @@ class AutoPatcher(TaskController):
 
         self.amplifier.start_patch()
         self.sleep(0.1)
-        self.daq.setCellMode(True)
-        self.sleep(0.1)
+        # self.daq.setCellMode(True)
+        # self.sleep(0.1)
 
     def hunt_cell(self,cell = None):
         '''
@@ -336,6 +336,8 @@ class AutoPatcher(TaskController):
             elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
                 self.calibrated_unit.stop()
                 self.info("Cell Detected")
+
+                
                 # self.pressure.set_ATM(atm=True)
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
@@ -359,7 +361,13 @@ class AutoPatcher(TaskController):
             self.move_to_home_space()
             self.clean_pipette()
 
-
+    def accessRamp(self, num_measurements=5, interval=0.2):
+        measurements = []
+        for _ in range(num_measurements):
+            measurements.append(self.daq.accessResistance())
+            self.sleep(interval)
+        return sum(measurements) / len(measurements)
+    
     def resistanceRamp(self, num_measurements=5, interval=0.2):
         measurements = []
         for _ in range(num_measurements):
@@ -377,18 +385,30 @@ class AutoPatcher(TaskController):
 
     def gigaseal(self):
         # self.info("Manual: Attempting to form gigaseal...")
+        self.info("Attempting to form gigaseal...")
+        self.amplifier.auto_fast_compensation()
+        self.sleep(1)
+        self.daq.setCellMode(True)
+        self.sleep(0.1)
         self.info("Collecting baseline resistance...")
 
         avg_resistance = self.resistanceRamp()
 
         self.pressure.set_ATM(atm=True)
-        self.sleep(5)
+        self.sleep(10)
 
         currPressure = -5
         self.pressure.set_pressure(currPressure)
+        self.pressure.set_ATM(atm=False)
 
-        switched = False
+        holding_switched = False
+        cap_switched = False
         last_progress_time = time.time()
+
+        prevpressure = currPressure
+        speed = 1
+        bad_cell_count = 0
+        max_pressure = self.config.pressure_ramp_max
 
         while avg_resistance < self.config.gigaseal_R and not self.abort_requested:
             if time.time() - last_progress_time >= self.config.seal_deadline:
@@ -402,31 +422,65 @@ class AutoPatcher(TaskController):
 
             if delta_resistance >= self.config.gigaseal_min_delta_R:
                 last_progress_time = time.time()
-
-            if rate_mohm_per_sec < self.config.gigaseal_R/1000:
+                
+            print(f"goal resistance: {self.config.gigaseal_R} MΩ; current resistance: {avg_resistance} MΩ; rate: {rate_mohm_per_sec} MΩ/s")
+            if -(self.config.gigaseal_R /1000) < rate_mohm_per_sec < self.config.gigaseal_R/3000: # less than 0.33, or negative? 
+                print(f"Rate under 330kohm/s: {rate_mohm_per_sec} MΩ/s")
                 currPressure -= 5
-            elif self.config.gigaseal_R/1000 <= rate_mohm_per_sec <= self.config.gigaseal_R/10:
-                pass  # Maintain current pressure
-            elif self.config.gigaseal_R/10 < rate_mohm_per_sec <= self.config.gigaseal_R/5:
+                speed = 3
+                max_pressure = -45
+                self.config.pressure_ramp_max = max_pressure
+            elif self.config.gigaseal_R/3000 <= rate_mohm_per_sec <= self.config.gigaseal_R/10: # between 0.33 and 100
+                speed = 1   # Maintain current pressure
+            elif self.config.gigaseal_R/10 < rate_mohm_per_sec <= self.config.gigaseal_R/5: # between 100 and 200
+                 print(f"Rate over 100mohm/s : {rate_mohm_per_sec} MΩ/s")
+                 max_pressure = self.config.pressure_ramp_max
+                 currPressure += 5
+                 speed = 3
+            elif rate_mohm_per_sec <= -(self.config.gigaseal_R/1000):
+                print(f"Rate too negative: {rate_mohm_per_sec} MΩ/s")
                 currPressure += 5
+                if currPressure > -5:
+                    currPressure = -5
+                speed = 0.5
+            
+            currPressure = max(currPressure, max_pressure)
+            if currPressure != prevpressure:
+                self.pressure.set_pressure(currPressure)
+                prevpressure = currPressure
+                self.sleep(5/speed)
 
-            currPressure = max(currPressure, -60)
-            self.pressure.set_pressure(currPressure)
-
-            if currPressure <= -60:
+            if currPressure <= max_pressure:
                 self.pressure.set_ATM(True)
                 self.sleep(5)
+                testresistance = self.resistanceRamp()
+                difference = testresistance - avg_resistance
+                print(f"Test resistance: {testresistance} MΩ; difference: {difference} MΩ")
+                if difference < 0:
+                    bad_cell_count += 1
+                    if bad_cell_count > 5:
+                        raise AutopatchError("Bad cell detected")
+
                 currPressure = -5
                 self.pressure.set_pressure(currPressure)
+                self.pressure.set_ATM(atm=False)
 
-            if avg_resistance >= self.config.gigaseal_R/10 and not switched:
+            if avg_resistance >= self.config.gigaseal_R/12 and not holding_switched:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
                 self.amplifier.switch_holding(True)
-                switched = True
+                holding_switched = True
+
+            if avg_resistance >= self.config.gigaseal_R/3 and  not cap_switched:
+                self.daq.setCellMode(False)
+                self.amplifier.auto_fast_compensation()
+                self.sleep(1)
+                self.daq.setCellMode(True)
+                cap_switched = True
+
 
             if avg_resistance >= self.config.gigaseal_R:
                 self.pressure.set_ATM(atm=True)
-                self.info(f"Seal successful: R = {avg_resistance / 1e6} MΩ")
+                self.info(f"Seal successful!")
                 return
 
         raise AutopatchError("Seal unsuccessful: gigaseal criteria not met.")
@@ -441,28 +495,33 @@ class AutoPatcher(TaskController):
         self.sleep(3)
         self.pressure.set_pressure(self.config.pulse_pressure_break_in)
 
+        measuredAccessResistance = self.accessRamp()
         measuredResistance = self.resistanceRamp()
         measuredCapacitance = self.capacitanceRamp()
-        self.info(f"Initial Resistance: {measuredResistance}; Initial Capacitance: {measuredCapacitance}")
-        self.debug(f"target Resistance: {self.config.max_cell_R}; Target Capacitance: {self.config.min_cell_C}")
-        
-        # Check if the gigaseal is lost
-        if measuredResistance is not None and measuredResistance < self.config.max_cell_R*1e-6:
-            # self.done = True
-            raise AutopatchError("Seal lost")
+        self.info(f"Initial Resistance: {measuredResistance}; Initial Capacitance: {measuredCapacitance},  Initial Access Resistance: {measuredAccessResistance}")
+        self.info(f"target Resistance: {self.config.max_cell_R}; Target Capacitance: {self.config.min_cell_C}, Target Access Resistance: {self.config.max_access_R}")
+      
+        # # Check if the gigaseal is lost
+        # if measuredResistance is not None and measuredResistance < self.config.max_cell_R*1e-6 and measuredCapacitance is not None and measuredCapacitance > self.config.min_cell_C*1e-12 or measuredAccessResistance > self.config.max_access_R*1e-6:
+        #     # self.done = True
+        #     raise AutopatchError("Seal lost")
         
         trials = 0
-
+        speed = 3
         while measuredResistance > self.config.max_cell_R*1e-6 or measuredCapacitance < self.config.min_cell_C*1e-12:
             trials += 1
             self.debug(f"Trial: {trials}")
             
             # Apply pressure pulses
+            speedosc = trials % 5
+            if speedosc == 0:
+                speed = 2
             self.pressure.set_ATM(atm=False)
-            self.sleep(0.25)
+            self.sleep(1/speed)
             self.pressure.set_ATM(atm=True)
             self.sleep(0.75)
             # Optional zapping after a few trials every 3rd trial
+            speed = 3
             osc = trials % 3
             if self.config.zap and osc == 0:
                 self.info("zapping")
@@ -471,13 +530,13 @@ class AutoPatcher(TaskController):
                 self.amplifier.zap()
                 self.sleep(0.5)
 
-            self.sleep(0.05)
+            self.sleep(1)
             
             # Take new measurements using ramp functions to compute running averages.
             measuredResistance = self.resistanceRamp()
             measuredCapacitance = self.capacitanceRamp()
             
-            self.info(f"Trial {trials}: Running Avg Resistance: {measuredResistance}; Capacitance: {measuredCapacitance}")
+            self.info(f"Trial {trials}: Running Avg Membrane Resistance: {measuredResistance}; Membrane Capacitance: {measuredCapacitance}, Access Resistance: {measuredAccessResistance}")
             
             # Fail after too many attempts.
             if trials > 15:
@@ -544,19 +603,22 @@ class AutoPatcher(TaskController):
         self.info("Starting patching process")
         #! phase 1: hunt for cell
         self.hunt_cell(cell)
-        self.sleep(2)
+        self.sleep(10)
         # move a bit further down to make sure we're at the cell
         # self.calibrated_unit.relative_move(1, axis=2)
         #! phase 2: attempt to form a gigaseal
         self.gigaseal()
-        self.sleep(2)
-
+        self.sleep(10)
         #! Phase 3: break into cell
         self.break_in()
-        self.sleep(5)
+        self.sleep(20)
         #! Phase 4: run protocols
         self.run_protocols()
-
+        self.sleep(20)
+        self.run_protocols()
+        self.sleep(20)
+        self.run_protocols()
+        self.sleep(5)
         #! Phase 5: clean pipette
         self.escape()
 
@@ -661,6 +723,16 @@ class AutoPatcher(TaskController):
         finally:
             pass
     
+    def move_pipette_up(self, dist = 3000):
+        '''
+        Moves the pipette up by input distance in the z axis
+        '''
+        try:
+            self.calibrated_unit.relative_move(-dist, axis=2)
+            self.calibrated_unit.wait_until_still(2)
+        finally:
+            pass
+
     def clean_pipette(self):
         if self.cleaning_bath_position is None:
             raise ValueError('Cleaning bath position has not been set')
