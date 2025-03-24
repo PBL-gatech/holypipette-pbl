@@ -66,7 +66,7 @@ class ProtocolGraph(QWidget):
 
         # Set up timer to call update_plot() every updateDt ms
         self.updateTimer = QtCore.QTimer()
-        self.updateDt = 10  # milliseconds
+        self.updateDt = 1500  # milliseconds
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
         if not self.updateTimer.isActive():
@@ -115,12 +115,12 @@ class CurrentProtocolGraph(ProtocolGraph):
             respData = graph[1]
             readData = graph[2]
             self.plotWidget.plot(timeData, respData, pen=colors[i])
-            logging.info("Writing current ephys data to file")
+            # logging.info("Writing current ephys data to file")
             pulse = str(pulses[i])
             marker = colors[i] + "_" + pulse
             self.ephys_logger.write_ephys_data(index, timeData, readData, respData, marker)
             if i == color_range - 1:
-                logging.info("Saving current ephys plot")
+                # logging.info("Saving current ephys plot")
                 self.ephys_logger.save_ephys_plot(index, self.plotWidget)
                 self.graph_interface.daq.current_protocol_data = None  # Reset after saving
 

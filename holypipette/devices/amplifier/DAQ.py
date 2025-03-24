@@ -316,13 +316,15 @@ class DAQ(TaskController):
             factor = 1
             startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
             endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
-            # clamp the current to +-200 pA 
-            self.warning(f"starting current too great: {startCurrentPicoAmp}")
+ 
+            
             if startCurrentPicoAmp < -200:
+                self.warning(f"starting current too great: {startCurrentPicoAmp}")
                 startCurrentPicoAmp = -200
+                self.info(f"starting current limited to: {startCurrentPicoAmp}")
             if endCurrentPicoAmp > 200:
                 endCurrentPicoAmp = 200
-            self.info(f"starting current limited to: {startCurrentPicoAmp}")
+
         else:
             if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
                 raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided when custom is True.")
@@ -339,7 +341,7 @@ class DAQ(TaskController):
         num_waves = int((endCurrentPicoAmp - startCurrentPicoAmp) / stepCurrentPicoAmp) + 2
         # Convert to amps
         startCurrent = startCurrentPicoAmp * 1e-12
-        self.info(f"Start Current: {startCurrent}")
+        # self.info(f"Start Current: {startCurrent}")
         # Determine the square wave frequency (Hz)
         wave_freq = 1 / (2 * highTimeMs * 1e-3)
         samplesPerSec = 100000
@@ -350,7 +352,7 @@ class DAQ(TaskController):
             amp_pulse = (-20 * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
             wave_pulse = 1 / (2 * (highTimeMs / 2) * 1e-3)
             recording_pulse = 3 * highTimeMs / 2 * 1e-3
-            self.info('Sending param pulse at -20 pA square wave.')
+            # self.info('Sending param pulse at -20 pA square wave.')
             with self._deviceLock:
                 sendTask = self._sendSquareWaveCurrent(wave_pulse, samplesPerSec, 0.5, amp_pulse, recording_pulse)
                 if hasattr(sendTask, 'start'):
@@ -452,6 +454,7 @@ class DAQ(TaskController):
         If no measurement is available, returns None.
         """
         return self.totalResistance
+    
     def accessResistance(self):
         """
         Returns the latest access resistance measurement.
