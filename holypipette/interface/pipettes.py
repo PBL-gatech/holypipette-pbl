@@ -179,6 +179,13 @@ class PipetteInterface(TaskInterface):
                         task_description='Following the stage')
     def follow_stage(self):
         self.execute([self.calibrated_unit.follow_stage])
+
+    @blocking_command(category='Stage',
+                        description='focus the stage',
+                        task_description='Focusing the stage')
+    def focus_stage(self):
+        self.execute([self.calibrated_stage.focus])
+        
     @blocking_command(category='Manipulators',
                       description='Focus the pipette',
                       task_description='Calibrating manipulator')
