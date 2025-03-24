@@ -288,10 +288,6 @@ class DatasetBuilder():
         # demo_states = np.array(states_list)
 
 
-        
-        
-
-
         #Add to dataset
         if record_to_file:
             with h5py.File(f'experiments/Datasets/{self.dataset_name}', 'a') as hf:
@@ -325,8 +321,6 @@ class DatasetBuilder():
 
 
                 hf['data'].attrs['num_demos'] = hf['data'].attrs['num_demos'] + 1
-
-
 
     def convert_graph_recording_csv_to_new_format(self, demo_file_path):
         graph_recording_file = open(f'./experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
@@ -394,5 +388,9 @@ class DatasetBuilder():
         
 
 
+if __name__ == '__main__':
+    dataset_builder = DatasetBuilder('my_dataset.h5')
+    demo_path = 'example_demo_path'  # replace with your actual demo path
+    dataset_builder.add_demo(demo_path, record_to_file=True)
 
 
