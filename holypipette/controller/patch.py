@@ -266,8 +266,10 @@ class AutoPatcher(TaskController):
         self.microscope.move_to_floor()
         self.microscope.wait_until_still()
         z_pos = self.microscope.position()/5.0
+        self.info(f"Z position: {z_pos}")
+        self.info(f"cell position Z: {cell_pos[2]}")
         zdistleft  = z_pos - cell_pos[2]
-        self.microscope.relative_move(zdistleft)
+        self.microscope.relative_move(-zdistleft)
         self.info(f"Distance to cell of interest: {zdistleft}")
         self.microscope.wait_until_still()
         self.info("Located Cell")
@@ -360,6 +362,10 @@ class AutoPatcher(TaskController):
             self.sleep(1)
             self.move_to_home_space()
             self.clean_pipette()
+            self.sleep(1)
+            self.move_to_safe_space()
+            self.sleep(5)
+            self.microscope.move_to_floor()
 
     def accessRamp(self, num_measurements=5, interval=0.2):
         measurements = []
@@ -494,6 +500,7 @@ class AutoPatcher(TaskController):
         self.pressure.set_ATM(atm=True)
         self.sleep(3)
         self.pressure.set_pressure(self.config.pulse_pressure_break_in)
+        self.amplifier.set_zap_duration(25*1e-6)
 
         measuredAccessResistance = self.accessRamp()
         measuredResistance = self.resistanceRamp()
@@ -611,7 +618,7 @@ class AutoPatcher(TaskController):
         self.sleep(10)
         #! Phase 3: break into cell
         self.break_in()
-        self.sleep(20)
+        self.sleep(60)
         #! Phase 4: run protocols
         self.run_protocols()
         self.sleep(20)
@@ -723,7 +730,7 @@ class AutoPatcher(TaskController):
         finally:
             pass
     
-    def move_pipette_up(self, dist = 3000):
+    def move_pipette_up(self, dist = 5000):
         '''
         Moves the pipette up by input distance in the z axis
         '''
@@ -763,9 +770,9 @@ class AutoPatcher(TaskController):
             # 5 cycles of tip cleaning
             for i in range(1, 5):
                 self.pressure.set_pressure(-600)
-                self.sleep(0.625)
+                self.sleep(0.75)
                 self.pressure.set_pressure(1000)
-                self.sleep(0.375)
+                self.sleep(0.75)
 
             # Step 5: Drying
             # move pipette back to safe space in reverse
@@ -781,9 +788,9 @@ class AutoPatcher(TaskController):
             # 5 cycles of tip cleaning
             for i in range(1, 5):
                 self.pressure.set_pressure(-600)
-                self.sleep(0.625)
+                self.sleep(0.75)
                 self.pressure.set_pressure(1000)
-                self.sleep(0.375)
+                self.sleep(0.75)
             self.pressure.set_pressure(200)
   
             # Step 6: Move back to start from safespace
