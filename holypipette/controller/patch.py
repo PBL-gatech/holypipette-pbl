@@ -618,15 +618,20 @@ class AutoPatcher(TaskController):
         self.sleep(10)
         #! Phase 3: break into cell
         self.break_in()
+        self.info("Whole cell Acheived, resting for 60 seconds")
         self.sleep(60)
         #! Phase 4: run protocols
+        self.info("Running protocol 1")
         self.run_protocols()
         self.sleep(20)
+        self.info("Running protocol 2")
         self.run_protocols()
         self.sleep(20)
+        self.info("Running protocol 3")
         self.run_protocols()
         self.sleep(5)
         #! Phase 5: clean pipette
+        self.info("Data collection complete, cleaning pipette")
         self.escape()
 
 

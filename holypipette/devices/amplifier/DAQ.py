@@ -591,7 +591,7 @@ class DAQ(TaskController):
                     'Y_pA': filtered_data
                 }
                 mean_voltage = filtered_command.mean()
-                m, t, b = self.optimizer(fit_data, I_peak_pA, I_peak_time, I_post_pA)
+                m, t, b = self.optimizer(fit_data, I_peak_pA, I_peak_time, I_post_pA) # feed in previous initial conditions if exists
                 if m is not None and t is not None and b is not None:
                     tau = 1 / t
                     R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, mean_voltage, I_peak_pA, I_prev_pA, I_post_pA)
