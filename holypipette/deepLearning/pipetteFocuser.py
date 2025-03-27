@@ -14,7 +14,7 @@ class PipetteFocuser:
         
         # Determine the model path
         cur_dir = Path(__file__).parent.absolute()
-        model_path = os.path.join(cur_dir, 'pipetteModel', 'regression_model2.onnx')
+        model_path = os.path.join(cur_dir, 'pipetteModel', 'Emory_regression_model.onnx')
         
         # Initialize ONNX Runtime session
         self.session = ort.InferenceSession(model_path)
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     # Adjust image path as needed
     # cur_dir = Path(__file__).parent.absolute()
     # image_path = os.path.join(cur_dir, "", "neg7_focus.png")
-    image_path = r"C:\Users\rowan\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModel\example-pictures\pipette-example.png"
+    image_path = r"C:\Users\rowan\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModel\example_pictures\example_one.webp"
     
     if not os.path.exists(image_path):
         print(f"Image not found: {image_path}")

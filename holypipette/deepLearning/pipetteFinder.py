@@ -7,7 +7,7 @@ class PipetteFinder():
 
 	def __init__(self):
 		curFile = str(Path(__file__).parent.absolute())
-		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipetteFinderNetnano2.onnx') #real pipette
+		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/EmoryFinder2.onnx') #real pipette
 		# self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipette-nano.onnx') # fake pipette
 
 
@@ -71,7 +71,8 @@ if __name__ == '__main__':
 	# path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098890.png"
 	# path = r"c:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\classified_images\below\P_DET_IMAGES\10454_1726847645.853619.jpg"
 	# path  = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654099464.png"
-	path =  r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
+	# path =  r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
+	path = r"C:\Users\rowan\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\pipetteModel\example_pictures\example_one.webp"
 	img = cv2.imread(path)
 
 	#find pipette, draw location to img

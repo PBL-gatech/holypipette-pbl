@@ -34,15 +34,15 @@ from holypipette.config import Config, NumberWithUnit, Number, Boolean
 
 
 class CalibrationConfig(Config):
-    position_update = NumberWithUnit(1000, unit='ms',
+    position_update = NumberWithUnit(100, unit='ms',
                                      doc='dt for updating displayed pos.',
                                      bounds=(0, 10000))
     
-    autofocus_dist = NumberWithUnit(500, unit='um',
+    autofocus_dist = NumberWithUnit(100, unit='um',
                                      doc='z dist to scan for autofocusing.',
                                      bounds=(100, 5000))
     
-    stage_diag_move = NumberWithUnit(500, unit='um',
+    stage_diag_move = NumberWithUnit(50, unit='um',
                                      doc='x, y dist to move for stage cal.',
                                      bounds=(-10000, 10000))
     
