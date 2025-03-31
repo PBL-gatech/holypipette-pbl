@@ -14,7 +14,7 @@ class PipetteFocuser:
         
         # Determine the model path
         cur_dir = Path(__file__).parent.absolute()
-        model_path = os.path.join(cur_dir, 'pipetteModel', 'Emory_regression_model.onnx')
+        model_path = os.path.join(cur_dir, 'pipetteModel', 'Emory_regression2.onnx')
         
         # Initialize ONNX Runtime session
         self.session = ort.InferenceSession(model_path)
