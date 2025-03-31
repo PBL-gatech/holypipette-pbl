@@ -348,29 +348,46 @@ class DAQ(TaskController):
         recTime = 4 * highTimeMs * 1e-3
 
         for i in range(num_waves - 1):
-            # First, send a parameter pulse at -20 pA
-            amp_pulse = (-20 * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
-            wave_pulse = 1 / (2 * (highTimeMs / 2) * 1e-3)
-            recording_pulse = 3 * highTimeMs / 2 * 1e-3
-            # self.info('Sending param pulse at -20 pA square wave.')
+            # First, send nothing to stabilize starting point
+            recording_nothing = highTimeMs / 2 * 1e-3
             with self._deviceLock:
-                sendTask = self._sendSquareWaveCurrent(wave_pulse, samplesPerSec, 0.5, amp_pulse, recording_pulse)
+                sendTask = self._sendSquareWaveCurrent(1, samplesPerSec, 0.5, 0, recording_nothing)
                 if hasattr(sendTask, 'start'):
                     sendTask.start()
-                data = self._readAnalogInput(samplesPerSec, recording_pulse)
+                data_nothing = self._readAnalogInput(samplesPerSec, recording_nothing)
                 if hasattr(sendTask, 'stop'):
                     sendTask.stop()
                 if hasattr(sendTask, 'close'):
                     sendTask.close()
-            respData0 = data[1]
-            readData0 = data[0]
-            respData0 = respData0 / self.C_CLAMP_VOLT_PER_VOLT
+            respData_nothing = data_nothing[1] / self.C_CLAMP_VOLT_PER_VOLT
+            readData_nothing = data_nothing[0]
+
+            # Second, send a parameter pulse at -20 pA
+            amp_pulse = (-20 * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
+            wave_pulse = 1 / (2 * (highTimeMs / 2) * 1e-3)
+            recording_pulse = 3 * highTimeMs / 2 * 1e-3
+            with self._deviceLock:
+                sendTask = self._sendSquareWaveCurrent(wave_pulse, samplesPerSec, 0.5, amp_pulse, recording_pulse)
+                if hasattr(sendTask, 'start'):
+                    sendTask.start()
+                data_pulse = self._readAnalogInput(samplesPerSec, recording_pulse)
+                if hasattr(sendTask, 'stop'):
+                    sendTask.stop()
+                if hasattr(sendTask, 'close'):
+                    sendTask.close()
+            respData_pulse = data_pulse[1] / self.C_CLAMP_VOLT_PER_VOLT
+            readData_pulse = data_pulse[0]
+
+            # Combine the stabilization phase and -20pA pulse phase
+            respData0 = np.concatenate((respData_nothing, respData_pulse))
+            readData0 = np.concatenate((readData_nothing, readData_pulse))
+
             self.sleep(0.5)
 
+            # Third, send the current square wave
             currentAmps = self.pulses[i] * 1e-12
             self.info(f'Sending {currentAmps * 1e12} pA square wave.')
             amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
-
             with self._deviceLock:
                 sendTask = self._sendSquareWaveCurrent(wave_freq, samplesPerSec, 0.5, amplitude, recTime)
                 if hasattr(sendTask, 'start'):
@@ -380,19 +397,22 @@ class DAQ(TaskController):
                     sendTask.stop()
                 if hasattr(sendTask, 'close'):
                     sendTask.close()
-            respData1 = data[1]
+            respData1 = data[1] / self.C_CLAMP_VOLT_PER_VOLT
             readData1 = data[0]
-            respData1 = respData1 / self.C_CLAMP_VOLT_PER_VOLT
+
             # Combine the two phases of data
             respData = np.concatenate((respData0, respData1))
             readData = np.concatenate((readData0, readData1))
             triggeredSamples = respData.shape[0]
             timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
+
             self.sleep(0.5)
+
             if self.current_protocol_data is None:
                 self.current_protocol_data = [[timeData, respData, readData]]
             else:
                 self.current_protocol_data.append([timeData, respData, readData])
+
         self.isRunningProtocol = False
         return self.current_protocol_data, self.pulses, self.pulseRange
 

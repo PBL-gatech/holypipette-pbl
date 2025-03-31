@@ -354,11 +354,15 @@ class AutoPatcher(TaskController):
             self.amplifier.stop_patch()
             self.calibrated_unit.stop()
             self.microscope.stop()
-            self.pressure.set_pressure(200)
+            self.pressure.set_pressure(50)
             self.pressure.set_ATM(atm=False)
             self.daq.setCellMode(False)
             self.sleep(1)
+            self.pressure.set_pressure(100)
+            self.sleep(1)
             self.move_group_up(20)
+            self.sleep(1)
+            self.pressure.set_pressure(200)
             self.sleep(1)
             self.move_to_home_space()
             self.clean_pipette()
@@ -430,7 +434,7 @@ class AutoPatcher(TaskController):
                 last_progress_time = time.time()
                 
             print(f"goal resistance: {self.config.gigaseal_R} MΩ; current resistance: {avg_resistance} MΩ; rate: {rate_mohm_per_sec} MΩ/s")
-            if -(self.config.gigaseal_R /1000) < rate_mohm_per_sec < self.config.gigaseal_R/3000: # less than 0.33, or negative? 
+            if -(self.config.gigaseal_R /100) < rate_mohm_per_sec < self.config.gigaseal_R/3000: # less than 0.33, or negative 10? 
                 print(f"Rate under 330kohm/s: {rate_mohm_per_sec} MΩ/s")
                 currPressure -= 5
                 speed = 3
@@ -443,7 +447,7 @@ class AutoPatcher(TaskController):
                  max_pressure = self.config.pressure_ramp_max
                  currPressure += 5
                  speed = 3
-            elif rate_mohm_per_sec <= -(self.config.gigaseal_R/1000):
+            elif rate_mohm_per_sec <= -(self.config.gigaseal_R/100): # less than -10 mohm/s
                 print(f"Rate too negative: {rate_mohm_per_sec} MΩ/s")
                 currPressure += 5
                 if currPressure > -5:
@@ -515,7 +519,7 @@ class AutoPatcher(TaskController):
         
         trials = 0
         speed = 3
-        while measuredResistance > self.config.max_cell_R*1e-6 or measuredCapacitance < self.config.min_cell_C*1e-12:
+        while measuredAccessResistance > self.config.max_access_R*1e-6:
             trials += 1
             self.debug(f"Trial: {trials}")
             
@@ -541,6 +545,7 @@ class AutoPatcher(TaskController):
             
             # Take new measurements using ramp functions to compute running averages.
             measuredResistance = self.resistanceRamp()
+            measuredAccessResistance = self.accessRamp()
             measuredCapacitance = self.capacitanceRamp()
             
             self.info(f"Trial {trials}: Running Avg Membrane Resistance: {measuredResistance}; Membrane Capacitance: {measuredCapacitance}, Access Resistance: {measuredAccessResistance}")
