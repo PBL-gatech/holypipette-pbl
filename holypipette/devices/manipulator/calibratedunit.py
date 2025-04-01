@@ -55,9 +55,9 @@ class CalibrationConfig(Config):
                                      bounds=(50, 10000))
     stage_x_axis_flip = Boolean(False, 
                                 doc='Flip the x axis of the stage')
-    stage_y_axis_flip = Boolean(True, 
+    stage_y_axis_flip = Boolean(False, 
                                 doc='Flip the y axis of the stage')
-    pipette_z_rotation = NumberWithUnit(-52.50, unit = 'degrees',
+    pipette_z_rotation = NumberWithUnit(-50.8, unit = 'degrees',
                                 doc='Rotation of the pipette in the xy plane (degrees)',
                                 bounds=(-360, 360))
     pipette_y_rotation = NumberWithUnit(26, unit = 'degrees',
@@ -479,19 +479,30 @@ class CalibratedUnit(ManipulatorUnit):
 
         self.debug(f'New offsets: {self.r0}, {self.r0_inv}')
 
-    def follow_stage(self, movement = 10):
+    def follow_stage(self, movement = 15):
         '''
         Moves the pipette to follow the stage, method used for testing/calibration.
         '''
-        #1. move stage by movement in both axes 
-        movement_vector = np.array([movement, movement, 0])
+        # Option to use random or fixed movements
+        use_random = True
+        
+        if use_random:
+            # generate random movement vector
+            random_movement = (np.random.rand(2) * 2 - 1) * movement
+            movement_vector = np.array([random_movement[0], random_movement[1], 0])
+        else:
+            # generate fixed movement vector
+            movement_vector = np.array([movement, movement, 0])
+
         self.stage.relative_move(movement_vector)
         self.stage.wait_until_still()
-        #2. rotate movement vector around z axis by pipette_z_rotation
+
+        # rotate movement vector around z axis by pipette_z_rotation
         rotated_vector = self.rotate(movement_vector, 2)
-        #3. move pipette by rotated movement vector
+        # move pipette by rotated movement vector
         self.relative_move(rotated_vector)
         self.wait_until_still()
+
 
 
 
