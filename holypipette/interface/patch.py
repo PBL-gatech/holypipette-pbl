@@ -9,7 +9,7 @@ from holypipette.controller import AutoPatcher
 from holypipette.devices.pressurecontroller.BasePressureController import PressureController
 from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.interface.pipettes import PipetteInterface
-from holypipette.devices.amplifier.DAQ import DAQ
+from holypipette.devices.amplifier.DAQ import NiDAQ
 from .patchConfig import PatchConfig
 from PyQt5 import QtCore
 import time
@@ -20,7 +20,7 @@ class AutoPatchInterface(TaskInterface):
     '''
     A class to run automatic patch-clamp
     '''
-    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, pipette_interface: PipetteInterface):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface):
         super().__init__()
         self.config = PatchConfig(name='Patch')
         self.amplifier = amplifier
@@ -87,17 +87,21 @@ class AutoPatchInterface(TaskInterface):
         position[0] += self.current_autopatcher.calibrated_unit.camera.width / 2
         position[1] += self.current_autopatcher.calibrated_unit.camera.height / 2
         # add the z position of the microscope
-        z_pos = self.current_autopatcher.calibrated_unit.microscope.position()
-        self.debug(f'z position of the microscope: {z_pos}')
+        z_pos = self.current_autopatcher.calibrated_unit.microscope.position()/5
+        self.info(f'z position of the microscope: {z_pos}')
         print(f'adding cell... {self.is_selecting_cells}')
         if self.is_selecting_cells:
-            print('Adding cell at', position, 'to list of cells to patch')
+            print('Adding cell at', position, 'to list of cells to patch in pixels')
             stage_pos_pixels = self.current_autopatcher.calibrated_stage.reference_position()
             stage_pos_pixels[0:2] -= position
             # display stage position
             # add the z_pos to the stage position as a third dimension in the np array
-            np.append(stage_pos_pixels, z_pos)
+
+            stage_pos_pixels = np.array([stage_pos_pixels[0], stage_pos_pixels[1], z_pos])
+
+
             print(f'Stage position dimensions: {np.size(stage_pos_pixels)}')
+            print(f'Stage um position: {stage_pos_pixels}')
             #take a 256x256 image centered on the cell
             img = self.current_autopatcher.calibrated_unit.camera.get_16bit_image()
             img = img[int(position[1]-128):int(position[1]+128), int(position[0]-128):int(position[0]+128)]
@@ -144,6 +148,7 @@ class AutoPatchInterface(TaskInterface):
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
     
+    
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
@@ -153,6 +158,15 @@ class AutoPatchInterface(TaskInterface):
                       argument = (cell, img))
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
+
+    @blocking_command(category='Patch',
+                        description='escape the cell',
+                        task_description='Moving away from the cell, cleaning pipette and moving to home space')
+    def escape_cell(self):
+
+        self.execute(self.current_autopatcher.escape)
+        time.sleep(2)
+
 
     @command(category='Patch',
              description='Store the position of the washing bath',
@@ -174,11 +188,30 @@ class AutoPatchInterface(TaskInterface):
                 description='Store the position of the home space',
                 success_message='Home position stored')
     def store_home_position(self) -> None:
+        # modifying to store the safe position of the and stage as well.
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
+
+
+    @command(category='Patch',
+                description='Store the position of the home and safe spaces',
+                success_message='Home position stored')
+    def store_calibration_positions(self) -> None:
+        # modifying to store the safe position of the and stage as well.
+        self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
+        angle = np.deg2rad(25)
+        delta = -18000
+        x_pip, y_pip,z_pip  = self.current_autopatcher.home_position
+        self.current_autopatcher.safe_position = np.array([x_pip + delta*np.cos(angle), y_pip , z_pip +delta*np.sin(angle)])
+        x,y = self.pipette_controller.calibrated_stage.position()
+        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
+        self.current_autopatcher.home_stage_position = [x,y,z]
+        self.current_autopatcher.safe_stage_position = self.current_autopatcher.home_stage_position
+        self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
+        self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
     
     # @command(category='Recording',
     #          description='Check to see if one of the patch methods is complete, whether failed or successful',
@@ -194,6 +227,18 @@ class AutoPatchInterface(TaskInterface):
              success_message='Rinsing bath position stored')
     def store_rinsing_position(self) -> None:
         self.current_autopatcher.rinsing_bath_position = self.pipette_controller.calibrated_unit.position()
+
+    @command(category='Patch',
+             description='clear all stored positions',
+                success_message='All positions cleared')
+    def clear_positions(self) -> None:
+        self.current_autopatcher.cleaning_bath_position = None
+        self.current_autopatcher.rinsing_bath_position = None
+        self.current_autopatcher.home_position = None
+        self.current_autopatcher.safe_position = None
+        self.current_autopatcher.home_stage_position = None
+        self.current_autopatcher.safe_stage_position = None
+        self.info('All positions cleared')
 
     @blocking_command(category='Patch',
                       description='Clean the pipette (wash and rinse)',
@@ -224,7 +269,11 @@ class AutoPatchInterface(TaskInterface):
                         task_description='Moving the group up')
     def move_group_up(self):
         self.execute(self.current_autopatcher.move_group_up)
-
+    @blocking_command(category='Patch',
+                      description='Move the pipette up',
+                      task_description='Moving the pipette up')
+    def move_pipette_up(self):
+        self.execute(self.current_autopatcher.move_pipette_up)
 
     @blocking_command(category='Patch',
                       description='Sequential patching and cleaning for multiple cells',

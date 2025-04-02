@@ -3,7 +3,7 @@
 '''
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
 from holypipette.devices.amplifier.amplifier import FakeAmplifier
-from holypipette.devices.amplifier.DAQ import DAQ
+from holypipette.devices.amplifier.DAQ import NiDAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.manipulator import SensapexManip, ScientificaSerialNoEncoder
 from holypipette.devices.pressurecontroller.IBBPressureController import IBBPressureController
@@ -27,7 +27,7 @@ microscope.up_direction = 1.0
 unit = ManipulatorUnit(sensapexController, [1, 2, 3])
 
 # daq = DAQ('Dev6', 'ai1', 'Dev6', 'ao0') #This is "new" DAQ
-daq = DAQ('cDAQ1Mod3', 'ai0', 'cDaq1Mod1', 'ao1') #This is "old" DAQ
+daq = NiDAQ('cDAQ1Mod3', 'ai0', 'cDaq1Mod1', 'ao1') #This is "old" DAQ
 amplifier = MultiClampChannel(channel=1)
 
 pressureSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)

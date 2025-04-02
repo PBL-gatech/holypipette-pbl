@@ -46,16 +46,6 @@ class PatchGui(ManipulatorGui):
         semi_auto_patching_tab = SemiAutoPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
         self.add_tab(semi_auto_patching_tab, 'Semi-Auto Patching', index = 0)
 
-        # Update the pressure and information in the status bar every 16ms
-        self.pressure_timer = QtCore.QTimer()
-        self.pressure_timer.timeout.connect(self.display_pressure)
-        self.pressure_timer.start(16)
-        self.patch_interface.set_pressure_near()
-
-    def display_pressure(self):
-        current_pressure = self.patch_interface.pressure.getLastVal()
-        self.set_status_message('pressure', 'Pressure: {:.0f} mbar'.format(current_pressure))
-
     def register_commands(self):
         super(PatchGui, self).register_commands()
         # self.register_mouse_action(Qt.LeftButton, Qt.ShiftModifier,
@@ -375,12 +365,6 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
-        # # create a timer to check if recording should be stopped by using self.patch_interface.check_done()
-        # self.recording_timer = QtCore.QTimer()
-        # self.recording_timer.timeout.connect(self.patch_interface.check_done)
-        # self.recording_timer.start(1000)
-
-        # Add position boxes using the updated methods (which use CollapsibleGroupBox)
         self.positionAndTareBox(
             'stage position (um)',
             layout,
@@ -395,19 +379,15 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         )
 
         self.stage_calibration = [self.pipette_interface.set_floor, self.pipette_interface.calibrate_stage, self.pipette_interface.move_microscope]
-        self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_home_position, self.pipette_interface.move_pipette_xyz]
-        # # Add box to emit patching states
-        # buttonList = [['Cell Found', 'Gigaseal Reached', 'Whole Cell Achieved'], ['Patch Attempt Start', 'Patch Attempt Failed']]
-        # cmds = [
-        #     [self.emit_cell_found, self.emit_gigaseal, self.emit_whole_cell],
-        #     [self.emit_patch_attempt_start, self.emit_patch_attempt_fail]
-        # ]
-        # self.addButtonList('patching states', layout, buttonList, cmds)
+        self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_calibration_positions, self.patch_interface.move_to_safe_space]
+        self.pipette_cleaning_calibration = [self.patch_interface.store_cleaning_position,self.patch_interface.move_pipette_up,self.patch_interface.move_to_safe_space]
+
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position']]
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Clear Calibration']]
         cmds = [[self.stage_calibration, self.pipette_calibration],
-                [self.patch_interface.store_cleaning_position]
+                [self.pipette_cleaning_calibration],
+                [self.patch_interface.clear_positions]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds,sequential=True)
         # Add a box for movement commands
@@ -421,13 +401,13 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         self.addButtonList('movement', layout, buttonList, cmds,sequential=False)
 
         # Add a box for patching commands
-        buttonList = [['Select Cell','Remove Last Cell','Locate Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell']]
+        buttonList = [['Select Cell','Remove Last Cell','Locate Cell'],['Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.locate_cell],
-                [[self.patch_interface.hunt_cell,self.toggle_recording],self.patch_interface.gigaseal],
-                [self.patch_interface.break_in,[self.patch_interface.run_protocols, self.recording_state_manager.increment_sample_number]],
-                [[self.toggle_recording,self.patch_interface.patch]]
+                [[self.start_recording,self.patch_interface.hunt_cell],self.patch_interface.gigaseal],
+                [self.patch_interface.break_in,[self.stop_recording,self.recording_state_manager.increment_sample_number,self.patch_interface.run_protocols,self.start_recording]],
+                [[self.start_recording,self.patch_interface.patch,self.stop_recording],[self.stop_recording,self.patch_interface.escape_cell]]
 ]
-        self.addButtonList('patching', layout, buttonList, cmds,sequential=False)
+        self.addButtonList('patching', layout, buttonList, cmds,sequential=True)
 
         # Add a box for Rig Recorder
         self.record_button = QtWidgets.QPushButton("Start Recording")
@@ -438,28 +418,6 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         layout.addWidget(self.record_button)
 
         self.setLayout(layout)
-    
-
-        # self.calibrate_pipette = [self.pipette_interface.calibrate_manipulator,self.store_]
-
-        # self.patch_interface.store_home_position()
-        # self.pipette_interface.move_pipette_xyz()
-        # self.patch_interface.store_safe_position()
-
-    def emit_cell_found(self):
-        self.patch_interface.state_emitter("NH Success")
-
-    def emit_gigaseal(self):
-        self.patch_interface.state_emitter("GS success")
-
-    def emit_whole_cell(self):
-        self.patch_interface.state_emitter("WC success")
-
-    def emit_patch_attempt_start(self):
-        self.patch_interface.state_emitter("patching started")
-
-    def emit_patch_attempt_fail(self):
-        self.patch_interface.state_emitter("patching failed")
 
     def toggle_recording(self):
         if self.recording_state_manager.is_recording_enabled():
@@ -521,7 +479,6 @@ class SemiAutoPatchButtons(ButtonTabWidget):
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
             label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
-
 
     def tare_stage_x(self):
         xPos = self.pipette_interface.calibrated_stage.position(0)

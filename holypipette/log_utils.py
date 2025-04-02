@@ -74,11 +74,23 @@ def setup_logging():
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
     
-    # Path for logs
-    path = "/Users/kadenstillwagon/holypipette-pbl/holypipette-pbl/experiments/Data/log_data"
-    
-    # CSV file handler with a daily timestamped filename
-    csv_handler = CSVLogHandler(base_filename=path + '/logs')
+
+
+    # Get the directory of the current file.
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Assume the repository root is one directory up from the current file.
+    repo_root = os.path.abspath(os.path.join(current_dir, '..'))
+
+    # Define the log folder relative to the repository root.
+    log_folder = os.path.join(repo_root, "experiments", "Data", "log_data")
+    logging.info(f"log folder: {log_folder}")
+
+    # Create the folder if it doesn't exist.
+    os.makedirs(log_folder, exist_ok=True)
+
+    # Now set up your CSVLogHandler using the relative log folder.
+    csv_handler = CSVLogHandler(base_filename=os.path.join(log_folder, 'logs'))
     root_logger.addHandler(csv_handler)
 
 # Initialize the logging

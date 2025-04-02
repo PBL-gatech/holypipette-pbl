@@ -135,7 +135,6 @@ class AcquisitionThread(threading.Thread):
             except Exception as ex:
                 print('something went wrong acquiring an image, waiting for 100ms: ')
                 traceback.print_exception(type(ex), ex, ex.__traceback__)
-
                 time.sleep(.1)
                 continue
             # Put image into queues for disk storage and display
@@ -369,8 +368,8 @@ class Camera(object):
                 if total_area > 0.03 * image_area:
                     continue
 
-                cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
-                img = cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), 1)
+                # cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
+                # img = cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), 1)
 
         if self.flipped:
             img = img[:, ::-1]

@@ -3,7 +3,7 @@ This script sets up the Moscow rig. It is used to set up the devices and their c
 '''
 import serial
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
-from holypipette.devices.amplifier.DAQ import  DAQ
+from holypipette.devices.amplifier.DAQ import  NiDAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.pressurecontroller import MoscowPressureController
 from holypipette.devices.manipulator import *
@@ -21,7 +21,7 @@ pressure = MoscowPressureController(channel=1, controllerSerial=pressureControll
 
 # set up Ephys
 amplifier = MultiClampChannel(channel=1)
-daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
+daq = NiDAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
 
 # set up movement controllers
 

@@ -38,9 +38,9 @@ class CalibrationConfig(Config):
                                      doc='dt for updating displayed pos.',
                                      bounds=(0, 10000))
     
-    autofocus_dist = NumberWithUnit(500, unit='um',
+    autofocus_dist = NumberWithUnit(50, unit='um',
                                      doc='z dist to scan for autofocusing.',
-                                     bounds=(100, 5000))
+                                     bounds=(10, 5000))
     
     stage_diag_move = NumberWithUnit(500, unit='um',
                                      doc='x, y dist to move for stage cal.',
@@ -239,19 +239,6 @@ class CalibratedUnit(ManipulatorUnit):
             return
 
 
-    def focus(self):
-        '''
-        Move the microscope so as to put the pipette tip in focus
-        '''
-        if not self.calibrated:
-            raise CalibrationError('Pipette not calibrated')
-        if self.must_be_recalibrated:
-            raise CalibrationError('Pipette offsets must be recalibrated')
-        
-        self.microscope.absolute_move(self.reference_position()[2] + 200)
-        self.microscope.wait_until_still()
-        self.microscope.absolute_move(self.reference_position()[2])
-        self.microscope.wait_until_still()
 
     def autofocus_pipette(self):
         '''Use the microscope image to put the pipette in focus
@@ -586,6 +573,12 @@ class CalibratedStage(CalibratedUnit):
         self.abort_if_requested()
         self.reference_move(r) # Or relative move in manipulator coordinates, first axis (faster)
 
+    def focus(self):
+        ''' focus the stage on object of interest using the microscope
+        '''
+        self.debug('Focusing stage')
+        self.abort_if_requested()
+        self.focusHelper.autofocus(dist=self.config.autofocus_dist)
 
     def reference_relative_move(self, pos_pix):
         '''
@@ -633,7 +626,6 @@ class CalibratedStage(CalibratedUnit):
         self.must_be_recalibrated = False
 
         self.info('Stage calibration done')
-
 
     def mosaic(self, width = None, height = None):
         '''
