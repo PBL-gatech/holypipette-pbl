@@ -307,8 +307,8 @@ class AutoPatcher(TaskController):
 
 
         # # #ensure "near cell" pressure
-        self.info(f"Setting pressure to {self.config.pressure_near} mbar")
-        self.pressure.set_pressure(self.config.pressure_near)
+        # self.info(f"Setting pressure to {self.config.pressure_near} mbar")
+        # self.pressure.set_pressure(self.config.pressure_near)
         self.sleep(5) #let the resistance stabilize
 
         lastResDeque = collections.deque(maxlen=5)

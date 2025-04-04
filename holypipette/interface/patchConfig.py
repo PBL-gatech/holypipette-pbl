@@ -20,8 +20,8 @@ class PatchConfig(Config):
     max_cell_R = NumberWithUnit(300e6, bounds=(0, 1000e6), doc='Maximum cell resistance', unit='MΩ', magnitude=1e6)
     max_access_R = NumberWithUnit(50e6, bounds=(0, 1000e6), doc='Maximum access resistance', unit='MΩ', magnitude=1e6)
     min_cell_C = NumberWithUnit(5e-12, bounds=(0, 1), doc='Minimum cell capacitance', unit='pF', magnitude=1e-12)
-    cell_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell', unit='μm')
-    max_distance = NumberWithUnit(30, bounds=(0, 100), doc='Maximum movement during approach', unit='μm')
+    cell_distance = NumberWithUnit(50, bounds=(0, 100), doc='Initial distance above target cell', unit='μm')
+    max_distance = NumberWithUnit(75, bounds=(0, 100), doc='Maximum movement during approach', unit='μm')
 
     max_R_increase = NumberWithUnit(1e6, bounds=(0, 500e6), doc='Increase in resistance over time', unit='MΩ', magnitude=1e6)
     cell_R_increase = Number(0.300, bounds=(0, 1), doc='Proportional increase in resistance indicating cell presence during approach') # in MOhm
