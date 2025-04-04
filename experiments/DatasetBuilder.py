@@ -13,16 +13,17 @@ ATL_TO_UTC_TIME_DELTA = 4 #March 9 - Nov 1: 4 hours, otherwise 5 hours
 class DatasetBuilder():
     def __init__(self, dataset_name):
         self.dataset_name = dataset_name
+        self.zero_values = True
 
-        if dataset_name not in os.listdir('../../experiments/Datasets'):
-            with h5py.File(f'../../experiments/Datasets/{dataset_name}', 'w') as hf:
+        if dataset_name not in os.listdir('experiments/Datasets'):
+            with h5py.File(f'experiments/Datasets/{dataset_name}', 'w') as hf:
                 group = hf.create_group('data')
                 group.attrs['num_demos'] = 0
 
 
 
     def convert_graph_recording_csv_to_new_format(self, demo_file_path):
-        graph_recording_file = open(f'../../experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
+        graph_recording_file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
         graph_values = pd.read_csv(graph_recording_file, delimiter=':') #.to_numpy()
 
         #converted_graph_values_df = pd.DataFrame(columns=['timestamp', 'pressure', 'resistance', 'current', 'voltage'])
@@ -42,18 +43,18 @@ class DatasetBuilder():
 
         #print(converted_file_strings[0])
 
-        with open(f'../../experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv', 'w') as f:
+        with open(f'experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv', 'w') as f:
             for i in range(len(converted_file_strings)):
                 f.write(converted_file_strings[i])
 
 
-        file = open(f'../../experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
+        file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
         graph_values_new = pd.read_csv(file, delimiter=';')
 
         print(graph_values_new)
 
     def convert_movement_recording_csv_to_new_format(self, demo_file_path):
-        movement_recording_file = open(f'../../experiments/Data/rig_recorder_data/{demo_file_path}/movement_recording.csv')
+        movement_recording_file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/movement_recording.csv')
         movement_values = pd.read_csv(movement_recording_file, delimiter=':') #.to_numpy()
 
         converted_graph_values_df = pd.DataFrame(columns=['timestamp', 'pressure', 'resistance', 'current', 'voltage'])
@@ -75,12 +76,12 @@ class DatasetBuilder():
 
         #print(converted_file_strings[0])
 
-        with open(f'../../experiments/Data/rig_recorder_data/{demo_file_path}/movement_recording.csv', 'w') as f:
+        with open(f'experiments/Data/rig_recorder_data/{demo_file_path}/movement_recording.csv', 'w') as f:
             for i in range(len(converted_file_strings)):
                 f.write(converted_file_strings[i])
 
 
-        file = open(f'../../experiments/Data/rig_recorder_data/{demo_file_path}/movement_recording.csv')
+        file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/movement_recording.csv')
         movement_values_new = pd.read_csv(file, delimiter=';')
 
         print(movement_values_new)
@@ -109,11 +110,11 @@ class DatasetBuilder():
             log_values (pd.Dataframe): dataframe containing the log messages from the log file that are within the rig_recorder_data_folder's time frame
 
         """
-        graph_recording_file = open(f'../../experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/graph_recording.csv')
+        graph_recording_file = open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/graph_recording.csv')
         graph_values = pd.read_csv(graph_recording_file, delimiter=';').to_numpy()
-        movement_recording_file = open(f'../../experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/movement_recording.csv')
+        movement_recording_file = open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/movement_recording.csv')
         movement_values = pd.read_csv(movement_recording_file, delimiter=';').to_numpy()
-        log_file = open(f'../../experiments/Data/log_data/logs_{rig_recorder_data_folder[:10]}.csv')
+        log_file = open(f'experiments/Data/log_data/logs_{rig_recorder_data_folder[:10]}.csv')
         log_values = pd.read_csv(log_file, on_bad_lines='skip')
 
         return graph_values, movement_values, log_values
@@ -207,6 +208,7 @@ class DatasetBuilder():
             curr_recording_hunt_cell_started_logs = hunt_cell_started_logs[hunt_cell_started_logs['Full Time'] > start_timestamp]
             curr_recording_hunt_cell_started_logs = curr_recording_hunt_cell_started_logs[curr_recording_hunt_cell_started_logs['Full Time'] < end_timestamp]
             filtered_hunt_cell_started_logs = curr_recording_hunt_cell_started_logs.drop_duplicates()
+            print(f"Filtered Hunt Cell Started Logs: {len(filtered_hunt_cell_started_logs)} found between {start_timestamp} and {end_timestamp}")
 
             #Get Hunt Cell Located Cell Messages within Recording
             hunt_cell_located_cell_log_messages = log_values['Message'].str.contains('Located Cell')
@@ -434,6 +436,9 @@ class DatasetBuilder():
             resistance_values (np.array): numpy array containing resistance values for the current attempt
         '''
         resistance_values = attempt_graph_values[:, 2].astype(np.float64)
+        if self.zero_values:
+            # normalize resistance values to start at zero
+            resistance_values[:] -= resistance_values[0]
 
         return resistance_values
     
@@ -512,6 +517,11 @@ class DatasetBuilder():
             state_positions (np.array): numpy array containing stage positions for the current attempt
         '''
         stage_positions = attempt_movement_values[:, 3].astype(np.float64) #Note: for hunt cell, only need z-coordinate for stage positions (must use [:, 1:] to get all 3 stage coordinates)
+        if self.zero_values:
+            # normalize stage positions to start at zero for all 3 axes
+            stage_positions[:] -= stage_positions[0]
+            # stage_positions[:, 1] -= stage_positions[0, 1]
+            # stage_positions[:, 2] -= stage_positions[0, 2]
         
         return stage_positions
     
@@ -528,6 +538,13 @@ class DatasetBuilder():
             pipette_positions (np.array): numpy array containing pipette positions for the current attempt
         '''
         pipette_positions = attempt_movement_values[:, 4:].astype(np.float64)
+        if self.zero_values: 
+            # normalize pipette positions to start at zero for all 3 axes
+            pipette_positions[:, 0] -= pipette_positions[0, 0]  # x-axis
+            pipette_positions[:, 1] -= pipette_positions[0, 1]
+            pipette_positions[:, 2] -= pipette_positions[0, 2]  # z-axis
+
+
         
         return pipette_positions
     
@@ -546,10 +563,10 @@ class DatasetBuilder():
         Returns:
             camera_frames (np.array): numpy array containing camera frames for the current attempt
         '''
-        camera_files = os.listdir(f'../../experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames')
+        camera_files = os.listdir(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames')
         camera_files.sort()
         frames_list = []
-        curr_frame = np.array(Image.open(f'../../experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[0]}')).tolist()
+        curr_frame = np.array(Image.open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[0]}')).tolist()
         
         last_index = 0
         for i in range(len(attempt_graph_values)):
@@ -583,7 +600,7 @@ class DatasetBuilder():
                     min_timestamp_diff = timestamp_diff
                     min_timestamp_diff_indice = valid_camera_indices[j]
        
-            curr_frame = np.array(Image.open(f'../../experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[min_timestamp_diff_indice]}').resize((85, 85)))[:, :, 0]
+            curr_frame = np.array(Image.open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[min_timestamp_diff_indice]}').resize((128, 128)))[:, :, 0]
             frames_list.append(curr_frame)
 
             last_index = min_timestamp_diff_indice - 1
@@ -771,7 +788,7 @@ class DatasetBuilder():
             include_next_obs (boolean): boolean determining whether to include next observations or not (return nones if not)
             include_camera (boolean): boolean determining whether to include camera frames in the observations
         '''
-        with h5py.File(f'../../experiments/Datasets/{self.dataset_name}', 'a') as hf:
+        with h5py.File(f'experiments/Datasets/{self.dataset_name}', 'a') as hf:
             # Create a demo within the dataset_1
             demo_number = hf['data'].attrs['num_demos']
             demo = hf['data'].create_group(f'demo_{demo_number}')
@@ -784,10 +801,10 @@ class DatasetBuilder():
 
             #Observations Group
             observations = demo.create_group('obs')
-            observations.create_dataset('pressure', data=pressure_values)
+            # observations.create_dataset('pressure', data=pressure_values)
             observations.create_dataset('resistance', data=resistance_values)
-            observations.create_dataset('current', data=current_values)
-            observations.create_dataset('voltage', data=voltage_values)
+            # observations.create_dataset('current', data=current_values)
+            # observations.create_dataset('voltage', data=voltage_values)
             observations.create_dataset('stage_positions', data=stage_positions)
             observations.create_dataset('pipette_positions', data=pipette_positions)
             if include_camera:
@@ -799,11 +816,12 @@ class DatasetBuilder():
                 next_observations.create_dataset('pressure', data=next_pressure_values)
                 next_observations.create_dataset('resistance', data=next_resistance_values)
                 next_observations.create_dataset('current', data=next_current_values)
-                next_observations.create_dataset('voltage', data=next_voltage_values)
+                # next_observations.create_dataset('voltage', data=next_voltage_values)
                 if include_camera:
                     next_observations.create_dataset('camera_image', data=next_camera_frames)
 
             hf['data'].attrs['num_demos'] = hf['data'].attrs['num_demos'] + 1
+            print(f"Added demo_{demo_number} to dataset '{self.dataset_name}' with {num_samples} samples.")
             
 
         
@@ -817,6 +835,7 @@ class DatasetBuilder():
             rig_recorder_data_folder (string): the filename of the rig recorder folder containing the experiment data
             record_to_file (boolean): boolean determining whether to record the attempts into the dataset or not
         '''
+        print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
         #Parameters
         include_next_obs = False
         include_camera = True
@@ -897,15 +916,17 @@ class DatasetBuilder():
 
 
 if __name__ == '__main__':
-    dataset_name = 'temp_dataset.hdf5'
-    rig_recorder_data_folder = '2025_03_20-14_01' #2025_02_18-18_44, #2025_03_20-14_01
-    record_to_file = True
+    # dataset_name = '2025_03_20-15_19_dataset.hdf5'
+    dataset_name = 'initial_train_dataset.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
-    datasetBuilder = DatasetBuilder(dataset_name=dataset_name)
-    datasetBuilder.add_demo(rig_recorder_data_folder=rig_recorder_data_folder, record_to_file=record_to_file)
+    rig_recorder_data_folder_set= ["2025_03_20-14_01",'2025_03_20-15_19', '2025_03_20-15_45','2025_03_20-16_15'] 
+    for folder in rig_recorder_data_folder_set:
+        print(f"Processing folder: {folder}")
+        rig_recorder_data_folder = folder
+        record_to_file = True
 
-    
-        
+        datasetBuilder = DatasetBuilder(dataset_name=dataset_name)
+        datasetBuilder.add_demo(rig_recorder_data_folder=rig_recorder_data_folder, record_to_file=record_to_file)
 
 
 #Cases to Consider:
