@@ -240,7 +240,6 @@ class CalibratedUnit(ManipulatorUnit):
 
 
 
-
     def autofocus_pipette(self):
         '''Use the microscope image to put the pipette in focus
         '''

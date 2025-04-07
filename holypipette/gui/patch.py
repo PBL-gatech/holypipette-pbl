@@ -365,7 +365,6 @@ class SemiAutoPatchButtons(ButtonTabWidget):
 
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
-
         self.positionAndTareBox(
             'stage position (um)',
             layout,
@@ -425,6 +424,10 @@ class SemiAutoPatchButtons(ButtonTabWidget):
             self.stop_recording()
         else:
             self.start_recording()
+
+    # def check_done(self):
+    #     if self.patch_interface.check_done():
+    #         self.toggle_recording()
 
     def start_recording(self):
         self.recording_state_manager.set_recording(True)
