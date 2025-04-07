@@ -600,7 +600,7 @@ class DatasetBuilder():
                     min_timestamp_diff = timestamp_diff
                     min_timestamp_diff_indice = valid_camera_indices[j]
        
-            curr_frame = np.array(Image.open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[min_timestamp_diff_indice]}').resize((128, 128)))[:, :, 0]
+            curr_frame = np.array(Image.open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[min_timestamp_diff_indice]}').resize((85, 85)))[:, :,: ]
             frames_list.append(curr_frame)
 
             last_index = min_timestamp_diff_indice - 1
@@ -650,6 +650,7 @@ class DatasetBuilder():
         #Camera Frames
         if include_camera:
             camera_frames = self.get_attempt_camera_frames(rig_recorder_data_folder, attempt_graph_values)
+            # cast camera values into rgb if they are grayscale
 
             return pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames
 
@@ -917,9 +918,59 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'initial_train_dataset.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'vis_dataset.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
-    rig_recorder_data_folder_set= ["2025_03_20-14_01",'2025_03_20-15_19', '2025_03_20-15_45','2025_03_20-16_15'] 
+
+
+    # rig_recorder_data_folder_set= ["2025_03_20-14_01",'2025_03_20-15_19', '2025_03_20-15_45','2025_03_20-16_15'] 
+#     rig_recorder_data_folder_set =  [
+#     "2025_03_28-18_15",
+#     "2025_03_28-17_43",
+#     "2025_03_28-16_44",
+#     "2025_03_28-16_34",
+#     "2025_03_28-15_28",
+#     "2025_03_28-15_02",
+#     "2025_03_25-16_42",
+#     "2025_03_25-16_12",
+#     "2025_03_25-15_34",
+#     "2025_03_25-14_48",
+#     "2025_03_25-14_32",
+#     "2025_03_25-14_17",
+
+#     "2025_03_24-13_56",
+#     "2025_03_24-12_57",
+#     "2025_03_20-19_13",
+#     "2025_03_20-19_03",
+#     "2025_03_20-18_49",
+#     "2025_03_20-18_25",
+#     "2025_03_20-18_13",
+#     "2025_03_20-18_01",
+#     "2025_03_20-17_53",
+#     "2025_03_20-17_23",
+#     "2025_03_20-16_59",
+#     "2025_03_20-16_35",
+#     "2025_03_20-16_15",
+#     "2025_03_20-16_07",
+#     "2025_03_20-15_45"
+# ]
+
+    rig_recorder_data_folder_set = [
+        "2025_03_20-19_13",
+        "2025_03_20-19_03",
+        "2025_03_20-18_49",
+        "2025_03_20-18_25",
+        "2025_03_20-18_13",
+        "2025_03_20-18_01",
+        "2025_03_20-17_53",
+        "2025_03_20-17_23",
+        "2025_03_20-16_59",
+        "2025_03_20-16_35",
+        "2025_03_20-16_15",
+        "2025_03_20-16_07",
+        "2025_03_20-15_45"
+    ]
+
+
     for folder in rig_recorder_data_folder_set:
         print(f"Processing folder: {folder}")
         rig_recorder_data_folder = folder

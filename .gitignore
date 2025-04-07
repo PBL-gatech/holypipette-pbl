@@ -56,3 +56,6 @@ C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\log_data\lo
 /holypipette/devices/camera/FakeMicroscopeImgs/mask_images
 /src/mobile-sam
 /src/sam-2
+experiments/Datasets/initial_train_dataset.hdf5
+experiments/Datasets/temp_dataset.hdf5
+experiments/Datasets/temp_dataset.hdf5
