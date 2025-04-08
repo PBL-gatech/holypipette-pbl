@@ -215,6 +215,7 @@ class DatasetBuilder():
             hunt_cell_located_cell_log_indices = np.where(hunt_cell_located_cell_log_messages == True)[0]
             hunt_cell_located_cell_logs = log_values.iloc[hunt_cell_located_cell_log_indices].copy()
             hunt_cell_located_cell_logs.loc[:, 'Full Time'] = (pd.to_datetime(hunt_cell_located_cell_logs['Time(HH:MM:SS)'] + '.' + hunt_cell_located_cell_logs['Time(ms)'].astype(str), format='%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)).apply(lambda x: x.timestamp())
+            # print(f"Filtered Hunt Cell Located Cell Logs: {len(hunt_cell_located_cell_logs)} found between {start_timestamp} and {end_timestamp}")
 
             if len(hunt_cell_located_cell_logs) > 0:
                 curr_recording_hunt_cell_located_cell_logs = hunt_cell_located_cell_logs[hunt_cell_located_cell_logs['Full Time'] > start_timestamp]
@@ -226,6 +227,7 @@ class DatasetBuilder():
             hunt_cell_starting_descent_log_indices = np.where(hunt_cell_starting_descent_log_messages == True)[0]
             hunt_cell_starting_descent_logs = log_values.iloc[hunt_cell_starting_descent_log_indices].copy()
             hunt_cell_starting_descent_logs.loc[:, 'Full Time'] = (pd.to_datetime(hunt_cell_starting_descent_logs['Time(HH:MM:SS)'] + '.' + hunt_cell_starting_descent_logs['Time(ms)'].astype(str), format='%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)).apply(lambda x: x.timestamp())
+            # print(f"Filtered Hunt Cell Starting Descent Logs: {len(hunt_cell_starting_descent_logs)} found between {start_timestamp} and {end_timestamp}")
 
             if len(hunt_cell_starting_descent_logs) > 0:
                 curr_recording_hunt_cell_starting_descent_logs = hunt_cell_starting_descent_logs[hunt_cell_starting_descent_logs['Full Time'] > start_timestamp]
@@ -280,6 +282,7 @@ class DatasetBuilder():
                     for located_cell_message_timestamp in filtered_hunt_cell_located_cell_logs['Full Time']:
                         if located_cell_message_timestamp > start_time and located_cell_message_timestamp < end_time:
                             successful_hunt_cell_time_ranges[i][0] = located_cell_message_timestamp
+        print(f"Successful Hunt Cell Attempts: {len(successful_hunt_cell_time_ranges)} found")
 
         return successful_hunt_cell_time_ranges
     
@@ -918,8 +921,28 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'vis_dataset.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_1.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
+    rig_recorder_data_folder_set =  ["2025_03_25-16_42",
+        "2025_03_25-16_12",
+        "2025_03_25-15_34",
+        "2025_03_25-14_48",
+        "2025_03_25-14_32",
+        "2025_03_25-14_17",
+        "2025_04_07-14_32", 
+        "2025_04_07-14_50", 
+        "2025_04_07-15_50", 
+        "2025_04_07-18_04"
+        ] # this is most recent HEK DATA with NO overlays. some manual some automatic.
+
+
+    for folder in rig_recorder_data_folder_set:
+        print(f"Processing folder: {folder}")
+        rig_recorder_data_folder = folder
+        record_to_file = True
+
+        datasetBuilder = DatasetBuilder(dataset_name=dataset_name)
+        datasetBuilder.add_demo(rig_recorder_data_folder=rig_recorder_data_folder, record_to_file=record_to_file)
 
 
     # rig_recorder_data_folder_set= ["2025_03_20-14_01",'2025_03_20-15_19', '2025_03_20-15_45','2025_03_20-16_15'] 
@@ -954,30 +977,25 @@ if __name__ == '__main__':
 #     "2025_03_20-15_45"
 # ]
 
-    rig_recorder_data_folder_set = [
-        "2025_03_20-19_13",
-        "2025_03_20-19_03",
-        "2025_03_20-18_49",
-        "2025_03_20-18_25",
-        "2025_03_20-18_13",
-        "2025_03_20-18_01",
-        "2025_03_20-17_53",
-        "2025_03_20-17_23",
-        "2025_03_20-16_59",
-        "2025_03_20-16_35",
-        "2025_03_20-16_15",
-        "2025_03_20-16_07",
-        "2025_03_20-15_45"
-    ]
+    # rig_recorder_data_folder_set = [
+    #     "2025_03_20-19_13",
+    #     "2025_03_20-19_03",
+    #     "2025_03_20-18_49",
+    #     "2025_03_20-18_25",
+    #     "2025_03_20-18_13",
+    #     "2025_03_20-18_01",
+    #     "2025_03_20-17_53",
+    #     "2025_03_20-17_23",
+    #     "2025_03_20-16_59",
+    #     "2025_03_20-16_35",
+    #     "2025_03_20-16_15",
+    #     "2025_03_20-16_07",
+    #     "2025_03_20-15_45"
+    # ]
 
-
-    for folder in rig_recorder_data_folder_set:
-        print(f"Processing folder: {folder}")
-        rig_recorder_data_folder = folder
-        record_to_file = True
-
-        datasetBuilder = DatasetBuilder(dataset_name=dataset_name)
-        datasetBuilder.add_demo(rig_recorder_data_folder=rig_recorder_data_folder, record_to_file=record_to_file)
+    # rig_recorder_data_folder_set = ["2025_04_07-14_32", "2025_04_07-14_50", "2025_04_07-15_50", "2025_04_07-18_04",
+    #                                 "2025_03_11-16_01","2025_03_11-16_32","2025_03_11-16_49","2025_03_11-17_23","2025_03_11-17_24","2025_03_11-17_50","2025_03_11-18_00","2025_03_11-18_00","2025_03_11-18_09","2025_03_11-18_15","2025_03_11-18_25","2025_03_11-18_33","2025_03_11-18_34","2025_03_11-18_35","2025_03_11-18_36","2025_03_11-18_37","2025_03_11-18_38","2025_03_11-18_39","2025_03_11-18_40","2025_03_11-18_41","2025_03_11-18_42","2025_03_11-18_43","2025_03_11-18_44","2025_03_11-18_45","2025_03_11-18_46",
+    #                                 "2025_03_14-14_51","2025_03_14-15_18",
 
 
 #Cases to Consider:

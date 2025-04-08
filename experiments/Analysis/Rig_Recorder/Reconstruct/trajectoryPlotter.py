@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\vis_dataset.hdf5"
+# # # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\vis_dataset.hdf5"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_1.hdf5"
 
 pipette_positions_data = {}
 resistance_data = {}
@@ -68,7 +69,7 @@ plt.show()
 # # file_path = 'initial_train_dataset.hdf5'
 
 # # List demo folders to delete
-# demo_folders_to_delete = ['demo_64']  # Replace with your actual demo folder names
+# demo_folders_to_delete = ['demo_31','demo_29','demo_26','demo_17','demo_19','demo_21','demo_12','demo_10','demo_8','demo_5','demo_2']  # Replace with your actual demo folder names
 
 # with h5py.File(file_path, 'a') as hdf:  # 'a' mode is required for modifications
 #     data_group = hdf['data']

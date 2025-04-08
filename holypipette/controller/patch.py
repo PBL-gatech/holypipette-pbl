@@ -392,20 +392,6 @@ class AutoPatcher(TaskController):
             self.sleep(interval)
         return sum(measurements) / len(measurements)
 
-    def escape(self):
-        if self.hunt_cell_failed or self.gigaseal_failed or self.break_in_failed or self.abort_requested:
-            self.amplifier.stop_patch()
-            self.calibrated_unit.stop()
-            self.microscope.stop()
-            self.move_group_up(20)
-            self.pressure.set_pressure(50)
-            self.move_to_home_space()
-            self.clean_pipette()
-            self.hunt_cell_failed = False
-            self.gigaseal_failed = False
-            self.break_in_failed = False
-            self.abort_requested = False
-            raise AutopatchError("patch attempt failed")
 
     def gigaseal(self):
         # self.info("Manual: Attempting to form gigaseal...")
