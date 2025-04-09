@@ -86,11 +86,6 @@ class DatasetBuilder():
 
         print(movement_values_new)
 
-
-
-
-
-
     def load_experiment_data(self, rig_recorder_data_folder):
         """
         Returns graph and movement values from respective files in the rig recorder folder
@@ -119,7 +114,6 @@ class DatasetBuilder():
 
         return graph_values, movement_values, log_values
     
-
     def get_timestamps_for_all_experiment_recordings(self, log_values, experiment_first_timestamp, experiment_last_timestamp):
         """
         Returns a list of tuples representing the starting and ending timestamps of each recording in the rig recorder folder
@@ -172,117 +166,83 @@ class DatasetBuilder():
 
         return recording_time_ranges
     
-
     def get_timestamps_for_all_successful_hunt_cell_attempts(self, log_values, recording_timestamp_ranges):
         """
-        Returns a list of tuples representing the starting and ending timestamps of each successful hunt cell attempt in the each recording
-            1) Finds each of the "Hunting for cell" and "Cell detected: True" messages in the log file 
-            2) Filters messages to only includes those that occur within the time range of the current recording
-            3) Associates the start and end messages for a single hunt cell attempt to get the start and end times for the attempt
-        Note: Yes, this could be done without separating by recordings first. Done this way in case need to filter by recording.
-
+        Returns a list of tuples representing the starting and ending timestamps of each successful hunt cell attempt in each recording,
+        using "Initial resistance:" as the start indicator and "Cell detected: True" as the end indicator.
+            1) Finds each of the "Initial resistance:" and "Cell detected: True" messages in the log file 
+            2) Filters messages to only include those that occur within the time range of the current recording
+            3) Associates the "Initial resistance:" and "Cell detected: True" messages for a single attempt to get the start and end times
         Author(s): Kaden Stillwagon
 
         args:
-            log_values (pd.Dataframe): dataframe containing the log messages from the log file that are within the rig_recorder_data_folder's time frame
-            recording_time_ranges (list): list of tuples representing the starting and ending times of each recording in the current rig recorder folder
+            log_values (pd.DataFrame): dataframe containing the log messages from the log file that are within the rig_recorder_data_folder's time frame
+            recording_timestamp_ranges (list): list of tuples representing the starting and ending times of each recording in the current rig recorder folder
 
         Returns:
-            successful_hunt_cell_time_ranges (list): list of lists representing the starting and ending times of each successful hunt cell attempt in the current rig recorder folder
-
+            successful_hunt_cell_time_ranges (list): list of tuples representing the starting and ending times of each successful hunt cell attempt in the current rig recorder folder
         """
 
+        successful_hunt_cell_time_ranges = []  # Not separating by recordings now, but could easily
 
-        successful_hunt_cell_time_ranges = [] #Not separating by recordings now, but could easily
-        
         for recording_timestamps in recording_timestamp_ranges:
             start_timestamp = recording_timestamps[0]
             end_timestamp = recording_timestamps[1]
 
-            #Get Hunt Cell Start Messages within Recording
-            hunt_cell_started_log_messages = log_values['Message'].str.contains('Hunting for cell')
-            hunt_cell_started_log_indices = np.where(hunt_cell_started_log_messages == True)[0]
-            hunt_cell_started_logs = log_values.iloc[hunt_cell_started_log_indices].copy()
-            hunt_cell_started_logs.loc[:, 'Full Time'] = (pd.to_datetime(hunt_cell_started_logs['Time(HH:MM:SS)'] + '.' + hunt_cell_started_logs['Time(ms)'].astype(str), format='%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)).apply(lambda x: x.timestamp())
+            # ----------------------------------------------------------
+            # Get "Initial resistance:" messages within the recording (start events)
+            # ----------------------------------------------------------
+            initial_resistance_mask = log_values['Message'].str.contains('Initial resistance:')
+            initial_resistance_indices = np.where(initial_resistance_mask == True)[0]
+            initial_resistance_logs = log_values.iloc[initial_resistance_indices].copy()
+            initial_resistance_logs.loc[:, 'Full Time'] = (
+                pd.to_datetime(
+                    initial_resistance_logs['Time(HH:MM:SS)'] + '.' + initial_resistance_logs['Time(ms)'].astype(str),
+                    format='%Y-%m-%d %H:%M:%S.%f'
+                ) + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)
+            ).apply(lambda x: x.timestamp())
 
-            curr_recording_hunt_cell_started_logs = hunt_cell_started_logs[hunt_cell_started_logs['Full Time'] > start_timestamp]
-            curr_recording_hunt_cell_started_logs = curr_recording_hunt_cell_started_logs[curr_recording_hunt_cell_started_logs['Full Time'] < end_timestamp]
-            filtered_hunt_cell_started_logs = curr_recording_hunt_cell_started_logs.drop_duplicates()
-            print(f"Filtered Hunt Cell Started Logs: {len(filtered_hunt_cell_started_logs)} found between {start_timestamp} and {end_timestamp}")
+            curr_recording_initial_resistance_logs = initial_resistance_logs[initial_resistance_logs['Full Time'] > start_timestamp]
+            curr_recording_initial_resistance_logs = curr_recording_initial_resistance_logs[curr_recording_initial_resistance_logs['Full Time'] < end_timestamp]
+            filtered_initial_resistance_logs = curr_recording_initial_resistance_logs.drop_duplicates()
+            print(f"Filtered Initial Resistance Logs: {len(filtered_initial_resistance_logs)} found between {start_timestamp} and {end_timestamp}")
 
-            #Get Hunt Cell Located Cell Messages within Recording
-            hunt_cell_located_cell_log_messages = log_values['Message'].str.contains('Located Cell')
-            hunt_cell_located_cell_log_indices = np.where(hunt_cell_located_cell_log_messages == True)[0]
-            hunt_cell_located_cell_logs = log_values.iloc[hunt_cell_located_cell_log_indices].copy()
-            hunt_cell_located_cell_logs.loc[:, 'Full Time'] = (pd.to_datetime(hunt_cell_located_cell_logs['Time(HH:MM:SS)'] + '.' + hunt_cell_located_cell_logs['Time(ms)'].astype(str), format='%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)).apply(lambda x: x.timestamp())
+            # ----------------------------------------------------------
+            # Get "Cell detected: True" messages within the recording (end events)
+            # ----------------------------------------------------------
+            cell_detected_mask = log_values['Message'].str.contains('Cell detected: True')
+            cell_detected_indices = np.where(cell_detected_mask == True)[0]
+            cell_detected_logs = log_values.iloc[cell_detected_indices].copy()
+            cell_detected_logs.loc[:, 'Full Time'] = (
+                pd.to_datetime(
+                    cell_detected_logs['Time(HH:MM:SS)'] + '.' + cell_detected_logs['Time(ms)'].astype(str),
+                    format='%Y-%m-%d %H:%M:%S.%f'
+                ) + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)
+            ).apply(lambda x: x.timestamp())
 
-            if len(hunt_cell_located_cell_logs) > 0:
-                curr_recording_hunt_cell_located_cell_logs = hunt_cell_located_cell_logs[hunt_cell_located_cell_logs['Full Time'] > start_timestamp]
-                curr_recording_hunt_cell_located_cell_logs = curr_recording_hunt_cell_located_cell_logs[curr_recording_hunt_cell_located_cell_logs['Full Time'] < end_timestamp]
-                filtered_hunt_cell_located_cell_logs = curr_recording_hunt_cell_located_cell_logs.drop_duplicates()
+            curr_recording_cell_detected_logs = cell_detected_logs[cell_detected_logs['Full Time'] > start_timestamp]
+            curr_recording_cell_detected_logs = curr_recording_cell_detected_logs[curr_recording_cell_detected_logs['Full Time'] < end_timestamp]
+            filtered_cell_detected_logs = curr_recording_cell_detected_logs.drop_duplicates()
 
-            #Get Hunt Cell Starting Descent Messages within Recording
-            hunt_cell_starting_descent_log_messages = log_values['Message'].str.contains('starting descent')
-            hunt_cell_starting_descent_log_indices = np.where(hunt_cell_starting_descent_log_messages == True)[0]
-            hunt_cell_starting_descent_logs = log_values.iloc[hunt_cell_starting_descent_log_indices].copy()
-            hunt_cell_starting_descent_logs.loc[:, 'Full Time'] = (pd.to_datetime(hunt_cell_starting_descent_logs['Time(HH:MM:SS)'] + '.' + hunt_cell_starting_descent_logs['Time(ms)'].astype(str), format='%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)).apply(lambda x: x.timestamp())
+            # ----------------------------------------------------------
+            # Get Individual Attempt Start/End Timestamps by pairing
+            # ----------------------------------------------------------
+            initial_resistance_start_times = []
+            for initial_resistance_message_timestamp in filtered_initial_resistance_logs['Full Time']:
+                initial_resistance_start_times.append(initial_resistance_message_timestamp)
 
-            if len(hunt_cell_starting_descent_logs) > 0:
-                curr_recording_hunt_cell_starting_descent_logs = hunt_cell_starting_descent_logs[hunt_cell_starting_descent_logs['Full Time'] > start_timestamp]
-                curr_recording_hunt_cell_starting_descent_logs = curr_recording_hunt_cell_starting_descent_logs[curr_recording_hunt_cell_starting_descent_logs['Full Time'] < end_timestamp]
-                filtered_hunt_cell_starting_descent_logs = curr_recording_hunt_cell_starting_descent_logs.drop_duplicates()
-
-            #Get Hunt Cell End Messages within Recording
-            hunt_cell_ended_log_messages_success = log_values['Message'].str.contains('Cell detected: True')
-            hunt_cell_ended_log_indices = np.where(hunt_cell_ended_log_messages_success == True)[0]
-
-            #Not including failed/aborted attempts
-            # hunt_cell_ended_log_messages_fail = log_values['Message'].str.contains('No cell detected')
-            # hunt_cell_ended_log_indices = np.concatenate((hunt_cell_ended_log_indices, np.where(hunt_cell_ended_log_messages_fail == True)[0]))
-            # hunt_cell_ended_log_messages_abort = log_values['Message'].str.contains('Task "hunt_cell" aborted')
-            # hunt_cell_ended_log_indices = np.concatenate((hunt_cell_ended_log_indices, np.where(hunt_cell_ended_log_messages_abort == True)[0]))
-            
-            hunt_cell_ended_logs = log_values.iloc[hunt_cell_ended_log_indices].copy()
-            hunt_cell_ended_logs.loc[:, 'Full Time'] = (pd.to_datetime(hunt_cell_ended_logs['Time(HH:MM:SS)'] + '.' + hunt_cell_ended_logs['Time(ms)'].astype(str), format='%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)).apply(lambda x: x.timestamp())
-
-            curr_demo_hunt_cell_ended_logs = hunt_cell_ended_logs[hunt_cell_ended_logs['Full Time'] > start_timestamp]
-            curr_demo_hunt_cell_ended_logs = curr_demo_hunt_cell_ended_logs[curr_demo_hunt_cell_ended_logs['Full Time'] < end_timestamp]
-            filtered_hunt_cell_ended_logs = curr_demo_hunt_cell_ended_logs.drop_duplicates()
-
-            #Get Individual Hunt Cell Start/End Timestamps
-            hunt_cell_start_times = []
-            for hunt_cell_started_message_timestamp in filtered_hunt_cell_started_logs['Full Time']:
-                hunt_cell_start_times.append(hunt_cell_started_message_timestamp)
-
-            for hunt_cell_ended_message_timestamp in filtered_hunt_cell_ended_logs['Full Time']:
-                for i in range(len(hunt_cell_start_times)):
-                    if i < len(hunt_cell_start_times) - 1:
-                        if hunt_cell_ended_message_timestamp > hunt_cell_start_times[i] and hunt_cell_ended_message_timestamp < hunt_cell_start_times[i+1]:
-                            successful_hunt_cell_time_ranges.append((hunt_cell_start_times[i], hunt_cell_ended_message_timestamp))
+            for cell_detected_message_timestamp in filtered_cell_detected_logs['Full Time']:
+                for i in range(len(initial_resistance_start_times)):
+                    if i < len(initial_resistance_start_times) - 1:
+                        if cell_detected_message_timestamp > initial_resistance_start_times[i] and cell_detected_message_timestamp < initial_resistance_start_times[i+1]:
+                            successful_hunt_cell_time_ranges.append((initial_resistance_start_times[i], cell_detected_message_timestamp))
                     else:
-                        if hunt_cell_ended_message_timestamp > hunt_cell_start_times[i] and hunt_cell_ended_message_timestamp < end_timestamp:
-                            successful_hunt_cell_time_ranges.append([hunt_cell_start_times[i], hunt_cell_ended_message_timestamp])
+                        if cell_detected_message_timestamp > initial_resistance_start_times[i] and cell_detected_message_timestamp < end_timestamp:
+                            successful_hunt_cell_time_ranges.append((initial_resistance_start_times[i], cell_detected_message_timestamp))
 
-            #Change start time to timestamps of "starting descent" or "located cell" if they exist in the range
-            for i in range(len(successful_hunt_cell_time_ranges)):
-                time_range = successful_hunt_cell_time_ranges[i]
-                start_time = time_range[0]
-                end_time = time_range[1]
-                #Check if "starting descent" message in range and set start time to it's timestamp
-                starting_descent_message_found = False
-                for starting_descent_message_timestamp in filtered_hunt_cell_starting_descent_logs['Full Time']:
-                    if starting_descent_message_timestamp > start_time and starting_descent_message_timestamp < end_time:
-                        successful_hunt_cell_time_ranges[i][0] = starting_descent_message_timestamp
-                        starting_descent_message_found = True
-                
-                # If no "starting descent", check if "located cell" message in range and set start time to it's timestamp
-                if not starting_descent_message_found:
-                    for located_cell_message_timestamp in filtered_hunt_cell_located_cell_logs['Full Time']:
-                        if located_cell_message_timestamp > start_time and located_cell_message_timestamp < end_time:
-                            successful_hunt_cell_time_ranges[i][0] = located_cell_message_timestamp
+            # No additional adjustments are made as we now simply use the "Initial resistance:" message as the start event
 
         return successful_hunt_cell_time_ranges
-    
 
     def truncate_graph_values(self, graph_values, first_timestamp, last_timestamp):
         '''
@@ -515,13 +475,16 @@ class DatasetBuilder():
 
         Returns:
             state_positions (np.array): numpy array containing stage positions for the current attempt
+
         '''
-        stage_positions = attempt_movement_values[:, 3].astype(np.float64) #Note: for hunt cell, only need z-coordinate for stage positions (must use [:, 1:] to get all 3 stage coordinates)
+        stage_positions = attempt_movement_values[:, 1:].astype(np.float64) #Note: for hunt cell, only need z-coordinate for stage positions (must use [:, 1:] to get all 3 stage coordinates)
+        # stage_positions = attempt_movement_values[:, 3].astype(np.float64) #Note: for hunt cell, only need z-coordinate for stage positions (must use [:, 1:] to get all 3 stage coordinates)
         if self.zero_values:
             # normalize stage positions to start at zero for all 3 axes
-            stage_positions[:] -= stage_positions[0]
-            # stage_positions[:, 1] -= stage_positions[0, 1]
-            # stage_positions[:, 2] -= stage_positions[0, 2]
+            # stage_positions[:] -= stage_positions[0] # z-axis only
+            stage_positions[:, 0] -= stage_positions[0, 0]  # x-axis
+            stage_positions[:, 1] -= stage_positions[0, 1]  # y-axis
+            stage_positions[:, 2] -= stage_positions[0, 2]  # z-axis
         
         return stage_positions
     
@@ -918,58 +881,59 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'vis_dataset.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_fullStage.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
+    # rig_recorder_data_folder_set =  [
+    #     "2025_03_11-16_01",
+    #     "2025_03_11-16_32",
+    #     "2025_03_11-16_49"
+    # ]
 
-
-    # rig_recorder_data_folder_set= ["2025_03_20-14_01",'2025_03_20-15_19', '2025_03_20-15_45','2025_03_20-16_15'] 
-#     rig_recorder_data_folder_set =  [
-#     "2025_03_28-18_15",
-#     "2025_03_28-17_43",
-#     "2025_03_28-16_44",
-#     "2025_03_28-16_34",
-#     "2025_03_28-15_28",
-#     "2025_03_28-15_02",
-#     "2025_03_25-16_42",
-#     "2025_03_25-16_12",
-#     "2025_03_25-15_34",
-#     "2025_03_25-14_48",
-#     "2025_03_25-14_32",
-#     "2025_03_25-14_17",
-
-#     "2025_03_24-13_56",
-#     "2025_03_24-12_57",
-#     "2025_03_20-19_13",
-#     "2025_03_20-19_03",
-#     "2025_03_20-18_49",
-#     "2025_03_20-18_25",
-#     "2025_03_20-18_13",
-#     "2025_03_20-18_01",
-#     "2025_03_20-17_53",
-#     "2025_03_20-17_23",
-#     "2025_03_20-16_59",
-#     "2025_03_20-16_35",
-#     "2025_03_20-16_15",
-#     "2025_03_20-16_07",
-#     "2025_03_20-15_45"
-# ]
-
-    rig_recorder_data_folder_set = [
-        "2025_03_20-19_13",
-        "2025_03_20-19_03",
-        "2025_03_20-18_49",
-        "2025_03_20-18_25",
-        "2025_03_20-18_13",
-        "2025_03_20-18_01",
-        "2025_03_20-17_53",
-        "2025_03_20-17_23",
-        "2025_03_20-16_59",
-        "2025_03_20-16_35",
-        "2025_03_20-16_15",
+    rig_recorder_data_folder_set =  [
+        "2025_03_11-16_01",
+        "2025_03_11-16_32",
+        "2025_03_11-16_49",
+        "2025_03_11-17_50",
+        "2025_03_11-18_00",
+        "2025_03_11-18_09",
+        "2025_03_11-18_15",
+        "2025_03_11-18_25",
+        "2025_03_17-16_27",
+        "2025_03_17-16_57",
+        "2025_03_17-17_21",
+        "2025_03_17-17_26",
+        "2025_03_17-18_10",
+        "2025_03_20-13_52",
+        "2025_03_20-14_01",
+        "2025_03_20-14_42",
+        "2025_03_20-14_53",
+        "2025_03_20-15_04",
+        "2025_03_20-15_19",
+        "2025_03_20-15_34",
+        "2025_03_20-15_45",
         "2025_03_20-16_07",
-        "2025_03_20-15_45"
-    ]
-
+        "2025_03_20-16_15",
+        "2025_03_20-16_35",
+        "2025_03_20-16_59",
+        "2025_03_20-17_23",
+        "2025_03_20-17_53",
+        "2025_03_20-18_01",
+        "2025_03_20-18_13",
+        "2025_03_20-18_25",
+        "2025_03_20-18_49",
+        "2025_03_20-19_03",
+        "2025_03_20-19_13",
+        "2025_03_25-16_42",
+        "2025_03_25-16_12",
+        "2025_03_25-15_34",
+        "2025_03_25-14_48",
+        "2025_03_25-14_32",
+        "2025_03_25-14_17",
+        "2025_04_07-14_32", 
+        "2025_04_07-14_50", 
+        "2025_04_07-15_50", 
+        "2025_04_07-18_04"
+        ] # this is most recent HEK DATA with NO overlays. some manual some automatic. (3/11/2025 - 4/7/2025)
 
     for folder in rig_recorder_data_folder_set:
         print(f"Processing folder: {folder}")
