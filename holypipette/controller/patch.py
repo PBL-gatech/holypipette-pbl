@@ -318,7 +318,7 @@ class AutoPatcher(TaskController):
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
                 # we have moved expected um down and still no cell detected
                 # self.calibrated_unit.stop()
-                self.info("No cell detected")
+                self.info("cell not detected")
                 # self.done = True
                 # self.escape()
                 break
@@ -358,21 +358,21 @@ class AutoPatcher(TaskController):
             self.sleep(5)
             self.microscope.move_to_floor()
 
-    def accessRamp(self, num_measurements=5, interval=0.2):
+    def accessRamp(self, num_measurements=3, interval=0.2):
         measurements = []
         for _ in range(num_measurements):
             measurements.append(self.daq.accessResistance())
             self.sleep(interval)
         return sum(measurements) / len(measurements)
     
-    def resistanceRamp(self, num_measurements=5, interval=0.2):
+    def resistanceRamp(self, num_measurements=3, interval=0.2):
         measurements = []
         for _ in range(num_measurements):
             measurements.append(self.daq.resistance())
             self.sleep(interval)
         return sum(measurements) / len(measurements)
     
-    def capacitanceRamp(self, num_measurements=5, interval=0.2):
+    def capacitanceRamp(self, num_measurements=3, interval=0.2):
         measurements = []
         for _ in range(num_measurements):
             measurements.append(self.daq.capacitance())
@@ -506,7 +506,10 @@ class AutoPatcher(TaskController):
         
         trials = 0
         speed = 3
-        # while measuredAccessResistance > self.config.max_access_R*1e-6:
+        while measuredAccessResistance > self.config.max_access_R*1e-6:
+
+
+        
         #     trials += 1
         #     self.debug(f"Trial: {trials}")
             
@@ -530,10 +533,10 @@ class AutoPatcher(TaskController):
 
         #     self.sleep(1)
             
-        #     # Take new measurements using ramp functions to compute running averages.
-        #     measuredResistance = self.resistanceRamp()
-        #     measuredAccessResistance = self.accessRamp()
-        #     measuredCapacitance = self.capacitanceRamp()
+            # Take new measurements using ramp functions to compute running averages.
+            measuredResistance = self.resistanceRamp()
+            measuredAccessResistance = self.accessRamp()
+            measuredCapacitance = self.capacitanceRamp()
             
         #     self.info(f"Trial {trials}: Running Avg Membrane Resistance: {measuredResistance}; Membrane Capacitance: {measuredCapacitance}, Access Resistance: {measuredAccessResistance}")
             
