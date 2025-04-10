@@ -293,23 +293,10 @@ class AutoPatcher(TaskController):
         if cell is None:
             raise AutopatchError("No cell given to patch!")
         
-        stage_pos = self.calibrated_stage.position()
-        # if the stage position is within 10 um of the cell position in the xy-plane, we are already at the cell
-        # if the pipette is within 10 um of the cell position in the xy-plane, we are already at the cell
-        cell_pos, cell_img = cell
-        cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
-        stage_pos = np.array([stage_pos[0], stage_pos[1], 0])
-        dist = np.linalg.norm(cell_pos - stage_pos)
-        if dist < 20:
-            self.info("Already at cell position")
-        else:
-            self.locate_cell(cell)
-
-
         # # #ensure "near cell" pressure
-        # self.info(f"Setting pressure to {self.config.pressure_near} mbar")
-        # self.pressure.set_pressure(self.config.pressure_near)
-        self.sleep(5) #let the resistance stabilize
+        self.info(f"Setting pressure to {self.config.pressure_near} mbar")
+        self.pressure.set_pressure(self.config.pressure_near)
+        self.sleep(3) #let the resistance stabilize
 
         lastResDeque = collections.deque(maxlen=5)
         # get initial resistance
@@ -392,20 +379,6 @@ class AutoPatcher(TaskController):
             self.sleep(interval)
         return sum(measurements) / len(measurements)
 
-    def escape(self):
-        if self.hunt_cell_failed or self.gigaseal_failed or self.break_in_failed or self.abort_requested:
-            self.amplifier.stop_patch()
-            self.calibrated_unit.stop()
-            self.microscope.stop()
-            self.move_group_up(20)
-            self.pressure.set_pressure(50)
-            self.move_to_home_space()
-            self.clean_pipette()
-            self.hunt_cell_failed = False
-            self.gigaseal_failed = False
-            self.break_in_failed = False
-            self.abort_requested = False
-            raise AutopatchError("patch attempt failed")
 
     def gigaseal(self):
         self.info("Manual: Attempting to form gigaseal...")
@@ -515,7 +488,7 @@ class AutoPatcher(TaskController):
         '''
         self.daq.setCellMode(True)
         self.info("Attempting Break in...")
-        self.pressure.set_ATM(atm=True)
+        # self.pressure.set_ATM(atm=True)
         self.sleep(3)
         self.pressure.set_pressure(self.config.pulse_pressure_break_in)
         self.amplifier.set_zap_duration(25*1e-6)
@@ -570,7 +543,7 @@ class AutoPatcher(TaskController):
         #         self.info("Break-in unsuccessful")
         #         raise AutopatchError("Break-in unsuccessful")
         
-        self.info("Successful break-in, Running Avg Resistance = " + str(measuredResistance))
+        self.info("Successful break-in, Running Avg Access Resistance = " + str(measuredAccessResistance))
 
     # def _verify_resistance(self):
     #     return # * just for testing TODO: remove
@@ -627,9 +600,13 @@ class AutoPatcher(TaskController):
             raise AutopatchError("No cell given to patch!")
 
         self.info("Starting patching process")
+
+        #! Phase 0: locate cell
+        self.locate_cell(cell)
+        self.sleep(3)
         #! phase 1: hunt for cell
         self.hunt_cell(cell)
-        self.sleep(10)
+        self.sleep(3)
         # move a bit further down to make sure we're at the cell
         # self.calibrated_unit.relative_move(1, axis=2)
         #! phase 2: attempt to form a gigaseal
