@@ -307,8 +307,8 @@ class AutoPatcher(TaskController):
 
 
         # # #ensure "near cell" pressure
-        self.info(f"Setting pressure to {self.config.pressure_near} mbar")
-        self.pressure.set_pressure(self.config.pressure_near)
+        # self.info(f"Setting pressure to {self.config.pressure_near} mbar")
+        # self.pressure.set_pressure(self.config.pressure_near)
         self.sleep(5) #let the resistance stabilize
 
         lastResDeque = collections.deque(maxlen=5)
@@ -337,10 +337,10 @@ class AutoPatcher(TaskController):
                 break
             elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
                 # self.calibrated_unit.stop()
-
                 self.info("Cell Detected")
-                # self.pressure.set_ATM(atm=True)
 
+                
+                # self.pressure.set_ATM(atm=True)
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
             self.sleep(0.04)
@@ -392,7 +392,20 @@ class AutoPatcher(TaskController):
             self.sleep(interval)
         return sum(measurements) / len(measurements)
 
-
+    def escape(self):
+        if self.hunt_cell_failed or self.gigaseal_failed or self.break_in_failed or self.abort_requested:
+            self.amplifier.stop_patch()
+            self.calibrated_unit.stop()
+            self.microscope.stop()
+            self.move_group_up(20)
+            self.pressure.set_pressure(50)
+            self.move_to_home_space()
+            self.clean_pipette()
+            self.hunt_cell_failed = False
+            self.gigaseal_failed = False
+            self.break_in_failed = False
+            self.abort_requested = False
+            raise AutopatchError("patch attempt failed")
 
     def gigaseal(self):
         self.info("Manual: Attempting to form gigaseal...")
@@ -588,17 +601,14 @@ class AutoPatcher(TaskController):
         
         # Criteria 2: there must be an increase by at least the cellThreshold
         r_delta = (lastResDeque[4] - self.first_res)
-        # if the difference is suddenly greater than 100, then an incorrect calculation has been made, pass this iteration
-        if r_delta > 100:
-            self.info(f"Resistance difference too large: {r_delta}")
-            return False
-        else:
-                    # self.info(f"Cell detected, resistance: {r_delta}")
-            detected = cellThreshold <= r_delta
-            if detected:
-                self.info(f"Cell detected: {detected}; resistance: {r_delta}")
-                self.calibrated_unit.stop()
-            return cellThreshold <= r_delta
+
+        # self.info(f"Cell detected, resistance: {r_delta}")
+        detected = cellThreshold <= r_delta
+        if detected:
+            self.info(f"Cell detected: {detected}; resistance: {r_delta}")
+            self.calibrated_unit.stop()
+
+        return cellThreshold <= r_delta
 
     def patch(self, cell=None):
         '''
