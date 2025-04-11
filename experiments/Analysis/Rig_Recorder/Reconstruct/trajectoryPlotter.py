@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_fullStage.hdf5"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_2.hdf5"
 
 pipette_positions_data = {}
 resistance_data = {}
@@ -64,7 +64,7 @@ for positions in stage_positions_data.values():
     ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, marker='o', s=15)
 ax.set_xlim([-20, 20])
 ax.set_ylim([-20, 20])
-ax.set_zlim([30, 0])
+ax.set_zlim([-50, 50])
 ax.set_title('3D stage Motion with Time-Colorimetric Encoding')
 ax.set_xlabel('X position')
 ax.set_ylabel('Y position')
@@ -76,14 +76,6 @@ cbar.set_label('Time steps')
 cbar.ax.invert_yaxis()  # Flip color legend to start from the top
 
 
-# # Plot stage positions
-# fig, ax = plt.subplots(figsize=(12, 4))
-# for stage_positions in stage_positions_data.values():
-#     ax.plot(stage_positions)
-# ax.set_title('Stage Positions over Time')
-# ax.set_xlabel('Time steps')
-# ax.set_ylabel('Stage Positions')
-
 plt.show()
 
 # import h5py
@@ -92,9 +84,8 @@ plt.show()
 
 # # # List demo folders to delete
 # demo_folders_to_delete =  [
-#     'demo_38', 'demo_41', 'demo_43', 'demo_49', 'demo_52', 'demo_55', 
-#     'demo_57', 'demo_59', 'demo_60', 'demo_64', 'demo_66', 'demo_68', 
-#     'demo_73', 'demo_76', 'demo_78', 'demo_79'
+#  'demo_41'
+
 # ]
 
 
