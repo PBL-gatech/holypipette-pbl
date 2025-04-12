@@ -229,7 +229,7 @@ class DemoPlayer(QWidget):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_center_crop.hdf5"  # Replace with your actual file path.
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_filter_inaction.hdf5"  # Replace with your actual file path.
     viewer = DemoPlayer(data_path)  # Replace with your actual file path.
     viewer.show()
     sys.exit(app.exec_())

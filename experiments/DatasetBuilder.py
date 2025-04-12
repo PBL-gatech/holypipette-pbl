@@ -15,13 +15,57 @@ class DatasetBuilder():
         self.dataset_name = dataset_name
         self.zero_values = True
         self.center_crop = True
+        # Add a new tunable parameter for inaction filtering.
+        # Set it to 0 by default so that no filtering happens unless changed.
+        self.inaction = 5  
 
         if dataset_name not in os.listdir('experiments/Datasets'):
             with h5py.File(f'experiments/Datasets/{dataset_name}', 'w') as hf:
                 group = hf.create_group('data')
                 group.attrs['num_demos'] = 0
 
+    def filter_inactive_actions(self, actions, *arrays):
+        """
+        Filters out segments (blocks) of consecutive rows in the actions array where the row-wise sum equals 0,
+        if the block length is greater than or equal to self.inaction.
+        The corresponding rows in each additional array are removed so that temporal order is maintained.
+        
+        If self.inaction == 0 then no filtering is performed.
+        
+        Parameters:
+            actions (np.array): The actions array (shape: [time_steps, action_dim]).
+            *arrays: Any additional arrays (observations, dones, etc.) that have the same first dimension as actions.
+        
+        Returns:
+            A tuple with the filtered actions array as the first element,
+            followed by each filtered additional array in the same order.
+        """
+        if self.inaction == 0:
+            return (actions,) + tuple(arrays)
 
+        # Calculate the row-wise sum for each time step
+        row_sums = actions.sum(axis=1)
+        n = len(row_sums)
+        keep_mask = np.ones(n, dtype=bool)
+
+        i = 0
+        while i < n:
+            if row_sums[i] == 0:
+                j = i
+                # Find the full block of consecutive rows with row sum 0
+                while j < n and row_sums[j] == 0:
+                    j += 1
+                block_length = j - i
+                # Remove (mark False) all rows in the block if the block length is >= self.inaction
+                if block_length >= self.inaction:
+                    keep_mask[i:j] = False
+                i = j
+            else:
+                i += 1
+
+        new_actions = actions[keep_mask]
+        filtered_arrays = tuple(arr[keep_mask] for arr in arrays)
+        return (new_actions,) + filtered_arrays
 
     def convert_graph_recording_csv_to_new_format(self, demo_file_path):
         graph_recording_file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
@@ -365,7 +409,7 @@ class DatasetBuilder():
         dones[-1] = 1
 
         return dones
-    
+
 
     def get_attempt_pressure_values(self, attempt_graph_values):
         '''
@@ -383,7 +427,6 @@ class DatasetBuilder():
 
         return pressure_values
     
-
     def get_attempt_resistance_values(self, attempt_graph_values):
         '''
         Returns resistance values for current attempt
@@ -403,7 +446,6 @@ class DatasetBuilder():
 
         return resistance_values
     
-
     def get_attempt_current_values(self, attempt_graph_values):
         '''
         Returns current values for current attempt
@@ -433,7 +475,6 @@ class DatasetBuilder():
         current_values = np.array(current_values_list)
 
         return current_values
-
 
     def get_attempt_voltage_values(self, attempt_graph_values):
         '''
@@ -648,7 +689,6 @@ class DatasetBuilder():
 
         return pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions
     
-
     def get_attempt_next_observations(self, attempt_graph_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames, include_next_obs=False, include_camera=True):
         '''
         Rolls all observations (pressure, resistance, current, volatge, stage/pipette positions, and camera frames) to the next timestamp of the current attempt
@@ -781,6 +821,37 @@ class DatasetBuilder():
             include_next_obs (boolean): boolean determining whether to include next observations or not (return nones if not)
             include_camera (boolean): boolean determining whether to include camera frames in the observations
         '''
+        # --- NEW CODE: call the filtering method before writing to file ---
+        # We base the filtering on the actions array and apply the same removal to all other arrays.
+        if include_next_obs:
+            if include_camera:
+                (actions, dones, pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames,
+                 next_pressure_values, next_resistance_values, next_current_values, next_voltage_values, next_stage_positions, next_pipette_positions, next_camera_frames) = \
+                    self.filter_inactive_actions(actions, dones, pressure_values, resistance_values, current_values, voltage_values,
+                                                 stage_positions, pipette_positions, camera_frames,
+                                                 next_pressure_values, next_resistance_values, next_current_values, next_voltage_values,
+                                                 next_stage_positions, next_pipette_positions, next_camera_frames)
+            else:
+                (actions, dones, pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions,
+                 next_pressure_values, next_resistance_values, next_current_values, next_voltage_values, next_stage_positions, next_pipette_positions) = \
+                    self.filter_inactive_actions(actions, dones, pressure_values, resistance_values, current_values, voltage_values,
+                                                 stage_positions, pipette_positions,
+                                                 next_pressure_values, next_resistance_values, next_current_values, next_voltage_values,
+                                                 next_stage_positions, next_pipette_positions)
+        else:
+            if include_camera:
+                (actions, dones, pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames) = \
+                    self.filter_inactive_actions(actions, dones, pressure_values, resistance_values, current_values, voltage_values,
+                                                 stage_positions, pipette_positions, camera_frames)
+            else:
+                (actions, dones, pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions) = \
+                    self.filter_inactive_actions(actions, dones, pressure_values, resistance_values, current_values, voltage_values,
+                                                 stage_positions, pipette_positions)
+
+        # Update the num_samples based on the filtered actions array:
+        num_samples = actions.shape[0]
+        # --- END NEW CODE ---
+        
         with h5py.File(f'experiments/Datasets/{self.dataset_name}', 'a') as hf:
             # Create a demo within the dataset_1
             demo_number = hf['data'].attrs['num_demos']
@@ -815,8 +886,6 @@ class DatasetBuilder():
 
             hf['data'].attrs['num_demos'] = hf['data'].attrs['num_demos'] + 1
             print(f"Added demo_{demo_number} to dataset '{self.dataset_name}' with {num_samples} samples.")
-            
-
         
     def add_demo(self, rig_recorder_data_folder, record_to_file=False):
         '''
@@ -910,7 +979,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_center_crop.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_filter_inaction.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
@@ -992,14 +1061,4 @@ if __name__ == '__main__':
 
         datasetBuilder = DatasetBuilder(dataset_name=dataset_name)
         datasetBuilder.add_demo(rig_recorder_data_folder=rig_recorder_data_folder, record_to_file=record_to_file)
-
-
-#Cases to Consider:
-#Each graph_recording/movement folder made with time when program started
-    #Can have multiple recordings in one of these folders (look for "Recording Started") in the log file
-#Can also have multiple hunt cell attempts within a single recording
-    #Can have multiple success and some failures in
-
-#NOTE
-    #Neuron hunt demo should start when "starting descent....."
 
