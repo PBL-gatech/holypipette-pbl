@@ -75,8 +75,40 @@ cbar = plt.colorbar(mappable, ax=ax, pad=0.1, shrink=0.6)
 cbar.set_label('Time steps')
 cbar.ax.invert_yaxis()  # Flip color legend to start from the top
 
+# 4th plot: Decompose 4D pipette motion into 3 time courses (X, Y, and Z)
+fig, axs = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
 
+# Loop through each demo key in pipette_positions_data
+for demo, positions in pipette_positions_data.items():
+    time_steps = np.arange(positions.shape[0])
+    axs[0].plot(time_steps, positions[:, 0], label=f'{demo} - X')
+    axs[1].plot(time_steps, positions[:, 1], label=f'{demo} - Y')
+    axs[2].plot(time_steps, positions[:, 2], label=f'{demo} - Z')
+
+# Set labels for each subplot
+axs[0].set_ylabel('X Position')
+axs[1].set_ylabel('Y Position')
+axs[2].set_ylabel('Z Position')
+axs[2].set_xlabel('Time steps')
+axs[0].set_title('Pipette Positions Time Courses (X, Y, Z)')
+
+plt.tight_layout()
+
+
+for demo, positions in stage_positions_data.items():
+    time_steps = np.arange(positions.shape[0])
+    axs[0].plot(time_steps, positions[:, 0], label=f'{demo} - X')
+    axs[1].plot(time_steps, positions[:, 1], label=f'{demo} - Y')
+    axs[2].plot(time_steps, positions[:, 2], label=f'{demo} - Z')
+# Set labels for each subplot
+axs[0].set_ylabel('X Position')
+axs[1].set_ylabel('Y Position')
+axs[2].set_ylabel('Z Position')
+axs[2].set_xlabel('Time steps')
+axs[0].set_title('Stage Positions Time Courses (X, Y, Z)')
+plt.tight_layout()
 plt.show()
+
 
 # import h5py
 

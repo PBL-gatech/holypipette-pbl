@@ -14,6 +14,7 @@ class DatasetBuilder():
     def __init__(self, dataset_name):
         self.dataset_name = dataset_name
         self.zero_values = True
+        self.center_crop = True
 
         if dataset_name not in os.listdir('experiments/Datasets'):
             with h5py.File(f'experiments/Datasets/{dataset_name}', 'w') as hf:
@@ -477,7 +478,7 @@ class DatasetBuilder():
             state_positions (np.array): numpy array containing stage positions for the current attempt
 
         '''
-        stage_positions = attempt_movement_values[:, 1:].astype(np.float64) #Note: for hunt cell, only need z-coordinate for stage positions (must use [:, 1:] to get all 3 stage coordinates)
+        stage_positions = attempt_movement_values[:, 1:4].astype(np.float64) #Note: for hunt cell, only need z-coordinate for stage positions (must use [:, 1:] to get all 3 stage coordinates)
         # stage_positions = attempt_movement_values[:, 3].astype(np.float64) #Note: for hunt cell, only need z-coordinate for stage positions (must use [:, 1:] to get all 3 stage coordinates)
         if self.zero_values:
             # normalize stage positions to start at zero for all 3 axes
@@ -562,8 +563,15 @@ class DatasetBuilder():
                 if timestamp_diff < min_timestamp_diff:
                     min_timestamp_diff = timestamp_diff
                     min_timestamp_diff_indice = valid_camera_indices[j]
-       
-            curr_frame = np.array(Image.open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[min_timestamp_diff_indice]}').resize((85, 85)))[:, :,: ]
+        
+            # Open the image from the selected camera frame.
+            pil_image = Image.open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[min_timestamp_diff_indice]}')
+            
+            # Optional center crop by half its dimensions if enabled.
+            if self.center_crop:
+                pil_image = self.crop_image_center(pil_image)
+            
+            curr_frame = np.array(pil_image.resize((85, 85)))[:, :,: ]
             frames_list.append(curr_frame)
 
             last_index = min_timestamp_diff_indice - 1
@@ -572,6 +580,27 @@ class DatasetBuilder():
 
         return camera_frames
 
+    def crop_image_center(self,pil_image):
+        """
+        Center crops the input PIL image by half its original dimensions.
+        
+        For example, if the image is 400x400, the resulting crop will be 200x200 
+        from the center of the image.
+        
+        Args:
+            pil_image (PIL.Image.Image): The input image.
+            
+        Returns:
+            PIL.Image.Image: The center-cropped image.
+        """
+        width, height = pil_image.size
+        new_width = width // 2
+        new_height = height // 2
+        left = (width - new_width) // 2
+        top = (height - new_height) // 2
+        right = left + new_width
+        bottom = top + new_height
+        return pil_image.crop((left, top, right, bottom))
 
     def get_attempt_observations(self, attempt_graph_values, attempt_movement_values, rig_recorder_data_folder, include_camera=True):
         '''
@@ -685,8 +714,8 @@ class DatasetBuilder():
             actions (np.array): numpy array containing all actions for the current attempt
         '''
         #Low-level Actions
-        movement_actions_list = list(np.diff(attempt_movement_values[:, 3:], axis=0)) #Note: for hunt cell only need z stage coordinate (must be [:, 1:] to get all 3 stage coordinates)
-        movement_actions_list.insert(0, list(np.zeros(attempt_movement_values.shape[1] - 3))) #should be - 1 if need all 3 stage coordinates
+        movement_actions_list = list(np.diff(attempt_movement_values[:, 1:], axis=0)) #Note: for hunt cell only need z stage coordinate (must be [:, 1:] to get all 3 stage coordinates)
+        movement_actions_list.insert(0, list(np.zeros(attempt_movement_values.shape[1] - 1))) #should be - 1 if need all 3 stage coordinates
         movement_actions = np.array(movement_actions_list)
 
         #High-level Actions (Not used for hunt cell datasets)
@@ -881,7 +910,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_2.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_center_crop.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
@@ -935,22 +964,26 @@ if __name__ == '__main__':
     #     "2025_04_07-18_04"
     #     ] # this is most recent HEK DATA with NO overlays. some manual some automatic. (3/11/2025 - 4/7/2025)
 
-    # rig_recorder_data_folder_set =  [
-    #     "2025_04_10-11_57",
-    #     "2025_04_10-12_16",
-    #     "2025_04_10-12_21",
-    #     "2025_04_10-12_30",
-    #     "2025_04_10-15_01",
-
-    # ]
-
     rig_recorder_data_folder_set =  [
+        "2025_04_10-11_57",
+        "2025_04_10-12_16",
+        "2025_04_10-12_21",
+        "2025_04_10-12_30",
+        "2025_04_10-15_01",
         "2025_04_10-17_31",
         "2025_04_07-14_32", 
         "2025_04_07-14_50", 
         "2025_04_07-15_50", 
         "2025_04_07-18_04"
-    ]
+     ]
+
+    # rig_recorder_data_folder_set =  [
+    #     "2025_04_10-17_31",
+    #     "2025_04_07-14_32", 
+    #     "2025_04_07-14_50", 
+    #     "2025_04_07-15_50", 
+    #     "2025_04_07-18_04"
+    # ]
 
     for folder in rig_recorder_data_folder_set:
         print(f"Processing folder: {folder}")
