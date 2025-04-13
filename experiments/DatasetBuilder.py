@@ -15,14 +15,26 @@ class DatasetBuilder():
         self.dataset_name = dataset_name
         self.zero_values = True
         self.center_crop = True
-        # Add a new tunable parameter for inaction filtering.
-        # Set it to 0 by default so that no filtering happens unless changed.
-        self.inaction = 5  
+        self.rotate = True       # NEW flag for rotation augmentation
+        self.inaction = 5
 
         if dataset_name not in os.listdir('experiments/Datasets'):
             with h5py.File(f'experiments/Datasets/{dataset_name}', 'w') as hf:
                 group = hf.create_group('data')
                 group.attrs['num_demos'] = 0
+
+    def _rotate_positions(self, positions, angle_degrees):
+        """
+        Rotate x and y coordinates in a positions array by angle_degrees.
+        Assumes positions is an array of shape (n, 3) where column 0 is x and column 1 is y.
+        """
+        rad = np.deg2rad(angle_degrees)
+        cos_val = np.cos(rad)
+        sin_val = np.sin(rad)
+        rotated = positions.copy()
+        rotated[:, 0] = cos_val * positions[:, 0] - sin_val * positions[:, 1]
+        rotated[:, 1] = sin_val * positions[:, 0] + cos_val * positions[:, 1]
+        return rotated
 
     def filter_inactive_actions(self, actions, *arrays):
         """
@@ -553,72 +565,48 @@ class DatasetBuilder():
         
         return pipette_positions
     
-    def get_attempt_camera_frames(self, rig_recorder_data_folder, attempt_graph_values):
-        '''
-        Returns camera frames for current attempt
-            -Associates each camera frame with a row of the graph values
-            -Converts camera frame into numpy array
-
-        Author(s): Kaden Stillwagon
-
-        args:
-            rig_recorder_data_folder (string): the filename of the rig recorder folder containing the experiment data
-            attempt_graph_values (np.array): array containing the graph values, truncated to only values within the current attempt
-
-        Returns:
-            camera_frames (np.array): numpy array containing camera frames for the current attempt
-        '''
+    def get_attempt_camera_frames(self, rig_recorder_data_folder, attempt_graph_values, rotation_angle=None):
         camera_files = os.listdir(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames')
         camera_files.sort()
         frames_list = []
-        curr_frame = np.array(Image.open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[0]}')).tolist()
-        
         last_index = 0
         for i in range(len(attempt_graph_values)):
-            #print(f'Timestep: {i}')
             target_timestamp = attempt_graph_values[i][0]
             if i == len(attempt_graph_values) - 1:
                 timestamp_range = abs(target_timestamp - attempt_graph_values[i-1][0])
             else:
                 timestamp_range = abs(target_timestamp - attempt_graph_values[i+1][0])
-
             valid_camera_indices = []
             valid_camera_timestamps = []
             for j in range(last_index, len(camera_files)):
                 camera_file = camera_files[j]
                 underscore_index = camera_file.find("_")
                 last_period_index = camera_file.rfind(".")
-                camera_timestamp = camera_files[j][underscore_index+1:last_period_index]
-
+                camera_timestamp = camera_file[underscore_index+1:last_period_index]
                 if abs(target_timestamp - float(camera_timestamp)) < timestamp_range:
                     valid_camera_indices.append(j)
                     valid_camera_timestamps.append(float(camera_timestamp))
                 else:
                     if len(valid_camera_indices) > 0:
                         break
-
-            min_timestamp_diff = 1000000
+            min_timestamp_diff = 1e6
             min_timestamp_diff_indice = 0
             for j in range(len(valid_camera_timestamps)):
                 timestamp_diff = abs(target_timestamp - valid_camera_timestamps[j])
                 if timestamp_diff < min_timestamp_diff:
                     min_timestamp_diff = timestamp_diff
                     min_timestamp_diff_indice = valid_camera_indices[j]
-        
             # Open the image from the selected camera frame.
             pil_image = Image.open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[min_timestamp_diff_indice]}')
-            
-            # Optional center crop by half its dimensions if enabled.
+            # Apply rotation augmentation before cropping and resizing if requested.
+            if rotation_angle is not None:
+                pil_image = pil_image.rotate(rotation_angle, resample=Image.BILINEAR, expand=True)
             if self.center_crop:
                 pil_image = self.crop_image_center(pil_image)
-            
-            curr_frame = np.array(pil_image.resize((85, 85)))[:, :,: ]
+            curr_frame = np.array(pil_image.resize((85, 85)))
             frames_list.append(curr_frame)
-
             last_index = min_timestamp_diff_indice - 1
-
         camera_frames = np.array(frames_list)
-
         return camera_frames
 
     def crop_image_center(self,pil_image):
@@ -643,50 +631,26 @@ class DatasetBuilder():
         bottom = top + new_height
         return pil_image.crop((left, top, right, bottom))
 
-    def get_attempt_observations(self, attempt_graph_values, attempt_movement_values, rig_recorder_data_folder, include_camera=True):
-        '''
-        Retrieves and returns all observations (pressure, resistance, current, volatge, stage/pipette positions, and camera frames) for each timestamp of the current attempt
-
-        Author(s): Kaden Stillwagon
-
-        args:
-            attempt_graph_values (np.array): array containing the graph values, truncated to only values within the current attempt
-            attempt_movement_values (np.array): array containing the movement value rows associated with the graph value rows
-            rig_recorder_data_folder (string): the filename of the rig recorder folder containing the experiment data
-            include_camera (boolean): boolean determining whether to include camera frames in the observations
-
-        Returns:
-            pressure_values (np.array): numpy array containing pressure values for the current attempt
-            resistance_values (np.array): numpy array containing resistance values for the current attempt
-            current_values (np.array): numpy array containing current values for the current attempt
-            voltage_values (np.array): numpy array containing voltage values for the current attempt
-            state_positions (np.array): numpy array containing stage positions for the current attempt
-            pipette_positions (np.array): numpy array containing pipette positions for the current attempt
-            camera_frames (np.array): numpy array containing camera frames for the current attempt
-        '''
-        #Pressure
+    def get_attempt_observations(self, attempt_graph_values, attempt_movement_values, rig_recorder_data_folder, include_camera=True, rotation_angle=None):
+        # Pressure
         pressure_values = self.get_attempt_pressure_values(attempt_graph_values)
-
-        #Resistance
+        # Resistance
         resistance_values = self.get_attempt_resistance_values(attempt_graph_values)
-
-        #Current
+        # Current
         current_values = self.get_attempt_current_values(attempt_graph_values)
-
-        #Voltage
+        # Voltage
         voltage_values = self.get_attempt_voltage_values(attempt_graph_values)
-
-        #State and Pipette Positions
+        # State and Pipette Positions
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
-
-        #Camera Frames
+        # If a rotation angle is provided, rotate the position data (only x and y).
+        if rotation_angle is not None:
+            stage_positions = self._rotate_positions(stage_positions, rotation_angle)
+            pipette_positions = self._rotate_positions(pipette_positions, rotation_angle)
+        # Camera Frames
         if include_camera:
-            camera_frames = self.get_attempt_camera_frames(rig_recorder_data_folder, attempt_graph_values)
-            # cast camera values into rgb if they are grayscale
-
+            camera_frames = self.get_attempt_camera_frames(rig_recorder_data_folder, attempt_graph_values, rotation_angle=rotation_angle)
             return pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames
-
         return pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions
     
     def get_attempt_next_observations(self, attempt_graph_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames, include_next_obs=False, include_camera=True):
@@ -888,71 +852,37 @@ class DatasetBuilder():
             print(f"Added demo_{demo_number} to dataset '{self.dataset_name}' with {num_samples} samples.")
         
     def add_demo(self, rig_recorder_data_folder, record_to_file=False):
-        '''
-        Creates a demo entry into the dataset for each successful attempt in each recording within the rig_recorder_data_folder
-
-        Author(s): Kaden Stillwagon
-
-        args:
-            rig_recorder_data_folder (string): the filename of the rig recorder folder containing the experiment data
-            record_to_file (boolean): boolean determining whether to record the attempts into the dataset or not
-        '''
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
-        #Parameters
         include_next_obs = False
         include_camera = True
         include_high_level_actions = False
 
-        #Load experiment data from rig recorder and log files
         graph_values, movement_values, log_values = self.load_experiment_data(rig_recorder_data_folder=rig_recorder_data_folder)
 
-        #Get first and last timestamp within rig recorder folder
         experiment_first_timestamp = graph_values[0][0] - 1
         experiment_last_timestamp = graph_values[-1][0] + 1
-        # print(experiment_first_timestamp)
-        # print(experiment_last_timestamp)
 
-        #Get starting and ending timestamps of each recording in the rig recorder folder
         experiment_recordings_timestamp_ranges = self.get_timestamps_for_all_experiment_recordings(log_values, experiment_first_timestamp, experiment_last_timestamp)
-
-        #Get starting and ending timestamps of each successful hunt cell attempt in each recording
         experiment_successful_hunt_cell_timestamp_ranges = self.get_timestamps_for_all_successful_hunt_cell_attempts(log_values, experiment_recordings_timestamp_ranges)
-        #print(experiment_successful_hunt_cell_timestamp_ranges)
         
-        #Create dataset entry for each successful hunt cell attempt
         for hunt_cell_timestamps in experiment_successful_hunt_cell_timestamp_ranges:
             attempt_first_timestamp = hunt_cell_timestamps[0]
             attempt_last_timestamp = hunt_cell_timestamps[1]
 
-            #Get the graph values within the current attempt
             attempt_graph_values = self.truncate_graph_values(graph_values, attempt_first_timestamp, attempt_last_timestamp)
-
-            #Get movement values with current attempt and associate to graph value timestamps
             attempt_movement_values = self.associate_attempt_movement_and_graph_values(attempt_graph_values, movement_values)
 
-
-            #~~~~Collect Attempt Data~~~~~:
-
-            #DONES
+            # Collect Attempt Data:
             dones = self.get_attempt_dones(attempt_graph_values)
 
-            #REWARDS -Not Using
-            #rewards = np.copy(done_values) * 100
+            pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames = \
+                self.get_attempt_observations(attempt_graph_values, attempt_movement_values, rig_recorder_data_folder, include_camera=include_camera, rotation_angle=None)
 
-            #OBSERVATIONS
-            pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames = self.get_attempt_observations(attempt_graph_values, attempt_movement_values, rig_recorder_data_folder, include_camera=include_camera)
-            
-            #NEXT OBSERVATIONS - Not Using (returns Nones now)
-            next_pressure_values, next_resistance_values, next_current_values, next_voltage_values, next_stage_positions, next_pipette_positions, next_camera_frames = self.get_attempt_next_observations(attempt_graph_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames, include_next_obs=include_next_obs, include_camera=include_camera)
-            
-            #ACTIONS
+            next_obs = self.get_attempt_next_observations(attempt_graph_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames, include_next_obs=include_next_obs, include_camera=include_camera)
+
             actions = self.get_attempt_actions(attempt_movement_values, attempt_graph_values, log_values, include_high_level_actions=include_high_level_actions)
-            
-            #STATES - Not Using (prev states of pipette and stage position now observations)
 
-
-
-            #~~~~Add Attempt to Dataset~~~~
+            # Add the original (unaugmented) demo.
             if record_to_file:
                 self.add_attempt_demo_to_dataset(
                     num_samples=attempt_graph_values.shape[0], 
@@ -965,21 +895,52 @@ class DatasetBuilder():
                     stage_positions=stage_positions, 
                     pipette_positions=pipette_positions, 
                     camera_frames=camera_frames,
-                    next_pressure_values=next_pressure_values, 
-                    next_resistance_values=next_resistance_values, 
-                    next_current_values=next_current_values, 
-                    next_voltage_values=next_voltage_values, 
-                    next_stage_positions=next_stage_positions, 
-                    next_pipette_positions=next_pipette_positions, 
-                    next_camera_frames=next_camera_frames,
+                    next_pressure_values=next_obs[0] if next_obs else None, 
+                    next_resistance_values=next_obs[1] if next_obs else None, 
+                    next_current_values=next_obs[2] if next_obs else None, 
+                    next_voltage_values=next_obs[3] if next_obs else None, 
+                    next_stage_positions=next_obs[4] if next_obs else None, 
+                    next_pipette_positions=next_obs[5] if next_obs else None, 
+                    next_camera_frames=next_obs[6] if next_obs and include_camera else None,
                     include_next_obs=include_next_obs,
                     include_camera=include_camera
-                    )
+                )
+                print("Added original demo.")
+
+                # Augmentation: if self.rotate is enabled, add additional demos for each rotation angle.
+                if self.rotate:
+                    for angle in [45, 90, 180, 270]:
+                        aug_pressure_values, aug_resistance_values, aug_current_values, aug_voltage_values, aug_stage_positions, aug_pipette_positions, aug_camera_frames = \
+                            self.get_attempt_observations(attempt_graph_values, attempt_movement_values, rig_recorder_data_folder, include_camera=include_camera, rotation_angle=angle)
+                        aug_next_obs = self.get_attempt_next_observations(attempt_graph_values, current_values, voltage_values, aug_stage_positions, aug_pipette_positions, aug_camera_frames, include_next_obs=include_next_obs, include_camera=include_camera) \
+                            if include_next_obs else (None, None, None, None, None, None, None)
+                        self.add_attempt_demo_to_dataset(
+                            num_samples=attempt_graph_values.shape[0], 
+                            actions=actions, 
+                            dones=dones, 
+                            pressure_values=pressure_values, 
+                            resistance_values=resistance_values, 
+                            current_values=current_values, 
+                            voltage_values=voltage_values, 
+                            stage_positions=aug_stage_positions, 
+                            pipette_positions=aug_pipette_positions, 
+                            camera_frames=aug_camera_frames,
+                            next_pressure_values=aug_next_obs[0] if aug_next_obs[0] is not None else None, 
+                            next_resistance_values=aug_next_obs[1] if aug_next_obs[1] is not None else None, 
+                            next_current_values=aug_next_obs[2] if aug_next_obs[2] is not None else None, 
+                            next_voltage_values=aug_next_obs[3] if aug_next_obs[3] is not None else None, 
+                            next_stage_positions=aug_next_obs[4] if aug_next_obs[4] is not None else None, 
+                            next_pipette_positions=aug_next_obs[5] if aug_next_obs[5] is not None else None, 
+                            next_camera_frames=aug_next_obs[6] if aug_next_obs[6] is not None else None,
+                            include_next_obs=include_next_obs,
+                            include_camera=include_camera
+                        )
+                        print(f"Added augmented demo with rotation angle {angle}°.")
 
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_filter_inaction.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_rotated.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
