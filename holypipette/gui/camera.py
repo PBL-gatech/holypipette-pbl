@@ -503,7 +503,7 @@ class CameraGui(QtWidgets.QMainWindow):
 
         self.display_edit_funcs = []
         if display_edit is None:
-            display_edit = [self.draw_cross]
+            display_edit = [self.draw_circle]
         if isinstance(display_edit, Sequence):
             self.display_edit_funcs.extend(display_edit)
         else:
@@ -558,6 +558,25 @@ class CameraGui(QtWidgets.QMainWindow):
         c_x, c_y = pixmap.width() // 2, pixmap.height() // 2
         painter.drawLine(c_x - 15, c_y, c_x + 15, c_y)
         painter.drawLine(c_x, c_y - 15, c_x, c_y + 15)
+        painter.end()
+
+    # add a circle to the display
+    def draw_circle(self, pixmap):
+        '''
+        Draws a circle at the center. Meant to be used as a ``display_edit``
+        function.
+
+        Parameters
+        ----------
+        pixmap : `QPixmap`
+            The pixmap to draw on.
+        '''
+        painter = QtGui.QPainter(pixmap)
+        pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 125))
+        pen.setWidth(4)
+        painter.setPen(pen)
+        c_x, c_y = pixmap.width() // 2, pixmap.height() // 2
+        painter.drawEllipse(c_x - 15, c_y - 15, 30, 30)
         painter.end()
 
     def display_edit(self, pixmap):

@@ -147,8 +147,15 @@ class AutoPatchInterface(TaskInterface):
                       argument = (cell, img))
         time.sleep(2)
  
-    
-    
+    @blocking_command(category='Stage',
+                     description = 'Center the stage on cell',
+                      task_description='Centering the stage on cell')
+    def center_on_cell(self):
+        cell, img = self.cells_to_patch[0]
+        # print( f"patch.py: centering on cell {cell} with image {img.shape}")
+        self.execute(self.current_autopatcher.calibrated_stage.center_on_cell,
+                      argument = (cell, img))
+
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
