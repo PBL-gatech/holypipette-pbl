@@ -697,7 +697,7 @@ class CalibratedStage(CalibratedUnit):
         cell_coords = np.array(cell_coords)
 
         # subtract the stage reference position
-        cell_coords =self.reference_position() - cell_coords 
+        cell_coords = self.reference_position() - cell_coords 
         # only take first two coordinates (x,y)
         cell_coords = cell_coords[0], cell_coords[1]
     

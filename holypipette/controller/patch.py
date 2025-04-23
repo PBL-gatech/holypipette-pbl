@@ -269,8 +269,25 @@ class AutoPatcher(TaskController):
         self.info(f"Z position: {z_pos}")
         self.info(f"cell position Z: {cell_pos[2]}")
         zdistleft  = z_pos - cell_pos[2]
+        zdistleftup = zdistleft
         self.microscope.relative_move(-zdistleft)
         self.info(f"Distance to cell of interest: {zdistleft}")
+        self.microscope.wait_until_still()
+        self.info("centering on cell")
+        self.calibrated_stage.center_on_cell(cell)
+        self.calibrated_stage.wait_until_still()
+
+        self.info(f"correcting pipette position, moving microscope by {zdistleft} um")
+        # why is it not moving
+        self.microscope.relative_move(zdistleftup)
+        self.microscope.wait_until_still()
+
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.info("moving to cell plane")
+        self.microscope.relative_move(-zdistleft)
         self.microscope.wait_until_still()
         self.info("Located Cell")
 
