@@ -66,7 +66,7 @@ class ProtocolGraph(QWidget):
 
         # Set up timer to call update_plot() every updateDt ms
         self.updateTimer = QtCore.QTimer()
-        self.updateDt = 10  # milliseconds
+        self.updateDt = 1500  # milliseconds
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
         if not self.updateTimer.isActive():
@@ -115,12 +115,12 @@ class CurrentProtocolGraph(ProtocolGraph):
             respData = graph[1]
             readData = graph[2]
             self.plotWidget.plot(timeData, respData, pen=colors[i])
-            logging.info("Writing current ephys data to file")
+            # logging.info("Writing current ephys data to file")
             pulse = str(pulses[i])
             marker = colors[i] + "_" + pulse
             self.ephys_logger.write_ephys_data(index, timeData, readData, respData, marker)
             if i == color_range - 1:
-                logging.info("Saving current ephys plot")
+                # logging.info("Saving current ephys plot")
                 self.ephys_logger.save_ephys_plot(index, self.plotWidget)
                 self.graph_interface.daq.current_protocol_data = None  # Reset after saving
 
@@ -307,6 +307,7 @@ class EPhysGraph(QWidget):
         self.zapButton.setFixedWidth(50)
         self.zapButton.clicked.connect(self.handle_zap_button_press)
         bottomBarLayout.addWidget(self.zapButton)
+        self.graph_interface.set_zap_duration(25e-6)  # Default zap duration in seconds
 
         bottomBarLayout.addStretch(1)
         self.bottomBar.setMaximumHeight(20)
@@ -336,7 +337,7 @@ class EPhysGraph(QWidget):
         self.modelType.clicked.connect(self.toggleModeType)
 
         # QTimer for periodic GUI updates 
-        self.updateDt = 100  # ms
+        self.updateDt = 33  # ms
         self.updateTimer = QtCore.QTimer()
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
@@ -356,8 +357,9 @@ class EPhysGraph(QWidget):
             pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
             self.pressurePlot.clear()
             self.pressurePlot.plot(pressureX, list(self.pressureData))
-            # update the slider
-            self.pressureCommandSlider.setValue(pressure)
+            # Update the slider only if the user is not interacting with it.
+            if not self.pressureCommandSlider.isSliderDown():
+                self.pressureCommandSlider.setValue(pressure)
             self.pressureCommandBox.setPlaceholderText(f"Set to: {pressure_set} mbar")
             # update the perssure label with the current pressure
             self.pressureLabel.setText(f"Pressure: {pressure:.2f} mbar")

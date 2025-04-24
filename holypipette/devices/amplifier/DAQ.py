@@ -145,8 +145,8 @@ class DAQ(TaskController):
     # --------------------------
     # Acquisition Methods
     # --------------------------
-    def start_acquisition(self, wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
-                          amplitude=0.5, recordingTime=0.025, interval=None, callback=None):
+    def start_acquisition(self, wave_freq=80, samplesPerSec=10000, dutyCycle=0.5,
+                          amplitude=0.5, recordingTime=0.012, interval=None, callback=None):
         """
         Start the asynchronous acquisition thread for continuous DAQ measurements.
         Parameters:
@@ -313,9 +313,18 @@ class DAQ(TaskController):
             return None, None, None
 
         if not custom:
-            factor = 2
+            factor = 1
             startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
             endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
+ 
+            
+            if startCurrentPicoAmp < -200:
+                self.warning(f"starting current too great: {startCurrentPicoAmp}")
+                startCurrentPicoAmp = -200
+                self.info(f"starting current limited to: {startCurrentPicoAmp}")
+            if endCurrentPicoAmp > 200:
+                endCurrentPicoAmp = 200
+
         else:
             if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
                 raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided when custom is True.")
@@ -332,36 +341,53 @@ class DAQ(TaskController):
         num_waves = int((endCurrentPicoAmp - startCurrentPicoAmp) / stepCurrentPicoAmp) + 2
         # Convert to amps
         startCurrent = startCurrentPicoAmp * 1e-12
-        self.info(f"Start Current: {startCurrent}")
+        # self.info(f"Start Current: {startCurrent}")
         # Determine the square wave frequency (Hz)
         wave_freq = 1 / (2 * highTimeMs * 1e-3)
-        samplesPerSec = 20000
+        samplesPerSec = 100000
         recTime = 4 * highTimeMs * 1e-3
 
         for i in range(num_waves - 1):
-            # First, send a parameter pulse at -20 pA
-            amp_pulse = (-20 * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
-            wave_pulse = 1 / (2 * (highTimeMs / 2) * 1e-3)
-            recording_pulse = 3 * highTimeMs / 2 * 1e-3
-            self.info('Sending param pulse at -20 pA square wave.')
+            # First, send nothing to stabilize starting point
+            recording_nothing = highTimeMs / 2 * 1e-3
             with self._deviceLock:
-                sendTask = self._sendSquareWaveCurrent(wave_pulse, samplesPerSec, 0.5, amp_pulse, recording_pulse)
+                sendTask = self._sendSquareWaveCurrent(1, samplesPerSec, 0.5, 0, recording_nothing)
                 if hasattr(sendTask, 'start'):
                     sendTask.start()
-                data = self._readAnalogInput(samplesPerSec, recording_pulse)
+                data_nothing = self._readAnalogInput(samplesPerSec, recording_nothing)
                 if hasattr(sendTask, 'stop'):
                     sendTask.stop()
                 if hasattr(sendTask, 'close'):
                     sendTask.close()
-            respData0 = data[1]
-            readData0 = data[0]
-            respData0 = respData0 / self.C_CLAMP_VOLT_PER_VOLT
+            respData_nothing = data_nothing[1] / self.C_CLAMP_VOLT_PER_VOLT
+            readData_nothing = data_nothing[0]
+
+            # Second, send a parameter pulse at -20 pA
+            amp_pulse = (-20 * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
+            wave_pulse = 1 / (2 * (highTimeMs / 2) * 1e-3)
+            recording_pulse = 3 * highTimeMs / 2 * 1e-3
+            with self._deviceLock:
+                sendTask = self._sendSquareWaveCurrent(wave_pulse, samplesPerSec, 0.5, amp_pulse, recording_pulse)
+                if hasattr(sendTask, 'start'):
+                    sendTask.start()
+                data_pulse = self._readAnalogInput(samplesPerSec, recording_pulse)
+                if hasattr(sendTask, 'stop'):
+                    sendTask.stop()
+                if hasattr(sendTask, 'close'):
+                    sendTask.close()
+            respData_pulse = data_pulse[1] / self.C_CLAMP_VOLT_PER_VOLT
+            readData_pulse = data_pulse[0]
+
+            # Combine the stabilization phase and -20pA pulse phase
+            respData0 = np.concatenate((respData_nothing, respData_pulse))
+            readData0 = np.concatenate((readData_nothing, readData_pulse))
+
             self.sleep(0.5)
 
+            # Third, send the current square wave
             currentAmps = self.pulses[i] * 1e-12
             self.info(f'Sending {currentAmps * 1e12} pA square wave.')
             amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
-
             with self._deviceLock:
                 sendTask = self._sendSquareWaveCurrent(wave_freq, samplesPerSec, 0.5, amplitude, recTime)
                 if hasattr(sendTask, 'start'):
@@ -371,19 +397,22 @@ class DAQ(TaskController):
                     sendTask.stop()
                 if hasattr(sendTask, 'close'):
                     sendTask.close()
-            respData1 = data[1]
+            respData1 = data[1] / self.C_CLAMP_VOLT_PER_VOLT
             readData1 = data[0]
-            respData1 = respData1 / self.C_CLAMP_VOLT_PER_VOLT
+
             # Combine the two phases of data
             respData = np.concatenate((respData0, respData1))
             readData = np.concatenate((readData0, readData1))
             triggeredSamples = respData.shape[0]
             timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
+
             self.sleep(0.5)
+
             if self.current_protocol_data is None:
                 self.current_protocol_data = [[timeData, respData, readData]]
             else:
                 self.current_protocol_data.append([timeData, respData, readData])
+
         self.isRunningProtocol = False
         return self.current_protocol_data, self.pulses, self.pulseRange
 
@@ -415,7 +444,7 @@ class DAQ(TaskController):
             self.isRunningProtocol = True
             while attempts < max_attempts:
                 attempts += 1
-                result = self.getDataFromSquareWave(20, 20000, 0.5, 0.5, 0.05)
+                result = self.getDataFromSquareWave(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5, amplitude=0.5, recordingTime=0.025)
                 if result is None:
                     continue
                 (self.voltage_protocol_data, self.voltage_command_data,
@@ -445,6 +474,13 @@ class DAQ(TaskController):
         If no measurement is available, returns None.
         """
         return self.totalResistance
+    
+    def accessResistance(self):
+        """
+        Returns the latest access resistance measurement.
+        If no measurement is available, returns None.
+        """
+        return self.latestAccessResistance
 
     # --------------------------
     # COMMON CALCULATION METHODS
@@ -575,7 +611,7 @@ class DAQ(TaskController):
                     'Y_pA': filtered_data
                 }
                 mean_voltage = filtered_command.mean()
-                m, t, b = self.optimizer(fit_data, I_peak_pA, I_peak_time, I_post_pA)
+                m, t, b = self.optimizer(fit_data, I_peak_pA, I_peak_time, I_post_pA) # feed in previous initial conditions if exists
                 if m is not None and t is not None and b is not None:
                     tau = 1 / t
                     R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, mean_voltage, I_peak_pA, I_prev_pA, I_post_pA)

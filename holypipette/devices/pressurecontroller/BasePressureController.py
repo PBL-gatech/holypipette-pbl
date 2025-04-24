@@ -16,7 +16,7 @@ class PressureAcquisitionThread(threading.Thread):
     The latest measurement is stored (using a deque with maxlen=1), and an optional
     callback is invoked with each new measurement.
     """
-    def __init__(self, controller, interval=0.1, callback=None):
+    def __init__(self, controller, interval=0.016, callback=None):
         super().__init__(daemon=True)
         self.controller = controller
         self.interval = interval

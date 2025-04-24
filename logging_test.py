@@ -1,7 +1,7 @@
 import h5py
 import numpy as np
 
-from experiments.DatasetBuilder import DatasetBuilder
+from experiments.Analysis.DatasetBuilder import DatasetBuilder
 
 
 
@@ -32,6 +32,3 @@ if False:
         # Create a dataset within the file
         print(hf['data'])
 
-
-datasetConverter = DatasetBuilder(dataset_name='dataset_1.hdf5')
-datasetConverter.add_demo(demo_file_path='2025_02_14-12_57')

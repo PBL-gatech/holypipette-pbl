@@ -35,7 +35,8 @@ class EPhysLogger(threading.Thread):
             except OSError as exc:
                 logging.error("Error creating folder for recording: %s", exc)
         else:
-            logging.info("Folder already created. Skipping creation.")
+            pass # Folder already created, no need to create it again
+            # logging.debug("Folder already created. Skipping creation.")
 
     def _write_to_file(self, index, timeData, readData, respData, color):
         # Check if "CurrentProtocol" is in filename
@@ -91,6 +92,13 @@ class EPhysLogger(threading.Thread):
             imageio.imwrite(self.folder_path + image_path, image)
             logging.info("Saved image to %s", self.folder_path + image_path)
 
+    def hold_image(self, index, image):
+        if image is None:
+            logging.error("No image to hold")
+            return
+        else:
+            self.image_path = f"cell_{index}.webp"
+            self.image = image
 
     def close(self):
         if self.file is not None:

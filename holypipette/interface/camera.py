@@ -88,7 +88,7 @@ class CameraInterface(TaskInterface):
 
     # @command(category='Camera',
     #          description='Save the current image to a file')
-    # def save_image(self):
+    # def hold_image(self):
     #     try:
     #         from PIL import Image
     #     except ImportError:
@@ -99,6 +99,6 @@ class CameraInterface(TaskInterface):
     #         self.error('No image to save')
     #         return
     #     else: 
-    #         index = self.recording_state_manager.sample_number + 1 # just in case protocol hasn't been run yet
+    #         index = self.recording_state_manager.sample_number # just in case protocol hasn't been run yet
 
-    #         self.ephys_logger.save_image(frame, index)        
+    #         self.ephys_logger.hold_image(frame, index)        
