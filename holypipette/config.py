@@ -5,7 +5,7 @@ import warnings
 import yaml
 import logging
 import param
-from param import Number, Boolean, Selector  # to make it available for import
+from param import Number, Boolean, Selector,Tuple  # to make it available for import
 
 class NumberWithUnit(param.Number):
     __slots__ = ['unit', 'magnitude']
@@ -42,5 +42,5 @@ class Config(param.Parameterized):
 
     def from_file(self, filename):
         with open(filename, 'r') as f:
-            config_dict = yaml.load(f)
+            config_dict = yaml.safe_load(f)
         self.from_dict(config_dict)

@@ -31,7 +31,7 @@ __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
 verbose = True
 
 ##### Calibration parameters #####
-from holypipette.config import Config, NumberWithUnit, Number, Boolean
+from holypipette.config import Config, NumberWithUnit, Number, Boolean,Tuple
 
 
 class CalibrationConfig(Config):
@@ -65,6 +65,12 @@ class CalibrationConfig(Config):
                                 doc='Rotation of the pipette in the xz plane (degrees)',
                                 bounds=(-90, 90))
     
+    # home_position =  Tuple((0, 0, 0), doc='Home position of the pipette in um')
+    # home_position_stage =  Tuple((0, 0, 0), doc='Home position of the stage in um')
+    # safe_position =  Tuple((0, 0, 0), doc='Safe position of the pipette in um')
+    # safe_position_stage =  Tuple((0, 0, 0), doc='Safe position of the stage in um')
+    # bath_position =  Tuple((0, 0, 0), doc='Bath position of the pipette in um')
+    
 
     categories = [('Stage Calibration', ['autofocus_dist', 'stage_diag_move', 'frame_lag']),
                   ('Pipette Calibration', ['pipette_diag_move']),
@@ -72,7 +78,9 @@ class CalibrationConfig(Config):
                   ('Stage y-axis flip?', ['stage_y_axis_flip']),
                   ('Pipette z-axis rotation', ['pipette_z_rotation']),
                   ('Pipette y-axis rotation', ['pipette_y_rotation']),
-                  ('Display', ['position_update'])]
+                  ('Display', ['position_update']),
+                #   ('Positions', ['home_position', 'home_position_stage','safe_position','safe_position_stage','bath_position']),
+                 ]
 
 
 class CalibrationError(Exception):
