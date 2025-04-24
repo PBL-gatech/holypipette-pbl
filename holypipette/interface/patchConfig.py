@@ -1,6 +1,6 @@
 
 
-from holypipette.config import Config, NumberWithUnit, Number, Boolean
+from holypipette.config import Config, NumberWithUnit, Number, Boolean ,Selector
 import logging
 
 class PatchConfig(Config):
@@ -45,12 +45,16 @@ class PatchConfig(Config):
     cclamp_start = NumberWithUnit(-50, bounds=(-300, -20), doc='Start Current', unit='pA', magnitude=1)
     cclamp_end = NumberWithUnit(50, bounds=(0, 300), doc='End Current', unit='pA', magnitude=1)
 
+    cell_type = Selector(default='Plate',objects = ['Plate', 'Slice'], doc='Cell type for protocol selection')
+    mode = Selector( default='Classic', objects =['Manual', 'Classic', 'Agent'], doc='Mode for AutoPatch algorithm')
+
     categories = [
         ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance', 'max_distance', 'cell_R_increase']),
         ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_duration', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
         ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol']),
         ('Current Clamp', ['custom_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end']),
+        ('AutoPatching', ['cell_type', 'mode'])
     ]
 
     logging.info("PatchConfig initialized successfully.")

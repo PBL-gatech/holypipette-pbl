@@ -43,8 +43,8 @@ class PatchGui(ManipulatorGui):
                                                         self.patch_reset_signal)
         self.add_config_gui(self.patch_interface.config)
         logging.debug("Added config GUI.")
-        semi_auto_patching_tab = SemiAutoPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
-        self.add_tab(semi_auto_patching_tab, 'Semi-Auto Patching', index = 0)
+        classic_patching_tab = ClassicPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
+        self.add_tab(classic_patching_tab, 'Classic Auto Patching', index = 0)
 
     def register_commands(self):
         super(PatchGui, self).register_commands()
@@ -60,21 +60,6 @@ class PatchGui(ManipulatorGui):
                                  self.patch_interface.store_rinsing_position)
         self.register_key_action(Qt.Key_F4, None,
                                  self.patch_interface.clean_pipette)
-
-class TrackingPatchGui(PatchGui):
-    def __init__(self, camera, pipette_interface, patch_interface,
-                 with_tracking=False):
-        super(TrackingPatchGui, self).__init__(camera, pipette_interface,
-                                               patch_interface,
-                                               with_tracking=True)
-        self.setWindowTitle("Patch GUI with tracking")
-
-    def register_commands(self):
-        super(TrackingPatchGui, self).register_commands()
-        self.register_key_action(Qt.Key_F5, None,
-                                 self.patch_interface.sequential_patching)
-        self.register_key_action(Qt.Key_F8, None,
-                                 self.patch_interface.contact_detection)
 
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
     def __init__(self, title="", parent=None):
@@ -338,7 +323,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         box.setContentLayout(rows)
         layout.addWidget(box)
 
-class SemiAutoPatchButtons(ButtonTabWidget):
+class ClassicPatchButtons(ButtonTabWidget):
     def __init__(self, patch_interface: AutoPatchInterface, pipette_interface: PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
         super().__init__()
         self.patch_interface = patch_interface
@@ -444,12 +429,12 @@ class SemiAutoPatchButtons(ButtonTabWidget):
     def close(self):
         self.save_stage_pos()
         self.recorder.close()
-        super(SemiAutoPatchButtons, self).close()
+        super(ClassicPatchButtons, self).close()
 
     def closeEvent(self, event):
         self.save_stage_pos()
         self.recorder.close()
-        super(SemiAutoPatchButtons, self).closeEvent(event)
+        super(ClassicPatchButtons, self).closeEvent(event)
 
     def tare_pipette(self):
         currPos = self.pipette_interface.calibrated_unit.unit.position()

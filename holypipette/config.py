@@ -5,7 +5,7 @@ import warnings
 import yaml
 import logging
 import param
-from param import Number, Boolean  # to make it available for import
+from param import Number, Boolean, Selector  # to make it available for import
 
 class NumberWithUnit(param.Number):
     __slots__ = ['unit', 'magnitude']
