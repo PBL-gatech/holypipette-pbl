@@ -159,53 +159,103 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self.pos_labels = []
         self.interface_signals = {}
         self.start_task = None
+        self.section_buttons = {}  # Dictionary to store buttons by section
+        self.color_change_sections = []  # Sections that should change color on completion
+        self.section_colors = {}  # Store custom colors for different sections
 
 
     def do_nothing(self):
         pass  # a dummy function for buttons that aren't implemented yet
     
-    def run_sequential_commands(self, cmds):
+    def run_sequential_commands(self, cmds, button=None, section=None, button_name=None):
         # Ensure cmds is a list
         if not isinstance(cmds, list):
             cmds = [cmds]
+            
+        # Have the button immediately lose focus to prevent persistent outline
+        if button:
+            button.clearFocus()
+            
         # Store the command list and reset index
         self._seq_cmds = cmds
         self._seq_index = 0
+        self._seq_button = button
+        self._seq_section = section
+        self._seq_button_name = button_name
+        
+        # Special case for reset button in any section (assuming it contains "Clear" or "Reset")
+        if (section in self.section_buttons and button and 
+            ("Clear" in button_name or "Reset" in button_name)):
+            # Reset all section button colors before running the command
+            self._reset_section_button_colors(section)
+        
         self._run_next_seq_command()
 
+    def _reset_section_button_colors(self, section):
+        """Reset colors for all buttons in a section"""
+        if section in self.section_buttons:
+            for button_info in self.section_buttons[section]:
+                button = button_info[0]
+                button.setStyleSheet("")  # This will revert to the style from CollapsibleGroupBox
+
     def _run_next_seq_command(self):
-            if self._seq_index >= len(self._seq_cmds):
-                # No more commands; sequence complete
-                return
+        if self._seq_index >= len(self._seq_cmds):
+            # No more commands; sequence complete
+            # Update button color if this section should change colors and it's not a reset button
+            if (self._seq_section in self.color_change_sections and self._seq_button and 
+                not any(reset_term in self._seq_button_name for reset_term in ["Clear", "Reset"])):
+                # Get the color for this section, or use default blue
+                color = self.section_colors.get(self._seq_section, "rgba(0, 0, 255, 0.3)")
+                
+                # Set completed style while preserving all original behaviors
+                self._seq_button.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {color}; 
+                        border: 1px solid lightgray;
+                        border-radius: 6px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: rgba(173, 216, 230, 0.5);
+                        border: 1px solid #87CEEB;
+                    }}
+                    QPushButton:pressed {{
+                        background-color: #d1e7ff;
+                    }}
+                    QPushButton:focus {{
+                        border: 1px solid lightgray;
+                        outline: none;
+                    }}
+                """)
+            return
 
-            cmd = self._seq_cmds[self._seq_index]
-            self._seq_index += 1
+        # Rest of the method implementation unchanged
+        cmd = self._seq_cmds[self._seq_index]
+        self._seq_index += 1
 
-            # Check if the command is asynchronous (has task_description)
-            if hasattr(cmd, 'task_description'):
-                interface = cmd.__self__
-                # Define a temporary slot that waits for the command to finish
-                def on_finished(exit_code, message):
-                    try:
-                        interface.task_finished.disconnect(on_finished)
-                    except Exception:
-                        pass
-                    # Launch next command after current one finishes
-                    self._run_next_seq_command()
-                # Connect to the task_finished signal
-                interface.task_finished.connect(on_finished)
-                # Start the task and execute the command
-                self.start_task(cmd.task_description, interface)
-                if interface in self.interface_signals:
-                    command_signal, _ = self.interface_signals[interface]
-                    command_signal.emit(cmd, None)
-                else:
-                    cmd(None)
-            else:
-                # Synchronous command: run it immediately
-                cmd()
+        # Check if the command is asynchronous (has task_description)
+        if hasattr(cmd, 'task_description'):
+            interface = cmd.__self__
+            # Define a temporary slot that waits for the command to finish
+            def on_finished(exit_code, message):
+                try:
+                    interface.task_finished.disconnect(on_finished)
+                except Exception:
+                    pass
+                # Launch next command after current one finishes
                 self._run_next_seq_command()
-
+            # Connect to the task_finished signal
+            interface.task_finished.connect(on_finished)
+            # Start the task and execute the command
+            self.start_task(cmd.task_description, interface)
+            if interface in self.interface_signals:
+                command_signal, _ = self.interface_signals[interface]
+                command_signal.emit(cmd, None)
+            else:
+                cmd(None)
+        else:
+            # Synchronous command: run it immediately
+            cmd()
+            self._run_next_seq_command()
 
 
     def run_command(self, cmds):
@@ -291,11 +341,21 @@ class ButtonTabWidget(QtWidgets.QWidget):
         pos_timer.start(16)
         self.pos_update_timers.append(pos_timer)
 
-    def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], cmds, sequential=False):
+    def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], 
+                    cmds, sequential=False, change_color_on_complete=False, 
+                    completion_color="rgba(0, 0, 255, 0.3)"):
         # Use CollapsibleGroupBox instead of QGroupBox
         box = CollapsibleGroupBox(box_name)
         rows = QtWidgets.QVBoxLayout()
-
+        
+        # Initialize list to store buttons for this section
+        section_buttons = []
+        
+        # Store color change preference and custom color for this section
+        if change_color_on_complete:
+            self.color_change_sections.append(box_name)
+            self.section_colors[box_name] = completion_color
+        
         for i, buttons_in_row in enumerate(buttonNames):
             new_row = QtWidgets.QHBoxLayout()
             new_row.setAlignment(Qt.AlignLeft)
@@ -305,13 +365,16 @@ class ButtonTabWidget(QtWidgets.QWidget):
                 button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
                 button.setMinimumWidth(50)
                 button.setMinimumHeight(50)
+                
+                # Track this button for this section
+                section_buttons.append((button, i, j, button_name))
 
                 # Use a lambda function with default arguments to correctly capture the command
                 if i < len(cmds) and j < len(cmds[i]):
                     button_cmd = cmds[i][j]
                     if sequential:
-                        print("Sequential commands")
-                        button.clicked.connect(lambda state, cmd=button_cmd: self.run_sequential_commands(cmd))
+                        button.clicked.connect(lambda state, cmd=button_cmd, btn=button, section=box_name, 
+                                            name=button_name: self.run_sequential_commands(cmd, btn, section, name))
                     else:
                         button.clicked.connect(lambda state, cmd=button_cmd: self.run_command(cmd))
                 else:
@@ -319,6 +382,9 @@ class ButtonTabWidget(QtWidgets.QWidget):
 
                 new_row.addWidget(button)
             rows.addLayout(new_row)
+        
+        # Store buttons for this section
+        self.section_buttons[box_name] = section_buttons
 
         box.setContentLayout(rows)
         layout.addWidget(box)
@@ -374,8 +440,10 @@ class ClassicPatchButtons(ButtonTabWidget):
                 [self.pipette_cleaning_calibration],
                 [self.patch_interface.clear_positions]
         ]
-        self.addButtonList('calibration', layout, buttonList, cmds,sequential=True)
-        # Add a box for movement commands
+        self.addButtonList('calibration', layout, buttonList, cmds, sequential=True, 
+                        change_color_on_complete=True, completion_color="rgba(173, 216, 230, 0.5)")
+
+        # Add a box for movement commands - example with different color
         buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane'],['Center Pipette','Clean pipette','Focus Pipette']]
         cmds = [
             [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
@@ -383,7 +451,8 @@ class ClassicPatchButtons(ButtonTabWidget):
             [self.pipette_interface.go_to_floor],
             [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
         ]
-        self.addButtonList('movement', layout, buttonList, cmds,sequential=False)
+        self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
+
 
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
@@ -410,9 +479,6 @@ class ClassicPatchButtons(ButtonTabWidget):
         else:
             self.start_recording()
 
-    # def check_done(self):
-    #     if self.patch_interface.check_done():
-    #         self.toggle_recording()
 
     def start_recording(self):
         self.recording_state_manager.set_recording(True)
