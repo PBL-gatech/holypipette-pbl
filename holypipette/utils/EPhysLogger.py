@@ -92,6 +92,13 @@ class EPhysLogger(threading.Thread):
             imageio.imwrite(self.folder_path + image_path, image)
             logging.info("Saved image to %s", self.folder_path + image_path)
 
+    def hold_image(self, index, image):
+        if image is None:
+            logging.error("No image to hold")
+            return
+        else:
+            self.image_path = f"cell_{index}.webp"
+            self.image = image
 
     def close(self):
         if self.file is not None:

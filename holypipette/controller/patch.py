@@ -269,8 +269,21 @@ class AutoPatcher(TaskController):
         self.info(f"Z position: {z_pos}")
         self.info(f"cell position Z: {cell_pos[2]}")
         zdistleft  = z_pos - cell_pos[2]
+        zdistleftup = zdistleft
         self.microscope.relative_move(-zdistleft)
         self.info(f"Distance to cell of interest: {zdistleft}")
+        self.microscope.wait_until_still()
+        self.info("centering on cell")
+        self.calibrated_stage.center_on_cell(cell)
+        self.calibrated_stage.wait_until_still()
+        self.info(f"correcting pipette position, moving microscope by {zdistleft} um")
+        # why is it not moving
+        self.microscope.relative_move(-self.config.cell_distance)
+        self.microscope.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.info("moving to cell plane")
+        self.microscope.relative_move(self.config.cell_distance)
         self.microscope.wait_until_still()
         self.info("Located Cell")
 
@@ -293,23 +306,10 @@ class AutoPatcher(TaskController):
         if cell is None:
             raise AutopatchError("No cell given to patch!")
         
-        stage_pos = self.calibrated_stage.position()
-        # if the stage position is within 10 um of the cell position in the xy-plane, we are already at the cell
-        # if the pipette is within 10 um of the cell position in the xy-plane, we are already at the cell
-        cell_pos, cell_img = cell
-        cell_pos = np.array([cell_pos[0], cell_pos[1], 0])
-        stage_pos = np.array([stage_pos[0], stage_pos[1], 0])
-        dist = np.linalg.norm(cell_pos - stage_pos)
-        if dist < 20:
-            self.info("Already at cell position")
-        else:
-            self.locate_cell(cell)
-
-
         # # #ensure "near cell" pressure
         self.info(f"Setting pressure to {self.config.pressure_near} mbar")
         self.pressure.set_pressure(self.config.pressure_near)
-        self.sleep(5) #let the resistance stabilize
+        self.sleep(3) #let the resistance stabilize
 
         lastResDeque = collections.deque(maxlen=5)
         # get initial resistance
@@ -331,16 +331,16 @@ class AutoPatcher(TaskController):
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
                 # we have moved expected um down and still no cell detected
                 # self.calibrated_unit.stop()
-                self.info("No cell detected")
+                self.info("cell not detected")
                 # self.done = True
                 # self.escape()
                 break
             elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
                 # self.calibrated_unit.stop()
-
                 self.info("Cell Detected")
-                # self.pressure.set_ATM(atm=True)
 
+                
+                # self.pressure.set_ATM(atm=True)
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
             self.sleep(0.04)
@@ -371,27 +371,26 @@ class AutoPatcher(TaskController):
             self.sleep(5)
             self.microscope.move_to_floor()
 
-    def accessRamp(self, num_measurements=5, interval=0.2):
+    def accessRamp(self, num_measurements=3, interval=0.2):
         measurements = []
         for _ in range(num_measurements):
             measurements.append(self.daq.accessResistance())
             self.sleep(interval)
         return sum(measurements) / len(measurements)
     
-    def resistanceRamp(self, num_measurements=5, interval=0.2):
+    def resistanceRamp(self, num_measurements=3, interval=0.2):
         measurements = []
         for _ in range(num_measurements):
             measurements.append(self.daq.resistance())
             self.sleep(interval)
         return sum(measurements) / len(measurements)
     
-    def capacitanceRamp(self, num_measurements=5, interval=0.2):
+    def capacitanceRamp(self, num_measurements=3, interval=0.2):
         measurements = []
         for _ in range(num_measurements):
             measurements.append(self.daq.capacitance())
             self.sleep(interval)
         return sum(measurements) / len(measurements)
-
 
 
     def gigaseal(self):
@@ -502,7 +501,7 @@ class AutoPatcher(TaskController):
         '''
         self.daq.setCellMode(True)
         self.info("Attempting Break in...")
-        self.pressure.set_ATM(atm=True)
+        # self.pressure.set_ATM(atm=True)
         self.sleep(3)
         self.pressure.set_pressure(self.config.pulse_pressure_break_in)
         self.amplifier.set_zap_duration(25*1e-6)
@@ -520,7 +519,10 @@ class AutoPatcher(TaskController):
         
         trials = 0
         speed = 3
-        # while measuredAccessResistance > self.config.max_access_R*1e-6:
+        while measuredAccessResistance > self.config.max_access_R*1e-6:
+
+
+        
         #     trials += 1
         #     self.debug(f"Trial: {trials}")
             
@@ -544,10 +546,10 @@ class AutoPatcher(TaskController):
 
         #     self.sleep(1)
             
-        #     # Take new measurements using ramp functions to compute running averages.
-        #     measuredResistance = self.resistanceRamp()
-        #     measuredAccessResistance = self.accessRamp()
-        #     measuredCapacitance = self.capacitanceRamp()
+            # Take new measurements using ramp functions to compute running averages.
+            measuredResistance = self.resistanceRamp()
+            measuredAccessResistance = self.accessRamp()
+            measuredCapacitance = self.capacitanceRamp()
             
         #     self.info(f"Trial {trials}: Running Avg Membrane Resistance: {measuredResistance}; Membrane Capacitance: {measuredCapacitance}, Access Resistance: {measuredAccessResistance}")
             
@@ -557,7 +559,7 @@ class AutoPatcher(TaskController):
         #         self.info("Break-in unsuccessful")
         #         raise AutopatchError("Break-in unsuccessful")
         
-        self.info("Successful break-in, Running Avg Resistance = " + str(measuredResistance))
+        self.info("Successful break-in, Running Avg Access Resistance = " + str(measuredAccessResistance))
 
     # def _verify_resistance(self):
     #     return # * just for testing TODO: remove
@@ -588,17 +590,14 @@ class AutoPatcher(TaskController):
         
         # Criteria 2: there must be an increase by at least the cellThreshold
         r_delta = (lastResDeque[4] - self.first_res)
-        # if the difference is suddenly greater than 100, then an incorrect calculation has been made, pass this iteration
-        if r_delta > 100:
-            self.info(f"Resistance difference too large: {r_delta}")
-            return False
-        else:
-                    # self.info(f"Cell detected, resistance: {r_delta}")
-            detected = cellThreshold <= r_delta
-            if detected:
-                self.info(f"Cell detected: {detected}; resistance: {r_delta}")
-                self.calibrated_unit.stop()
-            return cellThreshold <= r_delta
+
+        # self.info(f"Cell detected, resistance: {r_delta}")
+        detected = cellThreshold <= r_delta
+        if detected:
+            self.info(f"Cell detected: {detected}; resistance: {r_delta}")
+            self.calibrated_unit.stop()
+
+        return cellThreshold <= r_delta
 
     def patch(self, cell=None):
         '''
@@ -617,9 +616,13 @@ class AutoPatcher(TaskController):
             raise AutopatchError("No cell given to patch!")
 
         self.info("Starting patching process")
+
+        #! Phase 0: locate cell
+        self.locate_cell(cell)
+        self.sleep(3)
         #! phase 1: hunt for cell
         self.hunt_cell(cell)
-        self.sleep(10)
+        self.sleep(3)
         # move a bit further down to make sure we're at the cell
         # self.calibrated_unit.relative_move(1, axis=2)
         #! phase 2: attempt to form a gigaseal
