@@ -276,18 +276,14 @@ class AutoPatcher(TaskController):
         self.info("centering on cell")
         self.calibrated_stage.center_on_cell(cell)
         self.calibrated_stage.wait_until_still()
-
         self.info(f"correcting pipette position, moving microscope by {zdistleft} um")
         # why is it not moving
-        self.microscope.relative_move(zdistleftup)
+        self.microscope.relative_move(-self.config.cell_distance)
         self.microscope.wait_until_still()
-
-        self.calibrated_unit.center_pipette()
-        self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.info("moving to cell plane")
-        self.microscope.relative_move(-zdistleft)
+        self.microscope.relative_move(self.config.cell_distance)
         self.microscope.wait_until_still()
         self.info("Located Cell")
 
