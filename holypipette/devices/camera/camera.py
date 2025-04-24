@@ -254,122 +254,43 @@ class Camera(object):
             if self.point_to_show[3]:
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
 
-        # Process each cell's segmentation.
-        for cell_coords, cell_img in self.cell_list:
-            # cell_coords is assumed to be a 2D coordinate [x, y] in full-image space.
-            x, y = cell_coords[0], cell_coords[1]
-            if not (0 <= x < self.width and 0 <= y < self.height):
-                continue  # Skip if the cell is offscreen.
+        # # Process each cell's segmentation.
+        # for cell_coords, cell_img in self.cell_list:
+        #     # cell_coords is assumed to be a 2D coordinate [x, y] in full-image space.
+        #     x, y = cell_coords[0], cell_coords[1]
+        #     if not (0 <= x < self.width and 0 <= y < self.height):
+        #         continue  # Skip if the cell is offscreen.
+        #     final_mask = None
+        #     if final_mask is None:
+        #         if len(img.shape) == 2 or (len(img.shape) == 3 and img.shape[2] == 1):
+        #             rgbimg = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        #         else:
+        #             rgbimg = img
 
-            # # Attempt to detect the pipette.
-            # pip_result = self.pipdetector.find_pipette(img)
-            # pipette_x, pipette_y = (None, None)
-            # if pip_result is not None:
-            #     pipette_x, pipette_y = pip_result
-            # logging.info(f"pipette found at {pipette_x}, {pipette_y}")
+        #         # Convert rgbimg to float32 and normalize if needed.
+        #         if rgbimg.dtype != np.float32:
+        #             rgbimg = rgbimg.astype(np.float32) / 255.0
 
-            # Only attempt inpainting if a pipette was found AND it is near the cell.
-            # "Near" means within 50 pixels in both x and y.
-            final_mask = None
-            # if pipette_x is not None and pipette_y is not None:
-            #     logging.info(f"pipette found at {pipette_x}, {pipette_y}")
-            #     if abs(cell_coords[0] - pipette_x) <= 50 and abs(cell_coords[1] - pipette_y) <= 50:
-            #         logging.info(f"pipette is near cell at {cell_coords[0]}, {cell_coords[1]}")
-            #         # Crop a 256x256 patch around the pipette.
-            #         y1 = int(pipette_y - 128)
-            #         y2 = int(pipette_y + 128)
-            #         x1 = int(pipette_x - 128)
-            #         x2 = int(pipette_x + 128)
-            #         pip_img = img[y1:y2, x1:x2]
+        #         cell_point_full = np.array(cell_coords, dtype=np.float32).reshape(1, 2)
+        #         label_full = np.array([1], dtype=np.int32)
+        #         mask = self.segment(rgbimg, cell_point_full, label_full)
+        #     else:
+        #         mask = final_mask
 
-            #         # Only proceed if the cropped patch is exactly 256x256.
-            #         if pip_img.shape[0] == 256 and pip_img.shape[1] == 256:
-            #             # Convert pip_img to RGB if needed.
-            #             if len(pip_img.shape) == 2 or (len(pip_img.shape) == 3 and pip_img.shape[2] == 1):
-            #                 pip_img = cv2.cvtColor(pip_img, cv2.COLOR_GRAY2RGB)
+        #     if mask is not None:
+        #         if mask.dtype != np.uint8:
+        #             mask = mask.astype(np.uint8)
+        #         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-            #             # Convert pip_img to float32 and normalize if needed.
-            #             if pip_img.dtype != np.float32:
-            #                 pip_img = pip_img.astype(np.float32) / 255.0
+        #         total_area = sum(cv2.contourArea(c) for c in contours)
+        #         image_area = self.width * self.height
 
-            #             # Use the center of the patch as the segmentation input point.
-            #             pip_point = np.array([[128, 128]], dtype=np.float32)
-            #             pip_label = np.array([1], dtype=np.int32)
-            #             pipmask = self.segment(pip_img, pip_point, pip_label)
+        #         # Skip drawing if the mask area is too large.
+        #         if total_area > 0.03 * image_area:
+        #             continue
 
-            #             # For the cell template, which comes from add_cell it is 256x256,
-            #             # so we assume cell_img is already the 256x256 template.
-            #             if len(cell_img.shape) == 2 or (len(cell_img.shape) == 3 and cell_img.shape[2] == 1):
-            #                 cell_img_rgb = cv2.cvtColor(cell_img, cv2.COLOR_GRAY2RGB)
-            #             else:
-            #                 cell_img_rgb = cell_img
-                            
-            #             # Convert cell_img_rgb to float32 and normalize if needed.
-            #             if cell_img_rgb.dtype != np.float32:
-            #                 cell_img_rgb = cell_img_rgb.astype(np.float32) / 255.0
-
-            #             cell_center = np.array([[cell_img_rgb.shape[1] // 2, cell_img_rgb.shape[0] // 2]], dtype=np.float32)
-            #             cell_label = np.array([1], dtype=np.int32)
-            #             cellmask = self.segment(cell_img_rgb, cell_center, cell_label)
-
-            #             if pipmask is not None and cellmask is not None:
-            #                 # Convert masks to 8-bit binary images.
-            #                 if pipmask.dtype != np.uint8:
-            #                     pipmask = (pipmask * 255).astype(np.uint8)
-            #                 _, pipmask_bin = cv2.threshold(pipmask, 127, 255, cv2.THRESH_BINARY)
-
-            #                 if cellmask.dtype != np.uint8:
-            #                     cellmask = (cellmask * 255).astype(np.uint8)
-            #                 _, cellmask_bin = cv2.threshold(cellmask, 127, 255, cv2.THRESH_BINARY)
-
-            #                 # Resize the pipette mask to match the cell mask if needed.
-            #                 if pipmask_bin.shape != cellmask_bin.shape:
-            #                     pipmask_bin = cv2.resize(pipmask_bin, (cellmask_bin.shape[1], cellmask_bin.shape[0]), interpolation=cv2.INTER_NEAREST)
-
-            #                 # Inpaint the cell mask using the pipette mask as the inpainting region.
-            #                 inpaint_radius = 3  # Adjust this parameter as necessary.
-            #                 inpainted_mask = cv2.inpaint(cellmask_bin, pipmask_bin, inpaint_radius, cv2.INPAINT_TELEA)
-
-            #                 # Optionally, visualize the inpainted contours.
-            #                 inpainted_contours, _ = cv2.findContours(inpainted_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            #                 cv2.drawContours(img, inpainted_contours, -1, (255, 0, 0), thickness=1)
-
-            #                 final_mask = inpainted_mask
-            #                 self.mask_test(final_mask, cell_coords, img)
-
-
-            if final_mask is None:
-                # logging.info('inpaint failed, segmenting full image')
-                # Ensure the full image is in RGB.
-                if len(img.shape) == 2 or (len(img.shape) == 3 and img.shape[2] == 1):
-                    rgbimg = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-                else:
-                    rgbimg = img
-
-                # Convert rgbimg to float32 and normalize if needed.
-                if rgbimg.dtype != np.float32:
-                    rgbimg = rgbimg.astype(np.float32) / 255.0
-
-                cell_point_full = np.array(cell_coords, dtype=np.float32).reshape(1, 2)
-                label_full = np.array([1], dtype=np.int32)
-                mask = self.segment(rgbimg, cell_point_full, label_full)
-            else:
-                mask = final_mask
-
-            if mask is not None:
-                if mask.dtype != np.uint8:
-                    mask = mask.astype(np.uint8)
-                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-                total_area = sum(cv2.contourArea(c) for c in contours)
-                image_area = self.width * self.height
-
-                # Skip drawing if the mask area is too large.
-                if total_area > 0.03 * image_area:
-                    continue
-
-                # cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
-                # img = cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), 1)
+        #         # cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
+        #         # img = cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), 1)
 
         if self.flipped:
             img = img[:, ::-1]

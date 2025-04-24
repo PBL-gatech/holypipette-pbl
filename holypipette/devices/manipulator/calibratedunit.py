@@ -24,6 +24,7 @@ from numpy.linalg import inv, pinv, norm
 from threading import Thread
 from .StageCalHelper import FocusHelper, StageCalHelper
 from .PipetteCalHelper import PipetteCalHelper, PipetteFocusHelper
+from .CellTrackHelper import CellTrackHelper
 
 __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
 
@@ -527,6 +528,7 @@ class CalibratedStage(CalibratedUnit):
 
         self.focusHelper = FocusHelper(microscope, camera)
         self.stageCalHelper = StageCalHelper(unit, camera, self.config.frame_lag)
+        self.cellTrackHelper = CellTrackHelper(self,  camera) 
         self.pipette_cal_position = np.zeros(2)
         self.unit = unit
 
@@ -680,6 +682,64 @@ class CalibratedStage(CalibratedUnit):
         cv2.imwrite('mosaic.png', big_image)
 
         return big_image
+    
+
+    def center_on_cell(self, cell, check_same_cell=False):
+        """
+        Find the cell centroid in pixel space and nudge the stage so the centroid
+        is centred in the camera view.
+
+        Returns `self.wait_until_still` (callable) so the GUI's `execute([...])`
+        pipeline keeps working.
+        
+        """
+        cell_coords, reference_image = cell
+        cell_coords = np.array(cell_coords)
+
+        # subtract the stage reference position
+        cell_coords = self.reference_position() - cell_coords 
+        # only take first two coordinates (x,y)
+        cell_coords = cell_coords[0], cell_coords[1]
+    
+
+
+        # capture new image
+        _, _, _, image = self.camera.raw_frame_queue[0]
+        # find the cell centroid in pixel space
+
+
+        centroid = self.cellTrackHelper.find_centroid(ref_image=reference_image, image=image, input_point= cell_coords)
+
+        if centroid is None:
+            return self.wait_until_still        # keep call chain consistent
+
+        n_axes = self.Minv.shape[1]             # 2 for XY stage, 3 for XYZ
+        centroid   = centroid[:n_axes]
+        desired_px = np.array([self.camera.width / 2,
+                            self.camera.height / 2])[:n_axes]
+
+        # ------------------------------------------------------------------
+        # Pixel error  → stage move (same sign).  
+        # (Stage motion and image motion are opposite, so this cancels the error.)
+        # ------------------------------------------------------------------
+        error_px = desired_px - centroid[:n_axes] 
+
+        # -------- debug ---------------------------------------------------
+        # self.info(f"centroid_px = {centroid}")
+        # self.info(f"desired_px  = {desired_px}")
+        # self.info(f"error_px    = {error_px}")
+        # ------------------------------------------------------------------
+
+        self.reference_relative_move(error_px)   # px → µm handled inside
+        self.wait_until_still()
+
+        # more debug (final position in µm and px)
+        self.info(f"new stage µm position: {self.position()}")
+        # self.info(f"new stage px offset  : {self.reference_position()}")
+
+
+
+
 
 class FixedStage(CalibratedUnit):
     '''

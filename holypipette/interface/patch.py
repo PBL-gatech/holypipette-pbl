@@ -121,7 +121,7 @@ class AutoPatchInterface(TaskInterface):
             camera_pos = -cell + self.current_autopatcher.calibrated_stage.reference_position()
             # Append a tuple of (coordinates, image)
             self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img))
-            
+
 
     @command(category='Patch',
                 description='emit the states to logger that are being attempted in manual mode',
@@ -146,9 +146,16 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.current_autopatcher.locate_cell,
                       argument = (cell, img))
         time.sleep(2)
-        self.cells_to_patch = self.cells_to_patch[1:]
-    
-    
+ 
+    @blocking_command(category='Stage',
+                     description = 'Center the stage on cell',
+                      task_description='Centering the stage on cell')
+    def center_on_cell(self):
+        cell, img = self.cells_to_patch[0]
+        # print( f"patch.py: centering on cell {cell} with image {img.shape}")
+        self.execute(self.current_autopatcher.calibrated_stage.center_on_cell,
+                      argument = (cell, img))
+
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
@@ -157,15 +164,15 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.current_autopatcher.hunt_cell,
                       argument = (cell, img))
         time.sleep(2)
-        self.cells_to_patch = self.cells_to_patch[1:]
+        # self.cells_to_patch = self.cells_to_patch[1:]
 
     @blocking_command(category='Patch',
                         description='escape the cell',
                         task_description='Moving away from the cell, cleaning pipette and moving to home space')
     def escape_cell(self):
-
         self.execute(self.current_autopatcher.escape)
         time.sleep(2)
+        self.cells_to_patch = self.cells_to_patch[1:]
 
 
     @command(category='Patch',
