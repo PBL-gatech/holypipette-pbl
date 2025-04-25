@@ -11,7 +11,7 @@ from holypipette.controller import AutoPatcher
 from holypipette.devices.pressurecontroller.BasePressureController import PressureController
 from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.interface.pipettes import PipetteInterface
-from holypipette.devices.amplifier.DAQ import DAQ
+from holypipette.devices.amplifier.DAQ import NiDAQ
 from .patchConfig import PatchConfig
 from PyQt5 import QtCore
 import time
@@ -22,7 +22,7 @@ class AutoPatchInterface(TaskInterface):
     '''
     A class to run automatic patch-clamp
     '''
-    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, pipette_interface: PipetteInterface):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface):
         super().__init__()
         self.config = PatchConfig(name='Patch')
         self.amplifier = amplifier
@@ -123,7 +123,7 @@ class AutoPatchInterface(TaskInterface):
             camera_pos = -cell + self.current_autopatcher.calibrated_stage.reference_position()
             # Append a tuple of (coordinates, image)
             self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img))
-            
+
 
     @command(category='Patch',
                 description='emit the states to logger that are being attempted in manual mode',
@@ -148,9 +148,16 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.current_autopatcher.locate_cell,
                       argument = (cell, img))
         time.sleep(2)
-        self.cells_to_patch = self.cells_to_patch[1:]
-    
-    
+ 
+    @blocking_command(category='Stage',
+                     description = 'Center the stage on cell',
+                      task_description='Centering the stage on cell')
+    def center_on_cell(self):
+        cell, img = self.cells_to_patch[0]
+        # print( f"patch.py: centering on cell {cell} with image {img.shape}")
+        self.execute(self.current_autopatcher.calibrated_stage.center_on_cell,
+                      argument = (cell, img))
+
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
@@ -159,15 +166,15 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.current_autopatcher.hunt_cell,
                       argument = (cell, img))
         time.sleep(2)
-        self.cells_to_patch = self.cells_to_patch[1:]
+        # self.cells_to_patch = self.cells_to_patch[1:]
 
     @blocking_command(category='Patch',
                         description='escape the cell',
                         task_description='Moving away from the cell, cleaning pipette and moving to home space')
     def escape_cell(self):
-
         self.execute(self.current_autopatcher.escape)
         time.sleep(2)
+        self.cells_to_patch = self.cells_to_patch[1:]
 
 
     @command(category='Patch',
@@ -230,6 +237,18 @@ class AutoPatchInterface(TaskInterface):
     def store_rinsing_position(self) -> None:
         self.current_autopatcher.rinsing_bath_position = self.pipette_controller.calibrated_unit.position()
 
+    @command(category='Patch',
+             description='clear all stored positions',
+                success_message='All positions cleared')
+    def clear_positions(self) -> None:
+        self.current_autopatcher.cleaning_bath_position = None
+        self.current_autopatcher.rinsing_bath_position = None
+        self.current_autopatcher.home_position = None
+        self.current_autopatcher.safe_position = None
+        self.current_autopatcher.home_stage_position = None
+        self.current_autopatcher.safe_stage_position = None
+        self.info('All positions cleared')
+
     @blocking_command(category='Patch',
                       description='Clean the pipette (wash and rinse)',
                       task_description='Cleaning the pipette')
@@ -259,7 +278,11 @@ class AutoPatchInterface(TaskInterface):
                         task_description='Moving the group up')
     def move_group_up(self):
         self.execute(self.current_autopatcher.move_group_up)
-
+    @blocking_command(category='Patch',
+                      description='Move the pipette up',
+                      task_description='Moving the pipette up')
+    def move_pipette_up(self):
+        self.execute(self.current_autopatcher.move_pipette_up)
 
     @blocking_command(category='Patch',
                       description='Sequential patching and cleaning for multiple cells',

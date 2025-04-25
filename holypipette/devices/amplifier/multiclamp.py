@@ -409,10 +409,9 @@ class MultiClampChannel(Amplifier):
         self.auto_pipette_offset()
 
         # Set holding potential
-        self.switch_holding(True)
-        self.set_holding(0)
-
-
+        # self.switch_holding(True)
+        # self.set_holding(0)
+        
     def resistance(self):
         '''
         Returns resistance

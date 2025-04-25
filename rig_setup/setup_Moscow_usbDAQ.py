@@ -3,7 +3,8 @@
 '''
 import serial
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
-from holypipette.devices.amplifier.DAQ import DAQ
+from holypipette.devices.amplifier.amplifier import FakeAmplifier
+from holypipette.devices.amplifier.DAQ import FakeDAQ, NiDAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
 
 from holypipette.devices.pressurecontroller import  FakePressureController,  MoscowPressureController
@@ -31,7 +32,8 @@ microscope.up_direction = 1.0
 
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 
-daq = DAQ('Dev1', 'ai0', 'Dev1', 'ao0', 'Dev1', 'ai3')
+daq = NiDAQ('Dev1', 'ai0', 'Dev1', 'ao0', 'Dev1', 'ai3')
+# daq = DAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0')
 
 pressure = FakePressureController()
 amplifier = MultiClampChannel(channel=1)

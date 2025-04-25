@@ -135,7 +135,6 @@ class AcquisitionThread(threading.Thread):
             except Exception as ex:
                 print('something went wrong acquiring an image, waiting for 100ms: ')
                 traceback.print_exception(type(ex), ex, ex.__traceback__)
-
                 time.sleep(.1)
                 continue
             # Put image into queues for disk storage and display

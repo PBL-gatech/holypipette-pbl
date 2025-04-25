@@ -24,13 +24,14 @@ from numpy.linalg import inv, pinv, norm
 from threading import Thread
 from .StageCalHelper import FocusHelper, StageCalHelper
 from .PipetteCalHelper import PipetteCalHelper, PipetteFocusHelper
+from .CellTrackHelper import CellTrackHelper
 
 __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
 
 verbose = True
 
 ##### Calibration parameters #####
-from holypipette.config import Config, NumberWithUnit, Number, Boolean
+from holypipette.config import Config, NumberWithUnit, Number, Boolean,Tuple
 
 
 class CalibrationConfig(Config):
@@ -40,7 +41,7 @@ class CalibrationConfig(Config):
     
     autofocus_dist = NumberWithUnit(100, unit='um',
                                      doc='z dist to scan for autofocusing.',
-                                     bounds=(100, 5000))
+                                     bounds=(10, 5000))
     
     stage_diag_move = NumberWithUnit(50, unit='um',
                                      doc='x, y dist to move for stage cal.',
@@ -64,6 +65,12 @@ class CalibrationConfig(Config):
                                 doc='Rotation of the pipette in the xz plane (degrees)',
                                 bounds=(-90, 90))
     
+    # home_position =  Tuple((0, 0, 0), doc='Home position of the pipette in um')
+    # home_position_stage =  Tuple((0, 0, 0), doc='Home position of the stage in um')
+    # safe_position =  Tuple((0, 0, 0), doc='Safe position of the pipette in um')
+    # safe_position_stage =  Tuple((0, 0, 0), doc='Safe position of the stage in um')
+    # bath_position =  Tuple((0, 0, 0), doc='Bath position of the pipette in um')
+    
 
     categories = [('Stage Calibration', ['autofocus_dist', 'stage_diag_move', 'frame_lag']),
                   ('Pipette Calibration', ['pipette_diag_move']),
@@ -71,7 +78,9 @@ class CalibrationConfig(Config):
                   ('Stage y-axis flip?', ['stage_y_axis_flip']),
                   ('Pipette z-axis rotation', ['pipette_z_rotation']),
                   ('Pipette y-axis rotation', ['pipette_y_rotation']),
-                  ('Display', ['position_update'])]
+                  ('Display', ['position_update']),
+                #   ('Positions', ['home_position', 'home_position_stage','safe_position','safe_position_stage','bath_position']),
+                 ]
 
 
 class CalibrationError(Exception):
@@ -239,19 +248,6 @@ class CalibratedUnit(ManipulatorUnit):
             return
 
 
-    def focus(self):
-        '''
-        Move the microscope so as to put the pipette tip in focus
-        '''
-        if not self.calibrated:
-            raise CalibrationError('Pipette not calibrated')
-        if self.must_be_recalibrated:
-            raise CalibrationError('Pipette offsets must be recalibrated')
-        
-        self.microscope.absolute_move(self.reference_position()[2] + 200)
-        self.microscope.wait_until_still()
-        self.microscope.absolute_move(self.reference_position()[2])
-        self.microscope.wait_until_still()
 
     def autofocus_pipette(self):
         '''Use the microscope image to put the pipette in focus
@@ -551,6 +547,7 @@ class CalibratedStage(CalibratedUnit):
 
         self.focusHelper = FocusHelper(microscope, camera)
         self.stageCalHelper = StageCalHelper(unit, camera, self.config.frame_lag)
+        self.cellTrackHelper = CellTrackHelper(self,  camera) 
         self.pipette_cal_position = np.zeros(2)
         self.unit = unit
 
@@ -597,6 +594,12 @@ class CalibratedStage(CalibratedUnit):
         #self.abort_if_requested()
         self.reference_move(r) # Or relative move in manipulator coordinates, first axis (faster)
 
+    def focus(self):
+        ''' focus the stage on object of interest using the microscope
+        '''
+        self.debug('Focusing stage')
+        self.abort_if_requested()
+        self.focusHelper.autofocus(dist=self.config.autofocus_dist)
 
     def reference_relative_move(self, pos_pix):
         '''
@@ -645,7 +648,6 @@ class CalibratedStage(CalibratedUnit):
         self.must_be_recalibrated = False
 
         self.info('Stage calibration done')
-
 
     def mosaic(self, width = None, height = None):
         '''
@@ -700,6 +702,64 @@ class CalibratedStage(CalibratedUnit):
         cv2.imwrite('mosaic.png', big_image)
 
         return big_image
+    
+
+    def center_on_cell(self, cell, check_same_cell=False):
+        """
+        Find the cell centroid in pixel space and nudge the stage so the centroid
+        is centred in the camera view.
+
+        Returns `self.wait_until_still` (callable) so the GUI's `execute([...])`
+        pipeline keeps working.
+        
+        """
+        cell_coords, reference_image = cell
+        cell_coords = np.array(cell_coords)
+
+        # subtract the stage reference position
+        cell_coords = self.reference_position() - cell_coords 
+        # only take first two coordinates (x,y)
+        cell_coords = cell_coords[0], cell_coords[1]
+    
+
+
+        # capture new image
+        _, _, _, image = self.camera.raw_frame_queue[0]
+        # find the cell centroid in pixel space
+
+
+        centroid = self.cellTrackHelper.find_centroid(ref_image=reference_image, image=image, input_point= cell_coords)
+
+        if centroid is None:
+            return self.wait_until_still        # keep call chain consistent
+
+        n_axes = self.Minv.shape[1]             # 2 for XY stage, 3 for XYZ
+        centroid   = centroid[:n_axes]
+        desired_px = np.array([self.camera.width / 2,
+                            self.camera.height / 2])[:n_axes]
+
+        # ------------------------------------------------------------------
+        # Pixel error  → stage move (same sign).  
+        # (Stage motion and image motion are opposite, so this cancels the error.)
+        # ------------------------------------------------------------------
+        error_px = desired_px - centroid[:n_axes] 
+
+        # -------- debug ---------------------------------------------------
+        # self.info(f"centroid_px = {centroid}")
+        # self.info(f"desired_px  = {desired_px}")
+        # self.info(f"error_px    = {error_px}")
+        # ------------------------------------------------------------------
+
+        self.reference_relative_move(error_px)   # px → µm handled inside
+        self.wait_until_still()
+
+        # more debug (final position in µm and px)
+        self.info(f"new stage µm position: {self.position()}")
+        # self.info(f"new stage px offset  : {self.reference_position()}")
+
+
+
+
 
 class FixedStage(CalibratedUnit):
     '''

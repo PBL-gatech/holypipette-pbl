@@ -197,7 +197,6 @@ class ScientificaSerialEncoder(Manipulator):
     def stop(self):
         self._sendCmd(SerialCommands.STOP)
 
-
 class ScientificaSerialNoEncoder(Manipulator):
 
     def __init__(self, comPort: serial.Serial,speed,accel):

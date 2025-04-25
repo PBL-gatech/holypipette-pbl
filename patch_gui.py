@@ -17,9 +17,10 @@ from holypipette.log_utils import setup_logging
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
+from holypipette.interface.graph import GraphInterface
 from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
 from holypipette.gui.patch import PatchGui
-# from experiments.Analysis.DatasetBuilder import DatasetBuilder
+
 
 
 
@@ -36,21 +37,18 @@ def main():
 
     pipette_controller = PipetteInterface(stage, microscope, camera, unit, cellSorterManip, cellSorterController)
     patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller)
+    graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager)
     gui = PatchGui(camera, pipette_controller, patch_controller, recording_state_manager)
-    graphs = EPhysGraph(amplifier,daq, pressure, recording_state_manager)
+    graphs = EPhysGraph(graph_interface, recording_state_manager)
     # graphs.location_on_the_screen()
     graphs.show()
 
-    currentProtocolGraph = CurrentProtocolGraph(daq, recording_state_manager)
-    voltageProtocolGraph = VoltageProtocolGraph(daq, recording_state_manager)
-    holdingProtocolGraph = HoldingProtocolGraph(daq, recording_state_manager)
+    currentProtocolGraph = CurrentProtocolGraph(graph_interface, recording_state_manager)
+    voltageProtocolGraph = VoltageProtocolGraph(graph_interface, recording_state_manager)
+    holdingProtocolGraph = HoldingProtocolGraph(graph_interface, recording_state_manager)
 
-
-    # datasetConverter = DatasetBuilder(dataset_name='dataset_1.hdf5')
-    # datasetConverter.add_demo(demo_file_path='2025_02_14-12_57')
 
     gui.initialize()
-    # gui.location_on_the_screen()
     gui.show()
     ret = app.exec_()
     sys.exit(ret)
