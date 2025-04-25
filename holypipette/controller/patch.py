@@ -746,7 +746,7 @@ class AutoPatcher(TaskController):
         finally:
             pass
     
-    def move_pipette_up(self, dist = 5000):
+    def move_pipette_up(self, dist = -5000):
         '''
         Moves the pipette up by input distance in the z axis
         '''

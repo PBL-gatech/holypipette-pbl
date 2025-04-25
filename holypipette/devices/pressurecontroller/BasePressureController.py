@@ -40,7 +40,11 @@ class PressureAcquisitionThread(threading.Thread):
             time.sleep(self.interval)
 
     def get_last_data(self):
-        return self._last_data_queue[-1] if self._last_data_queue else None
+        if self._last_data_queue:
+             return self._last_data_queue[-1]
+        else:
+            # self.controller.warning("No data in queue")
+            return 0
 
     def stop(self):
         self.running = False
@@ -120,7 +124,9 @@ class PressureController(TaskController):
         """
         if self._pressure_acq_thread:
             return self._pressure_acq_thread.get_last_data()
-        return None
+        else: 
+            self.warning(f"Acquisition thread not started, returning zero")
+            return 0 
 
     def stop_acquisition(self):
         """

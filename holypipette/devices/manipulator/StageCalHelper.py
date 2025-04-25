@@ -275,19 +275,11 @@ class StageCalHelper():
     def calibrate(self, dist=500):
         '''Calibrates the microscope stage using optical flow and stage encoders to create a um -> pixels transformation matrix
         '''
-
         self.stage.set_max_speed(self.CAL_MAX_SPEED)
-        # self.stage.set_max_accel(10)
-
         initPos = self.stage.position()
         print('starting optical flow')
         mat = self.calibrateContinuous(dist)
-        # commandedPos = np.array([initPos[0] + 200, initPos[1] - 200])
-        # axes = np.array([0, 1], dtype=int)
-        # self.stage.absolute_move_group(commandedPos, axes)
         self.stage.wait_until_still()
-        currPos = self.stage.position()
-        
         self.stage.set_max_speed(self.NORMAL_MAX_SPEED)
         self.stage.absolute_move(initPos)
         self.stage.wait_until_still()

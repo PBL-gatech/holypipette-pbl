@@ -212,9 +212,9 @@ class AutoPatchInterface(TaskInterface):
         # modifying to store the safe position of the and stage as well.
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         angle = np.deg2rad(25)
-        delta = -18000
+        delta = -9000
         x_pip, y_pip,z_pip  = self.current_autopatcher.home_position
-        self.current_autopatcher.safe_position = np.array([x_pip + delta*np.cos(angle), y_pip , z_pip +delta*np.sin(angle)])
+        self.current_autopatcher.safe_position = np.array([x_pip + delta*np.cos(angle), y_pip , z_pip -delta*np.sin(angle)])
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]

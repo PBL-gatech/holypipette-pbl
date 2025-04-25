@@ -3,28 +3,25 @@
 Pressure Controller classes to communicate with the Pressure Controller Box made by the IBB.
 Additionally, redesigning a closed loop pressure controller for the Emory Rig
 '''
+
 import logging
 from .BasePressureController import PressureController
 import serial.tools.list_ports
 import serial
 import time
 import collections
-logging.basicConfig(level = logging.INFO)
+
 
 all = ['EmoryPressureController']
 
 class EmoryPressureController(PressureController):
     '''A PressureController child class that handles serial communication between the PC and
-       the Arduino controlling Emory Pressure box
+       the Arduino controlling the Emory Pressure box
     '''
     validProducts = ["USB Serial"] # TODO: move to a constants or json file?
     validVIDs = [0x1a86, 0x403]
-                    
-    # nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
-    # nativePerMbar = float(4096/1380) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-446 to 736)
     nativeZero = 2161 # The native units at a 0 pressure (y-intercept)
     nativePerMbar = float(3078/1000) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
-
     serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
     def __init__(self, channel, controllerSerial = None, readerSerial = None):
@@ -36,39 +33,32 @@ class EmoryPressureController(PressureController):
             self.controllerSerial = controllerSerial
         else:
             self.controllerSerial = None
-            logging.error("No controller serial port available")
+            self.error("No controller serial port available")
         
         if readerSerial is not None:
             # no port specified, we will use the user supplied serial port
             self.readerSerial = readerSerial
         else: 
             self.readerSerial = None
-            logging.error("No reader serial port available")
+            self.error("No reader serial port available")
 
         self.channel = channel
-        self.isATM = None
+        self.state = None
         self.setpoint_raw = None
-        self.expectedResponses = collections.deque() # use a deque instead of a list for O(1) pop from beginning
-
         self.lastVal = 0.0
 
         # set initial configuration of pressure controller
         self.set_ATM(False)
         self.set_pressure(0) # set initial pressure to 0 mbar
+        self.start_acquisition() # start pressure acquisition thread at 60 hz
 
-    def autodetectSerial(self):
-        '''
-        Use VID and name of serial devices to figure out which one is the Emory Pressure box
-        '''
-        allPorts = [COMPort for COMPort in serial.tools.list_ports.comports()]
-        logging.info(f"Attempting to find Emory Pressure Box from: {[(p.product, hex(p.vid) if p.vid != None else None, p.name) for p in allPorts]}")
 
     def set_pressure(self, pressure):
         '''
         Tell pressure controller to go to a given setpoint pressure in mbar
         '''
         nativeUnits = self.mbarToNative(pressure)
-        # logging.info(f"Setting pressure to {nativeUnits} mbar")
+        # self.info(f"Setting pressure to {nativeUnits} mbar")
         self.set_pressure_raw(nativeUnits)
     
     def mbarToNative(self, pressure):
@@ -77,7 +67,7 @@ class EmoryPressureController(PressureController):
         '''
         raw_pressure = int((pressure * EmoryPressureController.nativePerMbar + EmoryPressureController.nativeZero))
         return min(max(raw_pressure, 0), EmoryPressureController.nativeZero*2) # clamp native units to 0-3924
-        # return min(max(raw_pressure, 0), 4095) # clamp native units to 0-4095
+
 
     def nativeToMbar(self, raw_pressure) -> float:
         '''
@@ -91,39 +81,21 @@ class EmoryPressureController(PressureController):
         Tell pressure controller to go to a given setpoint pressure in native DAC units
         '''
         self.setpoint_raw = raw_pressure
-        logging.info(f"Setting pressure to {self.nativeToMbar(raw_pressure)} mbar (raw: {raw_pressure})")
+        self.info(f"Setting pressure to {self.nativeToMbar(raw_pressure)} mbar (raw: {raw_pressure})")
 
         cmd = f"set {self.channel} {raw_pressure}\n"
-        # logging.info(type(cmd))
-        # logging.info(cmd)
-        # logging.info(bytes(cmd, 'ascii'))
-        logging.info(f"Sending command: {cmd}")
+        self.info(f"Sending command: {cmd}")
         self.controllerSerial.write(bytes(cmd, 'ascii'))
-        # print cmd in ascii
         self.controllerSerial.flush()
-        logging.info(f"SenT command: {cmd}")
+        self.info(f"Sent command: {cmd}")
 
-        # add expected arduino responces
-        self.expectedResponses.append((time.time(), f"set {self.channel} {raw_pressure}"))
-        self.expectedResponses.append((time.time(), f"set"))
-        self.expectedResponses.append((time.time(), f"{self.channel}"))
-        self.expectedResponses.append((time.time(), f"{raw_pressure}"))
-
-    def get_setpoint(self) -> float:
+    def get_pressure(self) -> float:
         '''
         Gets the current setpoint in millibar
         '''
         return self.nativeToMbar(self.setpoint_raw)
 
-    def get_setpoint_raw(self):
-        '''
-        Gets the current setpoint in native DAC units
-        '''
-        # logging.info(f"Current setpoint: {self.nativeToMbar(self.setpoint_raw)} mbar (raw: {self.setpoint_raw})")
-        return self.setpoint_raw
-    
-
-    def get_pressure(self) -> float:
+    def measure(self) -> float:
         '''
         Read the pressure sensor value from the Arduino
         '''
@@ -131,52 +103,30 @@ class EmoryPressureController(PressureController):
 
         # Send a request command to the Arduino
         self.readerSerial.write(b'R')
-
         # Wait for the response
         if self.readerSerial.in_waiting > 0:
             reading = self.readerSerial.readline().decode('utf-8').strip()
-
-            # Check that S and E are in the string only once and that S is the first index and E is the last index
             if reading.startswith("S") and reading.endswith("E"):
-                # Extract the pressure reading between the markers
                 pressure_str = reading[1:-1]
-                # Try to convert the extracted pressure string to float
                 try:
                     pressureVal = float(pressure_str)
-
-                    pressureVal = float((pressureVal - 516.72)/0.3923) - 9 # conversion to raw because the seeed is not working
+                    pressureVal = float((pressureVal - 516.72)/0.3923) # conversion to raw because the seeed is not working
                     self.lastVal = pressureVal
                 except ValueError:
-                    # pressureVal = None
-                    logging.warning("Invalid pressure data received")
-            # * Not sure if the else is needed.
-            # else:
-                # pressureVal = None
-                # logging.warning("Incomplete or invalid data received")
+                    self.warning("Invalid pressure data received")
+
         else:
-            # pressureVal = None
-            logging.warning("No data received from pressure sensor")
-
-        # print(pressureVal)
+            self.warning("No data received from pressure sensor")
         return pressureVal
-
-    
-    def getLastVal(self) -> float:
-        return self.lastVal
-
-    def measure(self) -> float:
-        return self.get_pressure()
     
     def pulse(self, delayMs):
         '''Tell the onboard arduino to pulse pressure for a certain period of time
         '''
         cmd = f"pulse {self.channel} {delayMs}\n"
-        logging.info(f"Pulsing pressure for {delayMs} ms")
+        self.info(f"Pulsing pressure for {delayMs} ms")
         self.controllerSerial.write(bytes(cmd, 'ascii')) #do serial writing in main thread for timing?
         self.controllerSerial.flush()
         
-
-
     def set_ATM(self, atm):
         '''Send a serial command activating or deactivating the atmosphere solenoid valve
            atm = True -> pressure output is at atmospheric pressure 
@@ -184,12 +134,11 @@ class EmoryPressureController(PressureController):
         '''
         if atm:
             cmd = f"switchAtm {self.channel}\n" # switch to ATM command
-            logging.info("Switching to ATM")
+            self.info("Switching to ATM")
         else:
             cmd = f"switchP {self.channel}\n" # switch to Pressure command
-            logging.info("Switching to Pressure")
+            self.info("Switching to Pressure")
         self.controllerSerial.write(bytes(cmd, 'ascii'))
         self.controllerSerial.flush()
-
-        self.isATM = atm
+        self.state = atm
 
