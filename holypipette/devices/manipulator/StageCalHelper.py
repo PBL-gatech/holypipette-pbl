@@ -205,24 +205,21 @@ class StageCalHelper():
 
         print('completed optical flow. matrix:')
         print(mat)
-        # rotate matrix 90 degrees, as x-y seems to be flipped
 
-        # Define 90° counterclockwise rotation matrix
-        R90 = np.array([[0, -1],
-                        [1,  0]])
-        # define a y axis reflection matrix
-        F_y = np.array([[1,  0],
-                    [0, -1]])
+        # ─── THE ONLY LINE TO CHANGE ─────────────────────────────────────
+        new_calib = -mat          # hand CalibratedStage stage-µm → image-px
+        # ─────────────────────────────────────────────────────────────────
+        # (translation column is already zero)
 
-        # Construct the new calibration matrix
-        rotated_submatrix = F_y @ (R90 @ mat[:, :2])
-
-        new_calib = np.hstack([rotated_submatrix, mat[:, 2:3]])
-        print('rotated matrix')
+        print('calibration matrix sent to CalibratedStage:')
         print(new_calib)
 
-        #return transformation matrix
         return new_calib
+
+        
+
+
+
 
     def calcOpticalFlowP0(self, firstFrame):
         #params for corner detector

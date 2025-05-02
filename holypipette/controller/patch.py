@@ -727,7 +727,7 @@ class AutoPatcher(TaskController):
         self.info('MOVING GROUP DOWN')
 
         try:
-            self.calibrated_unit.relative_move(-dist, axis=2)
+            self.calibrated_unit.relative_move(dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
             self.microscope.relative_move(dist)
             self.microscope.wait_until_still()
@@ -739,7 +739,7 @@ class AutoPatcher(TaskController):
         '''
     
         try:
-            self.calibrated_unit.relative_move(dist, axis=2)
+            self.calibrated_unit.relative_move(-dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
             self.microscope.relative_move(-dist)
             self.microscope.wait_until_still()

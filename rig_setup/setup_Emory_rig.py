@@ -26,7 +26,7 @@ daq = NiDAQ('Dev2', 'ai0', 'Dev2', 'ao0', 'Dev2', 'ai3')
 # set up movement controllers
 controllerSerial = serial.Serial('COM20',baudrate=38400,timeout=3)
 controller = ScientificaSerialNoEncoder(controllerSerial,speed = 200, accel = 10000)
-microscope = Microscope(controller, 3,speed=1000,accel=19500)
+microscope = Microscope(controller, 3,speed=5000,accel=19500)
 microscope.up_direction = 1.0
 
 pipetteSerial = serial.Serial('COM19',baudrate=38400,timeout=3)
