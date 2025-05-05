@@ -15,8 +15,8 @@ class DatasetBuilder():
         self.dataset_name = dataset_name
         self.zero_values = True
         self.center_crop = True
-        self.rotate = True       # NEW flag for rotation augmentation
-        self.inaction = 5
+        self.rotate = False      # NEW flag for rotation augmentation
+        self.inaction = 3
 
         if dataset_name not in os.listdir('experiments/Datasets'):
             with h5py.File(f'experiments/Datasets/{dataset_name}', 'w') as hf:
@@ -561,8 +561,6 @@ class DatasetBuilder():
             pipette_positions[:, 1] -= pipette_positions[0, 1]
             pipette_positions[:, 2] -= pipette_positions[0, 2]  # z-axis
 
-
-        
         return pipette_positions
     
     def get_attempt_camera_frames(self, rig_recorder_data_folder, attempt_graph_values, rotation_angle=None):
@@ -603,7 +601,7 @@ class DatasetBuilder():
                 pil_image = pil_image.rotate(rotation_angle, resample=Image.BILINEAR, expand=True)
             if self.center_crop:
                 pil_image = self.crop_image_center(pil_image)
-            curr_frame = np.array(pil_image.resize((85, 85)))
+            curr_frame = np.array(pil_image.resize((224, 224)))
             frames_list.append(curr_frame)
             last_index = min_timestamp_diff_indice - 1
         camera_frames = np.array(frames_list)
@@ -611,7 +609,7 @@ class DatasetBuilder():
 
     def crop_image_center(self,pil_image):
         """
-        Center crops the input PIL image by one fourth its original dimensions.
+        Center crops the input PIL image by one half its original dimensions.
         
         For example, if the image is 400x400, the resulting crop will be 100x100 
         from the center of the image.
@@ -623,10 +621,10 @@ class DatasetBuilder():
             PIL.Image.Image: The center-cropped image.
         """
         width, height = pil_image.size
-        new_width = width // 4
-        new_height = height // 4
-        left = (width - new_width) // 4
-        top = (height - new_height) // 4
+        new_width = width // 2
+        new_height = height // 2
+        left = (width - new_width) // 2
+        top = (height - new_height) // 2
         right = left + new_width
         bottom = top + new_height
         return pil_image.crop((left, top, right, bottom))
@@ -940,7 +938,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_010.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_v0_012.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
