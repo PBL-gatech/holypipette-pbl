@@ -78,6 +78,14 @@ class DemoPlayer(QWidget):
         self.plot_view.setFixedSize(500, 500)
         main_layout.addWidget(self.plot_view)
 
+
+        self.action_scene = QGraphicsScene(self)
+        self.action_view  = QGraphicsView(self.action_scene, self)
+        self.action_view.setFixedSize(500, 400)      # tweak height as you like
+        main_layout.addWidget(self.action_view)
+
+
+
         self.setLayout(main_layout)
 
         # Timer for video frame updates (~33 fps).
@@ -103,6 +111,15 @@ class DemoPlayer(QWidget):
             self.images = np.array([])
             self.resistance = np.array([])
             return
+        
+                # --- NEW: pull the actions matrix (shape: [N, 6]) -----------
+        try:
+            self.actions = self.hdf5_file[f'data/{demo_key}/actions'][:]
+        except KeyError:
+            QMessageBox.critical(self, "Data Error",
+                                 f"Missing 'actions' dataset in {demo_path}")
+            self.actions = np.empty((0, 6))
+
 
         # Resize the label *once* to the first frame’s native size
         if self.images.size:
@@ -119,6 +136,7 @@ class DemoPlayer(QWidget):
             self.resistance = np.array([])
 
         self.plot_resistance()
+        self.plot_actions()
 
     # ------------------------------------------------------------------
     # Resistance-plotting code (unchanged)
@@ -161,6 +179,38 @@ class DemoPlayer(QWidget):
         t0.setPos(0, plot_h + 5)
         tN = self.scene.addText(f"{points - 1}")
         tN.setPos(plot_w - tN.boundingRect().width(), plot_h + 5)
+
+    def plot_actions(self):
+        """Draw a 6-column bar chart of non-zero action counts."""
+        self.action_scene.clear()
+        if self.actions.size == 0:
+            self.action_scene.addText("No actions data available")
+            return
+
+        counts  = np.count_nonzero(self.actions, axis=0)       # [6]
+        plot_w, plot_h = 400, 200
+        bar_w   = plot_w / 6
+        max_ct  = counts.max() or 1
+
+        pen   = QPen(Qt.black)
+        brush = Qt.gray
+
+        for i, c in enumerate(counts):
+            x = i * bar_w
+            h = (c / max_ct) * plot_h
+            # bar
+            self.action_scene.addRect(x, plot_h - h, bar_w * 0.8, h, pen, brush)
+            # value label
+            t = self.action_scene.addText(str(int(c)))
+            t.setPos(x + bar_w*0.4 - t.boundingRect().width()/2,
+                     plot_h - h - t.boundingRect().height() - 2)
+
+        # x-axis labels
+        for i in range(6):
+            lbl = self.action_scene.addText(str(i))
+            lbl.setPos(i*bar_w + bar_w*0.4 - lbl.boundingRect().width()/2,
+                       plot_h + 5)
+
 
     # ------------------------------------------------------------------
     # 3. update_frame() — shrink oversized frames, never upscale
@@ -242,7 +292,7 @@ class DemoPlayer(QWidget):
 # ----------------------------------------------------------------------
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_012.hdf5"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_014.hdf5"
     viewer = DemoPlayer(data_path)
     viewer.show()
     sys.exit(app.exec_())

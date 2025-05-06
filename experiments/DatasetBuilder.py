@@ -15,7 +15,7 @@ class DatasetBuilder():
         self.dataset_name = dataset_name
         self.zero_values = True
         self.center_crop = True
-        self.rotate = False      # NEW flag for rotation augmentation
+        self.rotate = False     # NEW flag for rotation augmentation
         self.inaction = 3
 
         if dataset_name not in os.listdir('experiments/Datasets'):
@@ -601,7 +601,7 @@ class DatasetBuilder():
                 pil_image = pil_image.rotate(rotation_angle, resample=Image.BILINEAR, expand=True)
             if self.center_crop:
                 pil_image = self.crop_image_center(pil_image)
-            curr_frame = np.array(pil_image.resize((224, 224)))
+            curr_frame = np.array(pil_image.resize((85, 85)))
             frames_list.append(curr_frame)
             last_index = min_timestamp_diff_indice - 1
         camera_frames = np.array(frames_list)
@@ -938,7 +938,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_012.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_v0_014.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
