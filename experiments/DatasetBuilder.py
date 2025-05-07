@@ -11,17 +11,33 @@ ATL_TO_UTC_TIME_DELTA = 4 #March 9 - Nov 1: 4 hours, otherwise 5 hours
 
 
 class DatasetBuilder():
-    def __init__(self, dataset_name):
+    def __init__(self, dataset_name,val_ratio = 1/6, omit_stage_movement = False,random_seed = 0):
         self.dataset_name = dataset_name
         self.zero_values = True
         self.center_crop = True
-        self.rotate = False     # NEW flag for rotation augmentation
+        self.rotate = True     # NEW flag for rotation augmentation
         self.inaction = 3
+        self.val_ratio = val_ratio
+        self.omit_stage_movement = omit_stage_movement
+        self.rng = np.random.default_rng(random_seed)     # ← RNG handle
+        self._split_keys = {"train": [], "valid": []}     # ← we’ll fill these
 
         if dataset_name not in os.listdir('experiments/Datasets'):
             with h5py.File(f'experiments/Datasets/{dataset_name}', 'w') as hf:
                 group = hf.create_group('data')
                 group.attrs['num_demos'] = 0
+
+    def _write_split_masks(self):
+        """Create / overwrite mask/train and mask/valid with UTF-8 demo keys."""
+        with h5py.File(f'experiments/Datasets/{self.dataset_name}', 'a') as hf:
+            if "mask" in hf:
+                del hf["mask"]                      # wipe old masks if rerun
+            mask_grp = hf.create_group("mask")
+            for name in ("train", "valid"):
+                keys = np.asarray(self._split_keys[name], dtype='S')
+                mask_grp.create_dataset(name, data=keys)
+        print(f"✨  wrote split masks: {len(self._split_keys['train'])} train | "
+            f"{len(self._split_keys['valid'])} valid")
 
     def _rotate_positions(self, positions, angle_degrees):
         """
@@ -755,9 +771,9 @@ class DatasetBuilder():
         actions = np.array(actions_list)
 
         return actions
-    
 
-    def add_attempt_demo_to_dataset(self, num_samples, actions, dones, pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames, next_pressure_values, next_resistance_values, next_current_values, next_voltage_values, next_stage_positions, next_pipette_positions, next_camera_frames, include_next_obs=False, include_camera=True):
+
+    def add_attempt_demo_to_dataset(self, num_samples, actions, dones, pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames, next_pressure_values, next_resistance_values, next_current_values, next_voltage_values, next_stage_positions, next_pipette_positions, next_camera_frames, include_next_obs=False, include_camera=True, split_label="train"):
         '''
         Adds attempt to the dataset hdf5 file as a demo
         Incremenets number of demos in the dataset
@@ -819,6 +835,7 @@ class DatasetBuilder():
             demo_number = hf['data'].attrs['num_demos']
             demo = hf['data'].create_group(f'demo_{demo_number}')
             demo.attrs['num_samples'] = num_samples
+            demo.attrs['split'] = split_label
 
             demo.create_dataset('actions', data=actions)
             demo.create_dataset('dones', data=dones)
@@ -847,98 +864,168 @@ class DatasetBuilder():
                     next_observations.create_dataset('camera_image', data=next_camera_frames)
 
             hf['data'].attrs['num_demos'] = hf['data'].attrs['num_demos'] + 1
-            print(f"Added demo_{demo_number} to dataset '{self.dataset_name}' with {num_samples} samples.")
+            print(f"Added {split_label} demo_{demo_number} to dataset '{self.dataset_name}' with {num_samples} samples.")
+            return f"demo_{demo_number}"  
         
     def add_demo(self, rig_recorder_data_folder, record_to_file=False):
+        """
+        Parse one rig-recorder folder, extract each successful hunt-cell attempt,
+        and store them as demos with a train / valid split that precedes any
+        rotation augmentation.
+
+        * Demos containing stage movement are skipped when
+          self.omit_stage_movement is True.
+        * split_lbl is decided on the un-augmented demo first; only train demos
+          receive rotation copies.
+        """
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
+
         include_next_obs = False
         include_camera = True
         include_high_level_actions = False
 
-        graph_values, movement_values, log_values = self.load_experiment_data(rig_recorder_data_folder=rig_recorder_data_folder)
+        # ----------------------------------------------------------------------
+        # Load raw CSV data for this folder
+        # ----------------------------------------------------------------------
+        graph_values, movement_values, log_values = self.load_experiment_data(
+            rig_recorder_data_folder=rig_recorder_data_folder
+        )
 
         experiment_first_timestamp = graph_values[0][0] - 1
-        experiment_last_timestamp = graph_values[-1][0] + 1
+        experiment_last_timestamp  = graph_values[-1][0] + 1
 
-        experiment_recordings_timestamp_ranges = self.get_timestamps_for_all_experiment_recordings(log_values, experiment_first_timestamp, experiment_last_timestamp)
-        experiment_successful_hunt_cell_timestamp_ranges = self.get_timestamps_for_all_successful_hunt_cell_attempts(log_values, experiment_recordings_timestamp_ranges)
-        
-        for hunt_cell_timestamps in experiment_successful_hunt_cell_timestamp_ranges:
-            attempt_first_timestamp = hunt_cell_timestamps[0]
-            attempt_last_timestamp = hunt_cell_timestamps[1]
+        rec_ranges = self.get_timestamps_for_all_experiment_recordings(
+            log_values, experiment_first_timestamp, experiment_last_timestamp
+        )
+        hunt_ranges = self.get_timestamps_for_all_successful_hunt_cell_attempts(
+            log_values, rec_ranges
+        )
 
-            attempt_graph_values = self.truncate_graph_values(graph_values, attempt_first_timestamp, attempt_last_timestamp)
-            attempt_movement_values = self.associate_attempt_movement_and_graph_values(attempt_graph_values, movement_values)
+        # ----------------------------------------------------------------------
+        # Iterate through each successful hunt-cell attempt
+        # ----------------------------------------------------------------------
+        for attempt_first_timestamp, attempt_last_timestamp in hunt_ranges:
 
-            # Collect Attempt Data:
+            attempt_graph_values = self.truncate_graph_values(
+                graph_values, attempt_first_timestamp, attempt_last_timestamp
+            )
+            attempt_movement_values = self.associate_attempt_movement_and_graph_values(
+                attempt_graph_values, movement_values
+            )
+
+            # ------------------------------------------------------------------
+            # Build observations and actions for this attempt
+            # ------------------------------------------------------------------
             dones = self.get_attempt_dones(attempt_graph_values)
 
-            pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames = \
-                self.get_attempt_observations(attempt_graph_values, attempt_movement_values, rig_recorder_data_folder, include_camera=include_camera, rotation_angle=None)
+            (pressure_values, resistance_values, current_values, voltage_values,
+             stage_positions, pipette_positions, camera_frames) = \
+                self.get_attempt_observations(
+                    attempt_graph_values, attempt_movement_values,
+                    rig_recorder_data_folder,
+                    include_camera=include_camera, rotation_angle=None
+                )
 
-            next_obs = self.get_attempt_next_observations(attempt_graph_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames, include_next_obs=include_next_obs, include_camera=include_camera)
+            next_obs = self.get_attempt_next_observations(
+                attempt_graph_values, current_values, voltage_values,
+                stage_positions, pipette_positions, camera_frames,
+                include_next_obs=include_next_obs, include_camera=include_camera
+            )
 
-            actions = self.get_attempt_actions(attempt_movement_values, attempt_graph_values, log_values, include_high_level_actions=include_high_level_actions)
+            actions = self.get_attempt_actions(
+                attempt_movement_values, attempt_graph_values, log_values,
+                include_high_level_actions=include_high_level_actions
+            )
 
-            # Add the original (unaugmented) demo.
+            # ------------------------------------------------------------------
+            # Optional: skip demos with stage XYZ motion
+            # ------------------------------------------------------------------
+            if self.omit_stage_movement and np.any(actions[:, :3]):
+                print("  skipped – demo contains stage movement")
+                continue
+
+            # ------------------------------------------------------------------
+            # Decide whether this ORIGINAL demo is train or valid
+            # ------------------------------------------------------------------
+            split_lbl = "valid" if self.rng.random() < self.val_ratio else "train"
+
+            # ------------------------------------------------------------------
+            # Write ORIGINAL demo to file
+            # ------------------------------------------------------------------
             if record_to_file:
-                self.add_attempt_demo_to_dataset(
-                    num_samples=attempt_graph_values.shape[0], 
-                    actions=actions, 
-                    dones=dones, 
-                    pressure_values=pressure_values, 
-                    resistance_values=resistance_values, 
-                    current_values=current_values, 
-                    voltage_values=voltage_values, 
-                    stage_positions=stage_positions, 
-                    pipette_positions=pipette_positions, 
+                demo_key = self.add_attempt_demo_to_dataset(
+                    num_samples=attempt_graph_values.shape[0],
+                    actions=actions,
+                    dones=dones,
+                    pressure_values=pressure_values,
+                    resistance_values=resistance_values,
+                    current_values=current_values,
+                    voltage_values=voltage_values,
+                    stage_positions=stage_positions,
+                    pipette_positions=pipette_positions,
                     camera_frames=camera_frames,
-                    next_pressure_values=next_obs[0] if next_obs else None, 
-                    next_resistance_values=next_obs[1] if next_obs else None, 
-                    next_current_values=next_obs[2] if next_obs else None, 
-                    next_voltage_values=next_obs[3] if next_obs else None, 
-                    next_stage_positions=next_obs[4] if next_obs else None, 
-                    next_pipette_positions=next_obs[5] if next_obs else None, 
+                    next_pressure_values=next_obs[0] if next_obs else None,
+                    next_resistance_values=next_obs[1] if next_obs else None,
+                    next_current_values=next_obs[2] if next_obs else None,
+                    next_voltage_values=next_obs[3] if next_obs else None,
+                    next_stage_positions=next_obs[4] if next_obs else None,
+                    next_pipette_positions=next_obs[5] if next_obs else None,
                     next_camera_frames=next_obs[6] if next_obs and include_camera else None,
                     include_next_obs=include_next_obs,
-                    include_camera=include_camera
+                    include_camera=include_camera,
+                    split_label=split_lbl
                 )
-                print("Added original demo.")
+                self._split_keys[split_lbl].append(demo_key)
+                print(f"  added original {split_lbl} demo")
 
-                # Augmentation: if self.rotate is enabled, add additional demos for each rotation angle.
-                if self.rotate:
-                    for angle in [45, 90, 180, 270]:
-                        aug_pressure_values, aug_resistance_values, aug_current_values, aug_voltage_values, aug_stage_positions, aug_pipette_positions, aug_camera_frames = \
-                            self.get_attempt_observations(attempt_graph_values, attempt_movement_values, rig_recorder_data_folder, include_camera=include_camera, rotation_angle=angle)
-                        aug_next_obs = self.get_attempt_next_observations(attempt_graph_values, current_values, voltage_values, aug_stage_positions, aug_pipette_positions, aug_camera_frames, include_next_obs=include_next_obs, include_camera=include_camera) \
-                            if include_next_obs else (None, None, None, None, None, None, None)
-                        self.add_attempt_demo_to_dataset(
-                            num_samples=attempt_graph_values.shape[0], 
-                            actions=actions, 
-                            dones=dones, 
-                            pressure_values=pressure_values, 
-                            resistance_values=resistance_values, 
-                            current_values=current_values, 
-                            voltage_values=voltage_values, 
-                            stage_positions=aug_stage_positions, 
-                            pipette_positions=aug_pipette_positions, 
-                            camera_frames=aug_camera_frames,
-                            next_pressure_values=aug_next_obs[0] if aug_next_obs[0] is not None else None, 
-                            next_resistance_values=aug_next_obs[1] if aug_next_obs[1] is not None else None, 
-                            next_current_values=aug_next_obs[2] if aug_next_obs[2] is not None else None, 
-                            next_voltage_values=aug_next_obs[3] if aug_next_obs[3] is not None else None, 
-                            next_stage_positions=aug_next_obs[4] if aug_next_obs[4] is not None else None, 
-                            next_pipette_positions=aug_next_obs[5] if aug_next_obs[5] is not None else None, 
-                            next_camera_frames=aug_next_obs[6] if aug_next_obs[6] is not None else None,
-                            include_next_obs=include_next_obs,
-                            include_camera=include_camera
+            # ------------------------------------------------------------------
+            # Rotation augmentation – only for TRAIN demos
+            # ------------------------------------------------------------------
+            if self.rotate and split_lbl == "train" and record_to_file:
+                for angle in [45, 90, 180, 270]:
+
+                    (aug_pressure, aug_resistance, aug_current, aug_voltage,
+                     aug_stage_pos, aug_pipette_pos, aug_cam) = \
+                        self.get_attempt_observations(
+                            attempt_graph_values, attempt_movement_values,
+                            rig_recorder_data_folder,
+                            include_camera=include_camera, rotation_angle=angle
                         )
-                        print(f"Added augmented demo with rotation angle {angle}°.")
 
+                    aug_next_obs = self.get_attempt_next_observations(
+                        attempt_graph_values, current_values, voltage_values,
+                        aug_stage_pos, aug_pipette_pos, aug_cam,
+                        include_next_obs=include_next_obs, include_camera=include_camera
+                    ) if include_next_obs else (None,) * 7
+
+                    aug_key = self.add_attempt_demo_to_dataset(
+                        num_samples=attempt_graph_values.shape[0],
+                        actions=actions,
+                        dones=dones,
+                        pressure_values=pressure_values,
+                        resistance_values=resistance_values,
+                        current_values=current_values,
+                        voltage_values=voltage_values,
+                        stage_positions=aug_stage_pos,
+                        pipette_positions=aug_pipette_pos,
+                        camera_frames=aug_cam,
+                        next_pressure_values=aug_next_obs[0],
+                        next_resistance_values=aug_next_obs[1],
+                        next_current_values=aug_next_obs[2],
+                        next_voltage_values=aug_next_obs[3],
+                        next_stage_positions=aug_next_obs[4],
+                        next_pipette_positions=aug_next_obs[5],
+                        next_camera_frames=aug_next_obs[6],
+                        include_next_obs=include_next_obs,
+                        include_camera=include_camera,
+                        split_label=split_lbl          # still "train"
+                    )
+                    self._split_keys["train"].append(aug_key)
+                    print(f"  added augmented demo (angle {angle}°)")
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_014.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_v0_015.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
@@ -1013,11 +1100,20 @@ if __name__ == '__main__':
     #     "2025_04_07-18_04"
     # ]
 
+    datasetBuilder = DatasetBuilder(
+        dataset_name=dataset_name,
+        val_ratio=1/6,              # 1-in-6 validation demos
+        omit_stage_movement=True,   # skip demos with stage XYZ motion
+        random_seed=0               # change to alter the split
+    )
+
+
     for folder in rig_recorder_data_folder_set:
         print(f"Processing folder: {folder}")
-        rig_recorder_data_folder = folder
-        record_to_file = True
+        datasetBuilder.add_demo(
+            rig_recorder_data_folder=folder,
+            record_to_file=True
+        )
 
-        datasetBuilder = DatasetBuilder(dataset_name=dataset_name)
-        datasetBuilder.add_demo(rig_recorder_data_folder=rig_recorder_data_folder, record_to_file=record_to_file)
 
+    datasetBuilder._write_split_masks()
