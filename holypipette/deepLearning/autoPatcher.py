@@ -17,6 +17,8 @@ import cv2                         # still used for resize
 import h5py
 import numpy as np
 import onnxruntime as ort          # ★ new backend ★
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 # -------------------------------------------------
@@ -62,13 +64,16 @@ class ModelTester:
             h5 = h5py.File(str(input_path), "r")
             demo_id  = sorted(h5["data"].keys())[0]
             obs_root = f"data/{demo_id}/obs"
+            act_root = f"data/{demo_id}"
             self.images            = h5[f"{obs_root}/camera_image"][:]
             self.resistance        = h5[f"{obs_root}/resistance"][:]
             self.pipette_positions = h5[f"{obs_root}/pipette_positions"][:]
             self.stage_positions   = h5[f"{obs_root}/stage_positions"][:]
+            self.actions           = h5[f"{act_root}/actions"][:]
             print(f"Loaded demo '{demo_id}': images {self.images.shape}, "
                   f"resistance {self.resistance.shape}, pipette {self.pipette_positions.shape}, "
                   f"stage {self.stage_positions.shape}")
+            print(f"Actions: {self.actions.shape} → {self.actions.dtype}")
 
         # -------- runtime buffers --------
         self.seq_len = 16
@@ -130,6 +135,22 @@ class ModelTester:
 
         # return 6-D command for the current frame
         return out["actions"][:, -1, :]    # (1,6)
+    
+    def calculate_error(self, pred, gt):
+        """
+        Absolute error on each of the 6 action axes.
+
+        Parameters
+        ----------
+        pred : (1,6) or (6,) array
+        gt   : (6,)  array
+        """
+        pred = np.asarray(pred).reshape(-1)    # → (6,)
+        gt   = np.asarray(gt).reshape(-1)      # already (6,)
+
+        errvector = np.abs(pred - gt)          # (6,)
+        return errvector
+
 
 # -------------------------------------------------
 # Main – run timing benchmark on sample demo set
@@ -137,19 +158,112 @@ class ModelTester:
 if __name__ == "__main__":
     patcher = AutoPatcher()
     model_path  = Path(__file__).parent / "patchModel" / "models" / "HEKHUNTERv0_050.onnx"
-    data_path   = Path(__file__).parent / "patchModel" / "test_data" / "HEKHUNTER_inference_set.hdf5"
+    data_path   = Path(__file__).parent / "patchModel" / "test_data" / "HEKHUNTER_inference_set2.hdf5"
 
     session, in_names, out_names = patcher.load_model(str(model_path))
     tester = ModelTester(session, in_names, out_names, str(data_path))
 
     lat_ms = []
+    error = []
     for idx in range(len(tester.images)):
         t0 = time.perf_counter()
-        tester.run_inference(idx)
+        out =  tester.run_inference(idx)
         lat_ms.append((time.perf_counter() - t0) * 1_000)
+        if out is not None:
+            # print(f"Predicted action: {out}")
+            # print(f"Ground truth action: {tester.actions[idx]}")
+            error.append(tester.calculate_error(out, tester.actions[idx]))
+            # print(f"Error: {error[-1]}")
 
-    print(f"Inference over {len(lat_ms)} frames: "
+
+    print(f"Inference latency over {len(lat_ms)} frames: "
           f"mean = {statistics.mean(lat_ms):.2f} ms  |  sd = {statistics.stdev(lat_ms):.2f} ms")
-    print(f'Latency histogram:')
-    for i in range(0, 100, 10):
-        print(f"{i:3d} - {i+10:3d}: {len([x for x in lat_ms if i <= x < i+10]):4d}")
+    
+
+
+
+    # -------------------------------------------------
+    # Plot latency + pipette-axis error histograms
+    # -------------------------------------------------
+    # if error:
+    #     import numpy as np, matplotlib.pyplot as plt
+
+    #     err_arr  = np.stack(error)            # (N,6)
+    #     pip_ax   = [3, 4, 5]                  # indexes for pix, piy, pz
+    #     ax_names = ["pix", "piy", "pz"]
+    #     bin_w    = 0.005                       # error-bin width
+    #     lat_bin  = 1                          # latency-bin width in ms
+
+    #     fig, axs = plt.subplots(1, 4, figsize=(14, 3))
+    #     fig.suptitle("Latency and Pipette-Action Error Histograms")
+
+    #     # ---- latency (leftmost subplot) ----
+    #     axs[0].hist(lat_ms, bins=np.arange(0, max(lat_ms)+lat_bin, lat_bin))
+    #     axs[0].set_title("Latency (ms)")
+    #     axs[0].set_xlabel("ms")
+    #     axs[0].set_ylabel("count")
+
+    #     # ---- pipette actions ----
+    #     for ax_i, act_i in enumerate(pip_ax, start=1):
+    #         data = err_arr[:, act_i]
+    #         bins = np.arange(0, data.max() + bin_w, bin_w)
+    #         axs[ax_i].hist(data, bins=bins)
+    #         axs[ax_i].set_title(f"{ax_names[ax_i-1]} error")
+    #         axs[ax_i].set_xlabel("|pred – gt|")
+    #         axs[ax_i].set_ylabel("count")
+
+    #         # mean ± sd annotation
+    #         mu, sd = data.mean(), data.std()
+    #         axs[ax_i].text(0.95, 0.95,
+    #                        f"μ={mu:.4f}\nσ={sd:.4f}",
+    #                        transform=axs[ax_i].transAxes,
+    #                        ha="right", va="top",
+    #                        fontsize=8,
+    #                        bbox=dict(boxstyle="round", fc="white", ec="0.8"))
+
+    #     plt.tight_layout()
+    #     plt.show()
+
+
+    # ------------------------------------------------------------------
+    # Absolute pipette-axis errors + latency histogram
+    # ------------------------------------------------------------------
+    if error:
+        import numpy as np, matplotlib.pyplot as plt, math
+
+        err_arr  = np.stack(error)                 # (N,6)
+        pip_idx  = [3, 4, 5]                       # pix, piy, piz
+        axis_lbl = ["pix", "piy", "piz"]
+
+        # choose bin width automatically (10 bins between 0 and max err)
+        abs_max = err_arr[:, pip_idx].max()
+        bin_w   = abs_max / 20 if abs_max > 0 else 0.01
+        bins    = np.arange(0, abs_max + bin_w, bin_w)
+
+        fig, axs = plt.subplots(1, 4, figsize=(14, 3))
+        fig.suptitle("Latency and Absolute Pipette-Error Histograms")
+
+        # ---- latency ----
+        axs[0].hist(lat_ms, bins=np.arange(0, max(lat_ms)+5, 5))
+        axs[0].set_title("Latency (ms)")
+        axs[0].set_xlabel("ms")
+        axs[0].set_ylabel("count")
+
+        # ---- absolute errors ----
+        for j, name in enumerate(axis_lbl, start=1):
+            data = err_arr[:, pip_idx[j-1]]
+            axs[j].hist(data, bins=bins, edgecolor="k")
+            axs[j].set_title(f"{name} |pred – gt|")
+            axs[j].set_xlabel("absolute error")
+            axs[j].set_ylabel("count")
+
+            μ, σ = data.mean(), data.std()
+            axs[j].text(0.96, 0.95, f"μ={μ:.4f}\nσ={σ:.4f}",
+                        transform=axs[j].transAxes, ha="right", va="top",
+                        fontsize=8,
+                        bbox=dict(boxstyle="round", fc="white", ec="0.8"))
+
+        plt.tight_layout()
+        plt.show()
+
+

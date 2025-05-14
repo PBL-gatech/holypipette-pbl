@@ -1025,7 +1025,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_inference_set.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_inference_set2.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
@@ -1092,7 +1092,7 @@ if __name__ == '__main__':
     #     "2025_04_07-18_04"
     #  ] # completely manual HEK data with no overlays. (4/10/2025)
 
-    rig_recorder_data_folder_set =  ["2025_03_11-16_01"] # inference test data (3/11/2025)
+    rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
         
 
     datasetBuilder = DatasetBuilder(
