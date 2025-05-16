@@ -204,19 +204,20 @@ class ModelTester:
         pred = np.asarray(pred).reshape(-1)    # → (6,)
         gt   = np.asarray(gt).reshape(-1)      # already (6,)
 
-        errvector = np.abs(pred - gt)          # (6,)
+        errvector = (pred - gt)          # (6,)
         return errvector
+    
 
 
 if __name__ == "__main__":
     patcher = AutoPatcher()
-    model_path  = Path(__file__).parent / "patchModel" / "models" / "HEKHUNTERv0_050.onnx"
-    data_path   = Path(__file__).parent / "patchModel" / "test_data" / "HEKHUNTER_inference_set2.hdf5"
+    model_path  = Path(__file__).parent / "patchModel" / "models" / "HEKHUNTERv0_100.onnx"
+    data_path   = Path(__file__).parent / "patchModel" / "test_data" / "HEKHUNTER_inference_set.hdf5"
 
     session, in_names, out_names = patcher.load_model(str(model_path))
     
     # Only this line is changed to enable prefill:
-    tester = ModelTester(session, in_names, out_names, str(data_path), prefill_init=False)
+    tester = ModelTester(session, in_names, out_names, str(data_path), prefill_init=True)
 
     lat_ms = []
     error = []
@@ -227,37 +228,123 @@ if __name__ == "__main__":
         if out is not None:
             error.append(tester.calculate_error(out, tester.actions[idx]))
 
-    print(f"Inference latency over {len(lat_ms)} frames: "
-          f"mean = {statistics.mean(lat_ms):.2f} ms  |  sd = {statistics.stdev(lat_ms):.2f} ms")
+    # print(f"Inference latency over {len(lat_ms)} frames: "
+    #       f"mean = {statistics.mean(lat_ms):.2f} ms  |  sd = {statistics.stdev(lat_ms):.2f} ms")
+    
+    # do stand alone latency plot by itself
+    # if len(lat_ms) > 0:
+    #     import matplotlib.pyplot as plt
+    #     plt.figure(figsize=(10, 4))
+    #     plt.plot(lat_ms)
+    #     plt.title("Latency over time")
+    #     plt.xlabel("Frame Index")
+    #     plt.ylabel("Latency (ms)")
+    #     plt.show()
 
-    if error:
-        import numpy as np, matplotlib.pyplot as plt, math
-        err_arr  = np.stack(error)                 # (N,6)
-        pip_idx  = [3, 4, 5]                       # pix, piy, piz
-        axis_lbl = ["pix", "piy", "piz"]
-        abs_max = err_arr[:, pip_idx].max()
-        bin_w   = abs_max / 20 if abs_max > 0 else 0.01
-        bins    = np.arange(0, abs_max + bin_w, bin_w)
+    # also do stand alone latency histogram
+    # if len(lat_ms) > 0:
+    #     import matplotlib.pyplot as plt
+    #     plt.figure(figsize=(10, 4))
+    #     plt.hist(lat_ms, bins=np.arange(0, max(lat_ms)+5, 5))
+    #     plt.title("Latency Histogram")
+    #     plt.xlabel("Latency (ms)")
+    #     plt.ylabel("Count")
+    #     plt.show()
 
-        fig, axs = plt.subplots(1, 4, figsize=(14, 3))
-        fig.suptitle("Latency and Absolute Pipette-Error Histograms")
-        axs[0].hist(lat_ms, bins=np.arange(0, max(lat_ms)+5, 5))
-        axs[0].set_title("Latency (ms)")
-        axs[0].set_xlabel("ms")
-        axs[0].set_ylabel("count")
 
-        for j, name in enumerate(axis_lbl, start=1):
-            data = err_arr[:, pip_idx[j-1]]
-            axs[j].hist(data, bins=bins, edgecolor="k")
-            axs[j].set_title(f"{name} |pred – gt|")
-            axs[j].set_xlabel("absolute error")
-            axs[j].set_ylabel("count")
-            
-            μ, σ = data.mean(), data.std()
-            axs[j].text(0.96, 0.95, f"μ={μ:.4f}\nσ={σ:.4f}",
-                        transform=axs[j].transAxes, ha="right", va="top",
-                        fontsize=8,
-                        bbox=dict(boxstyle="round", fc="white", ec="0.8"))
+    # Plot error time course
+    # if error:
+    #     err_arr_tc = np.stack(error)  # (N,6)
+    #     cumulative_err = np.cumsum(err_arr_tc, axis=0)
+    #     fig2, ax2 = plt.subplots(figsize=(10, 4))
+    #     labels = ["pip_x", "pip_y", "pip_z"]
+    #     colors = ["black", "darkblue", "darkred"]
+    #     # Plot cumulative error for pipette axes (indices 3,4,5) with specified colors
+    #     for idx, lbl, color in zip([3, 4, 5], labels, colors):
+    #         ax2.plot(cumulative_err[:, idx], label=lbl, color=color)
+    #     ax2.set_title("Cumulative Error Time Course for Pipette Axes")
+    #     ax2.set_xlabel("Frame Index")
+    #     ax2.set_ylabel("Cumulative Absolute Error")
+    #     ax2.legend()
+    #     plt.tight_layout()
+    #     plt.show()
 
-        plt.tight_layout()
+        # 3D plot of cumulative pipette error trajectory
+        # if error:
+        #     err_arr_tc = np.stack(error)  # (n,6)
+        #     cumulative_err = np.cumsum(err_arr_tc, axis=0)
+        #     pip_cum_err = cumulative_err[:, 3:6]  # (n,3)
+        #     from mpl_toolkits.mplot3d import Axes3D
+        #     fig3 = plt.figure(figsize=(10, 8))
+        #     ax3 = fig3.add_subplot(111, projection='3d')
+        #     time_steps = np.arange(pip_cum_err.shape[0])
+        #     cmap = plt.cm.viridis
+        #     colors = cmap(time_steps / pip_cum_err.shape[0])
+        #     ax3.scatter(pip_cum_err[:, 0], pip_cum_err[:, 1], pip_cum_err[:, 2], c=colors, marker='o', s=15)
+        #     ax3.set_title('3D Cumulative Pipette Error Trajectory')
+        #     ax3.set_xlabel('Cumulative Error X')
+        #     ax3.set_ylabel('Cumulative Error Y')
+        #     ax3.set_zlabel('Cumulative Error Z')
+        #     mappable = plt.cm.ScalarMappable(cmap=cmap)
+        #     mappable.set_array([])
+        #     cbar = plt.colorbar(mappable, ax=ax3, pad=0.1, shrink=0.6)
+        #     cbar.set_label('Time steps')
+        #     plt.show()
+
+# 3D plot showing GT and predicted pipette positions, just like above plot, need two different colorimetric time axes
+        pred_pipette_positions = tester.pipette_positions
+        gt_pipette_positions = tester.actions[:, 3:6]
+        fig4 = plt.figure(figsize=(10, 8))
+        ax4 = fig4.add_subplot(111, projection='3d')
+        time_steps = np.arange(pred_pipette_positions.shape[0])
+        # Use two perceptually distinct colormaps with minimal overlap
+        cmap1 = plt.cm.Blues
+        cmap2 = plt.cm.Oranges
+        colors_pred = cmap1(time_steps / pred_pipette_positions.shape[0])
+        colors_gt = cmap2(time_steps / gt_pipette_positions.shape[0])
+        ax4.scatter(pred_pipette_positions[:, 0], pred_pipette_positions[:, 1], pred_pipette_positions[:, 2], c=colors_pred, marker='o', s=15, label='Predicted Pipette Positions')
+        ax4.scatter(gt_pipette_positions[:, 0], gt_pipette_positions[:, 1], gt_pipette_positions[:, 2], c=colors_gt, marker='o', s=15, label='GT Pipette Positions')    
+        ax4.set_title('3D Pipette Position Trajectory')
+        ax4.set_xlabel('Pipette Position X')
+        ax4.set_ylabel('Pipette Position Y')
+        ax4.set_zlabel('Pipette Position Z')
+        mappable_pred = plt.cm.ScalarMappable(cmap=cmap1)
+        mappable_pred.set_array([])
+        cbar_pred = plt.colorbar(mappable_pred, ax=ax4, pad=0.1, shrink=0.6)
+        cbar_pred.set_label('Time steps (Predicted)')
+        mappable_gt = plt.cm.ScalarMappable(cmap=cmap2)
+        mappable_gt.set_array([])
+        cbar_gt = plt.colorbar(mappable_gt, ax=ax4, pad=0.1, shrink=0.6)
+        cbar_gt.set_label('Time steps (GT)')
+        ax4.legend()
         plt.show()
+
+
+
+
+
+        # Sum the per-frame error vectors and display cumulative error for pipette axes as bar charts.
+        # if error:
+            # error_array = np.stack(error)  # shape (n,6)
+            # cumulative_error = np.sum(error_array, axis=0)
+            # # Extract cumulative error for pipette axes (indices 3,4,5: x, y, z)
+            # pip_indices = [3, 4, 5]
+            # pip_labels  = ["pip_x", "pip_y", "pip_z"]
+            # pip_errors  = cumulative_error[pip_indices]
+            # colors      = ["black", "darkblue", "darkred"]
+
+            # import matplotlib.pyplot as plt
+            # plt.figure(figsize=(6,4))
+            # plt.bar(pip_labels, pip_errors, color=colors)
+            # plt.title("Cumulative Absolute Error for Pipette Axes")
+            # plt.xlabel("Pipette Axes")
+            # plt.ylabel("Cumulative Absolute Error")
+            # plt.show()
+            # Print raw predicted actions and ground truth actions
+        print("Predicted actions (first 10):")
+        for i, e in enumerate(error[:10]):
+            print(f"Frame {i}: Predicted {tester.actions[i]}, GT {tester.actions[i] - e}")
+
+        print("\nGround truth actions (first 10):")
+        for i in range(10):
+            print(f"Frame {i}: {tester.actions[i]}")
