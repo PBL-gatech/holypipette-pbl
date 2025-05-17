@@ -1,7 +1,10 @@
 import os
 import numpy as np
 import torch
-import torch_directml
+try:
+    import torch_directml
+except ImportError:  # pragma: no cover - optional dependency
+    torch_directml = None
 import matplotlib.pyplot as plt
 import cv2
 import sys
@@ -207,8 +210,8 @@ class CellSegmentor2:
                 self.device = torch.device("cuda")
             elif torch.backends.mps.is_available():
                 self.device = torch.device("mps")
-            elif torch_directml.is_available():
-                self.device = device = torch_directml.device(torch_directml.default_device())
+            elif torch_directml and torch_directml.is_available():
+                self.device = torch_directml.device(torch_directml.default_device())
             else:
                 self.device = torch.device("cpu")
         else:
