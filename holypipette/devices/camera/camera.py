@@ -12,6 +12,8 @@ import time
 import threading
 import imageio
 import logging
+from holypipette.deepLearning.cellSegmentor import CellSegmentor2
+from holypipette.deepLearning.pipetteFinder import PipetteFinder
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -133,7 +135,6 @@ class AcquisitionThread(threading.Thread):
             except Exception as ex:
                 print('something went wrong acquiring an image, waiting for 100ms: ')
                 traceback.print_exception(type(ex), ex, ex.__traceback__)
-
                 time.sleep(.1)
                 continue
             # Put image into queues for disk storage and display
@@ -183,6 +184,11 @@ class Camera(object):
         self.last_frame_time = None
         self.fps = 0
 
+        self.Cellseg = CellSegmentor2()
+        self.pipdetector = PipetteFinder()
+        # testing flag
+        
+
     def show_point(self, point, color=(255, 0, 0), radius=10, duration=1.5, show_center=False):
         self.point_to_show = [point, radius, color, show_center]
         self.stop_show_time = time.time() + duration
@@ -215,26 +221,79 @@ class Camera(object):
     def flip(self):
         self.flipped = not self.flipped
 
+
+    def segment(self, img, cell, label):
+
+        mask = self.Cellseg.segment(image = img, input_point = cell, input_label = label)
+        # print("mask shape: ", mask.shape)
+        return mask
+    
+    def mask_test(self, mask,cell,img):
+        if mask is not None:
+            # save the image to a directory once for each unique cell coordinates
+            mask_dir = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\mask_images'
+            if not os.path.exists(mask_dir):
+                os.makedirs(mask_dir)
+            filename = f'mask_cell_{cell[0]}_{cell[1]}.png'
+            filepath = os.path.join(mask_dir, filename)
+            if not os.path.exists(filepath):
+                cv2.imwrite(filepath, mask * 255)  # multiply by 255 to convert boolean mask to visible image
+            filename = f'raw_{cell[0]}_{cell[1]}.png'
+            filepath = os.path.join(mask_dir, filename)
+            if not os.path.exists(filepath):
+                cv2.imwrite(filepath, img)
+
+    # def inpaint(self, img, mask):
+
     def preprocess(self, input_img):
-        # isGreyscale = len(input_img.shape) == 2
-        # ? why? because our images are grayscale. the line below makes images ~3x larger
-        # img = cv2.cvtColor(input_img.copy(), cv2.COLOR_GRAY2RGB) if isGreyscale else input_img.copy()
         img = input_img.copy()
 
+        # Draw pipette location if needed.
         if self.point_to_show and time.time() - self.stop_show_time < 0:
             img = cv2.circle(img, self.point_to_show[0], self.point_to_show[1], self.point_to_show[2], 3)
             if self.point_to_show[3]:
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
 
+        # # Process each cell's segmentation.
+        # for cell_coords, cell_img in self.cell_list:
+        #     # cell_coords is assumed to be a 2D coordinate [x, y] in full-image space.
+        #     x, y = cell_coords[0], cell_coords[1]
+        #     if not (0 <= x < self.width and 0 <= y < self.height):
+        #         continue  # Skip if the cell is offscreen.
+        #     final_mask = None
+        #     if final_mask is None:
+        #         if len(img.shape) == 2 or (len(img.shape) == 3 and img.shape[2] == 1):
+        #             rgbimg = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        #         else:
+        #             rgbimg = img
 
-        # draw cell outlines
-        for cell in self.cell_list:
-            img = cv2.circle(img, cell, 10, (0, 255, 0), 3)
+        #         # Convert rgbimg to float32 and normalize if needed.
+        #         if rgbimg.dtype != np.float32:
+        #             rgbimg = rgbimg.astype(np.float32) / 255.0
+
+        #         cell_point_full = np.array(cell_coords, dtype=np.float32).reshape(1, 2)
+        #         label_full = np.array([1], dtype=np.int32)
+        #         mask = self.segment(rgbimg, cell_point_full, label_full)
+        #     else:
+        #         mask = final_mask
+
+        #     if mask is not None:
+        #         if mask.dtype != np.uint8:
+        #             mask = mask.astype(np.uint8)
+        #         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        #         total_area = sum(cv2.contourArea(c) for c in contours)
+        #         image_area = self.width * self.height
+
+        #         # Skip drawing if the mask area is too large.
+        #         if total_area > 0.03 * image_area:
+        #             continue
+
+        #         # cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
+        #         # img = cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), 1)
 
         if self.flipped:
             img = img[:, ::-1]
-            # ? uncomment below for rgb images
-            # img = img[:, ::-1] if isGreyscale else img[:, ::-1, :]
 
         return img
 

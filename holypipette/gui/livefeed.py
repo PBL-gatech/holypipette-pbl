@@ -55,7 +55,7 @@ class LiveFeedQt(QtWidgets.QLabel):
 
         timer = QtCore.QTimer(self)
         timer.timeout.connect(self.update_image)
-        timer.start(28) # 30 fps -> 31.5fps
+        timer.start(33) # 30 fps -> 31.5fps
         # timer.start(16) # 60 fps --> but actually 64 fps
         # timer.start(33) # 30 fps --> but avctually 21.5 fps
 

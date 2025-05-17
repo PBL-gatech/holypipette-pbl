@@ -51,7 +51,7 @@ class TaskController(LoggingObject):
         # Overwrite the logging functions so that they check for `abort_requested`
         self.debug = check_for_abort(self, self.debug)
         self.info = check_for_abort(self, self.info)
-        self.warn = check_for_abort(self, self.warn)
+        self.warning = check_for_abort(self, self.warning)
 
     def abort_if_requested(self):
         """

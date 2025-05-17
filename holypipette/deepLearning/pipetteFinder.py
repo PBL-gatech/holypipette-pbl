@@ -7,7 +7,9 @@ class PipetteFinder():
 
 	def __init__(self):
 		curFile = str(Path(__file__).parent.absolute())
-		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipetteFinderNetnano2.onnx')
+		self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipetteFinderNetnano2.onnx') #real pipette
+		# self.yoloNet = cv2.dnn.readNetFromONNX(curFile + '/pipetteModel/pipette-nano.onnx') # fake pipette
+
 
 		layer_names = self.yoloNet.getLayerNames()
 		self.output_layers = [layer_names[i-1] for i in self.yoloNet.getUnconnectedOutLayers()]
@@ -18,6 +20,7 @@ class PipetteFinder():
 		''' return the x and y position (in pixels) of the pipette in the given image using a YOLO object detection model
 			or None if there is no detected pipette in the image
 		'''
+		# print('finding pipette...')
 
 		if len(img.shape) == 2:
 			#neural net expects color image, convert to color

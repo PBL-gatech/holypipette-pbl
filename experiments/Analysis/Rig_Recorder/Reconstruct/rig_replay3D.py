@@ -255,21 +255,15 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
         self.addItem(self.stage_mesh)
 
         # Create Pipette as a rotated cylinder
-        pipette_vertices, pipette_faces = create_cylinder_mesh(radius=0.2, height=3.0, sectors=32)  # Adjust radius and height as needed
-
- 
+        pipette_vertices, pipette_faces = create_cylinder_mesh(radius=0.2, height=3.0, sectors=32)
         # Rotate 25 degrees with respect to the XY plane (i.e., 65 degrees away from the Z-axis)
-        # This can be achieved by rotating around the X-axis by 25 degrees
-        pipette_vertices = rotate_vertices(pipette_vertices, 65, 'y')  # Rotate 45 degrees around Z-axis
+        pipette_vertices = rotate_vertices(pipette_vertices, 65, 'y')
         self.pipette_mesh = gl.GLMeshItem(vertexes=pipette_vertices, faces=pipette_faces,
                                          smooth=True, color=(0, 0, 1, 1), shader='shaded', drawEdges=False)
-        # make the bottom of the pipette at the origin
-        # calculate vector of bottom of pipette from center of pipette
+        # Adjust pipette position so that its bottom is at the origin
         pipette_change = np.array([3.0 * np.cos(np.radians(65)), 0, 0])
-        # move the pipette to the origin
         self.pipette_mesh.translate(*pipette_change)
         pipette_change = np.array([3.0 * (np.cos(np.radians(65))-np.sin(np.radians(65))), 0, 0])
-        # move the pipette to the origin
         self.pipette_mesh.translate(*pipette_change)
         self.addItem(self.pipette_mesh)
 
@@ -348,38 +342,60 @@ class DataManager:
         self.movement_data.clear()
         try:
             with open(file_path, mode='r') as file:
-                reader = csv.reader(file, delimiter=' ')
-                for line in reader:
-                    # Split by spaces and filter out empty strings
-                    parts = [part for part in line if part]
+                first_line = file.readline().strip()
+                # New format detection: if semicolons are present and header contains "timestamp"
+                if ';' in first_line and 'timestamp' in first_line.lower():
+                    file.seek(0)
+                    reader = csv.DictReader(file, delimiter=';')
+                    for row in reader:
+                        try:
+                            time_value = float(row['timestamp'])
+                            st_x = float(row['st_x']) * self.scaling_factor
+                            st_y = float(row['st_y']) * self.scaling_factor
+                            st_z = float(row['st_z']) * self.scaling_factor
+                            pi_x = float(row['pi_x']) * self.scaling_factor
+                            pi_y = float(row['pi_y']) * self.scaling_factor
+                            pi_z = float(row['pi_z']) * self.scaling_factor
 
-                    if len(parts) < 7:
-                        continue  # Skip invalid lines
+                            self.movement_data.append({
+                                'time': time_value,
+                                'microscope_z': -(st_z),
+                                'stage': (-st_x, -st_y),
+                                'pipette': (-pi_x, -pi_y, -(pi_z - 1.365))
+                            })
+                        except Exception:
+                            continue
+                else:
+                    # Assume old format with space-delimited values and colon-split key-value pairs
+                    file.seek(0)
+                    reader = csv.reader(file, delimiter=' ')
+                    for line in reader:
+                        parts = [part for part in line if part]
+                        if len(parts) < 7:
+                            continue  # Skip invalid lines
+                        try:
+                            time_value = float(parts[0].split(':')[1])
+                            st_x = float(parts[1].split(':')[1]) * self.scaling_factor
+                            st_y = float(parts[2].split(':')[1]) * self.scaling_factor
+                            st_z = float(parts[3].split(':')[1]) * self.scaling_factor
+                            pi_x = float(parts[4].split(':')[1]) * self.scaling_factor
+                            pi_y = float(parts[5].split(':')[1]) * self.scaling_factor
+                            pi_z = float(parts[6].split(':')[1]) * self.scaling_factor
 
-                    try:
-                        time_value = float(parts[0].split(':')[1])
-                        st_x = float(parts[1].split(':')[1]) * self.scaling_factor
-                        st_y = float(parts[2].split(':')[1]) * self.scaling_factor
-                        st_z = float(parts[3].split(':')[1]) * self.scaling_factor  # Microscope Z
-                        pi_x = float(parts[4].split(':')[1]) * self.scaling_factor
-                        pi_y = float(parts[5].split(':')[1]) * self.scaling_factor
-                        pi_z = float(parts[6].split(':')[1]) * self.scaling_factor
-
-                        self.movement_data.append({
-                            'time': time_value,
-                            'microscope_z': -(st_z),       # Correctly map to microscope_z
-                            'stage': (-st_x, -st_y),      # Only X and Y for stage
-                            'pipette': (-pi_x, -pi_y, -(pi_z - 1.365))
-                        })
-                    except (IndexError, ValueError):
-                        continue  # Skip lines with parsing errors
+                            self.movement_data.append({
+                                'time': time_value,
+                                'microscope_z': -(st_z),
+                                'stage': (-st_x, -st_y),
+                                'pipette': (-pi_x, -pi_y, -(pi_z - 1.365))
+                            })
+                        except Exception:
+                            continue
 
             if not self.movement_data:
                 raise ValueError("No valid movement data found in the selected file.")
 
             # Sort movement data by time
             self.movement_data.sort(key=lambda x: x['time'])
-
             # Align movement data's time with image data's time
             if self.timestamps:
                 initial_image_time = self.timestamps[0]
@@ -420,37 +436,61 @@ class DataManager:
         self.graph_data.clear()
         try:
             with open(file_path, mode='r') as file:
-                for line in file:
-                    parts = [part for part in line.strip().split(':') if part]
+                first_line = file.readline().strip()
+                # New format detection: if semicolons are present and header contains "timestamp"
+                if ';' in first_line and 'timestamp' in first_line.lower():
+                    file.seek(0)
+                    reader = csv.DictReader(file, delimiter=';')
+                    for row in reader:
+                        try:
+                            time_value = float(row['timestamp'])
+                            pressure_value = float(row['pressure'])
+                            resistance_value = float(row['resistance'])
+                            # Parse list values for current and voltage
+                            current_str = row['current'].strip()
+                            if current_str.startswith('[') and current_str.endswith(']'):
+                                current_str = current_str[1:-1]
+                            current_value = [float(x) for x in current_str.split(',') if x.strip() != '']
 
-                    if len(parts) < 6:
-                        continue  # Skip invalid lines
+                            voltage_str = row['voltage'].strip()
+                            if voltage_str.startswith('[') and voltage_str.endswith(']'):
+                                voltage_str = voltage_str[1:-1]
+                            voltage_value = [float(x) for x in voltage_str.split(',') if x.strip() != '']
 
-                    try:
-                        time_value = float(parts[1].split(' ')[0])
-                        pressure_value = float(parts[2].split(' ')[0])
-                        resistance_value = float(parts[3].split(' ')[0])
+                            self.graph_data.append({
+                                'time': time_value,
+                                'pressure': pressure_value,
+                                'resistance': resistance_value,
+                                'current': current_value,
+                                'voltage': voltage_value
+                            })
+                        except Exception:
+                            continue
+                else:
+                    # Assume old format with colon-separated values
+                    file.seek(0)
+                    for line in file:
+                        parts = [part for part in line.strip().split(':') if part]
+                        if len(parts) < 6:
+                            continue  # Skip invalid lines
+                        try:
+                            time_value = float(parts[1].split(' ')[0])
+                            pressure_value = float(parts[2].split(' ')[0])
+                            resistance_value = float(parts[3].split(' ')[0])
+                            current_data = parts[4].split('[')[-1].split(']')[0]
+                            current_value = [float(x) for x in current_data.split(',') if x]
+                            voltage_data = parts[5].split('[')[-1].split(']')[0]
+                            voltage_value = [float(x) for x in voltage_data.split(',') if x]
+                            self.graph_data.append({
+                                'time': time_value,
+                                'pressure': pressure_value,
+                                'resistance': resistance_value,
+                                'current': current_value,
+                                'voltage': voltage_value
+                            })
+                        except Exception:
+                            continue
 
-                        current_data = parts[4].split('[')[-1].split(']')[0]
-                        current_value = [float(x) for x in current_data.split(',') if x]
-
-                        voltage_data = parts[5].split('[')[-1].split(']')[0]
-                        voltage_value = [float(x) for x in voltage_data.split(',') if x]
-
-                        row_data = {
-                            'time': time_value,
-                            'pressure': pressure_value,
-                            'resistance': resistance_value,
-                            'current': current_value,
-                            'voltage': voltage_value
-                        }
-
-                        self.graph_data.append(row_data)
-
-                    except (IndexError, ValueError):
-                        continue  # Skip lines with parsing errors
-
-            # Sort graph data by time
             self.graph_data.sort(key=lambda x: x['time'])
 
         except Exception as e:
@@ -888,7 +928,6 @@ class IntegratedTimeline(QMainWindow):
 
         # Retrieve the closest movement data entry based on current_timestamp
         movement_entry = self.data_manager.get_closest_movement_entry(current_timestamp)
-
 
         if movement_entry:
             time = movement_entry['time']
