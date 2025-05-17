@@ -1,15 +1,14 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='holypipette',
+    name='HolyPipette-PBL',
     version='0.1',
-    description='Semi-automated patch clamp recordings',
+    description='Deep Learning guided Automated Patch Clamp Electrophysiology System',
     url='https://github.com/romainbrette/holypipette/',
-    author='Romain Brette, Marcel Stimberg, Hoang Nguyen',
-    author_email='romain.brette@inserm.fr',
+    author='Benjamin Magondu, Nathan Malta, Kaden StillWagon, Victor Guyard',
+    author_email='bmagondu3@gatech.edu',
     classifiers=[
         'Development Status :: 3 - Alpha',
-        'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 3',
     ],
     packages=find_packages(),
