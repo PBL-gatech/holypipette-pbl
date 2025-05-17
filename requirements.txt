@@ -102,6 +102,7 @@ timm==1.0.13
 torch==2.5.1+cu124
 torchaudio==2.5.1+cu124
 torchvision==0.20.1
+torch-directml  # Enables AMD GPU acceleration via DirectML
 tornado @ file:///D:/bld/tornado_1732615900055/work
 tqdm==4.67.1
 traitlets @ file:///home/conda/feedstock_root/build_artifacts/traitlets_1733367359838/work
