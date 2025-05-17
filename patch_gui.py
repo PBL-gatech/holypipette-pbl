@@ -7,13 +7,13 @@ import atexit
 import sys
 from PyQt5.QtWidgets import QApplication
 import traceback
-from holypipette.exception_handler import set_global_exception_hook
+from holypipette.utils.exception_handler import set_global_exception_hook
 
 # Set the global exception hook
 set_global_exception_hook()
 
 
-from holypipette.log_utils import setup_logging
+from holypipette.utils.log_utils import setup_logging
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface

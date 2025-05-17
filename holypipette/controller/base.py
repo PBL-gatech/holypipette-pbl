@@ -4,7 +4,7 @@ Module defining the `TaskController` class.
 import functools
 import time
 
-from holypipette.log_utils import LoggingObject
+from holypipette.utils.log_utils import LoggingObject
 
 
 class RequestedAbortException(Exception):
