@@ -31,7 +31,7 @@ __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
 verbose = True
 
 ##### Calibration parameters #####
-from holypipette.config import Config, NumberWithUnit, Number, Boolean
+from holypipette.utils.config import Config, NumberWithUnit, Number, Boolean
 
 
 class CalibrationConfig(Config):

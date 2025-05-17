@@ -11,7 +11,7 @@ from types import MethodType
 from PyQt5 import QtCore
 
 from holypipette.controller import TaskController, RequestedAbortException
-from holypipette.log_utils import LoggingObject
+from holypipette.utils.log_utils import LoggingObject
 
 
 def command(category, description, default_arg=None, success_message=None):
