@@ -361,9 +361,11 @@ class EPhysGraph(QWidget):
         pressure = self.graph_interface.get_last_pressure()
         if pressure is not None:
             pressure = int(pressure)
-        else: 
+        else:
+            # When running with a fake rig there might not yet be
+            # any pressure measurements.  Avoid raising an exception
+            # and simply display 0 mbar until data is available.
             pressure = 0
-            raise ValueError("No pressure data available")
         pressure_set = int(self.graph_interface.get_pressure())
         if pressure is not None:
             self.pressureData.append(pressure)

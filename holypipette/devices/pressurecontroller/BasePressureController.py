@@ -137,6 +137,11 @@ class FakePressureController(PressureController):
     def __init__(self):
         super(FakePressureController, self).__init__()
         self.pressure = 0
+        # Start the acquisition thread automatically so that
+        # ``get_last_acquisition`` returns values when used in the
+        # fake rig setup.  Without this the GUI raises an exception
+        # because no pressure measurements are available.
+        self.start_acquisition()
 
     def measure(self, port=0):
         """
