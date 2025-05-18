@@ -1006,7 +1006,9 @@ class ConfigGui(QtWidgets.QWidget):
         self.save_button.setIcon(qta.icon('fa.download'))
         top_row.addWidget(self.save_button)
         layout.addLayout(top_row)
-        all_params = config.param.params()
+        # ``params`` has been deprecated in ``param``; use ``param`` directly
+        # which behaves like a dictionary mapping parameter names to objects.
+        all_params = config.param
         self.value_widgets = {}
         for category, params in config.categories:
             box = QtWidgets.QGroupBox(category)
@@ -1064,7 +1066,9 @@ class ConfigGui(QtWidgets.QWidget):
         if key not in self.value_widgets:
             return
 
-        param_obj  = self.config.param.params()[key]
+        # Access parameter objects via ``param`` to avoid using the deprecated
+        # ``params`` method
+        param_obj  = self.config.param[key]
         magnitude  = getattr(param_obj, 'magnitude', 1)
 
         # Only scale numeric values; leave strings / bools intact
