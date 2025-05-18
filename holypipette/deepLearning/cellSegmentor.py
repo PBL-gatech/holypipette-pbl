@@ -403,7 +403,204 @@ class CellSegmentor2:
             # use box predict method
             masks, scores = self.predict_mask_box(input_box, multimask_output)
             return masks[0]
-        
+
+import os
+import numpy as np
+import onnxruntime as ort
+import cv2
+import matplotlib.pyplot as plt
+
+class CellSegmentor3:
+    def __init__(
+        self,
+        encoder_path: str = None,
+        decoder_path: str = None,
+        device: str = "cuda",
+    ):
+        """
+        Initialize the ONNX-based SAM2 segmentor.
+        If no paths are provided, defaults to the cellModel/sam2/onnx folder.
+        Args:
+            encoder_path: path to sam2.1_tiny_preprocess.onnx
+            decoder_path: path to sam2.1_tiny.onnx
+            device: 'cpu' or 'cuda'
+        """
+        # Determine default paths
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        repo_root = os.path.abspath(os.path.join(current_dir, '..'))
+        default_dir = os.path.join(
+            repo_root,
+            'deepLearning',
+            'cellModel'
+        )
+
+        # Use provided paths or fall back to defaults
+        if encoder_path is None:
+            encoder_path = os.path.join(default_dir, 'sam2.1_tiny_preprocess.onnx')
+        if decoder_path is None:
+            decoder_path = os.path.join(default_dir, 'sam2.1_tiny.onnx')
+
+        self.encoder_path = encoder_path
+        self.decoder_path = decoder_path
+        self.device = device
+
+        # Configure ONNX Runtime providers
+        providers = (
+            ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            if device == "cuda"
+            else ['CPUExecutionProvider']
+        )
+
+        # Load ONNX sessions
+        self.enc_session = ort.InferenceSession(self.encoder_path, providers=providers)
+        self.dec_session = ort.InferenceSession(self.decoder_path, providers=providers)
+
+        self.image = None
+        self.embedding = None
+
+
+    def load_image(self, image_path=None, image=None):
+        """
+        Load image from disk or use provided numpy array.
+        Converts BGR to RGB and resizes/pads to 1024x1024.
+        """
+        if image_path:
+            img = cv2.imread(image_path)
+            if img is None:
+                raise FileNotFoundError(f"Unable to load image: {image_path}")
+        elif image is not None:
+            img = image.copy()
+        else:
+            raise ValueError("Provide image_path or image array.")
+
+        # Convert to RGB
+        if img.ndim == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # Resize and pad to 1024x1024
+        h, w = img_rgb.shape[:2]
+        scale = 1024 / max(h, w)
+        new_h, new_w = int(h * scale), int(w * scale)
+        resized = cv2.resize(img_rgb, (new_w, new_h))
+        canvas = np.zeros((1024, 1024, 3), dtype=np.uint8)
+        canvas[:new_h, :new_w] = resized
+        self.image = canvas.astype(np.float32) / 255.0  # normalize to [0,1]
+
+    def set_image(self):
+        """
+        Runs encoder to compute embeddings.
+        """
+        if self.image is None:
+            raise ValueError("No image loaded")
+        inp = self.image.transpose(2, 0, 1)[None].astype(np.float32)
+        self.embedding = self.enc_session.run(None, {"images": inp})[0]
+
+    def predict_mask(
+        self,
+        input_point: np.ndarray = None,
+        input_label: np.ndarray = None,
+        input_box: np.ndarray = None,
+        multimask_output: bool = True,
+    ):
+        """
+        Run decoder with the given prompts.
+        Accepts either point prompts or a single box prompt.
+        """
+        if self.embedding is None:
+            raise ValueError("Call set_image() first")
+
+        inputs = {"embeddings": self.embedding}
+        if input_point is not None and input_label is not None:
+            inputs["point_coords"] = input_point.astype(np.float32)[None]
+            inputs["point_labels"] = input_label.astype(np.float32)[None]
+        if input_box is not None:
+            inputs["box"] = input_box.astype(np.float32)[None]
+
+        outputs = self.dec_session.run(None, inputs)
+        masks, scores = outputs[0], outputs[1]
+        return masks, scores
+
+    def predict_mask_box(self, input_box: np.ndarray, multimask_output: bool = True):
+        """
+        Convenience wrapper around predict_mask for box prompts.
+        """
+        return self.predict_mask(input_box=input_box, multimask_output=multimask_output)
+
+    def single_prediction(self, input_point, input_label):
+        masks, scores = self.predict_mask(input_point=input_point, input_label=input_label, multimask_output=False)
+        return masks[0]
+
+    def show_image(self):
+        if self.image is None:
+            raise ValueError("No image to show")
+        plt.figure(figsize=(8,8)); plt.imshow(self.image); plt.axis('off'); plt.show()
+
+    def show_mask(self, mask, ax=None, alpha=0.6, borders=True):
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8,8))
+        color = np.array([1, 0, 0, alpha])
+        h, w = mask.shape[-2:]
+        mask_img = mask[0] if mask.ndim == 3 else mask
+        overlay = mask_img.reshape(h, w, 1) * color.reshape(1,1,4)
+        ax.imshow(self.image)
+        ax.imshow(overlay)
+        if borders:
+            cnts, _ = cv2.findContours(mask_img.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            for c in cnts:
+                ax.plot(c[:,0,0], c[:,0,1], color='white', linewidth=2)
+        ax.axis('off')
+
+    def show_points(self, coords, labels, ax, marker_size=100):
+        pos = coords[labels==1]; neg = coords[labels==0]
+        ax.scatter(pos[:,0], pos[:,1], c='green', s=marker_size, edgecolor='white')
+        ax.scatter(neg[:,0], neg[:,1], c='red', s=marker_size, edgecolor='white')
+
+    def show_box(self, box, ax):
+        x0,y0,x1,y1 = box
+        ax.add_patch(plt.Rectangle((x0,y0), x1-x0, y1-y0, fill=False, edgecolor='green', lw=2))
+
+    def visualize_prediction(
+        self,
+        input_point=None,
+        input_label=None,
+        input_box=None,
+        multimask_output=False,
+        borders=True,
+    ):
+        masks, scores = self.predict_mask(input_point=input_point, input_label=input_label,
+                                         input_box=input_box, multimask_output=multimask_output)
+        for i, (mask, score) in enumerate(zip(masks, scores)):
+            fig, ax = plt.subplots(figsize=(8,8))
+            self.show_mask(mask, ax=ax, borders=borders)
+            if input_point is not None:
+                self.show_points(input_point, input_label, ax)
+            if input_box is not None:
+                self.show_box(input_box, ax)
+            ax.set_title(f"Mask {i+1}, Score: {score:.3f}")
+            plt.show()
+
+    def segment(
+        self,
+        image=None,
+        input_point=None,
+        input_label=None,
+        input_box=None,
+        multimask_output=False,
+    ):
+        if image is not None:
+            self.load_image(image=image)
+            self.set_image()
+        if input_point is not None:
+            return self.single_prediction(input_point, input_label)
+        if input_box is not None:
+            masks, _ = self.predict_mask(input_box=input_box, multimask_output=multimask_output)
+            return masks[0]
+        raise ValueError("Provide input_point or input_box.")
+
+
+
+
+
 import sys, time
 import numpy as np
 import cv2
@@ -437,7 +634,7 @@ class CameraWorker(QThread):
 
         self.points = []
         self.labels = []
-        self.segmentor = CellSegmentor2()
+        self.segmentor = CellSegmentor3()
 
     def run(self):
         while self.keep_running:
