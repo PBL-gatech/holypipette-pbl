@@ -795,38 +795,57 @@ class ArduinoDAQ(DAQ):
 #  FakeDAQ Subclass 
 # ========================================================
 class FakeDAQ(DAQ):
+    """DAQ implementation used for development or testing without hardware."""
+
+    # Use unity conversions so that the base class computations work out of the
+    # box.  These constants map DAQ units directly to physical units.
+    C_CLAMP_AMP_PER_VOLT = 1.0
+    C_CLAMP_VOLT_PER_VOLT = 1.0
+    V_CLAMP_VOLT_PER_VOLT = 1.0
+    V_CLAMP_VOLT_PER_AMP = 1.0
+
     def __init__(self):
         super().__init__()
-        self.totalResistance = 6 * 10 ** 6  # Set a baseline fake resistance
+        self.totalResistance = 6 * 10 ** 6  # baseline fake resistance
+        self._last_wave_params = None
+        self._last_command = None
 
     def resistance(self):
         return self.totalResistance + np.random.normal(0, 0.1 * 10 ** 6)
 
-    def getDataFromVoltageProtocol(self):
-        """
-        For the fake DAQ, simply return a fake square wave response.
-        """
-        self.isRunningProtocol = True
-        self.voltage_protocol_data = None
-        # Use a fake square wave generator
-        result = self.getDataFromSquareWave(20, 50000, 0.5, 0.5, 0.03)
-        self.isRunningProtocol = False
-        return self.voltage_protocol_data
+    # ------------------------------------------------------------------
+    # Hardware emulation helpers
+    # ------------------------------------------------------------------
+    def _sendSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        """Generate and store a square wave command."""
+        numSamples = int(samplesPerSec * recordingTime)
+        period = int(1 / wave_freq * samplesPerSec)
+        onTime = int(period * dutyCycle)
 
-    def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
-        with self._deviceLock:
-            numSamples = int(samplesPerSec * recordingTime)
-            data = np.zeros(numSamples)
-            onTime = int((1 / wave_freq) * dutyCycle * samplesPerSec)
-            period = int(1 / wave_freq * samplesPerSec)
-            waves = samplesPerSec // period
-            for i in range(waves):
-                start = i * period
-                data[start:start + onTime] = amplitude
-        timeData = np.linspace(0, recordingTime, numSamples, dtype=float)
-        # Fake both channels as the same data for simplicity.
-        data_arr = np.array([timeData, data])
-        fake_resistance = 20
-        fake_capacitance = 20
-        total_resistance = fake_resistance * 2
-        return data_arr, data_arr, fake_resistance, total_resistance, fake_resistance, fake_capacitance
+        command = np.zeros(numSamples)
+        for i in range(0, numSamples, period):
+            command[i:i + onTime] = amplitude
+
+        self._last_wave_params = (wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
+        self._last_command = command
+        # Base class expects a task-like object; returning None is acceptable.
+        return None
+
+    def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        return self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
+
+    def _readAnalogInput(self, samplesPerSec, recordingTime):
+        """Return a simulated response to the previously generated command."""
+        numSamples = int(samplesPerSec * recordingTime)
+        if self._last_command is None or len(self._last_command) != numSamples:
+            # No command was sent; return zeros
+            command = np.zeros(numSamples)
+        else:
+            command = self._last_command
+
+        # Simple ohmic response with noise
+        response = command / max(self.totalResistance, 1.0)
+        response += np.random.normal(0, 0.001, size=numSamples)
+
+        return np.array([command, response], dtype=float)
+
