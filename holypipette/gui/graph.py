@@ -100,6 +100,10 @@ class CurrentProtocolGraph(ProtocolGraph):
 
         # Create a gradient color list based on the number of pulses
         color_range = self.graph_interface.daq.pulseRange
+        if color_range is None:
+            color_range = 1
+        else:
+            color_range = int(color_range)
         logging.debug(f"color range: {color_range}")
         start_color = "#003153"  # Prussian Blue
         end_color = "#ffffff"    # White
@@ -115,8 +119,8 @@ class CurrentProtocolGraph(ProtocolGraph):
             respData = graph[1]
             readData = graph[2]
             self.plotWidget.plot(timeData, respData, pen=colors[i])
-            # logging.info("Writing current ephys data to file")
-            pulse = str(pulses[i])
+
+            pulse = str(pulses[i]) if pulses is not None else str(i)
             marker = colors[i] + "_" + pulse
             self.ephys_logger.write_ephys_data(index, timeData, readData, respData, marker)
             if i == color_range - 1:
@@ -157,7 +161,11 @@ class VoltageProtocolGraph(ProtocolGraph):
         # Prepare data for logging
         timeData = self.graph_interface.daq.voltage_protocol_data[0, :]
         respData = self.graph_interface.daq.voltage_protocol_data[1, :]
-        readData = self.graph_interface.daq.voltage_command_data[1, :]
+        if self.graph_interface.daq.voltage_command_data is not None:
+            readData = self.graph_interface.daq.voltage_command_data[1, :]
+        else:
+            readData = np.zeros_like(timeData)
+            raise ValueError("No voltage command data available")
 
         self.ephys_logger.write_ephys_data(index, timeData, readData, respData, colors[0])
         self.ephys_logger.save_ephys_plot(index, self.plotWidget)
@@ -350,7 +358,12 @@ class EPhysGraph(QWidget):
         Periodically update plots with the latest pressure and DAQ data retrieved via GraphInterface.
         """
         # --- Update Pressure Plot ---
-        pressure = int(self.graph_interface.get_last_pressure())
+        pressure = self.graph_interface.get_last_pressure()
+        if pressure is not None:
+            pressure = int(pressure)
+        else: 
+            pressure = 0
+            raise ValueError("No pressure data available")
         pressure_set = int(self.graph_interface.get_pressure())
         if pressure is not None:
             self.pressureData.append(pressure)
