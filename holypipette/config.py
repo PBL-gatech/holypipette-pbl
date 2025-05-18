@@ -28,7 +28,10 @@ class Config(param.Parameterized):
             logging.debug('Config value changed: %s = %s', key, value)
 
     def to_dict(self):
-        return {name: getattr(self, name) for name in self.params()
+        # ``params`` on ``param.Parameterized`` is deprecated; iterate over
+        # ``self.param`` (a mapping of parameter names to Parameter objects)
+        # instead.
+        return {name: getattr(self, name) for name in self.param
                 if name != 'name'}
 
     def from_dict(self, config_dict):
