@@ -455,6 +455,12 @@ class CellSegmentor3:
         self.enc_session = ort.InferenceSession(self.encoder_path, providers=providers)
         self.dec_session = ort.InferenceSession(self.decoder_path, providers=providers)
 
+        # Cache input names for robustness
+        self.enc_input_name = self.enc_session.get_inputs()[0].name
+        self.dec_input_names = {
+            inp.name for inp in self.dec_session.get_inputs()
+        }
+
         self.image = None
         self.embedding = None
 
@@ -493,7 +499,10 @@ class CellSegmentor3:
         if self.image is None:
             raise ValueError("No image loaded")
         inp = self.image.transpose(2, 0, 1)[None].astype(np.float32)
-        self.embedding = self.enc_session.run(None, {"images": inp})[0]
+        # Older models may expect a different input key (e.g. "input")
+        self.embedding = self.enc_session.run(
+            None, {self.enc_input_name: inp}
+        )[0]
 
     def predict_mask(
         self,
@@ -509,12 +518,23 @@ class CellSegmentor3:
         if self.embedding is None:
             raise ValueError("Call set_image() first")
 
-        inputs = {"embeddings": self.embedding}
+        # Prepare input dictionary based on available input names
+        if "embeddings" in self.dec_input_names:
+            inputs = {"embeddings": self.embedding}
+        else:
+            # fall back to first input name
+            first_name = next(iter(self.dec_input_names))
+            inputs = {first_name: self.embedding}
+
         if input_point is not None and input_label is not None:
-            inputs["point_coords"] = input_point.astype(np.float32)[None]
-            inputs["point_labels"] = input_label.astype(np.float32)[None]
+            if "point_coords" in self.dec_input_names:
+                inputs["point_coords"] = input_point.astype(np.float32)[None]
+            if "point_labels" in self.dec_input_names:
+                inputs["point_labels"] = input_label.astype(np.float32)[None]
+
         if input_box is not None:
-            inputs["box"] = input_box.astype(np.float32)[None]
+            if "box" in self.dec_input_names:
+                inputs["box"] = input_box.astype(np.float32)[None]
 
         outputs = self.dec_session.run(None, inputs)
         masks, scores = outputs[0], outputs[1]
