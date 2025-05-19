@@ -8,70 +8,68 @@ import matplotlib.pyplot as plt
 import logging
 from abc import ABC, abstractmethod
 
-# ============================================================
-#  Base class with all shared logic
-# ============================================================
+# ================= BASE SEGMENTOR =================
 class BaseSegmentor(ABC):
     """Common functionality for cell image segmentation across different SAM back‑ends."""
 
     def __init__(self, device: str | None = None):
-        # resolve device once; subclasses may override via explicit arg
         self.device = self._resolve_device(device)
-        self.sam = None  # created in subclass
-        self.predictor = None  # created in subclass
-        self.image = None  # type: np.ndarray | None
+        self.sam = None
+        self.predictor = None
+        self.image = None
         self._load_model()
 
-    # ---------------------- utilities -----------------------
     @staticmethod
     def _resolve_device(explicit: str | None):
         if explicit is not None:
             return torch.device(explicit)
         if torch.cuda.is_available():
             return torch.device("cuda")
-        if torch.backends.mps.is_available():
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return torch.device("mps")
         return torch.device("cpu")
 
-    # subclasses must implement
     @abstractmethod
     def _load_model(self):
         ...
 
-    # ---------------------- I/O ------------------------------
-    def load_image(self, *, image_path: str | None = None, image: np.ndarray | None = None):
+    def load_image(self, image_path=None, image=None):
         if image_path is not None:
             image = cv2.imread(image_path)
             if image is None:
-                raise FileNotFoundError(f"Could not read image at {image_path}")
-        elif image is None:
-            raise ValueError("Either 'image_path' or 'image' must be supplied.")
-
-        # expand grayscale → BGR
-        if len(image.shape) == 2:
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        self.image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                raise FileNotFoundError(f"Error: Could not load image from {image_path}. Please check the file path and ensure the file exists.")
+            if len(image.shape) == 2:
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            self.image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        elif image is not None:
+            if len(image.shape) == 2:
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            self.image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        else:
+            raise ValueError("Either image_path or image must be provided.")
 
     def set_image(self):
-        if self.image is None:
-            raise ValueError("No image loaded. Call load_image() first.")
-        self.predictor.set_image(self.image)
+        if self.image is not None:
+            self.predictor.set_image(self.image)
+        else:
+            raise ValueError("No image loaded. Please load an image first.")
 
-    # ---------------- core prediction -----------------------
-    def predict_mask(self, input_point, input_label, multimask_output: bool = True):
+    def predict_mask(self, input_point, input_label, multimask_output=True):
         if self.image is None:
-            raise ValueError("Image has not been set. Call set_image() first.")
-        masks, scores, _ = self.predictor.predict(
+            raise ValueError("Image has not been set. Please call set_image() before predicting.")
+
+        masks, scores, logits = self.predictor.predict(
             point_coords=input_point,
             point_labels=input_label,
             multimask_output=multimask_output,
         )
         return masks, scores
 
-    def predict_mask_box(self, input_box, multimask_output: bool = True):
+    def predict_mask_box(self, input_box, multimask_output=True):
         if self.image is None:
-            raise ValueError("Image has not been set. Call set_image() first.")
-        masks, scores, _ = self.predictor.predict(
+            raise ValueError("Image has not been set. Please call set_image() before predicting.")
+
+        masks, scores, logits = self.predictor.predict(
             point_coords=None,
             point_labels=None,
             box=input_box[None, :],
@@ -79,186 +77,143 @@ class BaseSegmentor(ABC):
         )
         return masks, scores
 
-    def single_prediction(self, input_point, input_label, multimask_output: bool = False):
-        masks, _ = self.predict_mask(input_point, input_label, multimask_output)
-        return masks[0]
-
-    # ---------------- visualisation helpers -----------------
-    def show_image(self):
+    def single_prediction(self, input_point, input_label, multimask_output=False):
         if self.image is None:
-            raise ValueError("No image loaded.")
-        plt.figure(figsize=(10, 10))
-        plt.imshow(self.image)
-        plt.axis("on")
-        plt.show()
+            raise ValueError("Image has not been set. Please call set_image() before predicting.")
+
+        masks, scores = self.predict_mask(input_point, input_label, multimask_output)
+        return masks[0]  # Return the first mask
+
+    def show_image(self):
+        if self.image is not None:
+            plt.figure(figsize=(10, 10))
+            plt.imshow(self.image)
+            plt.axis('on')
+            plt.show()
+        else:
+            raise ValueError("No image loaded. Please load an image first.")
 
     @staticmethod
-    def _draw_mask(mask, ax, *, random_color=False, borders=True):
-        color = (
-            np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
-            if random_color
-            else np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
-        )
+    def show_mask(mask, ax, random_color=False, borders=True):
+        if random_color:
+            color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+        else:
+            color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
         h, w = mask.shape[-2:]
         mask = mask.astype(np.uint8)
-        mask_img = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+        mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+
         if borders:
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-            contours = [cv2.approxPolyDP(c, epsilon=0.01, closed=True) for c in contours]
-            mask_img = cv2.drawContours(mask_img, contours, -1, (1, 1, 1, 0.5), thickness=2)
-        ax.imshow(mask_img)
+            contours = [cv2.approxPolyDP(contour, epsilon=0.01, closed=True) for contour in contours]
+            mask_image = cv2.drawContours(mask_image, contours, -1, (1, 1, 1, 0.5), thickness=2)
+
+        ax.imshow(mask_image)
 
     @staticmethod
-    def _draw_points(coords, labels, ax, *, marker_size=375):
-        pos = coords[labels == 1]
-        neg = coords[labels == 0]
-        ax.scatter(pos[:, 0], pos[:, 1], color="green", marker="*", s=marker_size, edgecolor="white", linewidth=1.25)
-        ax.scatter(neg[:, 0], neg[:, 1], color="red", marker="*", s=marker_size, edgecolor="white", linewidth=1.25)
+    def show_points(coords, labels, ax, marker_size=375):
+        pos_points = coords[labels == 1]
+        neg_points = coords[labels == 0]
+        ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size,
+                   edgecolor='white', linewidth=1.25)
+        ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size,
+                   edgecolor='white', linewidth=1.25)
 
     @staticmethod
-    def _draw_box(box, ax):
+    def show_box(box, ax):
         x0, y0 = box[0], box[1]
         w, h = box[2] - box[0], box[3] - box[1]
-        ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor="green", facecolor=(0, 0, 0, 0), lw=2))
+        ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
-    def visualize_prediction(
-        self,
-        *,
-        input_point=None,
-        input_label=None,
-        input_box=None,
-        multimask_output=False,
-        borders=True,
-    ):
-        if (input_point is None) == (input_box is None):
-            raise ValueError("Provide exactly one of 'input_point' or 'input_box'.")
+    def visualize_prediction(self, input_point=None, input_label=None, input_box=None, multimask_output=False, borders=True):
+        if input_point is None and input_box is None:
+            raise ValueError("Please provide either input_point or input_box.")
+        if input_point is not None and input_box is not None:
+            raise ValueError("Please provide only one of input_point or input_box.")
 
         if input_point is not None:
             masks, scores = self.predict_mask(input_point, input_label, multimask_output)
+            for i, (mask, score) in enumerate(zip(masks, scores)):
+                plt.figure(figsize=(10, 10))
+                plt.imshow(self.image)
+                self.show_mask(mask, plt.gca(), borders=borders)
+                self.show_points(input_point, input_label, plt.gca())
+                plt.title(f"Mask {i + 1}, Score: {score:.3f}", fontsize=18)
+                plt.axis('off')
+                plt.show()
         else:
             masks, scores = self.predict_mask_box(input_box, multimask_output)
+            for i, (mask, score) in enumerate(zip(masks, scores)):
+                plt.figure(figsize=(10, 10))
+                plt.imshow(self.image)
+                self.show_mask(mask, plt.gca(), borders=borders)
+                self.show_box(input_box, plt.gca())
+                plt.title(f"Mask {i + 1}, Score: {score:.3f}", fontsize=18)
+                plt.axis('off')
+                plt.show()
 
-        for i, (mask, score) in enumerate(zip(masks, scores)):
-            plt.figure(figsize=(10, 10))
-            plt.imshow(self.image)
-            self._draw_mask(mask, plt.gca(), borders=borders)
-            if input_point is not None:
-                self._draw_points(input_point, input_label, plt.gca())
-            else:
-                self._draw_box(input_box, plt.gca())
-            plt.title(f"Mask {i + 1}, Score: {score:.3f}")
-            plt.axis("off")
-            plt.show()
-
-    # ---------------- public API ----------------------------
-    def segment(
-        self,
-        *,
-        image=None,
-        input_point=None,
-        input_label=None,
-        input_box=None,
-        multimask_output=False,
-    ):
+    def segment(self, image=None, input_point=None, input_label=None, input_box=None, multimask_output=False):
         if image is not None:
             self.load_image(image=image)
             self.set_image()
-        elif self.image is None:
-            raise ValueError("No image available to segment. Call load_image() or pass an image.")
-
-        if (input_point is None) == (input_box is None):
-            raise ValueError("Provide exactly one of 'input_point' or 'input_box'.")
+        else:
+            if self.image is None:
+                raise ValueError("No image loaded. Please load an image first.")
+        if input_point is None and input_box is None:
+            raise ValueError("Please provide either input_point or input_box.")
+        if input_point is not None and input_box is not None:
+            raise ValueError("Please provide only one of input_point or input_box.")
 
         if input_point is not None:
-            return self.single_prediction(input_point, input_label, multimask_output)
+            mask = self.single_prediction(input_point, input_label, multimask_output)
+            if mask is None:
+                logging.error("No mask found")
+                return None
+            else:
+                return mask
+        else:
+            masks, scores = self.predict_mask_box(input_box, multimask_output)
+            if masks is None:
+                logging.error("No masks found")
+                return None
+            else:
+                return masks[0]
 
-        masks, _ = self.predict_mask_box(input_box, multimask_output)
-        return masks[0]
 
-
-# ============================================================
-#  MobileSAM / Tiny‑ViT implementation
-# ============================================================
+# ================= MOBILE SAM SEGMENTOR (CellSegmentor1) =================
 class CellSegmentor1(BaseSegmentor):
     """Segmentor powered by MobileSAM (Tiny‑ViT)."""
 
-    def __init__(
-        self,
-        sam_checkpoint: str | None = None,
-        model_type: str = "vit_t",
-        device: str | None = None,
-    ):
-        # resolve repo‑relative paths lazily
+    def __init__(self, sam_checkpoint=None, model_type="vit_t", device=None):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         repo_root = os.path.abspath(os.path.join(current_dir, ".."))
-        sys.path.append(
-            os.path.join(repo_root, "holypipette", "deepLearning", "cellModel", "MobileSAM")
-        )
-
-        default_ckpt = os.path.join(
-            repo_root,
-            "deepLearning",
-            "cellModel",
-            "MobileSAM",
-            "weights",
-            "mobile_sam.pt",
-        )
-
+        sys.path.append(os.path.join(repo_root, "holypipette", "deepLearning", "cellModel", "MobileSAM"))
+        default_ckpt = os.path.join(repo_root, "deepLearning", "cellModel", "MobileSAM", "weights", "mobile_sam.pt")
         self.sam_checkpoint = sam_checkpoint or default_ckpt
         self.model_type = model_type
         super().__init__(device)
 
     def _load_model(self):
-        # Import inside method so the rest of the file doesn't depend on the package
         from mobile_sam import sam_model_registry, SamPredictor
-
         self.sam = sam_model_registry[self.model_type](checkpoint=self.sam_checkpoint)
         self.sam.to(device=self.device)
         self.predictor = SamPredictor(self.sam)
 
 
-# ============================================================
-#  SAM2 implementation (Hiera‑Tiny v2.1)
-# ============================================================
+# ================= SAM2 SEGMENTOR (CellSegmentor2) =================
 class CellSegmentor2(BaseSegmentor):
     """Segmentor powered by SAM2 (v2.1 Hiera‑Tiny)."""
 
-    def __init__(
-        self,
-        sam_checkpoint: str | None = None,
-        model_cfg: str | None = None,
-        device: str | None = None,
-    ):
+    def __init__(self, sam_checkpoint=None, model_cfg=None, device=None):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         repo_root = os.path.abspath(os.path.join(current_dir, ".."))
-
-        default_ckpt = os.path.join(
-            repo_root,
-            "deepLearning",
-            "cellModel",
-            "sam2",
-            "checkpoints",
-            "sam2.1_hiera_tiny.pt",
-        )
-        default_cfg = os.path.join(
-            repo_root,
-            "deepLearning",
-            "cellModel",
-            "sam2",
-            "sam2",
-            "configs",
-            "sam2.1",
-            "sam2.1_hiera_t.yaml",
-        )
-
+        default_ckpt = os.path.join(repo_root, "deepLearning", "cellModel", "sam2", "checkpoints", "sam2.1_hiera_tiny.pt")
+        default_cfg = os.path.join(repo_root, "deepLearning", "cellModel", "sam2", "sam2", "configs", "sam2.1", "sam2.1_hiera_t.yaml")
         self.sam_checkpoint = sam_checkpoint or default_ckpt
         self.model_cfg = model_cfg or default_cfg
-
-        # Ensure MPS fallback doesn't crash on Apple Silicon
         os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
         super().__init__(device)
 
-    # ----- internals ----------------------------------------------------
     def _enable_cuda_tricks(self):
         if self.device.type == "cuda":
             torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
@@ -267,13 +222,10 @@ class CellSegmentor2(BaseSegmentor):
                 torch.backends.cudnn.allow_tf32 = True
 
     def _load_model(self):
-        # Import inside method so top‑level import doesn't hard‑depend on sam2 package
         from sam2.build_sam import build_sam2
         from sam2.sam2_image_predictor import SAM2ImagePredictor
-
         self._enable_cuda_tricks()
         try:
-            # validate YAML early for clearer error messages
             with open(self.model_cfg, "r") as f:
                 yaml.safe_load(f)
             self.sam = build_sam2(self.model_cfg, self.sam_checkpoint, device=self.device)
@@ -281,6 +233,8 @@ class CellSegmentor2(BaseSegmentor):
             logging.error(f"Error loading SAM2 model: {exc}")
             raise
         self.predictor = SAM2ImagePredictor(self.sam)
+
+
 
 import os
 import numpy as np
