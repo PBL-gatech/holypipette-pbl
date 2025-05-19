@@ -350,7 +350,14 @@ class EPhysGraph(QWidget):
         Periodically update plots with the latest pressure and DAQ data retrieved via GraphInterface.
         """
         # --- Update Pressure Plot ---
-        pressure = int(self.graph_interface.get_last_pressure())
+        pressure = self.graph_interface.get_last_pressure()
+        if pressure is not None:
+            pressure = int(pressure)
+        else:
+            # When running with a fake rig there might not yet be
+            # any pressure measurements.  Avoid raising an exception
+            # and simply display 0 mbar until data is available.
+            pressure = 0
         pressure_set = int(self.graph_interface.get_pressure())
         if pressure is not None:
             self.pressureData.append(pressure)
@@ -365,6 +372,7 @@ class EPhysGraph(QWidget):
             self.pressureLabel.setText(f"Pressure: {pressure:.2f} mbar")
             # update the atmospheric pressure button
             self.updatePressureATM()
+
 
         # --- Update DAQ Data (Command & Response) ---
         daq_data = self.graph_interface.get_last_data()
