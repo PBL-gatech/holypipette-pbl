@@ -809,6 +809,8 @@ class FakeDAQ(DAQ):
         self.totalResistance = 6 * 10 ** 6  # baseline fake resistance
         self._last_wave_params = None
         self._last_command = None
+        self.start_acquisition(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
+                                amplitude=0.5, recordingTime=0.025, interval=None)
 
     def resistance(self):
         return self.totalResistance + np.random.normal(0, 0.1 * 10 ** 6)
