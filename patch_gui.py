@@ -23,8 +23,8 @@ from holypipette.gui.patch import PatchGui
 
 
 
-# from rig_setup.setup_Moscow_rig import *  
-from rig_setup.setup_fake_rig import * 
+from rig_setup.setup_Moscow_rig import *  
+# from rig_setup.setup_fake_rig import * 
 # from rig_setup.setup_Moscow_rig_camera import *    
 # from rig_setup.setup_Moscow_Pressuretest import *
 
