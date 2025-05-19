@@ -24,7 +24,7 @@ from numpy.linalg import inv, pinv, norm
 from threading import Thread
 from .StageCalHelper import FocusHelper, StageCalHelper
 from .PipetteCalHelper import PipetteCalHelper, PipetteFocusHelper
-from .CellTrackHelper import CellTrackHelper
+# from .CellTrackHelper import CellTrackHelper
 
 __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
 
@@ -528,7 +528,7 @@ class CalibratedStage(CalibratedUnit):
 
         self.focusHelper = FocusHelper(microscope, camera)
         self.stageCalHelper = StageCalHelper(unit, camera, self.config.frame_lag)
-        self.cellTrackHelper = CellTrackHelper(self,  camera) 
+        # self.cellTrackHelper = CellTrackHelper(self,  camera) 
         self.pipette_cal_position = np.zeros(2)
         self.unit = unit
 
@@ -708,7 +708,8 @@ class CalibratedStage(CalibratedUnit):
         # find the cell centroid in pixel space
 
 
-        centroid = self.cellTrackHelper.find_centroid(ref_image=reference_image, image=image, input_point= cell_coords)
+        # centroid = self.cellTrackHelper.find_centroid(ref_image=reference_image, image=image, input_point= cell_coords)
+        centroid = None
 
         if centroid is None:
             return self.wait_until_still        # keep call chain consistent

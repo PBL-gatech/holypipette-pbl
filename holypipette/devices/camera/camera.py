@@ -12,7 +12,7 @@ import time
 import threading
 import imageio
 import logging
-from holypipette.deepLearning.cellSegmentor import CellSegmentor2
+# from holypipette.deepLearning.cellSegmentor import CellSegmentor2
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
 
 import numpy as np
@@ -184,7 +184,7 @@ class Camera(object):
         self.last_frame_time = None
         self.fps = 0
 
-        self.Cellseg = CellSegmentor2()
+        # self.Cellseg = CellSegmentor2()
         self.pipdetector = PipetteFinder()
         # testing flag
         
