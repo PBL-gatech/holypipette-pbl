@@ -4,7 +4,7 @@ setup(
     name='HolyPipette-PBL',
     version='0.1',
     description='Deep Learning guided Automated Patch Clamp Electrophysiology System',
-    url='https://github.com/romainbrette/holypipette/',
+    url='https://github.com/PBL-gatech/holypipette-pbl',
     author='Benjamin Magondu, Nathan Malta, Kaden StillWagon, Victor Guyard',
     author_email='bmagondu3@gatech.edu',
     classifiers=[
