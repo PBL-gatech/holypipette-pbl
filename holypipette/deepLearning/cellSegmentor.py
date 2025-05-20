@@ -305,9 +305,9 @@ class CellSegmentor3(BaseSegmentor):
         self._pad_shape = (new_h, new_w)
         self._pad_offset = (0, 0)
         # Debug info
-        print(f"[DEBUG] Original image shape: {orig_h}x{orig_w}")
-        print(f"[DEBUG] Resized image shape: {new_h}x{new_w}")
-        print(f"[DEBUG] Padding offset: {self._pad_offset}")
+        # print(f"[DEBUG] Original image shape: {orig_h}x{orig_w}")
+        # print(f"[DEBUG] Resized image shape: {new_h}x{new_w}")
+        # print(f"[DEBUG] Padding offset: {self._pad_offset}")
 
     def set_image(self):
         if self.image is None:
@@ -318,7 +318,7 @@ class CellSegmentor3(BaseSegmentor):
         self.high_res_features1 = result[1]
         self.high_res_features2 = result[2]
         # Debug info
-        print(f"[DEBUG] Encoder output shapes: {[x.shape for x in result]}")
+        # print(f"[DEBUG] Encoder output shapes: {[x.shape for x in result]}")
 
     def _scale_points(self, points):
         points = np.asarray(points)
@@ -328,9 +328,21 @@ class CellSegmentor3(BaseSegmentor):
         scaled = points * scale
         scaled = scaled + np.array([self._pad_offset[1], self._pad_offset[0]])
         # Debug info
-        print(f"[DEBUG] Scaling points {points} from orig shape {self._orig_shape} -> resized shape {self._pad_shape}")
-        print(f"[DEBUG] Resulting scaled points: {scaled}")
+        # print(f"[DEBUG] Scaling points {points} from orig shape {self._orig_shape} -> resized shape {self._pad_shape}")
+        # print(f"[DEBUG] Resulting scaled points: {scaled}")
         return scaled.astype(np.float32)
+
+    def _mask_to_original(self, mask_1024):
+        """
+        Rescales a binary mask (from 1024x1024 model input space) back to the original image size.
+        """
+        new_h, new_w = self._pad_shape  # size of resized image in (h, w)
+        orig_h, orig_w = self._orig_shape
+        # 1. Crop to actual content area (remove zero-padded regions)
+        cropped = mask_1024[:new_h, :new_w]
+        # 2. Resize (nearest neighbor) to the original image shape
+        mask_orig = cv2.resize(cropped, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
+        return mask_orig
 
     def predict_mask(self, input_point=None, input_label=None, multimask_output=True):
         if self.image_embeddings is None:
@@ -357,20 +369,14 @@ class CellSegmentor3(BaseSegmentor):
             "orig_im_size": orig_im_size
         }
         onnx_inputs = {k: decoder_inputs[k] for k in self.dec_input_names}
-        # Debug info
-        print(f"[DEBUG] Decoder input shapes:")
-        for k, v in onnx_inputs.items():
-            print(f"    {k}: {getattr(v, 'shape', None)} dtype={getattr(v, 'dtype', None)}")
         outputs = self.dec_session.run(None, onnx_inputs)
         masks, scores = outputs[0], outputs[1]
-        print(f"[DEBUG] Decoder output masks shape: {masks.shape}")
-        print(f"[DEBUG] Decoder output scores shape: {scores.shape}")
         best_idx = np.argmax(scores[0])
         mask = masks[0, best_idx]
         mask_bin = (mask > 0).astype(np.uint8)
-        print(f"[DEBUG] Best mask index: {best_idx} (score={scores[0, best_idx]:.4f})")
-        print(f"[DEBUG] Mask output shape: {mask_bin.shape}")
-        return mask_bin, scores[0, best_idx]
+        # Map mask back to original image
+        mask_orig = self._mask_to_original(mask_bin)
+        return mask_orig, scores[0, best_idx]
 
     def predict_mask_box(self, input_box, multimask_output=True):
         if input_box is None or len(input_box) != 4:
@@ -378,7 +384,6 @@ class CellSegmentor3(BaseSegmentor):
         points = np.array([[input_box[0], input_box[1]], [input_box[2], input_box[3]]], dtype=np.float32)
         labels = np.array([2, 3], dtype=np.float32)
         return self.predict_mask(input_point=points, input_label=labels, multimask_output=multimask_output)
-
     def single_prediction(self, input_point, input_label, multimask_output=False):
         mask, score = self.predict_mask(input_point, input_label, multimask_output)
         return mask
@@ -458,14 +463,14 @@ class CellSegmentor3(BaseSegmentor):
         if input_point is not None:
             mask = self.single_prediction(input_point, input_label, multimask_output)
             if mask is None:
-                print("[DEBUG] No mask found")
+                # print("[DEBUG] No mask found")
                 return None
             else:
                 return mask
         else:
             mask, score = self.predict_mask_box(input_box, multimask_output)
             if mask is None:
-                print("[DEBUG] No masks found")
+                # print("[DEBUG] No masks found")
                 return None
             else:
                 return mask
@@ -490,7 +495,8 @@ class CameraWorker(QThread):
         super().__init__(parent)
         self.fps = fps
         self.keep_running = True
-        self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff"
+        # self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff"
+        self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\square.png"
         # self.image_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\cellsegtest.png"
         bgr = cv2.imread(self.image_path)
         if bgr is None:
