@@ -1,7 +1,7 @@
 # patch_gui.py
 import faulthandler
 faulthandler.enable()
-faulthandler.dump_traceback_later(5)
+# faulthandler.dump_traceback_later(5)
 
 import atexit
 import sys
