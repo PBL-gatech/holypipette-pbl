@@ -234,221 +234,241 @@ class CellSegmentor2(BaseSegmentor):
             raise
         self.predictor = SAM2ImagePredictor(self.sam)
 
-
-
 import os
 import numpy as np
 import onnxruntime as ort
 import cv2
 import matplotlib.pyplot as plt
+import torch
+from typing import Optional
 
-class CellSegmentor3:
-    def __init__(
-        self,
-        encoder_path: str = None,
-        decoder_path: str = None,
-        device: str = "cuda",
-    ):
-        """
-        Initialize the ONNX-based SAM2 segmentor.
-        If no paths are provided, defaults to the cellModel/sam2/onnx folder.
-        Args:
-            encoder_path: path to sam2.1_tiny_preprocess.onnx
-            decoder_path: path to sam2.1_tiny.onnx
-            device: 'cpu' or 'cuda'
-        """
-        # Determine default paths
+class CellSegmentor3(BaseSegmentor):
+    """ONNX-based SAM2 segmentor, refactored to match BaseSegmentor interface and sam-cpp-macos reference."""
+    def __init__(self, encoder_path: Optional[str] = None, decoder_path: Optional[str] = None, device: Optional[str] = None):
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        repo_root = os.path.abspath(os.path.join(current_dir, '..'))
-        default_dir = os.path.join(
-            repo_root,
-            'deepLearning',
-            'cellModel'
-        )
+        repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+        default_dir = os.path.join(repo_root, "deepLearning", "cellModel")
 
-        # Use provided paths or fall back to defaults
         if encoder_path is None:
-            encoder_path = os.path.join(default_dir, 'sam2.1_tiny_preprocess.onnx')
+            encoder_path = os.path.join(default_dir, "sam2.1_tiny_preprocess.onnx")
         if decoder_path is None:
-            decoder_path = os.path.join(default_dir, 'sam2.1_tiny.onnx')
+            decoder_path = os.path.join(default_dir, "sam2.1_tiny.onnx")
 
         self.encoder_path = encoder_path
         self.decoder_path = decoder_path
-        self.device = device
+        super().__init__(device=device)
 
-        # Configure ONNX Runtime providers
+    def _load_model(self):
         providers = (
-            ['CUDAExecutionProvider', 'CPUExecutionProvider']
-            if device == "cuda"
-            else ['CPUExecutionProvider']
+            ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            if self.device.type == "cuda"
+            else ["CPUExecutionProvider"]
         )
-
-        # Load ONNX sessions
-        self.enc_session = ort.InferenceSession(self.encoder_path, providers=providers)
-        self.dec_session = ort.InferenceSession(self.decoder_path, providers=providers)
-
-        # Cache input names for robustness
+        sess_options = ort.SessionOptions()
+        sess_options.log_severity_level = 3  # Suppress most warnings
+        self.enc_session = ort.InferenceSession(self.encoder_path, providers=providers, sess_options=sess_options)
+        self.dec_session = ort.InferenceSession(self.decoder_path, providers=providers, sess_options=sess_options)
         self.enc_input_name = self.enc_session.get_inputs()[0].name
-        self.dec_input_names = {
-            inp.name for inp in self.dec_session.get_inputs()
-        }
-
-        self.image = None
-        self.embedding = None
-
+        self.dec_input_names = [inp.name for inp in self.dec_session.get_inputs()]
+        self.image_embeddings = None
+        self.high_res_features1 = None
+        self.high_res_features2 = None
+        self._orig_shape = None
+        self._pad_shape = None
+        self.input_size = (1024, 1024)  # default model input
+        self._pad_offset = (0, 0)
 
     def load_image(self, image_path=None, image=None):
-        """
-        Load image from disk or use provided numpy array.
-        Converts BGR to RGB and resizes/pads to 1024x1024.
-        """
-        if image_path:
+        if image_path is not None:
             img = cv2.imread(image_path)
             if img is None:
-                raise FileNotFoundError(f"Unable to load image: {image_path}")
+                raise FileNotFoundError(f"Could not load image from {image_path}.")
         elif image is not None:
             img = image.copy()
         else:
-            raise ValueError("Provide image_path or image array.")
-
-        # Convert to RGB
+            raise ValueError("Either image_path or image must be provided.")
         if img.ndim == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        # Resize and pad to 1024x1024
-        h, w = img_rgb.shape[:2]
-        scale = 1024 / max(h, w)
-        new_h, new_w = int(h * scale), int(w * scale)
+        orig_h, orig_w = img_rgb.shape[:2]
+        self._orig_shape = (orig_h, orig_w)
+        scale = min(1024 / orig_h, 1024 / orig_w)
+        new_h, new_w = int(orig_h * scale), int(orig_w * scale)
         resized = cv2.resize(img_rgb, (new_w, new_h))
         canvas = np.zeros((1024, 1024, 3), dtype=np.uint8)
         canvas[:new_h, :new_w] = resized
-        self.image = canvas.astype(np.float32) / 255.0  # normalize to [0,1]
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+        norm_img = (canvas.astype(np.float32) / 255.0 - mean) / std
+        self.image = norm_img
+        self.input_size = (1024, 1024)
+        self._pad_shape = (new_h, new_w)
+        self._pad_offset = (0, 0)
+        # Debug info
+        print(f"[DEBUG] Original image shape: {orig_h}x{orig_w}")
+        print(f"[DEBUG] Resized image shape: {new_h}x{new_w}")
+        print(f"[DEBUG] Padding offset: {self._pad_offset}")
 
     def set_image(self):
-        """
-        Runs encoder to compute embeddings.
-        """
         if self.image is None:
-            raise ValueError("No image loaded")
+            raise ValueError("No image loaded. Please load an image first.")
         inp = self.image.transpose(2, 0, 1)[None].astype(np.float32)
-        # Older models may expect a different input key (e.g. "input")
-        self.embedding = self.enc_session.run(
-            None, {self.enc_input_name: inp}
-        )[0]
+        result = self.enc_session.run(None, {self.enc_input_name: inp})
+        self.image_embeddings = result[0]
+        self.high_res_features1 = result[1]
+        self.high_res_features2 = result[2]
+        # Debug info
+        print(f"[DEBUG] Encoder output shapes: {[x.shape for x in result]}")
 
-    def predict_mask(
-        self,
-        input_point: np.ndarray = None,
-        input_label: np.ndarray = None,
-        input_box: np.ndarray = None,
-        multimask_output: bool = True,
-    ):
-        """
-        Run decoder with the given prompts.
-        Accepts either point prompts or a single box prompt.
-        """
-        if self.embedding is None:
-            raise ValueError("Call set_image() first")
+    def _scale_points(self, points):
+        points = np.asarray(points)
+        orig_h, orig_w = self._orig_shape
+        pad_h, pad_w = self._pad_shape
+        scale = min(1024 / orig_h, 1024 / orig_w)
+        scaled = points * scale
+        scaled = scaled + np.array([self._pad_offset[1], self._pad_offset[0]])
+        # Debug info
+        print(f"[DEBUG] Scaling points {points} from orig shape {self._orig_shape} -> resized shape {self._pad_shape}")
+        print(f"[DEBUG] Resulting scaled points: {scaled}")
+        return scaled.astype(np.float32)
 
-        # Prepare input dictionary based on available input names
-        if "embeddings" in self.dec_input_names:
-            inputs = {"embeddings": self.embedding}
+    def predict_mask(self, input_point=None, input_label=None, multimask_output=True):
+        if self.image_embeddings is None:
+            raise ValueError("Image has not been set. Please call set_image() before predicting.")
+        orig_h, orig_w = self._orig_shape
+        if input_point is not None and len(input_point):
+            scaled_points = self._scale_points(input_point)
+            point_coords = scaled_points[None, ...]
+            point_labels = np.asarray(input_label, dtype=np.float32)[None]
         else:
-            # fall back to first input name
-            first_name = next(iter(self.dec_input_names))
-            inputs = {first_name: self.embedding}
-
-        if input_point is not None and input_label is not None:
-            if "point_coords" in self.dec_input_names:
-                inputs["point_coords"] = input_point.astype(np.float32)[None]
-            if "point_labels" in self.dec_input_names:
-                inputs["point_labels"] = input_label.astype(np.float32)[None]
-
-        if input_box is not None:
-            if "box" in self.dec_input_names:
-                inputs["box"] = input_box.astype(np.float32)[None]
-
-        outputs = self.dec_session.run(None, inputs)
+            point_coords = np.zeros((1, 0, 2), dtype=np.float32)
+            point_labels = np.zeros((1, 0), dtype=np.float32)
+        mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
+        has_mask_input = np.array([0], dtype=np.float32)
+        orig_im_size = np.array([orig_h, orig_w], dtype=np.int64)
+        decoder_inputs = {
+            "image_embeddings": self.image_embeddings,
+            "high_res_features1": self.high_res_features1,
+            "high_res_features2": self.high_res_features2,
+            "point_coords": point_coords,
+            "point_labels": point_labels,
+            "mask_input": mask_input,
+            "has_mask_input": has_mask_input,
+            "orig_im_size": orig_im_size
+        }
+        onnx_inputs = {k: decoder_inputs[k] for k in self.dec_input_names}
+        # Debug info
+        print(f"[DEBUG] Decoder input shapes:")
+        for k, v in onnx_inputs.items():
+            print(f"    {k}: {getattr(v, 'shape', None)} dtype={getattr(v, 'dtype', None)}")
+        outputs = self.dec_session.run(None, onnx_inputs)
         masks, scores = outputs[0], outputs[1]
-        return masks, scores
+        print(f"[DEBUG] Decoder output masks shape: {masks.shape}")
+        print(f"[DEBUG] Decoder output scores shape: {scores.shape}")
+        best_idx = np.argmax(scores[0])
+        mask = masks[0, best_idx]
+        mask_bin = (mask > 0).astype(np.uint8)
+        print(f"[DEBUG] Best mask index: {best_idx} (score={scores[0, best_idx]:.4f})")
+        print(f"[DEBUG] Mask output shape: {mask_bin.shape}")
+        return mask_bin, scores[0, best_idx]
 
-    def predict_mask_box(self, input_box: np.ndarray, multimask_output: bool = True):
-        """
-        Convenience wrapper around predict_mask for box prompts.
-        """
-        return self.predict_mask(input_box=input_box, multimask_output=multimask_output)
+    def predict_mask_box(self, input_box, multimask_output=True):
+        if input_box is None or len(input_box) != 4:
+            raise ValueError("Box must be [x0,y0,x1,y1]")
+        points = np.array([[input_box[0], input_box[1]], [input_box[2], input_box[3]]], dtype=np.float32)
+        labels = np.array([2, 3], dtype=np.float32)
+        return self.predict_mask(input_point=points, input_label=labels, multimask_output=multimask_output)
 
-    def single_prediction(self, input_point, input_label):
-        masks, scores = self.predict_mask(input_point=input_point, input_label=input_label, multimask_output=False)
-        return masks[0]
+    def single_prediction(self, input_point, input_label, multimask_output=False):
+        mask, score = self.predict_mask(input_point, input_label, multimask_output)
+        return mask
 
     def show_image(self):
-        if self.image is None:
-            raise ValueError("No image to show")
-        plt.figure(figsize=(8,8)); plt.imshow(self.image); plt.axis('off'); plt.show()
+        if self.image is not None:
+            plt.figure(figsize=(10, 10))
+            plt.imshow((self.image * np.array([0.229,0.224,0.225]) + np.array([0.485,0.456,0.406])).clip(0,1))
+            plt.axis('on')
+            plt.show()
+        else:
+            raise ValueError("No image loaded. Please load an image first.")
 
-    def show_mask(self, mask, ax=None, alpha=0.6, borders=True):
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(8,8))
-        color = np.array([1, 0, 0, alpha])
+    @staticmethod
+    def show_mask(mask, ax, random_color=False, borders=True):
+        if random_color:
+            color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+        else:
+            color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
         h, w = mask.shape[-2:]
-        mask_img = mask[0] if mask.ndim == 3 else mask
-        overlay = mask_img.reshape(h, w, 1) * color.reshape(1,1,4)
-        ax.imshow(self.image)
-        ax.imshow(overlay)
+        mask_img = mask.astype(np.uint8)
+        mask_image = mask_img.reshape(h, w, 1) * color.reshape(1, 1, -1)
         if borders:
-            cnts, _ = cv2.findContours(mask_img.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-            for c in cnts:
-                ax.plot(c[:,0,0], c[:,0,1], color='white', linewidth=2)
-        ax.axis('off')
+            contours, _ = cv2.findContours(mask_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            contours = [cv2.approxPolyDP(contour, epsilon=0.01, closed=True) for contour in contours]
+            mask_image = cv2.drawContours(mask_image, contours, -1, (1, 1, 1, 0.5), thickness=2)
+        ax.imshow(mask_image)
 
-    def show_points(self, coords, labels, ax, marker_size=100):
-        pos = coords[labels==1]; neg = coords[labels==0]
-        ax.scatter(pos[:,0], pos[:,1], c='green', s=marker_size, edgecolor='white')
-        ax.scatter(neg[:,0], neg[:,1], c='red', s=marker_size, edgecolor='white')
+    @staticmethod
+    def show_points(coords, labels, ax, marker_size=375):
+        pos_points = coords[labels == 1]
+        neg_points = coords[labels == 0]
+        ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+        ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
 
-    def show_box(self, box, ax):
-        x0,y0,x1,y1 = box
-        ax.add_patch(plt.Rectangle((x0,y0), x1-x0, y1-y0, fill=False, edgecolor='green', lw=2))
+    @staticmethod
+    def show_box(box, ax):
+        x0, y0 = box[0], box[1]
+        w, h = box[2] - box[0], box[3] - box[1]
+        ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
-    def visualize_prediction(
-        self,
-        input_point=None,
-        input_label=None,
-        input_box=None,
-        multimask_output=False,
-        borders=True,
-    ):
-        masks, scores = self.predict_mask(input_point=input_point, input_label=input_label,
-                                         input_box=input_box, multimask_output=multimask_output)
-        for i, (mask, score) in enumerate(zip(masks, scores)):
-            fig, ax = plt.subplots(figsize=(8,8))
-            self.show_mask(mask, ax=ax, borders=borders)
-            if input_point is not None:
-                self.show_points(input_point, input_label, ax)
-            if input_box is not None:
-                self.show_box(input_box, ax)
-            ax.set_title(f"Mask {i+1}, Score: {score:.3f}")
+    def visualize_prediction(self, input_point=None, input_label=None, input_box=None, multimask_output=False, borders=True):
+        if input_point is None and input_box is None:
+            raise ValueError("Please provide either input_point or input_box.")
+        if input_point is not None and input_box is not None:
+            raise ValueError("Please provide only one of input_point or input_box.")
+        if input_point is not None:
+            masks, score = self.predict_mask(input_point, input_label, multimask_output)
+            plt.figure(figsize=(10, 10))
+            plt.imshow((self.image * np.array([0.229,0.224,0.225]) + np.array([0.485,0.456,0.406])).clip(0,1))
+            self.show_mask(masks, plt.gca(), borders=borders)
+            self.show_points(input_point, input_label, plt.gca())
+            plt.title(f"Mask, Score: {score:.3f}", fontsize=18)
+            plt.axis('off')
+            plt.show()
+        else:
+            masks, score = self.predict_mask_box(input_box, multimask_output)
+            plt.figure(figsize=(10, 10))
+            plt.imshow((self.image * np.array([0.229,0.224,0.225]) + np.array([0.485,0.456,0.406])).clip(0,1))
+            self.show_mask(masks, plt.gca(), borders=borders)
+            self.show_box(input_box, plt.gca())
+            plt.title(f"Mask, Score: {score:.3f}", fontsize=18)
+            plt.axis('off')
             plt.show()
 
-    def segment(
-        self,
-        image=None,
-        input_point=None,
-        input_label=None,
-        input_box=None,
-        multimask_output=False,
-    ):
+    def segment(self, image=None, input_point=None, input_label=None, input_box=None, multimask_output=False):
         if image is not None:
             self.load_image(image=image)
             self.set_image()
+        else:
+            if self.image is None:
+                raise ValueError("No image loaded. Please load an image first.")
+        if input_point is None and input_box is None:
+            raise ValueError("Please provide either input_point or input_box.")
+        if input_point is not None and input_box is not None:
+            raise ValueError("Please provide only one of input_point or input_box.")
         if input_point is not None:
-            return self.single_prediction(input_point, input_label)
-        if input_box is not None:
-            masks, _ = self.predict_mask(input_box=input_box, multimask_output=multimask_output)
-            return masks[0]
-        raise ValueError("Provide input_point or input_box.")
-
+            mask = self.single_prediction(input_point, input_label, multimask_output)
+            if mask is None:
+                print("[DEBUG] No mask found")
+                return None
+            else:
+                return mask
+        else:
+            mask, score = self.predict_mask_box(input_box, multimask_output)
+            if mask is None:
+                print("[DEBUG] No masks found")
+                return None
+            else:
+                return mask
 
 
 
@@ -462,13 +482,6 @@ from PyQt5.QtWidgets import (
     QHBoxLayout, QPushButton, QFileDialog  # <-- NEW IMPORTS
 )
 from PyQt5.QtGui import QPixmap, QImage
-
-# ---------------------------------------------------------
-# Suppose you have already defined CellSegmentor2 here somewhere
-# class CellSegmentor2:
-#     def segment(...):
-#         ...
-# ---------------------------------------------------------
 
 class CameraWorker(QThread):
     frame_ready = pyqtSignal(np.ndarray)
