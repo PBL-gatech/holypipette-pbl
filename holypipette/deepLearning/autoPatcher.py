@@ -292,59 +292,115 @@ if __name__ == "__main__":
         #     plt.show()
 
 # 3D plot showing GT and predicted pipette positions, just like above plot, need two different colorimetric time axes
-        pred_pipette_positions = tester.pipette_positions
-        gt_pipette_positions = tester.actions[:, 3:6]
-        fig4 = plt.figure(figsize=(10, 8))
-        ax4 = fig4.add_subplot(111, projection='3d')
-        time_steps = np.arange(pred_pipette_positions.shape[0])
-        # Use two perceptually distinct colormaps with minimal overlap
-        cmap1 = plt.cm.Blues
-        cmap2 = plt.cm.Oranges
-        colors_pred = cmap1(time_steps / pred_pipette_positions.shape[0])
-        colors_gt = cmap2(time_steps / gt_pipette_positions.shape[0])
-        ax4.scatter(pred_pipette_positions[:, 0], pred_pipette_positions[:, 1], pred_pipette_positions[:, 2], c=colors_pred, marker='o', s=15, label='Predicted Pipette Positions')
-        ax4.scatter(gt_pipette_positions[:, 0], gt_pipette_positions[:, 1], gt_pipette_positions[:, 2], c=colors_gt, marker='o', s=15, label='GT Pipette Positions')    
-        ax4.set_title('3D Pipette Position Trajectory')
-        ax4.set_xlabel('Pipette Position X')
-        ax4.set_ylabel('Pipette Position Y')
-        ax4.set_zlabel('Pipette Position Z')
-        mappable_pred = plt.cm.ScalarMappable(cmap=cmap1)
-        mappable_pred.set_array([])
-        cbar_pred = plt.colorbar(mappable_pred, ax=ax4, pad=0.1, shrink=0.6)
-        cbar_pred.set_label('Time steps (Predicted)')
-        mappable_gt = plt.cm.ScalarMappable(cmap=cmap2)
-        mappable_gt.set_array([])
-        cbar_gt = plt.colorbar(mappable_gt, ax=ax4, pad=0.1, shrink=0.6)
-        cbar_gt.set_label('Time steps (GT)')
-        ax4.legend()
-        plt.show()
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
+
+    # --- COLLECT PREDICTED PIPETTE DELTAS (one per frame, regardless of prefill) ---
+    pred_pip_deltas = []  # Will be length N (all frames) if prefilling, else (N-seq_len+1)
+    for idx in range(len(tester.images)):
+        out = tester.run_inference(idx)
+        if out is not None:
+            pred_pip_deltas.append(out[0, 3:6])
+
+    pred_pip_deltas = np.stack(pred_pip_deltas)  # (n, 3)
+
+    # --- CHOOSE TRAJECTORY ALIGNMENT BASED ON PREFILLING ---
+    if tester.prefill_init:
+        # If prefilling, predictions are for every frame, align from index 0
+        init_pip_pos = tester.pipette_positions[0]  # (3,)
+        observed_pip_positions = tester.pipette_positions[:pred_pip_deltas.shape[0]]
+    else:
+        # If not prefilling, predictions start at index seq_len-1
+        init_pip_pos = tester.pipette_positions[tester.seq_len-1]
+        observed_pip_positions = tester.pipette_positions[tester.seq_len-1:tester.seq_len-1+pred_pip_deltas.shape[0]]
+
+    # --- INTEGRATE PREDICTED ACTIONS TO GET ABSOLUTE POSITIONS ---
+    predicted_pip_positions = [init_pip_pos]
+    for delta in pred_pip_deltas:
+        predicted_pip_positions.append(predicted_pip_positions[-1] + delta)
+    predicted_pip_positions = np.stack(predicted_pip_positions[1:])  # (n, 3)
+
+    # --- SETUP COLORS FOR TIME AXIS (length = n) ---
+    n_steps = predicted_pip_positions.shape[0]
+    time_steps = np.arange(n_steps)
+    cmap_pred = plt.cm.Blues
+    cmap_obs  = plt.cm.Oranges
+    colors_pred = cmap_pred(time_steps / max(1, n_steps-1))
+    colors_obs  = cmap_obs(time_steps / max(1, n_steps-1))
+
+    # --- 3D TRAJECTORY PLOTTING ---
+    fig = plt.figure(figsize=(10,8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Standardize axes limits as requested
+    ax.set_xlim(-5, 5)
+    ax.set_ylim(-5, 5)
+    ax.set_zlim(-20, 5)  # Z axis now negative, same spread as before but inverted
+
+
+    # Flip Z for both predicted and observed
+    predicted_z_neg = -predicted_pip_positions[:, 2]
+    observed_z_neg = -observed_pip_positions[:, 2]
+
+    sc1 = ax.scatter(predicted_pip_positions[:, 0], predicted_pip_positions[:, 1], predicted_z_neg,
+            c=colors_pred, marker='o', s=20, label='Predicted (Integrated Actions)')
+    sc2 = ax.scatter(observed_pip_positions[:, 0], observed_pip_positions[:, 1], observed_z_neg,
+            c=colors_obs, marker='^', s=20, label='Observed (Ground Truth Position)')
+
+    ax.set_title('3D Pipette Trajectory: Predicted (Integrated Actions) vs Observed')
+    ax.set_xlabel('Pipette Position X')
+    ax.set_ylabel('Pipette Position Y')
+    ax.set_zlabel('Pipette Position -Z')
+
+    # --- CUSTOM LEGEND ---
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w', label='Predicted (Integrated Actions)',
+            markerfacecolor='blue', markersize=10),
+        Line2D([0], [0], marker='^', color='w', label='Observed (Ground Truth Position)',
+            markerfacecolor='orange', markersize=10),
+    ]
+    ax.legend(handles=legend_elements, loc='best')
+
+    # --- COLORBARS FOR TIME ---
+    mappable_pred = plt.cm.ScalarMappable(cmap=cmap_pred)
+    mappable_pred.set_array([])
+    cbar_pred = plt.colorbar(mappable_pred, ax=ax, pad=0.1, shrink=0.6)
+    cbar_pred.set_label('Time steps (Predicted)')
+    mappable_obs = plt.cm.ScalarMappable(cmap=cmap_obs)
+    mappable_obs.set_array([])
+    cbar_obs = plt.colorbar(mappable_obs, ax=ax, pad=0.1, shrink=0.6)
+    cbar_obs.set_label('Time steps (Observed)')
+
+    plt.tight_layout()
+    plt.show()
 
 
 
 
+            # Sum the per-frame error vectors and display cumulative error for pipette axes as bar charts.
+            # if error:
+                # error_array = np.stack(error)  # shape (n,6)
+                # cumulative_error = np.sum(error_array, axis=0)
+                # # Extract cumulative error for pipette axes (indices 3,4,5: x, y, z)
+                # pip_indices = [3, 4, 5]
+                # pip_labels  = ["pip_x", "pip_y", "pip_z"]
+                # pip_errors  = cumulative_error[pip_indices]
+                # colors      = ["black", "darkblue", "darkred"]
 
-        # Sum the per-frame error vectors and display cumulative error for pipette axes as bar charts.
-        # if error:
-            # error_array = np.stack(error)  # shape (n,6)
-            # cumulative_error = np.sum(error_array, axis=0)
-            # # Extract cumulative error for pipette axes (indices 3,4,5: x, y, z)
-            # pip_indices = [3, 4, 5]
-            # pip_labels  = ["pip_x", "pip_y", "pip_z"]
-            # pip_errors  = cumulative_error[pip_indices]
-            # colors      = ["black", "darkblue", "darkred"]
+                # import matplotlib.pyplot as plt
+                # plt.figure(figsize=(6,4))
+                # plt.bar(pip_labels, pip_errors, color=colors)
+                # plt.title("Cumulative Absolute Error for Pipette Axes")
+                # plt.xlabel("Pipette Axes")
+                # plt.ylabel("Cumulative Absolute Error")
+                # plt.show()
+                # Print raw predicted actions and ground truth actions
+            # print("Predicted actions (first 10):")
+            # for i, e in enumerate(error[:10]):
+            #     print(f"Frame {i}: Predicted {tester.actions[i]}, GT {tester.actions[i] - e}")
 
-            # import matplotlib.pyplot as plt
-            # plt.figure(figsize=(6,4))
-            # plt.bar(pip_labels, pip_errors, color=colors)
-            # plt.title("Cumulative Absolute Error for Pipette Axes")
-            # plt.xlabel("Pipette Axes")
-            # plt.ylabel("Cumulative Absolute Error")
-            # plt.show()
-            # Print raw predicted actions and ground truth actions
-        print("Predicted actions (first 10):")
-        for i, e in enumerate(error[:10]):
-            print(f"Frame {i}: Predicted {tester.actions[i]}, GT {tester.actions[i] - e}")
-
-        print("\nGround truth actions (first 10):")
-        for i in range(10):
-            print(f"Frame {i}: {tester.actions[i]}")
+            # print("\nGround truth actions (first 10):")
+            # for i in range(10):
+            #     print(f"Frame {i}: {tester.actions[i]}")
