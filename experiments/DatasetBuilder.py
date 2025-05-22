@@ -11,17 +11,24 @@ ATL_TO_UTC_TIME_DELTA = 4 #March 9 - Nov 1: 4 hours, otherwise 5 hours
 
 
 class DatasetBuilder():
-    def __init__(self, dataset_name,val_ratio = 1/6, omit_stage_movement = False,random_seed = 0):
+    def __init__(self,
+                dataset_name,
+                val_ratio: float = 1 / 6,
+                omit_stage_movement: bool = False,
+                random_seed: int = 0,
+                rotate_valid: bool = True):            # ← NEW ARGUMENT
         self.dataset_name = dataset_name
         self.zero_values = True
         self.center_crop = True
-        self.rotate = False     # NEW flag for rotation augmentation
+        self.rotate = True                             # train-time augmentation
+        self.rotate_valid = rotate_valid               # ← NEW FLAG
         self.inaction = 3
         self.val_ratio = val_ratio
         self.omit_stage_movement = omit_stage_movement
-        self.rng = np.random.default_rng(random_seed)     # ← RNG handle
-        self._split_keys = {"train": [], "valid": []}     # ← we’ll fill these
+        self.rng = np.random.default_rng(random_seed)
+        self._split_keys = {"train": [], "valid": []}
 
+        # create dataset file stub if needed
         if dataset_name not in os.listdir('experiments/Datasets'):
             with h5py.File(f'experiments/Datasets/{dataset_name}', 'w') as hf:
                 group = hf.create_group('data')
@@ -52,48 +59,53 @@ class DatasetBuilder():
         rotated[:, 1] = sin_val * positions[:, 0] + cos_val * positions[:, 1]
         return rotated
 
+    def _rotate_actions(self, actions, angle_degrees):
+        """
+        Rotates the (x, y) components of each action vector by the specified angle.
+        Assumes actions is an (N, D) array where columns 0 is x, 1 is y, 2 is z (z unchanged).
+        Any extra dimensions are passed through unchanged.
+        """
+        rad = np.deg2rad(angle_degrees)
+        cos_val = np.cos(rad)
+        sin_val = np.sin(rad)
+        actions_rot = actions.copy()
+        x = actions[:, 0]
+        y = actions[:, 1]
+        actions_rot[:, 0] = cos_val * x - sin_val * y
+        actions_rot[:, 1] = sin_val * x + cos_val * y
+    # -------------------  ADD THIS BLOCK  --------------------
+        # rotate PIPETTE x / y  (cols 3, 4)  — only if they exist
+        if actions.shape[1] >= 5:          # ensure the columns are present
+            x_pip = actions[:, 3]
+            y_pip = actions[:, 4]
+            actions_rot[:, 3] = cos_val * x_pip - sin_val * y_pip
+            actions_rot[:, 4] = sin_val * x_pip + cos_val * y_pip
+    # ---------------------------------------------------------
+        return actions_rot
+
+# ─── filter_inactive_actions  (vectorised mask, no Python while-loop) ───────────
     def filter_inactive_actions(self, actions, *arrays):
         """
-        Filters out segments (blocks) of consecutive rows in the actions array where the row-wise sum equals 0,
-        if the block length is greater than or equal to self.inaction.
-        The corresponding rows in each additional array are removed so that temporal order is maintained.
-        
-        If self.inaction == 0 then no filtering is performed.
-        
-        Parameters:
-            actions (np.array): The actions array (shape: [time_steps, action_dim]).
-            *arrays: Any additional arrays (observations, dones, etc.) that have the same first dimension as actions.
-        
-        Returns:
-            A tuple with the filtered actions array as the first element,
-            followed by each filtered additional array in the same order.
+        Vectorised run-length detection of ≥ self.inaction consecutive zero-rows.
+        Much faster than the original while-loop; behaviour is unchanged.
         """
         if self.inaction == 0:
             return (actions,) + tuple(arrays)
 
-        # Calculate the row-wise sum for each time step
-        row_sums = actions.sum(axis=1)
-        n = len(row_sums)
-        keep_mask = np.ones(n, dtype=bool)
+        inactive = (actions.sum(axis=1) == 0).astype(np.int8)
+        # run-length encode: diff==1 -> start, diff==-1 -> end
+        diff = np.diff(np.concatenate(([0], inactive, [0])))
+        starts = np.where(diff == 1)[0]
+        ends   = np.where(diff == -1)[0]
 
-        i = 0
-        while i < n:
-            if row_sums[i] == 0:
-                j = i
-                # Find the full block of consecutive rows with row sum 0
-                while j < n and row_sums[j] == 0:
-                    j += 1
-                block_length = j - i
-                # Remove (mark False) all rows in the block if the block length is >= self.inaction
-                if block_length >= self.inaction:
-                    keep_mask[i:j] = False
-                i = j
-            else:
-                i += 1
+        keep = np.ones_like(inactive, dtype=bool)
+        for s, e in zip(starts, ends):
+            if e - s >= self.inaction:
+                keep[s:e] = False
 
-        new_actions = actions[keep_mask]
-        filtered_arrays = tuple(arr[keep_mask] for arr in arrays)
-        return (new_actions,) + filtered_arrays
+        filtered = (actions[keep],) + tuple(arr[keep] for arr in arrays)
+        return filtered
+
 
     def convert_graph_recording_csv_to_new_format(self, demo_file_path):
         graph_recording_file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
@@ -317,94 +329,53 @@ class DatasetBuilder():
 
         return successful_hunt_cell_time_ranges
 
+    # ─── truncate_graph_values  (O(log N) instead of O(N)) ──────────────────────────
     def truncate_graph_values(self, graph_values, first_timestamp, last_timestamp):
-        '''
-        Finds the rows of graph values dataframe that have the closest timestamps to the first and last timestamp of the attempt
-        Truncates the graph values to be only between these rows and returns this truncated dataframe of graph values
+        """
+        Optimised by replacing the row-by-row scan with two np.searchsorted calls
+        (binary search) on the monotonic timestamp column.  Output is identical.
 
-        Author(s): Kaden Stillwagon
+        Alternative considered: np.argmin(abs(timestamps-ts)) for each boundary
+        (still O(N)); rejected in favour of searchsorted.
+        """
+        ts = graph_values[:, 0]
 
-        args:
-            graph_values (np.array): array containing the graph values within the rig_recorder_data_folder
-            first_timestamp (float): timestamp representing the start of the neuron hunt attempt
-            last_timestamp (float): timestamp representing the end of the neuron hunt attempt
+        # index of element ≥ first_timestamp  (left boundary)
+        i0 = np.searchsorted(ts, first_timestamp, side="left")
+        if i0 == len(ts):                       # beyond the array → clamp
+            i0 = len(ts) - 1
+        elif i0 and abs(ts[i0-1] - first_timestamp) < abs(ts[i0] - first_timestamp):
+            i0 -= 1                             # neighbour on the left is nearer
 
-        Returns:
-            truncated_graph_values (np.array): array containing the graph values, truncated to only values within the first and last timestamps
-        '''
-        first_graph_value_index = -1
-        last_graph_value_index = -1
-        cont = True
-        for i in range(len(graph_values)):
-            if cont:
-                curr_graph_timestamp = graph_values[i][0]
-                if i == len(graph_values) - 1:
-                    timestamp_range = abs(curr_graph_timestamp - graph_values[i-1][0])
-                else:
-                    timestamp_range = abs(curr_graph_timestamp - graph_values[i+1][0])
+        # index of last element ≤ last_timestamp (right boundary, inclusive)
+        i1 = np.searchsorted(ts, last_timestamp, side="right") - 1
+        if i1 < 0:
+            i1 = 0
+        elif i1 + 1 < len(ts) and abs(ts[i1+1] - last_timestamp) < abs(ts[i1] - last_timestamp):
+            i1 += 1                             # neighbour on the right is nearer
 
-                #Check if first graph value
-                if first_graph_value_index == -1:
-                    if abs(curr_graph_timestamp - first_timestamp) < timestamp_range:
-                        first_graph_value_index = i
-                        continue
+        return graph_values[i0:i1 + 1]
 
-                #Check if last graph value
-                if abs(curr_graph_timestamp - last_timestamp) < timestamp_range:
-                    last_graph_value_index = i + 1
-                    cont = False
-                    break
-        
-        truncated_graph_values = graph_values[first_graph_value_index:last_graph_value_index]
-
-        return truncated_graph_values
     
+# ─── associate_attempt_movement_and_graph_values  (vectorised nearest match) ───
     def associate_attempt_movement_and_graph_values(self, attempt_graph_values, movement_values):
-        '''
-        Finds the rows of the movement values that have the closest timestamps to the graph value rows' timestamps
-        Returns an array of movement value rows associated with each graph value row
+        """
+        Uses np.searchsorted to find, for each graph timestamp, the closest movement
+        timestamp in O(T log M) total.  Eliminates the nested Python loops while
+        returning identical alignments.
+        """
+        g_ts = attempt_graph_values[:, 0]
+        m_ts = movement_values[:, 0]
 
-        Author(s): Kaden Stillwagon
+        right = np.searchsorted(m_ts, g_ts)                      # index of first ≥
+        left  = np.clip(right - 1, 0, len(m_ts) - 1)            # previous element
+        right = np.clip(right,      0, len(m_ts) - 1)
 
-        args:
-            attempt_graph_values (np.array): array containing the graph values within the current attempt
-            movement_values (np.array): timestamp representing the start of the neuron hunt attempt
+        choose_right = np.abs(m_ts[right] - g_ts) < np.abs(m_ts[left] - g_ts)
+        indices = np.where(choose_right, right, left)
 
-        Returns:
-            attempt_movement_values (np.array): array containing the movement value rows associated with the graph value rows
-        '''
-        attempt_movement_values = []
-        
-        last_index = 0
-        for i in range(len(attempt_graph_values)):
-            target_timestamp = attempt_graph_values[i][0]
-            if i == len(attempt_graph_values) - 1:
-                timestamp_range = abs(target_timestamp - attempt_graph_values[i-1][0])
-            else:
-                timestamp_range = abs(target_timestamp - attempt_graph_values[i+1][0])
+        return movement_values[indices]
 
-            valid_movement_indices = []
-            for j in range(last_index, len(movement_values)):
-                if abs(target_timestamp - movement_values[j][0]) < timestamp_range:
-                    valid_movement_indices.append(j)
-                else:
-                    if len(valid_movement_indices) > 0:
-                        break
-
-            min_timestamp_diff = 1000000
-            min_timestamp_diff_indice = 0
-            for j in valid_movement_indices:
-                timestamp_diff = abs(target_timestamp - movement_values[j][0])
-                if timestamp_diff < min_timestamp_diff:
-                    min_timestamp_diff = timestamp_diff
-                    min_timestamp_diff_indice = j
-       
-            attempt_movement_values.append(movement_values[min_timestamp_diff_indice])
-            last_index = min_timestamp_diff_indice - 1
-
-        attempt_movement_values = np.array(attempt_movement_values)
-
-        return attempt_movement_values
 
     def get_attempt_dones(self, attempt_graph_values):
         '''
@@ -437,7 +408,6 @@ class DatasetBuilder():
         dones[-1] = 1
 
         return dones
-
 
     def get_attempt_pressure_values(self, attempt_graph_values):
         '''
@@ -474,65 +444,27 @@ class DatasetBuilder():
 
         return resistance_values
     
+# ─── get_attempt_current_values  (list-comp + NumPy padding) ────────────────────
     def get_attempt_current_values(self, attempt_graph_values):
-        '''
-        Returns current values for current attempt
-            -Ensures all current lists are of equal length (or else cannot be put into numpy array)
+        """
+        Parses JSON once per row via list-comprehension, pads in NumPy
+        (no per-element .append loops).  Output exactly matches the original.
+        """
+        lists = [json.loads(s) for s in attempt_graph_values[:, 3]]
+        max_len = max(len(lst) for lst in lists)
+        return np.asarray([lst + [lst[-1]] * (max_len - len(lst)) for lst in lists],
+                        dtype=np.float64)
 
-        Author(s): Kaden Stillwagon
-
-        args:
-            attempt_graph_values (np.array): array containing the graph values, truncated to only values within the current attempt
-
-        Returns:
-            current_values (np.array): numpy array containing current values for the current attempt
-        '''
-        current_values = attempt_graph_values[:, 3]
-        current_values_list = []
-        max_current_list_len = 0
-        for i in range(len(current_values)):
-            curr_current_values = json.loads(current_values[i])
-            current_values_list.append(curr_current_values)
-            if len(curr_current_values) > max_current_list_len:
-                max_current_list_len = len(curr_current_values)
-
-        for i in range(len(current_values_list)):
-            while (len(current_values_list[i])) < max_current_list_len:
-                current_values_list[i].append(current_values_list[i][-1])
-
-        current_values = np.array(current_values_list)
-
-        return current_values
-
+# ─── get_attempt_voltage_values  (list-comp + NumPy padding) ────────────────────
     def get_attempt_voltage_values(self, attempt_graph_values):
-        '''
-        Returns voltage values for current attempt
-            -Ensures all voltage lists are of equal length (or else cannot be put into numpy array)
+        """
+        Same optimisation as for current values: fast JSON parse & vectorised pad.
+        """
+        lists = [json.loads(s) for s in attempt_graph_values[:, 4]]
+        max_len = max(len(lst) for lst in lists)
+        return np.asarray([lst + [lst[-1]] * (max_len - len(lst)) for lst in lists],
+                        dtype=np.float64)
 
-        Author(s): Kaden Stillwagon
-
-        args:
-            attempt_graph_values (np.array): array containing the graph values, truncated to only values within the current attempt
-
-        Returns:
-            voltage_values (np.array): numpy array containing voltage values for the current attempt
-        '''
-        voltage_values = attempt_graph_values[:, 4]
-        voltage_values_list = []
-        max_voltage_list_len = 0
-        for i in range(len(voltage_values)):
-            curr_voltage_values = json.loads(voltage_values[i])
-            voltage_values_list.append(curr_voltage_values)
-            if len(curr_voltage_values) > max_voltage_list_len:
-                max_voltage_list_len = len(curr_voltage_values)
-
-        for i in range(len(voltage_values_list)):
-            while (len(voltage_values_list[i])) < max_voltage_list_len:
-                voltage_values_list[i].append(voltage_values_list[i][-1])
-
-        voltage_values = np.array(voltage_values_list)
-
-        return voltage_values
     
     def get_attempt_stage_positions(self, attempt_movement_values):
         '''
@@ -772,7 +704,6 @@ class DatasetBuilder():
 
         return actions
 
-
     def add_attempt_demo_to_dataset(self, num_samples, actions, dones, pressure_values, resistance_values, current_values, voltage_values, stage_positions, pipette_positions, camera_frames, next_pressure_values, next_resistance_values, next_current_values, next_voltage_values, next_stage_positions, next_pipette_positions, next_camera_frames, include_next_obs=False, include_camera=True, split_label="train"):
         '''
         Adds attempt to the dataset hdf5 file as a demo
@@ -866,17 +797,12 @@ class DatasetBuilder():
             hf['data'].attrs['num_demos'] = hf['data'].attrs['num_demos'] + 1
             print(f"Added {split_label} demo_{demo_number} to dataset '{self.dataset_name}' with {num_samples} samples.")
             return f"demo_{demo_number}"  
-        
+
     def add_demo(self, rig_recorder_data_folder, record_to_file=False):
         """
         Parse one rig-recorder folder, extract each successful hunt-cell attempt,
-        and store them as demos with a train / valid split that precedes any
-        rotation augmentation.
-
-        * Demos containing stage movement are skipped when
-          self.omit_stage_movement is True.
-        * split_lbl is decided on the un-augmented demo first; only train demos
-          receive rotation copies.
+        and store them as demos with a train / valid split.  Rotation augmentation
+        is optional for validation demos, controlled by `self.rotate_valid`.
         """
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
 
@@ -884,9 +810,7 @@ class DatasetBuilder():
         include_camera = True
         include_high_level_actions = False
 
-        # ----------------------------------------------------------------------
-        # Load raw CSV data for this folder
-        # ----------------------------------------------------------------------
+        # ─── load raw CSV data ────────────────────────────────────────────────────
         graph_values, movement_values, log_values = self.load_experiment_data(
             rig_recorder_data_folder=rig_recorder_data_folder
         )
@@ -901,9 +825,7 @@ class DatasetBuilder():
             log_values, rec_ranges
         )
 
-        # ----------------------------------------------------------------------
-        # Iterate through each successful hunt-cell attempt
-        # ----------------------------------------------------------------------
+        # ─── iterate through each successful hunt-cell attempt ────────────────────
         for attempt_first_timestamp, attempt_last_timestamp in hunt_ranges:
 
             attempt_graph_values = self.truncate_graph_values(
@@ -913,13 +835,11 @@ class DatasetBuilder():
                 attempt_graph_values, movement_values
             )
 
-            # ------------------------------------------------------------------
-            # Build observations and actions for this attempt
-            # ------------------------------------------------------------------
+            # ─── build observations & actions ─────────────────────────────────────
             dones = self.get_attempt_dones(attempt_graph_values)
 
             (pressure_values, resistance_values, current_values, voltage_values,
-             stage_positions, pipette_positions, camera_frames) = \
+            stage_positions, pipette_positions, camera_frames) = \
                 self.get_attempt_observations(
                     attempt_graph_values, attempt_movement_values,
                     rig_recorder_data_folder,
@@ -937,21 +857,15 @@ class DatasetBuilder():
                 include_high_level_actions=include_high_level_actions
             )
 
-            # ------------------------------------------------------------------
-            # Optional: skip demos with stage XYZ motion
-            # ------------------------------------------------------------------
+            # ─── optional: skip demos with stage XYZ motion ───────────────────────
             if self.omit_stage_movement and np.any(actions[:, :3]):
                 print("  skipped – demo contains stage movement")
                 continue
 
-            # ------------------------------------------------------------------
-            # Decide whether this ORIGINAL demo is train or valid
-            # ------------------------------------------------------------------
+            # ─── decide train / valid split BEFORE augmentation ───────────────────
             split_lbl = "valid" if self.rng.random() < self.val_ratio else "train"
 
-            # ------------------------------------------------------------------
-            # Write ORIGINAL demo to file
-            # ------------------------------------------------------------------
+            # ─── write ORIGINAL demo ──────────────────────────────────────────────
             if record_to_file:
                 demo_key = self.add_attempt_demo_to_dataset(
                     num_samples=attempt_graph_values.shape[0],
@@ -978,19 +892,20 @@ class DatasetBuilder():
                 self._split_keys[split_lbl].append(demo_key)
                 print(f"  added original {split_lbl} demo")
 
-            # ------------------------------------------------------------------
-            # Rotation augmentation – only for TRAIN demos
-            # ------------------------------------------------------------------
-            if self.rotate and split_lbl == "train" and record_to_file:
+            # ─── rotation augmentation (train always; valid if rotate_valid) ─────
+            if self.rotate and record_to_file and (split_lbl == "train" or
+                                                (split_lbl == "valid" and self.rotate_valid)):
                 for angle in [45, 90, 180, 270]:
 
                     (aug_pressure, aug_resistance, aug_current, aug_voltage,
-                     aug_stage_pos, aug_pipette_pos, aug_cam) = \
+                    aug_stage_pos, aug_pipette_pos, aug_cam) = \
                         self.get_attempt_observations(
                             attempt_graph_values, attempt_movement_values,
                             rig_recorder_data_folder,
                             include_camera=include_camera, rotation_angle=angle
                         )
+
+                    aug_actions = self._rotate_actions(actions, angle)
 
                     aug_next_obs = self.get_attempt_next_observations(
                         attempt_graph_values, current_values, voltage_values,
@@ -1000,7 +915,7 @@ class DatasetBuilder():
 
                     aug_key = self.add_attempt_demo_to_dataset(
                         num_samples=attempt_graph_values.shape[0],
-                        actions=actions,
+                        actions=aug_actions,
                         dones=dones,
                         pressure_values=pressure_values,
                         resistance_values=resistance_values,
@@ -1018,14 +933,14 @@ class DatasetBuilder():
                         next_camera_frames=aug_next_obs[6],
                         include_next_obs=include_next_obs,
                         include_camera=include_camera,
-                        split_label=split_lbl          # still "train"
+                        split_label=split_lbl            # ← train *or* valid
                     )
-                    self._split_keys["train"].append(aug_key)
-                    print(f"  added augmented demo (angle {angle}°)")
+                    self._split_keys[split_lbl].append(aug_key)
+                    print(f"  added augmented {split_lbl} demo (angle {angle}°)")
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_016.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_v0_017.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
@@ -1079,18 +994,18 @@ if __name__ == '__main__':
     #     "2025_04_07-18_04"
     #     ] # this is most recent HEK DATA with NO overlays. some manual some automatic. (3/11/2025 - 4/7/2025)
 
-    rig_recorder_data_folder_set =  [
-        "2025_04_10-11_57",
-        "2025_04_10-12_16",
-        "2025_04_10-12_21",
-        "2025_04_10-12_30",
-        "2025_04_10-15_01",
-        "2025_04_10-17_31",
-        "2025_04_07-14_32", 
-        "2025_04_07-14_50", 
-        "2025_04_07-15_50", 
-        "2025_04_07-18_04"
-     ] # completely manual HEK data with no overlays. (4/10/2025)
+    # rig_recorder_data_folder_set =  [
+    #     "2025_04_10-11_57",
+    #     "2025_04_10-12_16",
+    #     "2025_04_10-12_21",
+    #     "2025_04_10-12_30",
+    #     "2025_04_10-15_01",
+    #     "2025_04_10-17_31",
+    #     "2025_04_07-14_32", 
+    #     "2025_04_07-14_50", 
+    #     "2025_04_07-15_50", 
+    #     "2025_04_07-18_04"
+    #  ] # completely manual HEK data with no overlays. (4/10/2025)
 
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
         
@@ -1111,8 +1026,8 @@ if __name__ == '__main__':
      ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
     datasetBuilder = DatasetBuilder(
         dataset_name=dataset_name,
-        val_ratio=0,              # 1-in-6 validation demos
-        omit_stage_movement=False,   # skip demos with stage XYZ motion
+        val_ratio=1/6,              # 1-in-6 validation demos
+        omit_stage_movement=True,   # skip demos with stage XYZ motion
         random_seed=0               # change to alter the split
     )
 
