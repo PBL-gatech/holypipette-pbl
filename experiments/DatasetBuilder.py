@@ -895,7 +895,8 @@ class DatasetBuilder():
             # ─── rotation augmentation (train always; valid if rotate_valid) ─────
             if self.rotate and record_to_file and (split_lbl == "train" or
                                                 (split_lbl == "valid" and self.rotate_valid)):
-                for angle in [45, 90, 180, 270]:
+                angles = np.linspace(0, 360, num=10, endpoint=False)[1:]   # 10-way, skip 0 °
+                for angle in angles:
 
                     (aug_pressure, aug_resistance, aug_current, aug_voltage,
                     aug_stage_pos, aug_pipette_pos, aug_cam) = \
