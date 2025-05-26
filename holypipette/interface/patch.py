@@ -35,7 +35,7 @@ class AutoPatchInterface(TaskInterface):
 
         self.is_selecting_cells = False
         self.cells_to_patch = []
-        # self.done = self.current_autopatcher.done
+        self.movement_file_path = ''
 
         #call update_camera_cell_list every 0.05 seconds using a QTimer
         self.timer = QtCore.QTimer()
@@ -119,9 +119,15 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.calibrated_unit.camera.cell_list = []
         for cell, img in self.cells_to_patch:
             camera_pos = -cell + self.current_autopatcher.calibrated_stage.reference_position()
-            # Append a tuple of (coordinates, image)
             self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img))
+            
+    @command(category='Test', 
+             description='Send movement file to the autopatcher', 
+             success_message='Path sent')
+    def send_movement_file(self, path):
+        self.current_autopatcher.test_movement(path)
 
+        self.info(f'Movement file path set to {path}')
 
     @command(category='Patch',
                 description='emit the states to logger that are being attempted in manual mode',

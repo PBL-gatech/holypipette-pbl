@@ -10,7 +10,7 @@ class EPhysLogger(threading.Thread):
         super().__init__()
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
-        testMode = False
+        testMode = self.recording_state_manager.testMode
         if testMode:
             folder_path = folder_path.replace("Data/", "Data/TEST_")
         self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/" + f"{ephys_filename}" + "/"

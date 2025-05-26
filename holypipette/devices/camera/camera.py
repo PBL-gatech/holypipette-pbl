@@ -132,6 +132,8 @@ class AcquisitionThread(threading.Thread):
             snap_time = time.time()
             try:
                 raw, processed = self.camera.snap()
+                time.sleep(0.02)  # Simulate processing time
+                # logging.debug(f"frame captured")
             except Exception as ex:
                 print('something went wrong acquiring an image, waiting for 100ms: ')
                 traceback.print_exception(type(ex), ex, ex.__traceback__)
