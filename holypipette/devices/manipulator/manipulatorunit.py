@@ -1,3 +1,4 @@
+
 """
 A class for access to a particular unit managed by a device.
 It is essentially a subset of a Manipulator
@@ -126,7 +127,7 @@ class ManipulatorUnit(Manipulator):
                 self.wait_until_still(i)
         else:
             self.dev.wait_until_still([self.axes[axes]])
-        self.sleep(.05)
+        # self.sleep(.005)
 
     def wait_until_reached(self, position, axes=None, precision=0.5, timeout=10):
         """

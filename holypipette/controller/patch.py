@@ -1,5 +1,7 @@
+
 import time
 
+import pandas as pd
 import numpy as np
 import cv2
 import ctypes
@@ -14,6 +16,9 @@ import logging
 from holypipette.interface.patchConfig import PatchConfig
 
 from .base import TaskController
+import threading
+# import locking package
+from threading import Lock
 
 
 class AutopatchError(Exception):
@@ -729,6 +734,8 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.wait_until_still(2)
             self.microscope.relative_move(dist)
             self.microscope.wait_until_still()
+            # end = time.perf_counter_ns()
+            # print(f"Time taken to move down: {(end-start)/1e6} ms")
         finally:
             pass
     def move_group_up(self,dist = 100):
@@ -814,3 +821,85 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.wait_until_still() # Ensure movement completes
         finally:
             pass
+
+
+
+    def test_movement(self, path):
+        """
+        Moves the pipette and stage based on parsed data, updating positions every 100 ms.
+        """
+        # Step 1: Load data from file and parse into a DataFrame
+        data = {'timestamp': [], 'st_x': [], 'st_y': [], 'st_z': [], 'pi_x': [], 'pi_y': [], 'pi_z': []}
+        with open(path, 'r') as file:
+            for line in file:
+                parts = line.strip().split()
+                data_point = {key: float(value) for key, value in (part.split(':') for part in parts)}
+                for key in data:
+                    data[key].append(data_point[key])
+
+
+        # Step 2: Downsample the data to the target frequency
+        filtered_df = self.downsample_dataframe(data)
+
+
+        # Step 3: Move to the initial position
+        initial_positions = filtered_df.iloc[0][['st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z']]
+        self.calibrated_stage.absolute_move([initial_positions['st_x'], initial_positions['st_y'], initial_positions['st_z']])
+        self.calibrated_unit.absolute_move_group(
+            [initial_positions['pi_x'], initial_positions['pi_y'], initial_positions['pi_z']], [0, 1, 2]
+        )
+
+        # Step 4: Start movement loop with filtered data
+        self.stop_event = threading.Event()
+        self.movement_thread = threading.Thread(target=self._movement_loop, args=(filtered_df,))
+        self.info('Movement Test started')
+        self.movement_thread.start()
+ 
+
+    def downsample_dataframe(self, data):
+        df = pd.DataFrame(data)
+        df['timestamp'] -= df['timestamp'].iloc[0]  # Normalize timestamps to start from 0
+        df = df.sort_values('timestamp')  # Ensure DataFrame is sorted
+
+        # Define target frequency and interval
+        target_frequency = 12  # Hz
+        interval = 1 / target_frequency  # seconds
+
+        # Generate target times
+        max_time = df['timestamp'].iloc[-1]
+        target_times = pd.DataFrame({'timestamp': [i * interval for i in range(int(max_time // interval) + 1)]})
+
+        # Perform an asof merge to find the closest timestamp at or after each target_time
+        filtered_df = pd.merge_asof(target_times, df, on='timestamp', direction='forward')
+
+        # Drop any rows where a match wasn't found (optional)
+        filtered_df.dropna(inplace=True)
+
+        self.info(f'Filtered data to {len(filtered_df)} rows')
+        return filtered_df
+
+    def _movement_loop(self, df):
+        """
+        Executes precise movements at each pre-selected timestamp.
+        """
+        start_time = time.perf_counter()
+        for _, row in df.iterrows():
+            if self.stop_event.is_set():
+                self.info('Movement Test stopped')
+                break
+            # self.calibrated_stage.absolute_move([row['st_x'], row['st_y'], row['st_z']])
+            self.calibrated_unit.absolute_move_group([row['pi_x'], row['pi_y'], row['pi_z']], [0, 1, 2])
+            target_time = row['timestamp']
+            while time.perf_counter() < start_time + target_time and not self.stop_event.is_set():
+                # print('waiting')
+                pass
+
+        self.info('Movement Test completed')
+
+
+    def stop_movement(self):
+        """
+        Stops the movement thread gracefully.
+        """
+        self.stop_event.set()
+        self.movement_thread.join()

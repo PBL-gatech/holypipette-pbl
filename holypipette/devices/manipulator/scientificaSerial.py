@@ -232,9 +232,14 @@ class ScientificaSerialNoEncoder(Manipulator):
         '''
         
         self._lock.acquire()
+        # start  = time.perf_counter_ns()
         self.comPort.write(cmd.encode())
         resp = self.comPort.read_until(b'\r') #read reply to message
         resp = resp[:-1]
+        if resp == b'A':
+            print(f"command received: {resp}")
+        # end = time.perf_counter_ns()
+        # print(f"Time taken to send command: {(end - start)/1e6} ms")
         self._lock.release()
         return resp.decode()
 
@@ -308,6 +313,8 @@ class ScientificaSerialNoEncoder(Manipulator):
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
             self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
+            # end  = time.perf_counter_ns()
+            # print(f"Time taken to move: {(end - start)/1e6} ms")
 
 
         else:

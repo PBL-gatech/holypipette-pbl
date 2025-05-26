@@ -5,6 +5,8 @@ from collections import deque
 import imageio
 import os
 import logging
+import time
+
 import pandas as pd
 
 
@@ -16,7 +18,7 @@ class FileLogger(threading.Thread):
 
         self.image_type  = "webp"
 
-        testMode = False
+        testMode = self.recording_state_manager.testMode
         if testMode:
             folder_path = folder_path.replace("Data/", "Data/TEST_")
 
@@ -98,6 +100,7 @@ class FileLogger(threading.Thread):
         threading.Thread(target=self._write_to_file, args=(content,)).start()
 
     def write_movement_data_batch(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
+        # start_time = time.perf_counter_ns()
         if not self.recording_state_manager.is_recording_enabled():
             return
         if time_value == self.last_movement_time:
@@ -112,6 +115,8 @@ class FileLogger(threading.Thread):
         if len(self.movement_contents) >= self.frame_batch_limit:
             # logging.info(f"Batch size reached for MOVEMENT. Writing to disk at {datetime.now() - self.time_truth} seconds after start")
             self._flush_contents(self.movement_contents)
+        # end_time = time.perf_counter_ns()
+        # print(f"Time taken to write movement data: {(end_time - start_time)/1e6} ms")
 
     def _flush_contents(self, data):
         if data:

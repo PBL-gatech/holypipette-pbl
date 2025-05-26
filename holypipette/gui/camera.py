@@ -1081,14 +1081,24 @@ class ConfigGui(QtWidgets.QWidget):
     def display_changed_value(self, key, value):
         box = self.findChild(QtWidgets.QCheckBox, key)
         if box is not None:
+            box.blockSignals(True)
             box.setChecked(bool(value))
+            box.blockSignals(False)
             return
         combo = self.findChild(QtWidgets.QComboBox, key)
         if combo is not None:
             index = combo.findText(str(value))
             if index >= 0:
+                combo.blockSignals(True)
                 combo.setCurrentIndex(index)
+                combo.blockSignals(False)
             return
+        spin = self.findChild((QtWidgets.QDoubleSpinBox, QtWidgets.QSpinBox), key)
+        if spin is not None:
+            spin.blockSignals(True)
+            spin.setValue(value) 
+            spin.blockSignals(False)
+
 
     def set_numerical_value(self, name, value):
         setattr(self.config, name, value)
