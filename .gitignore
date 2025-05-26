@@ -45,3 +45,8 @@ patch_analyzer.log
 /holypipette/deepLearning/pipetteModelTrainer/finder_training_set
 /holypipette/deepLearning/pipetteModelTrainer/focus_set-2
 pressure/recordings/~$pressure.xlsx
+/experiments
+/holypipette/deepLearning/cellModel
+/holypipette/deepLearning/patchModel
+/holypipette/devices/camera/FakeMicroscopeImgs
+/holypipette/experiments/Data
