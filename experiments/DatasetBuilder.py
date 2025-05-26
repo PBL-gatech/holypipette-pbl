@@ -941,7 +941,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_018.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_rotation_test.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
@@ -1008,26 +1008,26 @@ if __name__ == '__main__':
     #     "2025_04_07-18_04"
     #  ] # completely manual HEK data with no overlays. (4/10/2025)
 
-    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
+    rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
         
-    rig_recorder_data_folder_set =  [
-        "2025_05_20-15_50",
-        "2025_05_20-15_16",
-        "2025_05_20-14_05",
-        "2025_04_10-11_57",
-        "2025_04_10-12_16",
-        "2025_04_10-12_21",
-        "2025_04_10-12_30",
-        "2025_04_10-15_01",
-        "2025_04_10-17_31",
-        "2025_04_07-14_32", 
-        "2025_04_07-14_50", 
-        "2025_04_07-15_50", 
-        "2025_04_07-18_04"
-     ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
+    # rig_recorder_data_folder_set =  [
+    #     "2025_05_20-15_50",
+    #     "2025_05_20-15_16",
+    #     "2025_05_20-14_05",
+    #     "2025_04_10-11_57",
+    #     "2025_04_10-12_16",
+    #     "2025_04_10-12_21",
+    #     "2025_04_10-12_30",
+    #     "2025_04_10-15_01",
+    #     "2025_04_10-17_31",
+    #     "2025_04_07-14_32", 
+    #     "2025_04_07-14_50", 
+    #     "2025_04_07-15_50", 
+    #     "2025_04_07-18_04"
+    #  ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
     datasetBuilder = DatasetBuilder(
         dataset_name=dataset_name,
-        val_ratio=1/6,              # 1-in-6 validation demos
+        val_ratio=0,              # 1-in-6 validation demos
         omit_stage_movement=True,   # skip demos with stage XYZ motion
         random_seed=0               # change to alter the split
     )

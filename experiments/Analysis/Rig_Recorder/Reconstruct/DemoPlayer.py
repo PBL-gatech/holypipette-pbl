@@ -292,7 +292,8 @@ class DemoPlayer(QWidget):
 # ----------------------------------------------------------------------
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_017.hdf5"
+    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_017.hdf5"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_rotation_test.hdf5"
     viewer = DemoPlayer(data_path)
     viewer.show()
     sys.exit(app.exec_())
