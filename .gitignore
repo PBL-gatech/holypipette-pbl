@@ -69,3 +69,6 @@ experiments/Datasets/temp_dataset.hdf5
 /experiments/Analysis/Rig_Recorder/Reconstruct
 /experiments
 /holypipette/deepLearning/pipetteTipModel
+/holypipette/deepLearning/cellModel
+/holypipette/experiments/Data
+/holypipette/deepLearning/patchModel/models

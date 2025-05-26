@@ -1006,6 +1006,8 @@ class ConfigGui(QtWidgets.QWidget):
         self.save_button.setIcon(qta.icon('fa.download'))
         top_row.addWidget(self.save_button)
         layout.addLayout(top_row)
+        # ``params`` has been deprecated in ``param``; use ``param`` directly
+        # which behaves like a dictionary mapping parameter names to objects.
         all_params = config.param
         self.value_widgets = {}
         for category, params in config.categories:
@@ -1064,6 +1066,8 @@ class ConfigGui(QtWidgets.QWidget):
         if key not in self.value_widgets:
             return
 
+        # Access parameter objects via ``param`` to avoid using the deprecated
+        # ``params`` method
         param_obj  = self.config.param[key]
         magnitude  = getattr(param_obj, 'magnitude', 1)
 
