@@ -403,16 +403,15 @@ class MultiClampChannel(Amplifier):
         self.set_pulses_frequency(pulse_frequency)
 
         # Set zap duration
-        self.set_zap_duration(1)  # ms
+        self.set_zap_duration(25)  # us
 
         # Automatic offset
         self.auto_pipette_offset()
 
         # Set holding potential
-        self.switch_holding(True)
-        self.set_holding(0.)
-
-
+        # self.switch_holding(True)
+        # self.set_holding(0)
+        
     def resistance(self):
         '''
         Returns resistance

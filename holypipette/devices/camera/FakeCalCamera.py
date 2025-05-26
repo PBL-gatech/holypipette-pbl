@@ -28,6 +28,12 @@ class FakeCalCamera(Camera):
 
         #setup frame image (numpy because of easy rolling)
         self.frame = cv2.imread(curFile + "/FakeMicroscopeImgs/background.tif", cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\213125_1733864762.600275.webp",cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\8ae5dd1d-c8de-4e00-8ba8-bc724275ee2f.webp",cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\example pictures\before.tiff", cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\devices\camera\FakeMicroscopeImgs\cellsegtest.png", cv2.IMREAD_GRAYSCALE)
+        # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\cellModel\sam2\notebooks\images\cars.jpg", cv2.IMREAD_GRAYSCALE)
+  
         self.frame = cv2.resize(self.frame, dsize=(self.width * 2, self.height * 2), interpolation=cv2.INTER_NEAREST)
 
         self.last_img = None
@@ -85,6 +91,7 @@ class FakeCalCamera(Camera):
         stage_x, stage_y, stage_z = self.stageManip.position_group([1, 2, 3])
 
         startPos = [-235000, 55000, 285000]
+        # startPos = [0,0,0]
         stage_x = stage_x - startPos[0]
         stage_y = stage_y - startPos[1]
         stage_z = stage_z - startPos[2]
@@ -106,7 +113,7 @@ class FakeCalCamera(Camera):
         frame = self.pipette.add_pipette_to_img(frame, [stage_x, stage_y, stage_z])
 
         #add cellsorter to image
-        frame = self.cellSorterHandler.add_cellsorter_to_img(frame, [stage_x, stage_y, stage_z])
+        # frame = self.cellSorterHandler.add_cellsorter_to_img(frame, [stage_x, stage_y, stage_z])
 
         #add noise, exposure
         exposure_factor = self.exposure_time/30.
@@ -165,9 +172,11 @@ class FakePipetteManipulator(FakeManipulator):
         super(FakePipetteManipulator, self).__init__(min, max)
         self.armAngle = armAngle
 
-        self.raw_to_real_mat  = np.array([[np.cos(self.armAngle), 0, 0], 
-                                          [0, 1, 0], 
-                                          [-np.sin(self.armAngle), 0, 1]], dtype=np.float32)
+        self.raw_to_real_mat = np.array([
+            [ np.cos(self.armAngle), 0,  np.sin(self.armAngle)],
+            [ 0,                     1,  0],
+            [-np.sin(self.armAngle), 0,  np.cos(self.armAngle)]
+        ], dtype=np.float32)
 
         self.real_to_raw_mat = np.linalg.inv(self.raw_to_real_mat)
 
@@ -184,7 +193,7 @@ class FakePipetteManipulator(FakeManipulator):
         return raw_pos
 
     def position(self, axis=None):
-        raw_pos = self.raw_position()
+        raw_pos = self.raw_position() 
         real_pos = self.raw_to_real(raw_pos)
         
         if axis == None:
@@ -194,6 +203,7 @@ class FakePipetteManipulator(FakeManipulator):
 
     def raw_position(self, axis=None):
         return super().position(axis).copy()
+
 
     def absolute_move(self, x, axis):
         print(f"Moving axis {axis} to {x}\t{self.position()}\t{self.raw_position()}")
@@ -251,19 +261,27 @@ class FakePipette():
 
     def __init__(self, manipulator:Manipulator, microscope_pixels_per_micron, stage_to_pipette=np.eye(4,4), pipetteAngle=np.pi/6):
 
-        stage_to_pipette = np.array([[0.7,  -0.3,   0,      0], 
-                                     [0.3,  1,      0,      0], 
-                                     [0,    0,      -(1/2), 600], 
-                                     [0,    0,      0,      1]])
+        # stage_to_pipette = np.array([[0.7,  -0.3,   0,      0], 
+        #                              [0.3,  1,      0,      0], 
+        #                              [0,    0,      (1), 600], 
+        #                              [0,    0,      0,      1]])
+        # make a identify matrix
+        stage_to_pipette = np.eye(4,4)
 
         # rotation matrix to make the x-axis to parallel to the pipette, rather than the stage
         # note: this is the rotation matrix about the y-axis, but only rotating the x axis (not z)
         # creates a non-orthogonal coordinate system, but that's the same as the real pipette  
-        self.rot_mat  = np.array([[np.cos(pipetteAngle), 0, 0, 0], 
-                            [0, 1, 0, 0], 
-                            [np.sin(pipetteAngle), 0, 1, 0], 
-                            [0, 0, 0, 1]])
+        # self.rot_mat  = np.array([[np.cos(pipetteAngle), 0, 0, 0], 
+        #                     [0, 1, 0, 0], 
+        #                     [np.sin(pipetteAngle), 0, 1, 0], 
+        #                     [0, 0, 0, 1]])
 
+        self.rot_mat = np.array([
+                        [1, 0, 0, 0],
+                        [0,1, 0, 0],
+                        [0,                   0, 1, 0],  
+                        [0,                   0, 0, 1]
+                    ])
         stage_to_pipette = np.matmul(np.linalg.inv(self.rot_mat), stage_to_pipette)
 
         
@@ -296,6 +314,11 @@ class FakePipette():
         #get pipette micron coords
         pipette_x, pipette_y, pipette_z = self.manipulator.position()
         pipette_pos_h = np.array([pipette_x, pipette_y, pipette_z, 1])
+
+        # startPos = [-235000, 55000, 285000]
+        # pipette_x -= startPos[0]
+        # pipette_y -= startPos[1]
+        # pipette_z -= startPos[2]
 
         #get pipette position in stage coordinates
         pipette_pos_stage_coords_h = np.matmul(self.pipette_to_stage, pipette_pos_h.T)

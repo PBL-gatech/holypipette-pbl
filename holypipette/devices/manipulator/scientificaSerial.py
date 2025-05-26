@@ -25,6 +25,8 @@ class SerialCommands():
     SET_MAX_SPEED = 'TOP {}\r'
     SET_MAX_ACCEL = 'ACC {}\r'
 
+    SET_X_Y_Z_VEL = 'VJ {} {} {}\r'
+
     STOP = 'STOP\r'
 
 class ScientificaSerialEncoder(Manipulator):
@@ -173,6 +175,17 @@ class ScientificaSerialEncoder(Manipulator):
         if cmd[2] != 0:
             self.relative_move(cmd[2], 3)
 
+    def absolute_move_group_velocity(self,vel,axes):   
+        try: 
+         vel = list(vel)
+         axes = list(axes)
+         xvel = vel[axes.index(1)]
+         yvel = vel[axes.index(2)]
+         zvel = vel[axes.index(3)]
+         self._sendCmd(SerialCommands.SET_X_Y_Z_VEL.format(xvel, yvel, zvel))
+        except Exception as e:
+            self.error(f"Error in absolute_move: {e}")
+
     def wait_until_still(self, axes = None, axis = None):
         while True:
             resp = self._sendCmd(SerialCommands.GET_IS_BUSY)
@@ -183,7 +196,6 @@ class ScientificaSerialEncoder(Manipulator):
 
     def stop(self):
         self._sendCmd(SerialCommands.STOP)
-
 
 class ScientificaSerialNoEncoder(Manipulator):
 
@@ -262,6 +274,9 @@ class ScientificaSerialNoEncoder(Manipulator):
                 time.sleep(sleepTime)
 
     def absolute_move(self, pos, axis, speed=None):
+        '''Moves the device to an absolute position in um.
+        '''
+        # self.abort_if_requested()
         try: 
             if axis == 1:
                 yPos = self.position(axis=2)
@@ -275,7 +290,14 @@ class ScientificaSerialNoEncoder(Manipulator):
             self.error(f"Error in absolute_move: {e}")
     
     def absolute_move_group(self, x, axes, speed=None):
-      
+        '''
+        Moves the device group of axes to position x.
+        Parameters
+        ----------
+        axes : list of axis numbers
+        x : target position in um (vector or list).
+        '''
+        # self.abort_if_requested()
         x = list(x)
         axes = list(axes)
 
@@ -283,7 +305,6 @@ class ScientificaSerialNoEncoder(Manipulator):
             # Move X and Y axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
-            # print("sent cmd", xPos, yPos)
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
 
         elif 1 in axes and 2 in axes and 3 in axes:
@@ -291,18 +312,39 @@ class ScientificaSerialNoEncoder(Manipulator):
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
-            # print("sent cmd", xPos, yPos, zPos)
-            # start = time.perf_counter_ns()
             self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
             # end  = time.perf_counter_ns()
             # print(f"Time taken to move: {(end - start)/1e6} ms")
 
+
         else:
             print(f'unimplemented move group {x} {axes}')
-        
 
-    
+    def absolute_move_group_velocity(self, vel):
+        '''
+        Moves the device in um/s.
+        Parameters
+        ----------
+        vel : list of velocities for each axis
+        '''
+        # self.abort_if_requested()   
+        try: 
+            vel = list(vel)
+            if len(vel) != 3:
+                raise ValueError("Expected velocity list of length 3: [xvel, yvel, zvel]")
+            xvel, yvel, zvel = vel
+            self._sendCmd(SerialCommands.SET_X_Y_Z_VEL.format(xvel, yvel, zvel))
+        except Exception as e:
+            self.error(f"Error in absolute_move: {e}")
+        
     def relative_move_group(self, pos, axis, speed=None):
+        '''Moves the device axis by relative amount pos in um.
+        Parameters
+        ----------
+        axis : axis number starting at 0; if None, all XYZ axes
+        pos : position shift in um.
+        '''
+        # self.abort_if_requested()
         if axis == 1:
             self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(pos, 0))
         if axis == 2:
@@ -312,6 +354,14 @@ class ScientificaSerialNoEncoder(Manipulator):
             self.absolute_move(absZCmd, 3)
 
     def relative_move_group(self, x, axes, speed=None):
+        '''
+        Moves the device group of axes by relative amount x in um.
+        Parameters
+        ----------
+        axes : list of axis numbers
+        x : position shift in um (vector or list).
+        '''
+        # self.abort_if_requested()
         cmd = [0, 0, 0]
         for pos, axis in zip(x, axes):
             cmd[axis  - 1] = pos
@@ -332,6 +382,5 @@ class ScientificaSerialNoEncoder(Manipulator):
 
     def stop(self):
         self._sendCmd(SerialCommands.STOP)
-
 
 

@@ -412,6 +412,7 @@ class CameraGui(QtWidgets.QMainWindow):
     camera_signal = QtCore.pyqtSignal(MethodType, object)
     camera_reset_signal = QtCore.pyqtSignal(TaskController)
 
+
     def __init__(self, camera, recording_state_manager, image_edit = None, display_edit = None,
                  with_tracking=False, base_directory='.'):
         super().__init__()
@@ -502,7 +503,7 @@ class CameraGui(QtWidgets.QMainWindow):
 
         self.display_edit_funcs = []
         if display_edit is None:
-            display_edit = [self.draw_cross]
+            display_edit = [self.draw_circle]
         if isinstance(display_edit, Sequence):
             self.display_edit_funcs.extend(display_edit)
         else:
@@ -557,6 +558,25 @@ class CameraGui(QtWidgets.QMainWindow):
         c_x, c_y = pixmap.width() // 2, pixmap.height() // 2
         painter.drawLine(c_x - 15, c_y, c_x + 15, c_y)
         painter.drawLine(c_x, c_y - 15, c_x, c_y + 15)
+        painter.end()
+
+    # add a circle to the display
+    def draw_circle(self, pixmap):
+        '''
+        Draws a circle at the center. Meant to be used as a ``display_edit``
+        function.
+
+        Parameters
+        ----------
+        pixmap : `QPixmap`
+            The pixmap to draw on.
+        '''
+        painter = QtGui.QPainter(pixmap)
+        pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 125))
+        pen.setWidth(4)
+        painter.setPen(pen)
+        c_x, c_y = pixmap.width() // 2, pixmap.height() // 2
+        painter.drawEllipse(c_x - 15, c_y - 15, 30, 30)
         painter.end()
 
     def display_edit(self, pixmap):
@@ -833,6 +853,7 @@ class CameraGui(QtWidgets.QMainWindow):
         self.running_task = None
         self.running_task_interface = None
 
+
     def keyPressEvent(self, event):
         # We remove the keypad modifier, since we do not want to make a
         # difference between key presses as part of the keypad or on the main
@@ -985,7 +1006,7 @@ class ConfigGui(QtWidgets.QWidget):
         self.save_button.setIcon(qta.icon('fa.download'))
         top_row.addWidget(self.save_button)
         layout.addLayout(top_row)
-        all_params = config.params()
+        all_params = config.param
         self.value_widgets = {}
         for category, params in config.categories:
             box = QtWidgets.QGroupBox(category)
@@ -1000,20 +1021,31 @@ class ConfigGui(QtWidgets.QWidget):
                     value_widget.setMinimum(param_obj.bounds[0])
                     value_widget.setMaximum(param_obj.bounds[1])
                     value_widget.setValue(getattr(config, param_name))
-                    value_widget.valueChanged.connect(functools.partial(self.set_numerical_value, param_name))
+                    value_widget.valueChanged.connect(
+                        functools.partial(self.set_numerical_value, param_name))
                 if isinstance(param_obj, NumberWithUnit):
                     value_widget = QtWidgets.QDoubleSpinBox()
                     magnitude = param_obj.magnitude
-                    value_widget.setMinimum(param_obj.bounds[0]/magnitude)
-                    value_widget.setMaximum(param_obj.bounds[1]/magnitude)
-                    value_widget.setValue(getattr(config, param_name)/magnitude)
+                    value_widget.setMinimum(param_obj.bounds[0] / magnitude)
+                    value_widget.setMaximum(param_obj.bounds[1] / magnitude)
+                    value_widget.setValue(getattr(config, param_name) / magnitude)
                     value_widget.valueChanged.connect(
                         functools.partial(self.set_numerical_value_with_unit, param_name, magnitude))
                 elif isinstance(param_obj, param.Boolean):
                     value_widget = QtWidgets.QCheckBox()
                     value_widget.setChecked(getattr(config, param_name))
-                    value_widget.stateChanged.connect(functools.partial(self.set_boolean_value, param_name, value_widget))
+                    value_widget.stateChanged.connect(
+                        functools.partial(self.set_boolean_value, param_name, value_widget))
+                elif isinstance(param_obj, (param.Selector)):
+                    value_widget = QtWidgets.QComboBox()
+                    value_widget.addItems([str(o) for o in param_obj.objects])
+                    current = getattr(config, param_name)
+                    if current in param_obj.objects:
+                        value_widget.setCurrentIndex(param_obj.objects.index(current))
+                    value_widget.currentIndexChanged.connect(
+                        functools.partial(self.set_selector_value, param_name, param_obj.objects))
                 value_widget.setToolTip(param_obj.doc)
+                value_widget.setObjectName(param_name)
                 self.value_widgets[param_name] = value_widget
                 row.addWidget(label, stretch=1)
                 row.addWidget(value_widget)
@@ -1025,37 +1057,48 @@ class ConfigGui(QtWidgets.QWidget):
             layout.addWidget(box)
         self.setLayout(layout)
 
-    def run(self):
-        print('running')
-
     def value_changed(self, key, value):
+        """Relay parameter updates coming from the Config object.
+        Numeric parameters are scaled by their unit magnitude; non‑numeric
+        (e.g. Selector / Boolean) are forwarded unchanged."""
         if key not in self.value_widgets:
             return
-        magnitude = getattr(self.config.params()[key], 'magnitude', 1)
-        # We do not update the GUI directly here (that's done in
-        # display_changed_value), because it is possible that this is triggered
-        # from code running in a different thread
-        self.value_changed_signal.emit(key, value/magnitude)
+
+        param_obj  = self.config.param[key]
+        magnitude  = getattr(param_obj, 'magnitude', 1)
+
+        # Only scale numeric values; leave strings / bools intact
+        if isinstance(value, (int, float)):
+            self.value_changed_signal.emit(key, value / magnitude)
+        else:
+            self.value_changed_signal.emit(key, value)
 
     @QtCore.pyqtSlot('QString', object)
     def display_changed_value(self, key, value):
-        widget = self.findChild(QtWidgets.QCheckBox, key)
-        if widget:
-            if isinstance(value, bool):
-                widget.setChecked(value)
-            else:
-                logging.error(f"Expected boolean, got {type(value)}: {value}")
+        box = self.findChild(QtWidgets.QCheckBox, key)
+        if box is not None:
+            box.setChecked(bool(value))
+            return
+        combo = self.findChild(QtWidgets.QComboBox, key)
+        if combo is not None:
+            index = combo.findText(str(value))
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            return
 
     def set_numerical_value(self, name, value):
         setattr(self.config, name, value)
 
     def set_numerical_value_with_unit(self, name, magnitude, value):
-        setattr(self.config, name, value*magnitude)
+        setattr(self.config, name, value * magnitude)
 
     def set_boolean_value(self, name, widget):
-        new_value = widget.isChecked()
-        logging.debug(f"Setting {name} to {new_value}")
-        setattr(self.config, name, new_value)
+        setattr(self.config, name, widget.isChecked())
+
+    def set_selector_value(self, name, options, index):
+        if 0 <= index < len(options):
+            setattr(self.config, name, options[index])
+
 
     def save_config(self):
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save configuration",
@@ -1065,12 +1108,9 @@ class ConfigGui(QtWidgets.QWidget):
             try:
                 self.config.to_file(filename)
             except Exception as ex:
-                error_msg = ('Could not save configuration to ' 
-                             'file "{}"').format(filename)
-                logging.getLogger(__name__).exception(error_msg)
-                QtWidgets.QMessageBox.warning(self, 'Saving failed',
-                                              error_msg + '\n' + str(ex),
-                                              QtWidgets.QMessageBox.Ok)
+                err = f'Could not save configuration to file "{filename}"'
+                logging.getLogger(__name__).exception(err)
+                QtWidgets.QMessageBox.warning(self, 'Saving failed', err + '\n' + str(ex), QtWidgets.QMessageBox.Ok)
 
     def load_config(self):
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load configuration",
@@ -1080,9 +1120,6 @@ class ConfigGui(QtWidgets.QWidget):
             try:
                 self.config.from_file(filename)
             except Exception as ex:
-                error_msg = ('Could not load configuration from ' 
-                             'file "{}"').format(filename)
-                logging.getLogger(__name__).exception(error_msg)
-                QtWidgets.QMessageBox.warning(self, 'Loading failed',
-                                              error_msg + '\n' + str(ex),
-                                              QtWidgets.QMessageBox.Ok)
+                err = f'Could not load configuration from file "{filename}"'
+                logging.getLogger(__name__).exception(err)
+                QtWidgets.QMessageBox.warning(self, 'Loading failed', err + '\n' + str(ex), QtWidgets.QMessageBox.Ok)
