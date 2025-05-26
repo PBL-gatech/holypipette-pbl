@@ -19,8 +19,8 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 
-project = u'holypipette'
-copyright = u'2018, holypipette authors'
+project = 'HolyPipette-PBL'
+copyright = u'2024, holypipette authors'
 author = u'holypipette authors'
 
 # The short X.Y version
@@ -172,7 +172,7 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
     (master_doc, 'holypipette', u'holypipette Documentation',
-     author, 'holypipette', 'One line description of project.',
+     author, 'holypipette', 'Deep Learning guided Automated Patch Clamp Electrophysiology System',
      'Miscellaneous'),
 ]
 

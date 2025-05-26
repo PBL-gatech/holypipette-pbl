@@ -1,5 +1,5 @@
-Holypipette
-===========
+HolyPipette-PBL
+===============
 
 Contents
 --------
