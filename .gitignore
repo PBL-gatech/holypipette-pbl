@@ -64,3 +64,4 @@ experiments/Datasets/temp_dataset.hdf5
 /testmasks
 /holypipette/deepLearning/cellModel
 /holypipette/experiments/Data
+/holypipette/deepLearning/patchModel/models
