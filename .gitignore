@@ -63,3 +63,9 @@ experiments/Datasets/temp_dataset.hdf5
 /experiments/Datasets
 /testmasks
 /testing/testpatchconfig
+/experiments/Analysis
+/experiments
+/experiments
+/experiments/Analysis/Rig_Recorder/Reconstruct
+/experiments
+/holypipette/deepLearning/pipetteTipModel
