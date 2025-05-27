@@ -6,6 +6,7 @@ import numpy as np
 
 from holypipette.interface import TaskInterface, command, blocking_command
 from holypipette.controller import AutoPatcher
+from holypipette.utils import EPhysLogger, RecordingStateManager
 from holypipette.devices.pressurecontroller.BasePressureController import PressureController
 from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.interface.pipettes import PipetteInterface
@@ -20,13 +21,16 @@ class AutoPatchInterface(TaskInterface):
     '''
     A class to run automatic patch-clamp
     '''
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface, recording_state_manager: RecordingStateManager):
         super().__init__()
         self.config = PatchConfig(name='Patch')
         self.amplifier = amplifier
         self.daq = daq
         self.pressure = pressure
         self.pipette_controller = pipette_interface
+        self.recording_state_manager = recording_state_manager
+
+        self.ephys_logger = EPhysLogger(recording_state_manager=self.recording_state_manager, ephys_filename="CellMetadata")
         autopatcher = AutoPatcher(amplifier, daq, pressure, self.pipette_controller.calibrated_unit,
                                     self.pipette_controller.calibrated_unit.microscope,
                                     calibrated_stage=self.pipette_controller.calibrated_stage,
@@ -76,6 +80,10 @@ class AutoPatchInterface(TaskInterface):
             description='Run Protocols on the Cell',
             task_description='Run Protocols on the Cell')
     def run_protocols(self):
+        index = self.recording_state_manager.sample_number
+        if self.cells_to_patch:
+            stage_coords, img = self.cells_to_patch[0]
+            self.ephys_logger.save_cell_metadata(index, stage_coords, img)
         self.execute(self.current_autopatcher.run_protocols)
     
 
