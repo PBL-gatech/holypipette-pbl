@@ -1,10 +1,7 @@
 
 import time
-
-import pandas as pd
+import csv
 import numpy as np
-import cv2
-import ctypes
 from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.devices.amplifier.DAQ import NiDAQ
 from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
@@ -738,6 +735,7 @@ class AutoPatcher(TaskController):
             # print(f"Time taken to move down: {(end-start)/1e6} ms")
         finally:
             pass
+
     def move_group_up(self,dist = 100):
         '''
         Moves the microscope and manipulator up by input distance in the z axis
@@ -822,84 +820,100 @@ class AutoPatcher(TaskController):
         finally:
             pass
 
-
-
-    def test_movement(self, path):
+    def test_movement(self, path: str, target_frequency: int = 12):
         """
-        Moves the pipette and stage based on parsed data, updating positions every 100 ms.
+        Moves the pipette and stage based on parsed data, updating positions every
+        ``1/target_frequency`` seconds — all without relying on *pandas*.
+
+        The file must be semicolon‑delimited with a header row::
+
+            timestamp;st_x;st_y;st_z;pi_x;pi_y;pi_z
         """
-        # Step 1: Load data from file and parse into a DataFrame
-        data = {'timestamp': [], 'st_x': [], 'st_y': [], 'st_z': [], 'pi_x': [], 'pi_y': [], 'pi_z': []}
-        with open(path, 'r') as file:
-            for line in file:
-                parts = line.strip().split()
-                data_point = {key: float(value) for key, value in (part.split(':') for part in parts)}
+        # --- Step 1 — Rapid parse with csv.DictReader -------------------------
+        data = {h: [] for h in (
+            'timestamp', 'st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z'
+        )}
+        with open(path, newline='') as f:
+            reader = csv.DictReader(f, delimiter=';')
+            for row in reader:
                 for key in data:
-                    data[key].append(data_point[key])
+                    data[key].append(float(row[key]))
 
+        # --- Step 2 — Down‑sample --------------------------------------------
+        filtered = self._downsample_data(data, target_frequency)
 
-        # Step 2: Downsample the data to the target frequency
-        filtered_df = self.downsample_dataframe(data)
-
-
-        # Step 3: Move to the initial position
-        initial_positions = filtered_df.iloc[0][['st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z']]
-        self.calibrated_stage.absolute_move([initial_positions['st_x'], initial_positions['st_y'], initial_positions['st_z']])
+        # --- Step 3 — Move to the initial position ---------------------------
+        self.calibrated_stage.absolute_move([
+            filtered['st_x'][0], filtered['st_y'][0], filtered['st_z'][0]
+        ])
         self.calibrated_unit.absolute_move_group(
-            [initial_positions['pi_x'], initial_positions['pi_y'], initial_positions['pi_z']], [0, 1, 2]
+            [filtered['pi_x'][0], filtered['pi_y'][0], filtered['pi_z'][0]], [0, 1, 2]
         )
 
-        # Step 4: Start movement loop with filtered data
         self.stop_event = threading.Event()
-        self.movement_thread = threading.Thread(target=self._movement_loop, args=(filtered_df,))
+        self.movement_thread = threading.Thread(
+            target=self._movement_loop, args=(filtered,)
+        )
         self.info('Movement Test started')
         self.movement_thread.start()
- 
 
-    def downsample_dataframe(self, data):
-        df = pd.DataFrame(data)
-        df['timestamp'] -= df['timestamp'].iloc[0]  # Normalize timestamps to start from 0
-        df = df.sort_values('timestamp')  # Ensure DataFrame is sorted
+    def _downsample_data(self, data: dict, target_frequency: int = 12) -> dict:
+        """Return a *new* dict containing rows sampled at ``target_frequency`` Hz."""
+        timestamps = data['timestamp']
+        t0 = timestamps[0]
+        # Normalise to start at 0 seconds
+        rel_time = [t - t0 for t in timestamps]
 
-        # Define target frequency and interval
-        target_frequency = 12  # Hz
-        interval = 1 / target_frequency  # seconds
+        interval = 1.0 / target_frequency
+        max_time = rel_time[-1]
+        target_times = [i * interval for i in range(int(max_time // interval) + 1)]
 
-        # Generate target times
-        max_time = df['timestamp'].iloc[-1]
-        target_times = pd.DataFrame({'timestamp': [i * interval for i in range(int(max_time // interval) + 1)]})
+        filtered = {k: [] for k in data}
+        idx = 0
+        n = len(rel_time)
 
-        # Perform an asof merge to find the closest timestamp at or after each target_time
-        filtered_df = pd.merge_asof(target_times, df, on='timestamp', direction='forward')
+        for t in target_times:
+            # Advance until the first record >= target time ("forward" merge rule)
+            while idx < n and rel_time[idx] < t:
+                idx += 1
+            if idx == n:
+                break
+            for key in data:
+                filtered[key].append(data[key][idx])
 
-        # Drop any rows where a match wasn't found (optional)
-        filtered_df.dropna(inplace=True)
+        # Replace timestamp column with zero‑based times
+        filtered['timestamp'] = [ts - t0 for ts in filtered['timestamp']]
+        self.info(f"Filtered data to {len(filtered['timestamp'])} rows")
+        return filtered
 
-        self.info(f'Filtered data to {len(filtered_df)} rows')
-        return filtered_df
+    def _movement_loop(self, data: dict):
+        """Executes calibrated moves at each timestamp in *data*."""
+        start = time.perf_counter()
+        count = len(data['timestamp'])
 
-    def _movement_loop(self, df):
-        """
-        Executes precise movements at each pre-selected timestamp.
-        """
-        start_time = time.perf_counter()
-        for _, row in df.iterrows():
+        for i in range(count):
             if self.stop_event.is_set():
                 self.info('Movement Test stopped')
                 break
-            # self.calibrated_stage.absolute_move([row['st_x'], row['st_y'], row['st_z']])
-            self.calibrated_unit.absolute_move_group([row['pi_x'], row['pi_y'], row['pi_z']], [0, 1, 2])
-            target_time = row['timestamp']
-            while time.perf_counter() < start_time + target_time and not self.stop_event.is_set():
-                # print('waiting')
-                pass
+
+            # Uncomment if stage moves also needed
+            # self.calibrated_stage.absolute_move([
+            #     data['st_x'][i], data['st_y'][i], data['st_z'][i]
+            # ])
+            self.calibrated_unit.absolute_move_group(
+                [data['pi_x'][i], data['pi_y'][i], data['pi_z'][i]], [0, 1, 2]
+            )
+
+            target_time = data['timestamp'][i]
+            while time.perf_counter() < start + target_time:
+                if self.stop_event.is_set():
+                    break
 
         self.info('Movement Test completed')
 
-
     def stop_movement(self):
-        """
-        Stops the movement thread gracefully.
-        """
-        self.stop_event.set()
-        self.movement_thread.join()
+        """Requests the movement loop to halt and waits for the thread to finish."""
+        if getattr(self, 'stop_event', None):
+            self.stop_event.set()
+        if getattr(self, 'movement_thread', None):
+            self.movement_thread.join()

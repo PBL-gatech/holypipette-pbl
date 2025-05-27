@@ -1,7 +1,7 @@
 from __future__ import annotations
 import logging, os, cv2, numpy as np
 from typing import Optional, Tuple
-from holypipette.deepLearning.cellSegmentor import CellSegmentor2
+from holypipette.deepLearning.cellSegmentor import CellSegmentor3
 
 __all__ = ["CellTrackHelper"]
 
@@ -15,7 +15,7 @@ class CellTrackHelper:
         self.camera = camera
         self.width  = int(getattr(camera, "width",  None) or 0)
         self.height = int(getattr(camera, "height", None) or 0)
-        self.segmentor = CellSegmentor2()
+        self.segmentor = CellSegmentor3()
 
     def find_centroid(
         self, ref_image:np.ndarray, image: np.ndarray,input_point: Tuple[int, int] | Tuple[float, float],) -> Optional[np.ndarray]:
