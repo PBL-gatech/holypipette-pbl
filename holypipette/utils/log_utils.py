@@ -80,7 +80,7 @@ def setup_logging():
     current_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Assume the repository root is one directory up from the current file.
-    repo_root = os.path.abspath(os.path.join(current_dir, '..'))
+    repo_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
 
     # Define the log folder relative to the repository root.
     log_folder = os.path.join(repo_root, "experiments", "Data", "log_data")
