@@ -4,6 +4,8 @@ import threading
 import os
 from PyQt5 import QtGui
 import imageio
+import numpy as np
+import cv2
 
 class EPhysLogger(threading.Thread):
     def __init__(self, recording_state_manager, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
@@ -85,15 +87,14 @@ class EPhysLogger(threading.Thread):
         else:
             logging.error("Failed to save plot to %s", image_path)
 
-    def save_image(self, index, image):
-        self.create_folder()
-        image_path = f"cell_{index}.webp"
-        if image is None:
-            logging.error("No image to save")
-            return
-        else:
-            imageio.imwrite(self.folder_path + image_path, image)
-            logging.info("Saved image to %s", self.folder_path + image_path)
+    def _normalize_image(self, image):
+            """Return an 8-bit version of ``image`` suitable for saving."""
+            if image is None:
+                return None
+            if image.dtype != np.uint8:
+                image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
+                image = image.astype(np.uint8)
+            return image
 
     def save_cell_metadata(self, index, stage_coords, image=None):
         """Save cell image and stage coordinates for a given protocol index."""
@@ -104,6 +105,7 @@ class EPhysLogger(threading.Thread):
             return
 
         img_filename = f"cell_{index}.webp"
+        image = self._normalize_image(image)
         imageio.imwrite(os.path.join(self.folder_path, img_filename), image)
 
         write_header = not os.path.exists(self.cell_metadata_file)
