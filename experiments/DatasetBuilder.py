@@ -8,20 +8,32 @@ from PIL import Image
 
 
 ATL_TO_UTC_TIME_DELTA = 4 #March 9 - Nov 1: 4 hours, otherwise 5 hours
-
-
 class DatasetBuilder():
-    def __init__(self,dataset_name,val_ratio: float = 1 / 6,omit_stage_movement: bool = False,random_seed: int = 0,rotate_valid: bool = False):            # ← NEW ARGUMENT
+    def __init__(self, dataset_name, val_ratio: float = 1 / 6,
+                 omit_stage_movement: bool = False, random_seed: int = 0,
+                 rotate_valid: bool = False):
+        """
+        Parameters
+        ----------
+        val_ratio : float
+            Fraction of demos reserved for validation.  If set to 0 there will
+            be *no* validation split and no “mask” group will be written.
+        """
         self.dataset_name = dataset_name
-        self.zero_values = True
+        self.zero_values = False
         self.center_crop = True
-        self.rotate = False                             # train-time augmentation
-        self.rotate_valid = rotate_valid               # ← NEW FLAG
+        self.rotate = False                  # train-time augmentation
+        self.rotate_valid = rotate_valid
         self.inaction = 3
         self.val_ratio = val_ratio
         self.omit_stage_movement = omit_stage_movement
         self.rng = np.random.default_rng(random_seed)
-        self._split_keys = {"train": [], "valid": []}
+
+        # Only keep bookkeeping for the splits that will exist
+        if self.val_ratio == 0:
+            self._split_keys = {"train": []}
+        else:
+            self._split_keys = {"train": [], "valid": []}
 
         # create dataset file stub if needed
         if dataset_name not in os.listdir('experiments/Datasets'):
@@ -30,16 +42,27 @@ class DatasetBuilder():
                 group.attrs['num_demos'] = 0
 
     def _write_split_masks(self):
-        """Create / overwrite mask/train and mask/valid with UTF-8 demo keys."""
+        """
+        Create / overwrite the ‘mask’ group that stores UTF-8 demo keys for each
+        split.  When `val_ratio` is zero the group is omitted entirely.
+        """
+        # Skip mask creation if no validation split was requested
+        if self.val_ratio == 0:
+            print("✨  val_ratio is 0 — dataset contains only training demos; "
+                  "skipping mask creation.")
+            return
+
         with h5py.File(f'experiments/Datasets/{self.dataset_name}', 'a') as hf:
             if "mask" in hf:
-                del hf["mask"]                      # wipe old masks if rerun
+                del hf["mask"]                    # wipe old masks if rerun
             mask_grp = hf.create_group("mask")
             for name in ("train", "valid"):
                 keys = np.asarray(self._split_keys[name], dtype='S')
                 mask_grp.create_dataset(name, data=keys)
+
         print(f"✨  wrote split masks: {len(self._split_keys['train'])} train | "
-            f"{len(self._split_keys['valid'])} valid")
+              f"{len(self._split_keys['valid'])} valid")
+
 
     def _rotate_positions(self, positions, angle_degrees):
         """
@@ -78,7 +101,6 @@ class DatasetBuilder():
     # ---------------------------------------------------------
         return actions_rot
 
-# ─── filter_inactive_actions  (vectorised mask, no Python while-loop) ───────────
     def filter_inactive_actions(self, actions, *arrays):
         """
         Vectorised run-length detection of ≥ self.inaction consecutive zero-rows.
@@ -100,7 +122,6 @@ class DatasetBuilder():
 
         filtered = (actions[keep],) + tuple(arr[keep] for arr in arrays)
         return filtered
-
 
     def convert_graph_recording_csv_to_new_format(self, demo_file_path):
         graph_recording_file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
@@ -324,7 +345,6 @@ class DatasetBuilder():
 
         return successful_hunt_cell_time_ranges
 
-    # ─── truncate_graph_values  (O(log N) instead of O(N)) ──────────────────────────
     def truncate_graph_values(self, graph_values, first_timestamp, last_timestamp):
         """
         Optimised by replacing the row-by-row scan with two np.searchsorted calls
@@ -351,8 +371,6 @@ class DatasetBuilder():
 
         return graph_values[i0:i1 + 1]
 
-    
-# ─── associate_attempt_movement_and_graph_values  (vectorised nearest match) ───
     def associate_attempt_movement_and_graph_values(self, attempt_graph_values, movement_values):
         """
         Uses np.searchsorted to find, for each graph timestamp, the closest movement
@@ -370,7 +388,6 @@ class DatasetBuilder():
         indices = np.where(choose_right, right, left)
 
         return movement_values[indices]
-
 
     def get_attempt_dones(self, attempt_graph_values):
         '''
@@ -439,7 +456,6 @@ class DatasetBuilder():
 
         return resistance_values
     
-# ─── get_attempt_current_values  (list-comp + NumPy padding) ────────────────────
     def get_attempt_current_values(self, attempt_graph_values):
         """
         Parses JSON once per row via list-comprehension, pads in NumPy
@@ -450,7 +466,6 @@ class DatasetBuilder():
         return np.asarray([lst + [lst[-1]] * (max_len - len(lst)) for lst in lists],
                         dtype=np.float64)
 
-# ─── get_attempt_voltage_values  (list-comp + NumPy padding) ────────────────────
     def get_attempt_voltage_values(self, attempt_graph_values):
         """
         Same optimisation as for current values: fast JSON parse & vectorised pad.
@@ -459,8 +474,7 @@ class DatasetBuilder():
         max_len = max(len(lst) for lst in lists)
         return np.asarray([lst + [lst[-1]] * (max_len - len(lst)) for lst in lists],
                         dtype=np.float64)
-
-    
+   
     def get_attempt_stage_positions(self, attempt_movement_values):
         '''
         Returns stage positions for current attempt
@@ -936,7 +950,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_v0_019.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
@@ -944,71 +958,7 @@ if __name__ == '__main__':
     #     "2025_03_11-16_49"
     # ]
 
-    # rig_recorder_data_folder_set =  [
-    #     "2025_03_11-16_01",
-    #     "2025_03_11-16_32",
-    #     "2025_03_11-16_49",
-    #     "2025_03_11-17_50",
-    #     "2025_03_11-18_00",
-    #     "2025_03_11-18_09",
-    #     "2025_03_11-18_15",
-    #     "2025_03_11-18_25",
-    #     "2025_03_17-16_27",
-    #     "2025_03_17-16_57",
-    #     "2025_03_17-17_21",
-    #     "2025_03_17-17_26",
-    #     "2025_03_17-18_10",
-    #     "2025_03_20-13_52",
-    #     "2025_03_20-14_01",
-    #     "2025_03_20-14_42",
-    #     "2025_03_20-14_53",
-    #     "2025_03_20-15_04",
-    #     "2025_03_20-15_19",
-    #     "2025_03_20-15_34",
-    #     "2025_03_20-15_45",
-    #     "2025_03_20-16_07",
-    #     "2025_03_20-16_15",
-    #     "2025_03_20-16_35",
-    #     "2025_03_20-16_59",
-    #     "2025_03_20-17_23",
-    #     "2025_03_20-17_53",
-    #     "2025_03_20-18_01",
-    #     "2025_03_20-18_13",
-    #     "2025_03_20-18_25",
-    #     "2025_03_20-18_49",
-    #     "2025_03_20-19_03",
-    #     "2025_03_20-19_13",
-    #     "2025_03_25-16_42",
-    #     "2025_03_25-16_12",
-    #     "2025_03_25-15_34",
-    #     "2025_03_25-14_48",
-    #     "2025_03_25-14_32",
-    #     "2025_03_25-14_17",
-    #     "2025_04_07-14_32", 
-    #     "2025_04_07-14_50", 
-    #     "2025_04_07-15_50", 
-    #     "2025_04_07-18_04"
-    #     ] # this is most recent HEK DATA with NO overlays. some manual some automatic. (3/11/2025 - 4/7/2025)
-
-    # rig_recorder_data_folder_set =  [
-    #     "2025_04_10-11_57",
-    #     "2025_04_10-12_16",
-    #     "2025_04_10-12_21",
-    #     "2025_04_10-12_30",
-    #     "2025_04_10-15_01",
-    #     "2025_04_10-17_31",
-    #     "2025_04_07-14_32", 
-    #     "2025_04_07-14_50", 
-    #     "2025_04_07-15_50", 
-    #     "2025_04_07-18_04"
-    #  ] # completely manual HEK data with no overlays. (4/10/2025)
-
-    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
-        
     rig_recorder_data_folder_set =  [
-        "2025_05_20-15_50",
-        "2025_05_20-15_16",
-        "2025_05_20-14_05",
         "2025_04_10-11_57",
         "2025_04_10-12_16",
         "2025_04_10-12_21",
@@ -1019,11 +969,29 @@ if __name__ == '__main__':
         "2025_04_07-14_50", 
         "2025_04_07-15_50", 
         "2025_04_07-18_04"
-     ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
+     ] # completely manual HEK data with no overlays. (4/10/2025)
+
+    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
+        
+    # rig_recorder_data_folder_set =  [
+    #     "2025_05_20-15_50",
+    #     "2025_05_20-15_16",
+    #     "2025_05_20-14_05",
+    #     "2025_04_10-11_57",
+    #     "2025_04_10-12_16",
+    #     "2025_04_10-12_21",
+    #     "2025_04_10-12_30",
+    #     "2025_04_10-15_01",
+    #     "2025_04_10-17_31",
+    #     "2025_04_07-14_32", 
+    #     "2025_04_07-14_50", 
+    #     "2025_04_07-15_50", 
+    #     "2025_04_07-18_04"
+    #  ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
 
     datasetBuilder = DatasetBuilder(
         dataset_name=dataset_name,
-        val_ratio=0,              # 1-in-6 validation demos
+        val_ratio=0.1,              # 1-in-6 validation demos
         omit_stage_movement=True,   # skip demos with stage XYZ motion
         random_seed=0               # change to alter the split
     )

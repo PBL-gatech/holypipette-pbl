@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 
 file_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\experiments\\Datasets\\HEK_dataset.hdf5"
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_014.hdf5"
 
 # ------------------------------------------------------------------
 #  ❱❱  Count positive action components per demonstration  ❰❰
@@ -37,8 +38,6 @@ counts = np.vstack(list(action_counts.values()))  # shape (N, 3)
 scatter = ax.scatter(counts[:, 0], counts[:, 1], counts[:, 2],
                      c=counts.sum(axis=1), cmap='viridis', s=45, depthshade=True)
 
-# for idx, demo in enumerate(labels):
-#     ax.text(counts[idx, 0], counts[idx, 1], counts[idx, 2], demo, size=8)
 
 ax.set_xlabel('# +X actions')
 ax.set_ylabel('# +Y actions')
