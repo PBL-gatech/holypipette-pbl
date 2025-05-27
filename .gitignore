@@ -70,3 +70,4 @@ experiments/Datasets/temp_dataset.hdf5
 /experiments
 /holypipette/deepLearning/pipetteTipModel
 /holypipette/deepLearning
+/holypipette/experiments/Data
