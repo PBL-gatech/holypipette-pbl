@@ -12,19 +12,13 @@ __pycache__/
 *.webp
 
 experiments/Datasets
-
+/experiments/Data
 /holypipette/devices/camera/FakeMicroscopeImgs/mask_images
-
-
-
-/testmasks
-/holypipette/experiments/Data
 /holypipette/deepLearning/cellModel
 /holypipette/deepLearning/patchModel
 /testing/testpatchconfig
-
 /holypipette/deepLearning/pipetteTipModel
 /holypipette/deepLearning/cellModel
 
 
-/experiments/Data
+
