@@ -17,6 +17,9 @@ class EPhysLogger(threading.Thread):
         self.filename = self.folder_path + f"{ephys_filename}"
         self.file = None
 
+        # file used to store cell metadata such as coordinates
+        self.cell_metadata_file = os.path.join(self.folder_path, "cell_metadata.csv")
+
         self.folder_created = False
         self.write_event = threading.Event()
 
@@ -91,6 +94,25 @@ class EPhysLogger(threading.Thread):
         else:
             imageio.imwrite(self.folder_path + image_path, image)
             logging.info("Saved image to %s", self.folder_path + image_path)
+
+    def save_cell_metadata(self, index, stage_coords, image=None):
+        """Save cell image and stage coordinates for a given protocol index."""
+        self.create_folder()
+
+        if image is None:
+            logging.warning("No cell image provided; skipping cell metadata save")
+            return
+
+        img_filename = f"cell_{index}.webp"
+        imageio.imwrite(os.path.join(self.folder_path, img_filename), image)
+
+        write_header = not os.path.exists(self.cell_metadata_file)
+        with open(self.cell_metadata_file, "a+") as f:
+            if write_header:
+                f.write("index;stage_x;stage_y;stage_z;image\n")
+            f.write(
+                f"{index};{stage_coords[0]};{stage_coords[1]};{stage_coords[2]};{img_filename}\n"
+            )
 
     def hold_image(self, index, image):
         if image is None:
