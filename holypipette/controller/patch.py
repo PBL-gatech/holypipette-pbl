@@ -203,7 +203,7 @@ class AutoPatcher(TaskController):
         if self.config.cell_type == "Plate":
             self.config.cell_distance = 20
         elif self.config.cell_type == "Slice":
-            self.config.cell_distance = 50
+            self.config.cell_distance = 20
 
         self.info(f" Moving to Cell position: {cell_pos}") 
         # moving stage to xy position of cell
@@ -320,7 +320,7 @@ class AutoPatcher(TaskController):
         if self.config.cell_type == "Plate":
             self.config.cell_R_increase = 0.300
         elif self.config.cell_type == "Slice":
-            self.config.cell_R_increase = 0.150
+            self.config.cell_R_increase = 0.300
 
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
             curr_pos = self.calibrated_unit.position()
@@ -479,7 +479,7 @@ class AutoPatcher(TaskController):
                     self.pressure.set_pressure(currPressure)
                     self.pressure.set_ATM(atm=False)
 
-            if avg_resistance >= self.config.gigaseal_R/12 and not holding_switched:
+            if avg_resistance >= self.config.gigaseal_R/1000 and not holding_switched:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
                 self.amplifier.switch_holding(True)
                 holding_switched = True
