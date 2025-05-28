@@ -211,7 +211,7 @@ class ModelTester:
 
 if __name__ == "__main__":
     patcher = AutoPatcher()
-    model_path  = Path(__file__).parent / "patchModel" / "models" / "HEKHUNTERv0_130.onnx"
+    model_path  = Path(__file__).parent / "patchModel" / "models" / "HEKHUNTERv0_150.onnx"
     data_path   = Path(__file__).parent / "patchModel" / "test_data" / "HEKHUNTER_inference_set.hdf5"
 
     session, in_names, out_names = patcher.load_model(str(model_path))
