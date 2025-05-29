@@ -120,6 +120,10 @@ class AutoPatcher(TaskController):
 
         else:
             current = (self.iholding)
+
+        if self.iholding < -80:
+            current = -80
+
         current = current * 1e-12
         self.amplifier.set_holding(current)
         self.info(f'holding at {current} pA')
@@ -479,7 +483,7 @@ class AutoPatcher(TaskController):
                     self.pressure.set_pressure(currPressure)
                     self.pressure.set_ATM(atm=False)
 
-            if avg_resistance >= self.config.gigaseal_R/1000 and not holding_switched:
+            if avg_resistance >= self.config.gigaseal_R/12 and not holding_switched:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
                 self.amplifier.switch_holding(True)
                 holding_switched = True
