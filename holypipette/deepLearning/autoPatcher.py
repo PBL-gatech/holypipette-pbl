@@ -10,6 +10,7 @@ Changes vs. the OpenCV-DNN original
   while camera_image keeps the 16-frame stack.
 * Actions are sliced to actions[:, -1, :] so the caller receives shape (1, 6).
 """
+from __future__ import annotations
 import time, statistics, collections
 from pathlib import Path
 
@@ -208,235 +209,303 @@ class ModelTester:
     
 
 
-if __name__ == "__main__":
-    patcher = AutoPatcher()
-    model_path  = Path(__file__).parent / "patchModel" / "models" / "HEKHUNTERv0_150.onnx"
-    data_path   = Path(__file__).parent / "patchModel" / "test_data" / "HEKHUNTER_inference_set.hdf5"
+"""Model analysis utilities for HEKHUNTER demo.
 
-    session, in_names, out_names = patcher.load_model(str(model_path))
-    
-    # Only this line is changed to enable prefill:
-    tester = ModelTester(session, in_names, out_names, str(data_path), prefill_init=True)
+This module wraps the ad‑hoc logic that used to live in the
+``if __name__ == "__main__":`` block inside a reusable class called
+:class:`ModelAnalyzer`.  Its ``run`` method reproduces all previous
+behaviour **and** writes a 60 fps animated 3‑D trajectory GIF.
 
-    lat_ms = []
-    error = []
-    for idx in range(len(tester.images)):
-        t0 = time.perf_counter()
-        out =  tester.run_inference(idx)
-        lat_ms.append((time.perf_counter() - t0) * 1_000)
-        if out is not None:
-            error.append(tester.calculate_error(out, tester.actions[idx]))
+Dependencies (beyond the standard ones already present in your script):
+    • numpy
+    • matplotlib (with Pillow or FFmpeg installed for animation saving)
+    • AutoPatcher, ModelTester from your existing project tree
 
-    # print(f"Inference latency over {len(lat_ms)} frames: "
-    #       f"mean = {statistics.mean(lat_ms):.2f} ms  |  sd = {statistics.stdev(lat_ms):.2f} ms")
-    
-    # do stand alone latency plot by itself
-    # if len(lat_ms) > 0:
-    #     import matplotlib.pyplot as plt
-    #     plt.figure(figsize=(10, 4))
-    #     plt.plot(lat_ms)
-    #     plt.title("Latency over time")
-    #     plt.xlabel("Frame Index")
-    #     plt.ylabel("Latency (ms)")
-    #     plt.show()
+Typical usage
+-------------
+>>> from pathlib import Path
+>>> analyzer = ModelAnalyzer(
+...     model_path=Path(__file__).parent / "patchModel/models/HEKHUNTERv0_050.onnx",
+...     data_path = Path(__file__).parent / "patchModel/test_data/HEKHUNTER_inference_set.hdf5",
+... )
+>>> analyzer.run()  # produces plots + pipette_trajectory.gif
+"""
 
-    # also do stand alone latency histogram
-    # if len(lat_ms) > 0:
-    #     import matplotlib.pyplot as plt
-    #     plt.figure(figsize=(10, 4))
-    #     plt.hist(lat_ms, bins=np.arange(0, max(lat_ms)+5, 5))
-    #     plt.title("Latency Histogram")
-    #     plt.xlabel("Latency (ms)")
-    #     plt.ylabel("Count")
-    #     plt.show()
-
-
-    # Plot error time course
-    # if error:
-    #     err_arr_tc = np.stack(error)  # (N,6)
-    #     cumulative_err = np.cumsum(err_arr_tc, axis=0)
-    #     fig2, ax2 = plt.subplots(figsize=(10, 4))
-    #     labels = ["pip_x", "pip_y", "pip_z"]
-    #     colors = ["black", "darkblue", "darkred"]
-    #     # Plot cumulative error for pipette axes (indices 3,4,5) with specified colors
-    #     for idx, lbl, color in zip([3, 4, 5], labels, colors):
-    #         ax2.plot(cumulative_err[:, idx], label=lbl, color=color)
-    #     ax2.set_title("Cumulative Error Time Course for Pipette Axes")
-    #     ax2.set_xlabel("Frame Index")
-    #     ax2.set_ylabel("Cumulative Absolute Error")
-    #     ax2.legend()
-    #     plt.tight_layout()
-    #     plt.show()
-
-        # 3D plot of cumulative pipette error trajectory
-        # if error:
-        #     err_arr_tc = np.stack(error)  # (n,6)
-        #     cumulative_err = np.cumsum(err_arr_tc, axis=0)
-        #     pip_cum_err = cumulative_err[:, 3:6]  # (n,3)
-        #     from mpl_toolkits.mplot3d import Axes3D
-        #     fig3 = plt.figure(figsize=(10, 8))
-        #     ax3 = fig3.add_subplot(111, projection='3d')
-        #     time_steps = np.arange(pip_cum_err.shape[0])
-        #     cmap = plt.cm.viridis
-        #     colors = cmap(time_steps / pip_cum_err.shape[0])
-        #     ax3.scatter(pip_cum_err[:, 0], pip_cum_err[:, 1], pip_cum_err[:, 2], c=colors, marker='o', s=15)
-        #     ax3.set_title('3D Cumulative Pipette Error Trajectory')
-        #     ax3.set_xlabel('Cumulative Error X')
-        #     ax3.set_ylabel('Cumulative Error Y')
-        #     ax3.set_zlabel('Cumulative Error Z')
-        #     mappable = plt.cm.ScalarMappable(cmap=cmap)
-        #     mappable.set_array([])
-        #     cbar = plt.colorbar(mappable, ax=ax3, pad=0.1, shrink=0.6)
-        #     cbar.set_label('Time steps')
-        #     plt.show()
-
-
-
-            # Sum the per-frame error vectors and display cumulative error for pipette axes as bar charts.
-            # if error:
-                # error_array = np.stack(error)  # shape (n,6)
-                # cumulative_error = np.sum(error_array, axis=0)
-                # # Extract cumulative error for pipette axes (indices 3,4,5: x, y, z)
-                # pip_indices = [3, 4, 5]
-                # pip_labels  = ["pip_x", "pip_y", "pip_z"]
-                # pip_errors  = cumulative_error[pip_indices]
-                # colors      = ["black", "darkblue", "darkred"]
-
-                # import matplotlib.pyplot as plt
-                # plt.figure(figsize=(6,4))
-                # plt.bar(pip_labels, pip_errors, color=colors)
-                # plt.title("Cumulative Absolute Error for Pipette Axes")
-                # plt.xlabel("Pipette Axes")
-                # plt.ylabel("Cumulative Absolute Error")
-                # plt.show()
-                # Print raw predicted actions and ground truth actions
-            # print("Predicted actions (first 10):")
-            # for i, e in enumerate(error[:10]):
-            #     print(f"Frame {i}: Predicted {tester.actions[i]}, GT {tester.actions[i] - e}")
-
-            # print("\nGround truth actions (first 10):")
-            # for i in range(10):
-            #     print(f"Frame {i}: {tester.actions[i]}")
-
-
-
-
-# 3D plot showing GT and predicted pipette positions, with colour-maps
-# starting halfway through (so earliest points aren’t washed-out white)
-# and colour-bars inverted (lightest at the top, darkest at the bottom).
+from pathlib import Path
+import time
+import statistics
+from typing import Optional, Sequence
 
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D          # noqa: F401  (kept for completeness)
-from matplotlib import colors                    # 〈〈 NEW 〉〉
+from matplotlib import animation, colors
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (import needed for 3‑D projection)
 
-# -------------------------------------------------
-# 1.  COLLECT PREDICTED PIPETTE DELTAS
-# -------------------------------------------------
-pred_pip_deltas = []  # Will be length N (all frames) if prefilling, else (N−seq_len+1)
-for idx in range(len(tester.images)):
-    out = tester.run_inference(idx)
-    if out is not None:
-        pred_pip_deltas.append(out[0, 3:6])
 
-pred_pip_deltas = np.stack(pred_pip_deltas)      # (n, 3)
 
-# -------------------------------------------------
-# 2.  CHOOSE TRAJECTORY ALIGNMENT BASED ON PREFILLING
-# -------------------------------------------------
-if tester.prefill_init:
-    init_pip_pos = tester.pipette_positions[0]                      # (3,)
-    observed_pip_positions = tester.pipette_positions[:pred_pip_deltas.shape[0]]
-else:
-    init_pip_pos = tester.pipette_positions[tester.seq_len - 1]
-    observed_pip_positions = tester.pipette_positions[
-        tester.seq_len - 1 : tester.seq_len - 1 + pred_pip_deltas.shape[0]]
+__all__ = ["ModelAnalyzer"]
 
-# -------------------------------------------------
-# 3.  INTEGRATE PREDICTED ACTIONS → ABSOLUTE POSITIONS
-# -------------------------------------------------
-predicted_pip_positions = [init_pip_pos]
-for delta in pred_pip_deltas:
-    predicted_pip_positions.append(predicted_pip_positions[-1] + delta)
-predicted_pip_positions = np.stack(predicted_pip_positions[1:])     # (n, 3)
 
-# -------------------------------------------------
-# 4.  BUILD “TRUNCATED” COLORMAPS (skip the pale half)
-# -------------------------------------------------
-def trunc_cmap(base_cmap, start=0.5, stop=1.0, n=256):
-    """Return a copy of *base_cmap* spanning only [start, stop]."""
-    new_colors = base_cmap(np.linspace(start, stop, n))
-    return colors.LinearSegmentedColormap.from_list(
-        f'{base_cmap.name}_trunc', new_colors)
+class ModelAnalyzer:
+    """Analyse ONNX model latency, accuracy and motion trajectories."""
 
-cmap_pred = trunc_cmap(plt.cm.Blues,   0.5, 1.0)   # earliest → mid-blue
-cmap_obs  = trunc_cmap(plt.cm.Oranges, 0.5, 1.0)   # earliest → mid-orange
+    # ────────────────────────────────
+    # Construction helpers
+    # ────────────────────────────────
 
-# -------------------------------------------------
-# 5.  COLOUR ARRAYS FOR EACH TIME STEP
-# -------------------------------------------------
-n_steps    = predicted_pip_positions.shape[0]
-time_steps = np.arange(n_steps)
-norm       = plt.Normalize(vmin=0, vmax=n_steps - 1)
+    def __init__(
+        self,
+        model_path: Path | str,
+        data_path: Path | str,
+        *,
+        prefill_init: bool = True,
+        save_dir: Path | str | None = None,
+        animation_fname: str = "pipette_trajectory.gif",
+        animation_fps: int = 60,
+    ) -> None:
+        self.model_path = Path(model_path)
+        self.data_path = Path(data_path)
+        self.prefill_init = prefill_init
+        self.save_dir = Path(save_dir) if save_dir is not None else self.model_path.parent
+        self.animation_fname = animation_fname
+        self.animation_fps = animation_fps
 
-colors_pred = cmap_pred(norm(time_steps))
-colors_obs  = cmap_obs(norm(time_steps))
+        # Lazily‑filled during run()
+        self.lat_ms: list[float] = []
+        self.error_frames: list[np.ndarray] = []
+        self.predicted_pip_positions: Optional[np.ndarray] = None
+        self.observed_pip_positions: Optional[np.ndarray] = None
 
-# -------------------------------------------------
-# 6.  3-D TRAJECTORY PLOTTING
-# -------------------------------------------------
-fig = plt.figure(figsize=(10, 8))
-ax  = fig.add_subplot(111, projection='3d')
+        # ── Model + tester ───────────────────────────────────────────────
+        patcher = AutoPatcher()
+        self.session, self.in_names, self.out_names = patcher.load_model(str(self.model_path))
+        self.tester = ModelTester(
+            self.session,
+            self.in_names,
+            self.out_names,
+            str(self.data_path),
+            prefill_init=self.prefill_init,
+        )
 
-# Standardise axes limits
-ax.set_xlim(-5, 5)
-ax.set_ylim(-5, 5)
-ax.set_zlim(-20, 5)        # Z axis negative, as before
+    # ---------------------------------------------------------------------
+    # Public API
+    # ---------------------------------------------------------------------
 
-# Flip Z for both predicted and observed
-predicted_z_neg = -predicted_pip_positions[:, 2]
-observed_z_neg  = -observed_pip_positions[:, 2]
+    def run(self) -> None:
+        """Execute the full analysis pipeline and generate artefacts."""
+        self._compute_latency_and_error()
+        self._plot_static_trajectory()
+        self._animate_trajectory(save_gif=False)
 
-sc1 = ax.scatter(predicted_pip_positions[:, 0], predicted_pip_positions[:, 1],
-                 predicted_z_neg, c=colors_pred, marker='o', s=20,
-                 label='Predicted (Integrated Actions)')
-sc2 = ax.scatter(observed_pip_positions[:, 0], observed_pip_positions[:, 1],
-                 observed_z_neg, c=colors_obs, marker='^', s=20,
-                 label='Observed (Ground Truth Position)')
+    # ------------------------------------------------------------------
+    # Core analysis
+    # ------------------------------------------------------------------
 
-ax.set_title('3D Pipette Trajectory: Predicted (Integrated Actions) vs Observed')
-ax.set_xlabel('Pipette Position X')
-ax.set_ylabel('Pipette Position Y')
-ax.set_zlabel('Pipette Position -Z')
+    def _compute_latency_and_error(self) -> None:
+        """Profiles inference latency and collects prediction error."""
+        print("[INFO] Running inference over frames…")
+        for idx in range(len(self.tester.images)):
+            t0 = time.perf_counter()
+            out = self.tester.run_inference(idx)
+            self.lat_ms.append((time.perf_counter() - t0) * 1_000)
+            if out is not None:
+                self.error_frames.append(self.tester.calculate_error(out, self.tester.actions[idx]))
 
-# -------------------------------------------------
-# 7.  CUSTOM LEGEND (unchanged)
-# -------------------------------------------------
-from matplotlib.lines import Line2D
-legend_elements = [
-    Line2D([0], [0], marker='o', color='w',
-           label='Predicted (Integrated Actions)', markerfacecolor='blue',
-           markersize=10),
-    Line2D([0], [0], marker='^', color='w',
-           label='Observed (Ground Truth Position)', markerfacecolor='orange',
-           markersize=10),
-]
-ax.legend(handles=legend_elements, loc='best')
+        if self.lat_ms:
+            mean_ms = statistics.mean(self.lat_ms)
+            sd_ms = statistics.stdev(self.lat_ms) if len(self.lat_ms) > 1 else 0.0
+            print(f"[RESULT] Inference latency — mean: {mean_ms:.2f} ms | sd: {sd_ms:.2f} ms")
 
-# -------------------------------------------------
-# 8.  COLOUR-BARS (inverted so lightest at the top)
-# -------------------------------------------------
-mappable_pred = plt.cm.ScalarMappable(norm=norm, cmap=cmap_pred)
-mappable_pred.set_array([])
-cbar_pred = plt.colorbar(mappable_pred, ax=ax, pad=0.1, shrink=0.6)
-cbar_pred.set_label('Time steps (Predicted)')
-cbar_pred.ax.invert_yaxis()          # 〈〈 NEW 〉〉
+        # Compute pipette positions here so both static + animation reuse them
+        self._integrate_pipette_predictions()
 
-mappable_obs = plt.cm.ScalarMappable(norm=norm, cmap=cmap_obs)
-mappable_obs.set_array([])
-cbar_obs = plt.colorbar(mappable_obs, ax=ax, pad=0.1, shrink=0.6)
-cbar_obs.set_label('Time steps (Observed)')
-cbar_obs.ax.invert_yaxis()           # 〈〈 NEW 〉〉
+    # ------------------------------------------------------------------
+    # Trajectory helpers
+    # ------------------------------------------------------------------
 
-plt.tight_layout()
-plt.show()
+    def _integrate_pipette_predictions(self) -> None:
+        """Integrate predicted pipette deltas -> absolute positions."""
+        # 1. Collect predicted pipette deltas
+        pred_deltas: list[np.ndarray] = []
+        for idx in range(len(self.tester.images)):
+            out = self.tester.run_inference(idx)
+            if out is not None:
+                pred_deltas.append(out[0, 3:6])
+        pred_deltas_arr = np.stack(pred_deltas)  # (n, 3)
+
+        # 2. Choose trajectory alignment
+        if self.prefill_init:
+            init_pos = self.tester.pipette_positions[0]
+            obs_positions = self.tester.pipette_positions[: pred_deltas_arr.shape[0]]
+        else:
+            init_pos = self.tester.pipette_positions[self.tester.seq_len - 1]
+            obs_positions = self.tester.pipette_positions[
+                self.tester.seq_len - 1 : self.tester.seq_len - 1 + pred_deltas_arr.shape[0]
+            ]
+
+        # 3. Integrate → absolute predicted positions
+        predicted_positions = [init_pos]
+        for delta in pred_deltas_arr:
+            predicted_positions.append(predicted_positions[-1] + delta)
+        self.predicted_pip_positions = np.stack(predicted_positions[1:])  # (n,3)
+        self.observed_pip_positions = obs_positions
+
+    # ------------------------------------------------------------------
+    # Static 3‑D trajectory plot
+    # ------------------------------------------------------------------
+
+    def _plot_static_trajectory(self) -> None:
+        if self.predicted_pip_positions is None or self.observed_pip_positions is None:
+            raise RuntimeError("Prediction data not initialised — call run() first.")
+
+        # Build truncated colormaps
+        def _trunc_cmap(base_cmap, start=0.5, stop=1.0, n=256):
+            new_colors = base_cmap(np.linspace(start, stop, n))
+            return colors.LinearSegmentedColormap.from_list(f"{base_cmap.name}_trunc", new_colors)
+
+        cmap_pred = _trunc_cmap(plt.cm.Blues, 0.5, 1.0)
+        cmap_obs = _trunc_cmap(plt.cm.Oranges, 0.5, 1.0)
+
+        n_steps = self.predicted_pip_positions.shape[0]
+        norm = plt.Normalize(vmin=0, vmax=n_steps - 1)
+
+        colors_pred = cmap_pred(norm(np.arange(n_steps)))
+        colors_obs = cmap_obs(norm(np.arange(n_steps)))
+
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection="3d")
+        ax.set_xlim(-5, 5)
+        ax.set_ylim(-5, 5)
+        ax.set_zlim(-20, 5)
+
+        # Z is negative in data; flip to positive‑up here for clarity
+        pred_z = -self.predicted_pip_positions[:, 2]
+        obs_z = -self.observed_pip_positions[:, 2]
+
+        ax.scatter(
+            self.predicted_pip_positions[:, 0],
+            self.predicted_pip_positions[:, 1],
+            pred_z,
+            c=colors_pred,
+            marker="o",
+            s=20,
+            label="Predicted (Integrated Actions)",
+        )
+        ax.scatter(
+            self.observed_pip_positions[:, 0],
+            self.observed_pip_positions[:, 1],
+            obs_z,
+            c=colors_obs,
+            marker="^",
+            s=20,
+            label="Observed (Ground Truth)",
+        )
+
+        ax.set_title("3‑D Pipette Trajectory: Predicted vs Observed")
+        ax.set_xlabel("Pipette X")
+        ax.set_ylabel("Pipette Y")
+        ax.set_zlabel("Pipette –Z")
+        ax.legend(loc="best")
+
+        # Colour‑bars
+        mappable_pred = plt.cm.ScalarMappable(norm=norm, cmap=cmap_pred)
+        mappable_pred.set_array([])
+        cbar_pred = plt.colorbar(mappable_pred, ax=ax, pad=0.1, shrink=0.6)
+        cbar_pred.set_label("Time steps (Predicted)")
+        cbar_pred.ax.invert_yaxis()
+
+        mappable_obs = plt.cm.ScalarMappable(norm=norm, cmap=cmap_obs)
+        mappable_obs.set_array([])
+        cbar_obs = plt.colorbar(mappable_obs, ax=ax, pad=0.1, shrink=0.6)
+        cbar_obs.set_label("Time steps (Observed)")
+        cbar_obs.ax.invert_yaxis()
+
+        plt.tight_layout()
+        plt.show()
+
+    # ------------------------------------------------------------------
+    # Animated trajectory (saves GIF)
+    # ------------------------------------------------------------------
+
+    def _animate_trajectory(self, *, save_gif: bool = True) -> None:
+        if self.predicted_pip_positions is None or self.observed_pip_positions is None:
+            raise RuntimeError("Prediction data not initialised — call run() first.")
+
+        n_steps = self.predicted_pip_positions.shape[0]
+        norm = plt.Normalize(vmin=0, vmax=n_steps - 1)
+
+        # Re‑use truncated colormaps as static plot
+        def _trunc_cmap(base_cmap, start=0.5, stop=1.0, n=256):
+            new_colors = base_cmap(np.linspace(start, stop, n))
+            return colors.LinearSegmentedColormap.from_list(f"{base_cmap.name}_trunc", new_colors)
+
+        cmap_pred = _trunc_cmap(plt.cm.Blues, 0.5, 1.0)
+        cmap_obs = _trunc_cmap(plt.cm.Oranges, 0.5, 1.0)
+
+        fig_anim = plt.figure(figsize=(10, 8))
+        ax_anim = fig_anim.add_subplot(111, projection="3d")
+        ax_anim.set(xlim=(-5, 5), ylim=(-5, 5), zlim=(-20, 5),
+                    title="Animated 3‑D Pipette Trajectory",
+                    xlabel="Pipette X", ylabel="Pipette Y", zlabel="Pipette –Z")
+        ax_anim.grid(False)
+
+        # Artists
+        sc_pred = ax_anim.scatter([], [], [], c=[], cmap=cmap_pred, vmin=0, vmax=n_steps - 1, marker="o", s=20)
+        sc_obs = ax_anim.scatter([], [], [], c=[], cmap=cmap_obs, vmin=0, vmax=n_steps - 1, marker="^", s=20)
+
+        # Colour‑bars
+        mappable_pred = plt.cm.ScalarMappable(norm=norm, cmap=cmap_pred); mappable_pred.set_array([])
+        cbar_pred = plt.colorbar(mappable_pred, ax=ax_anim, pad=0.10, shrink=0.6)
+        cbar_pred.set_label("Time steps (Predicted)"); cbar_pred.ax.invert_yaxis()
+
+        mappable_obs = plt.cm.ScalarMappable(norm=norm, cmap=cmap_obs); mappable_obs.set_array([])
+        cbar_obs = plt.colorbar(mappable_obs, ax=ax_anim, pad=0.03, shrink=0.6)
+        cbar_obs.set_label("Time steps (Observed)"); cbar_obs.ax.invert_yaxis()
+
+        # Init + update
+        def _init():
+            for sc in (sc_pred, sc_obs):
+                sc._offsets3d = ([], [], [])
+                sc.set_array(np.array([]))
+            return sc_pred, sc_obs
+
+        def _update(frame: int):
+            # Predicted
+            x_p, y_p, z_p = self.predicted_pip_positions[: frame + 1].T
+            sc_pred._offsets3d = (x_p, y_p, -z_p)
+            sc_pred.set_array(norm(np.arange(frame + 1)))
+            # Observed
+            x_o, y_o, z_o = self.observed_pip_positions[: frame + 1].T
+            sc_obs._offsets3d = (x_o, y_o, -z_o)
+            sc_obs.set_array(norm(np.arange(frame + 1)))
+            return sc_pred, sc_obs
+
+        interval_ms = 1000 / self.animation_fps
+        anim = animation.FuncAnimation(
+            fig_anim,
+            _update,
+            init_func=_init,
+            frames=n_steps,
+            interval=interval_ms,
+            blit=False,
+        )
+
+        if save_gif:
+            out_path = self.save_dir / self.animation_fname
+            try:
+                anim.save(out_path, writer=animation.PillowWriter(fps=self.animation_fps))
+                print(f"[INFO] Animation saved → {out_path.resolve()}")
+            except Exception as exc:
+                print("[WARNING] GIF not saved —", exc)
+
+        plt.show()
+
+
+if __name__ == "__main__":
+    # Example invocation mirroring original behaviour
+    root = Path(__file__).parent
+    analyzer = ModelAnalyzer(
+        model_path=root / "patchModel/models/HEKHUNTERv0_150.onnx",
+        data_path=root / "patchModel/test_data/HEKHUNTER_inference_set.hdf5",
+    )
+    analyzer.run()
