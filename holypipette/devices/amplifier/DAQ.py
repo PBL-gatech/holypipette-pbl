@@ -526,32 +526,60 @@ class NiDAQ(DAQ):
             recordingTime=0.025
         )
         
+    # ======================================================================
+    #  1.  REPLACE NiDAQ._setupAcquisition()
+    # ======================================================================
     def _setupAcquisition(self):
-        # 1) AI task
+        """
+        Build one long-lived, sample-locked AI/AO pair that starts once and
+        streams continuously for the life of the object.
+        """
+        # --------- ANALOG INPUT -------------------------------------------------
         self.ai_task = nidaqmx.Task()
         self.ai_task.ai_channels.add_ai_voltage_chan(
-            f'{self.readDev}/{self.readChannel}', 
+            f'{self.readDev}/{self.readChannel}',
             max_val=10, min_val=0,
             terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF)
         self.ai_task.ai_channels.add_ai_voltage_chan(
             f'{self.respDev}/{self.respChannel}',
             max_val=10, min_val=0,
             terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF)
+
+        # *** KEY: drive AI from the AO SampleClock so every sample is phase-locked
         self.ai_task.timing.cfg_samp_clk_timing(
-            self._wave_rate,
-            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
+            rate=self._wave_rate,
+            source=f'/{self.cmdDev}/ao/SampleClock',
+            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS
+        )
 
-        # 2) AO task
+        # Generous PC buffer → no overflow (10× waveform length is typical)
+        self.ai_task.in_stream.input_buf_size = self._wave_samples * 10
+
+        # --------- ANALOG OUTPUT -----------------------------------------------
         self.ao_task = nidaqmx.Task()
-        self.ao_task.ao_channels.add_ao_voltage_chan(
-            f'{self.cmdDev}/{self.cmdChannel}')
+        self.ao_task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
         self.ao_task.timing.cfg_samp_clk_timing(
-            self._wave_rate,
-            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
+            rate=self._wave_rate,
+            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS
+        )
+        # allow regeneration (default) so one period can loop forever
+        self.ao_task.out_stream.regen_mode = (
+            nidaqmx.constants.RegenerationMode.ALLOW_REGENERATION)
 
-        # 3) Start both
+        # --------- PRIMING & STARTUP -------------------------------------------
+        #   • write the first period **before** starting → avoids -200462
+        #   • auto_start=True puts the task straight into Running state
+        self.ao_task.write(self.wave, auto_start=True)
         self.ai_task.start()
-        self.ao_task.start()
+
+        # --------- cache current-wave signature for later compare --------------
+        self._cur_wave_freq  = 40          # matches the buffer you pre-built
+        self._cur_wave_rate  = self._wave_rate
+        self._cur_wave_duty  = 0.5
+        self._cur_wave_amp   = 0.5
+        self._cur_wave_rtime = 0.025
+
+
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         """
@@ -564,11 +592,47 @@ class NiDAQ(DAQ):
         )
         return np.array(data, dtype=float)
 
-    def _sendSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+    # ======================================================================
+    #  2.  REPLACE NiDAQ._sendSquareWave()
+    # ======================================================================
+    def _sendSquareWave(self, wave_freq, samplesPerSec,
+                        dutyCycle, amplitude, recordingTime):
         """
-        Wrapper for the AO task: simply write the cached buffer.
+        Update the AO buffer with a voltage-clamp square wave.
+
+        • If the requested wave is identical to the one already streaming,
+        do *nothing* – this prevents DAQmx Warning 200015 caused by
+        rewriting an unchanged buffer during regeneration.
+        • When the wave *is* different:
+            stop  → load new buffer → auto-start
+        so the FIFO is populated before the task resumes (no -200462).
         """
-        self.ao_task.write(self.wave, auto_start=False)
+        # ---- 0. Skip redundant writes -----------------------------------------
+        if (wave_freq      == getattr(self, "_cur_wave_freq",  None) and
+            samplesPerSec  == getattr(self, "_cur_wave_rate",  None) and
+            dutyCycle      == getattr(self, "_cur_wave_duty",  None) and
+            amplitude      == getattr(self, "_cur_wave_amp",   None) and
+            recordingTime  == getattr(self, "_cur_wave_rtime", None)):
+            return
+
+        # ---- 1. Build the new waveform buffer ---------------------------------
+        self.createSquareWave(wave_freq, samplesPerSec,
+                            dutyCycle, amplitude, recordingTime)
+
+        # ---- 2. Safely swap the buffer ----------------------------------------
+        self.ao_task.stop()  # pause sample clock → guarantees clean hand-off
+        self.ao_task.timing.cfg_samp_clk_timing(
+            rate=self._wave_rate,
+            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
+        self.ao_task.write(self.wave, auto_start=True)  # FIFO primed & restarted
+
+        # ---- 3. Remember what is now playing ----------------------------------
+        self._cur_wave_freq  = wave_freq
+        self._cur_wave_rate  = samplesPerSec
+        self._cur_wave_duty  = dutyCycle
+        self._cur_wave_amp   = amplitude
+        self._cur_wave_rtime = recordingTime
+
     
     def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         """
