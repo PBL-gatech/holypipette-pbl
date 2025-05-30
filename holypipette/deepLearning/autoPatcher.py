@@ -89,7 +89,6 @@ class AutoPatcher:
         action = output_dict["actions"][:, -1, :]  # (1,6)
         return action, new_h0, new_c0
 
-
 class ModelTester:
     """
     Feeds a 16-step history into an ONNX Runtime session and
@@ -291,92 +290,6 @@ if __name__ == "__main__":
         #     cbar.set_label('Time steps')
         #     plt.show()
 
-# 3D plot showing GT and predicted pipette positions, just like above plot, need two different colorimetric time axes
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-
-    # --- COLLECT PREDICTED PIPETTE DELTAS (one per frame, regardless of prefill) ---
-    pred_pip_deltas = []  # Will be length N (all frames) if prefilling, else (N-seq_len+1)
-    for idx in range(len(tester.images)):
-        out = tester.run_inference(idx)
-        if out is not None:
-            pred_pip_deltas.append(out[0, 3:6])
-
-    pred_pip_deltas = np.stack(pred_pip_deltas)  # (n, 3)
-
-    # --- CHOOSE TRAJECTORY ALIGNMENT BASED ON PREFILLING ---
-    if tester.prefill_init:
-        # If prefilling, predictions are for every frame, align from index 0
-        init_pip_pos = tester.pipette_positions[0]  # (3,)
-        observed_pip_positions = tester.pipette_positions[:pred_pip_deltas.shape[0]]
-    else:
-        # If not prefilling, predictions start at index seq_len-1
-        init_pip_pos = tester.pipette_positions[tester.seq_len-1]
-        observed_pip_positions = tester.pipette_positions[tester.seq_len-1:tester.seq_len-1+pred_pip_deltas.shape[0]]
-
-    # --- INTEGRATE PREDICTED ACTIONS TO GET ABSOLUTE POSITIONS ---
-    predicted_pip_positions = [init_pip_pos]
-    for delta in pred_pip_deltas:
-        predicted_pip_positions.append(predicted_pip_positions[-1] + delta)
-    predicted_pip_positions = np.stack(predicted_pip_positions[1:])  # (n, 3)
-
-    # --- SETUP COLORS FOR TIME AXIS (length = n) ---
-    n_steps = predicted_pip_positions.shape[0]
-    time_steps = np.arange(n_steps)
-    cmap_pred = plt.cm.Blues
-    cmap_obs  = plt.cm.Oranges
-    colors_pred = cmap_pred(time_steps / max(1, n_steps-1))
-    colors_obs  = cmap_obs(time_steps / max(1, n_steps-1))
-
-    # --- 3D TRAJECTORY PLOTTING ---
-    fig = plt.figure(figsize=(10,8))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Standardize axes limits as requested
-    ax.set_xlim(-5, 5)
-    ax.set_ylim(-5, 5)
-    ax.set_zlim(-20, 5)  # Z axis now negative, same spread as before but inverted
-
-
-    # Flip Z for both predicted and observed
-    predicted_z_neg = -predicted_pip_positions[:, 2]
-    observed_z_neg = -observed_pip_positions[:, 2]
-
-    sc1 = ax.scatter(predicted_pip_positions[:, 0], predicted_pip_positions[:, 1], predicted_z_neg,
-            c=colors_pred, marker='o', s=20, label='Predicted (Integrated Actions)')
-    sc2 = ax.scatter(observed_pip_positions[:, 0], observed_pip_positions[:, 1], observed_z_neg,
-            c=colors_obs, marker='^', s=20, label='Observed (Ground Truth Position)')
-
-    ax.set_title('3D Pipette Trajectory: Predicted (Integrated Actions) vs Observed')
-    ax.set_xlabel('Pipette Position X')
-    ax.set_ylabel('Pipette Position Y')
-    ax.set_zlabel('Pipette Position -Z')
-
-    # --- CUSTOM LEGEND ---
-    from matplotlib.lines import Line2D
-    legend_elements = [
-        Line2D([0], [0], marker='o', color='w', label='Predicted (Integrated Actions)',
-            markerfacecolor='blue', markersize=10),
-        Line2D([0], [0], marker='^', color='w', label='Observed (Ground Truth Position)',
-            markerfacecolor='orange', markersize=10),
-    ]
-    ax.legend(handles=legend_elements, loc='best')
-
-    # --- COLORBARS FOR TIME ---
-    mappable_pred = plt.cm.ScalarMappable(cmap=cmap_pred)
-    mappable_pred.set_array([])
-    cbar_pred = plt.colorbar(mappable_pred, ax=ax, pad=0.1, shrink=0.6)
-    cbar_pred.set_label('Time steps (Predicted)')
-    mappable_obs = plt.cm.ScalarMappable(cmap=cmap_obs)
-    mappable_obs.set_array([])
-    cbar_obs = plt.colorbar(mappable_obs, ax=ax, pad=0.1, shrink=0.6)
-    cbar_obs.set_label('Time steps (Observed)')
-
-    plt.tight_layout()
-    plt.show()
-
-
 
 
             # Sum the per-frame error vectors and display cumulative error for pipette axes as bar charts.
@@ -404,3 +317,126 @@ if __name__ == "__main__":
             # print("\nGround truth actions (first 10):")
             # for i in range(10):
             #     print(f"Frame {i}: {tester.actions[i]}")
+
+
+
+
+# 3D plot showing GT and predicted pipette positions, with colour-maps
+# starting halfway through (so earliest points aren’t washed-out white)
+# and colour-bars inverted (lightest at the top, darkest at the bottom).
+
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D          # noqa: F401  (kept for completeness)
+from matplotlib import colors                    # 〈〈 NEW 〉〉
+
+# -------------------------------------------------
+# 1.  COLLECT PREDICTED PIPETTE DELTAS
+# -------------------------------------------------
+pred_pip_deltas = []  # Will be length N (all frames) if prefilling, else (N−seq_len+1)
+for idx in range(len(tester.images)):
+    out = tester.run_inference(idx)
+    if out is not None:
+        pred_pip_deltas.append(out[0, 3:6])
+
+pred_pip_deltas = np.stack(pred_pip_deltas)      # (n, 3)
+
+# -------------------------------------------------
+# 2.  CHOOSE TRAJECTORY ALIGNMENT BASED ON PREFILLING
+# -------------------------------------------------
+if tester.prefill_init:
+    init_pip_pos = tester.pipette_positions[0]                      # (3,)
+    observed_pip_positions = tester.pipette_positions[:pred_pip_deltas.shape[0]]
+else:
+    init_pip_pos = tester.pipette_positions[tester.seq_len - 1]
+    observed_pip_positions = tester.pipette_positions[
+        tester.seq_len - 1 : tester.seq_len - 1 + pred_pip_deltas.shape[0]]
+
+# -------------------------------------------------
+# 3.  INTEGRATE PREDICTED ACTIONS → ABSOLUTE POSITIONS
+# -------------------------------------------------
+predicted_pip_positions = [init_pip_pos]
+for delta in pred_pip_deltas:
+    predicted_pip_positions.append(predicted_pip_positions[-1] + delta)
+predicted_pip_positions = np.stack(predicted_pip_positions[1:])     # (n, 3)
+
+# -------------------------------------------------
+# 4.  BUILD “TRUNCATED” COLORMAPS (skip the pale half)
+# -------------------------------------------------
+def trunc_cmap(base_cmap, start=0.5, stop=1.0, n=256):
+    """Return a copy of *base_cmap* spanning only [start, stop]."""
+    new_colors = base_cmap(np.linspace(start, stop, n))
+    return colors.LinearSegmentedColormap.from_list(
+        f'{base_cmap.name}_trunc', new_colors)
+
+cmap_pred = trunc_cmap(plt.cm.Blues,   0.5, 1.0)   # earliest → mid-blue
+cmap_obs  = trunc_cmap(plt.cm.Oranges, 0.5, 1.0)   # earliest → mid-orange
+
+# -------------------------------------------------
+# 5.  COLOUR ARRAYS FOR EACH TIME STEP
+# -------------------------------------------------
+n_steps    = predicted_pip_positions.shape[0]
+time_steps = np.arange(n_steps)
+norm       = plt.Normalize(vmin=0, vmax=n_steps - 1)
+
+colors_pred = cmap_pred(norm(time_steps))
+colors_obs  = cmap_obs(norm(time_steps))
+
+# -------------------------------------------------
+# 6.  3-D TRAJECTORY PLOTTING
+# -------------------------------------------------
+fig = plt.figure(figsize=(10, 8))
+ax  = fig.add_subplot(111, projection='3d')
+
+# Standardise axes limits
+ax.set_xlim(-5, 5)
+ax.set_ylim(-5, 5)
+ax.set_zlim(-20, 5)        # Z axis negative, as before
+
+# Flip Z for both predicted and observed
+predicted_z_neg = -predicted_pip_positions[:, 2]
+observed_z_neg  = -observed_pip_positions[:, 2]
+
+sc1 = ax.scatter(predicted_pip_positions[:, 0], predicted_pip_positions[:, 1],
+                 predicted_z_neg, c=colors_pred, marker='o', s=20,
+                 label='Predicted (Integrated Actions)')
+sc2 = ax.scatter(observed_pip_positions[:, 0], observed_pip_positions[:, 1],
+                 observed_z_neg, c=colors_obs, marker='^', s=20,
+                 label='Observed (Ground Truth Position)')
+
+ax.set_title('3D Pipette Trajectory: Predicted (Integrated Actions) vs Observed')
+ax.set_xlabel('Pipette Position X')
+ax.set_ylabel('Pipette Position Y')
+ax.set_zlabel('Pipette Position -Z')
+
+# -------------------------------------------------
+# 7.  CUSTOM LEGEND (unchanged)
+# -------------------------------------------------
+from matplotlib.lines import Line2D
+legend_elements = [
+    Line2D([0], [0], marker='o', color='w',
+           label='Predicted (Integrated Actions)', markerfacecolor='blue',
+           markersize=10),
+    Line2D([0], [0], marker='^', color='w',
+           label='Observed (Ground Truth Position)', markerfacecolor='orange',
+           markersize=10),
+]
+ax.legend(handles=legend_elements, loc='best')
+
+# -------------------------------------------------
+# 8.  COLOUR-BARS (inverted so lightest at the top)
+# -------------------------------------------------
+mappable_pred = plt.cm.ScalarMappable(norm=norm, cmap=cmap_pred)
+mappable_pred.set_array([])
+cbar_pred = plt.colorbar(mappable_pred, ax=ax, pad=0.1, shrink=0.6)
+cbar_pred.set_label('Time steps (Predicted)')
+cbar_pred.ax.invert_yaxis()          # 〈〈 NEW 〉〉
+
+mappable_obs = plt.cm.ScalarMappable(norm=norm, cmap=cmap_obs)
+mappable_obs.set_array([])
+cbar_obs = plt.colorbar(mappable_obs, ax=ax, pad=0.1, shrink=0.6)
+cbar_obs.set_label('Time steps (Observed)')
+cbar_obs.ax.invert_yaxis()           # 〈〈 NEW 〉〉
+
+plt.tight_layout()
+plt.show()

@@ -15,10 +15,11 @@ experiments/Datasets
 /experiments/Data
 /holypipette/devices/camera/FakeMicroscopeImgs/mask_images
 /holypipette/deepLearning/cellModel
-/holypipette/deepLearning/patchModel
+
 /testing/testpatchconfig
 /holypipette/deepLearning/pipetteTipModel
 /holypipette/deepLearning/cellModel
 
 
 
+/holypipette/deepLearning/patchModel
