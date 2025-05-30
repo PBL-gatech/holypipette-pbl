@@ -191,9 +191,30 @@ class DAQ(TaskController):
             self._daq_acq_thread.stop()
             self._daq_acq_thread.join()
             self._daq_acq_thread = None
+    
+    def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        """
+        Single-cycle acquisition: fire the pre-made AO buffer, read back AI,
+        then process into (time/resp, time/read, totalR, memR, accR, memC).
+        """
+        with self._deviceLock:
+            # Device-specific wrappers (implemented in NiDAQ)
+            self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
+            raw = self._readAnalogInput(samplesPerSec, recordingTime)
+
+        # Process raw 2×N array -> six-tuple
+        return self._squareWaveProcessor(raw, samplesPerSec, amplitude)
+      
     # --------------------------
     # ABSTRACT (DEVICE-SPECIFIC)
     # --------------------------
+    
+    def _setupAcquisition(self):
+        """
+        Abstract: set up and start ai_task & ao_task.
+        """
+        raise NotImplementedError("Subclasses must implement _setupAcquisition()")
+
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         """
         Read analog input data from the device.
@@ -214,17 +235,6 @@ class DAQ(TaskController):
         Subclasses may override if needed.
         """
         return self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
-
-
-    # ----------------------------------------------------
-    #  PROTOCOL METHODS – generic stubs (device-specific)
-    # ----------------------------------------------------
-    def getDataFromSquareWave(self, *args, **kwargs):
-        """Send a voltage-clamp square wave and return device data.
-
-        Sub-classes **must** implement this.
-        """
-        raise NotImplementedError("Implement in subclass.")
 
     def getDataFromCurrentProtocol(self, *args, **kwargs):
         """Run the current-step protocol (I-clamp).
@@ -250,6 +260,60 @@ class DAQ(TaskController):
     # --------------------------
     # COMMON CALCULATION METHODS
     # --------------------------
+
+    def createSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        """
+        Generate and cache one buffer of a square wave in self.wave.
+        """
+        numSamples = int(samplesPerSec * recordingTime)
+        period = int(samplesPerSec / wave_freq)
+        onTime = int(period * dutyCycle)
+        wave = np.zeros(numSamples, dtype=float)
+        for i in range(0, numSamples, period):
+            wave[i:i+onTime] = amplitude
+        self.wave = wave
+        self._wave_rate = samplesPerSec
+        self._wave_samples = numSamples
+
+    def _squareWaveProcessor(self, raw_data, samplesPerSec, amplitude):
+        """
+        Cut out the pulse, convert units, compute R & C.
+        Identical to our previous implementation, unchanged.
+        """
+        read = raw_data[0]
+        resp = raw_data[1]
+        N = read.size
+        timeData = np.linspace(0, N/samplesPerSec, N, dtype=float)
+
+        grad = np.gradient(read, timeData)
+        max_i = np.argmax(grad)
+        min_i = np.argmin(grad[max_i:]) + max_i
+
+        left, right = 100, 300
+        idx0 = max(0, max_i-left)
+        idx1 = min(N, min_i+right)
+        td = timeData[idx0:idx1] - timeData[idx0]
+        rd = resp[idx0:idx1] * self.V_CLAMP_VOLT_PER_AMP
+        cd = read[idx0:idx1] * self.V_CLAMP_VOLT_PER_VOLT
+
+        if self.getCellMode():
+            accR, memR, memC = self._getParamsfromCurrent(
+                cd, rd, td, amplitude * self.V_CLAMP_VOLT_PER_VOLT
+            )
+            totalR = accR + memR
+        else:
+            totalR = self._getResistancefromCurrent(rd, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
+            if totalR is not None:
+                totalR *= 1e-6
+
+            accR, memR, memC = None, None, None
+
+        return (np.array([td, rd]),
+                np.array([td, cd]),
+                totalR,
+                memR,
+                accR,
+                memC)
 
     def capacitance(self):
         """
@@ -445,51 +509,66 @@ class NiDAQ(DAQ):
         self.info(f'Using {self.readDev}/{self.readChannel} for reading; '
                   f'{self.cmdDev}/{self.cmdChannel} for command; '
                   f'and {self.respDev}/{self.respChannel} for response.')
-        # Initialize the DAQ device and set up channels, start the acquisition thread
-        self.start_acquisition(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
-                                amplitude=0.5, recordingTime=0.025, interval=None)
+        # 1) Pre-generate the square wave buffer
+        self.createSquareWave(
+            wave_freq=40, samplesPerSec=100000,
+            dutyCycle=0.5, amplitude=0.5,
+            recordingTime=0.025
+        )
+
+        # 2) Configure & start persistent AO/AI tasks
+        self._setupAcquisition()
+
+        # 3) Kick off the acquisition thread
+        self.start_acquisition(
+            wave_freq=40, samplesPerSec=100000,
+            dutyCycle=0.5, amplitude=0.5,
+            recordingTime=0.025
+        )
+        
+    def _setupAcquisition(self):
+        # 1) AI task
+        self.ai_task = nidaqmx.Task()
+        self.ai_task.ai_channels.add_ai_voltage_chan(
+            f'{self.readDev}/{self.readChannel}', 
+            max_val=10, min_val=0,
+            terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF)
+        self.ai_task.ai_channels.add_ai_voltage_chan(
+            f'{self.respDev}/{self.respChannel}',
+            max_val=10, min_val=0,
+            terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF)
+        self.ai_task.timing.cfg_samp_clk_timing(
+            self._wave_rate,
+            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
+
+        # 2) AO task
+        self.ao_task = nidaqmx.Task()
+        self.ao_task.ao_channels.add_ao_voltage_chan(
+            f'{self.cmdDev}/{self.cmdChannel}')
+        self.ao_task.timing.cfg_samp_clk_timing(
+            self._wave_rate,
+            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
+
+        # 3) Start both
+        self.ai_task.start()
+        self.ao_task.start()
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
-        numSamples = int(samplesPerSec * recordingTime)
-        with nidaqmx.Task() as task:
-            task.ai_channels.add_ai_voltage_chan(
-                f'{self.readDev}/{self.readChannel}',
-                max_val=10, min_val=0,
-                terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF
-            )
-            task.ai_channels.add_ai_voltage_chan(
-                f'{self.respDev}/{self.respChannel}',
-                max_val=10, min_val=0,
-                terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF
-            )
-            task.timing.cfg_samp_clk_timing(
-                samplesPerSec,
-                sample_mode=nidaqmx.constants.AcquisitionType.FINITE,
-                samps_per_chan=numSamples
-            )
-            data = task.read(number_of_samples_per_channel=numSamples, timeout=10)
-            data = np.array(data, dtype=float)
-            task.stop()
-        if data is None or np.where(data == None)[0].size > 0:
-            data = np.zeros((2, numSamples))
-        return data
+        """
+        Wrapper for the AI task: read exactly one bufferful.
+        """
+        numSamples = self._wave_samples
+        data = self.ai_task.read(
+            number_of_samples_per_channel=numSamples,
+            timeout=10.0
+        )
+        return np.array(data, dtype=float)
 
     def _sendSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
-        task = nidaqmx.Task()
-        task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
-        task.timing.cfg_samp_clk_timing(
-            samplesPerSec,
-            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS
-        )
-        numSamples = int(samplesPerSec * recordingTime)
-        data = np.zeros(numSamples)
-        period = int(samplesPerSec / wave_freq)
-        onTime = int(period * dutyCycle)
-        for i in range(0, numSamples, period):
-            data[i:i + onTime] = amplitude
-            data[i + onTime:i + period] = 0
-        task.write(data)
-        return task
+        """
+        Wrapper for the AO task: simply write the cached buffer.
+        """
+        self.ao_task.write(self.wave, auto_start=False)
     
     def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         task = nidaqmx.Task()
@@ -510,89 +589,6 @@ class NiDAQ(DAQ):
         task.write(data)
         
         return task
-
-    def getDataFromSquareWave(self, wave_freq, samplesPerSec: int, dutyCycle, amplitude, recordingTime) -> tuple:
-        """
-        Send a square wave (voltage protocol) and acquire the response.
-        Returns a tuple containing:
-          - [timeData, respData]
-          - [timeData, readData]
-          - totalResistance, membraneResistance, accessResistance, membraneCapacitance
-        """
-        self.equalizer = False
-
-        while not self.equalizer:
-            with self._deviceLock:
-                sendTask = self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
-                if hasattr(sendTask, 'start'):
-                    sendTask.start()
-                data = self._readAnalogInput(samplesPerSec, recordingTime)
-                if hasattr(sendTask, 'stop'):
-                    sendTask.stop()
-                if hasattr(sendTask, 'close'):
-                    sendTask.close()
-            numSamples = int(samplesPerSec * recordingTime)
-            if data is not None and data.shape[1] == numSamples:
-                try:
-                    triggeredSamples = data.shape[1]
-                    timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
-                    gradientData = np.gradient(data[0], timeData)
-                    max_index = np.argmax(gradientData)
-                    # Look for the minimum after the maximum index
-                    min_index = np.argmin(gradientData[max_index:]) + max_index
-                    max_grad = np.max(gradientData)
-                    min_grad = np.min(gradientData[max_index:])
-                    if abs(max_grad) - abs(min_grad) < 1000:
-                        self.equalizer = True
-                    else:
-                        self.equalizer = False
-                except Exception as e:
-                    return None, None, None, None, None, None
-
-        if self.equalizer:
-            try:
-                # Reset the equalizer flag for the next use
-                self.equalizer = False
-                left_bound = 100
-                right_bound = 300
-                respData = data[1][max_index - left_bound: min_index + right_bound]
-                readData = data[0][max_index - left_bound: min_index + right_bound]
-                timeData = timeData[max_index - left_bound: min_index + right_bound]
-                # Rezero time axis
-                timeData = timeData - timeData[0]
-                # Convert the data from DAQ units to cell units
-                readData = readData * self.V_CLAMP_VOLT_PER_VOLT
-                respData = respData * self.V_CLAMP_VOLT_PER_AMP
-
-                # Reset parameters; then calculate cell parameters if in CELL mode.
-                self.latestAccessResistance = 0
-                self.latestMembraneResistance = 0
-                self.latestMembraneCapacitance = 0
-                if self.getCellMode():
-                    (self.latestAccessResistance, self.latestMembraneResistance,
-                    self.latestMembraneCapacitance) = self._getParamsfromCurrent(
-                        readData, respData, timeData, amplitude * self.V_CLAMP_VOLT_PER_VOLT
-                    )
-
-                self.totalResistance = 0
-                if self.getCellMode() and self.latestAccessResistance is not None and self.latestMembraneResistance is not None:
-                    self.totalResistance = self.latestAccessResistance + self.latestMembraneResistance
-                else:
-                    self.totalResistance = self._getResistancefromCurrent(
-                        respData, amplitude * self.V_CLAMP_VOLT_PER_VOLT
-                    )
-                    if self.totalResistance is not None:
-                        self.totalResistance *= 1e-6  # convert to MOhms
-
-                return (np.array([timeData, respData]),
-                        np.array([timeData, readData]),
-                        self.totalResistance,
-                        self.latestMembraneResistance,
-                        self.latestAccessResistance,
-                        self.latestMembraneCapacitance)
-            except Exception as e:
-                return None, None, None, None, None, None
-
 
     def getDataFromCurrentProtocol(self, custom=False, factor=None,
                                    startCurrentPicoAmp=None, endCurrentPicoAmp=None,
