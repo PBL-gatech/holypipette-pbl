@@ -293,7 +293,7 @@ class ModelAnalyzer:
         """Execute the full analysis pipeline and generate artefacts."""
         self._compute_latency_and_error()
         self._plot_static_trajectory()
-        self._animate_trajectory(save_gif=False)
+        self._animate_trajectory(save_gif=True)
 
     # ------------------------------------------------------------------
     # Core analysis
@@ -549,6 +549,6 @@ if __name__ == "__main__":
     root = Path(__file__).parent
     analyzer = ModelAnalyzer(
         model_path=root / "patchModel/models/HEKHUNTERv0_150.onnx",
-        data_path=root / "patchModel/test_data/HEKHUNTER_inference_set2.hdf5",
+        data_path=root / "patchModel/test_data/HEKHUNTER_inference_set.hdf5",
     )
     analyzer.run()
