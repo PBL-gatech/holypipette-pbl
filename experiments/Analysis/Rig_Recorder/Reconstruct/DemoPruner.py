@@ -1,8 +1,9 @@
 import h5py
 import numpy as np
 
-file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_021.hdf5"
-demo_folders_to_delete = ["demo_110","demo_111","demo_112","demo_113","demo_114","demo_115","demo_116","demo_117","demo_118","demo_119",]        # add as many keys as you like
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_022.hdf5"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\ HEK_dataset_v0_022.hdf5"
+demo_folders_to_delete = ["demo_40", "demo_42"]        # add as many keys as you like
 
 with h5py.File(file_path, "a") as hf:
     data_grp  = hf["data"]

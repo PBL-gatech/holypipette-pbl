@@ -22,7 +22,7 @@ class DatasetBuilder():
         self.dataset_name = dataset_name
         self.zero_values = False
         self.center_crop = True
-        self.rotate = True                  # train-time augmentation
+        self.rotate = True                 # train-time augmentation
         self.rotate_valid = rotate_valid
         self.inaction = 3
         self.val_ratio = val_ratio
@@ -950,7 +950,8 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_021.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_v0_023.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+
 
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
@@ -958,25 +959,7 @@ if __name__ == '__main__':
     #     "2025_03_11-16_49"
     # ]
 
-    rig_recorder_data_folder_set =  [
-        "2025_04_10-11_57",
-        "2025_04_10-12_16",
-        "2025_04_10-12_21",
-        "2025_04_10-12_30",
-        "2025_04_10-15_01",
-        "2025_04_10-17_31",
-        "2025_04_07-14_32", 
-        "2025_04_07-14_50", 
-        "2025_04_07-15_50", 
-        "2025_04_07-18_04"
-     ] # completely manual HEK data with no overlays. (4/10/2025)
-
-    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
-        
     # rig_recorder_data_folder_set =  [
-    #     "2025_05_20-15_50",
-    #     "2025_05_20-15_16",
-    #     "2025_05_20-14_05",
     #     "2025_04_10-11_57",
     #     "2025_04_10-12_16",
     #     "2025_04_10-12_21",
@@ -987,7 +970,25 @@ if __name__ == '__main__':
     #     "2025_04_07-14_50", 
     #     "2025_04_07-15_50", 
     #     "2025_04_07-18_04"
-    #  ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
+    #  ] # completely manual HEK data with no overlays. (4/10/2025)
+
+    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
+        
+    rig_recorder_data_folder_set =  [
+        "2025_05_20-15_50",
+        "2025_05_20-15_16",
+        "2025_05_20-14_05",
+        "2025_04_10-11_57",
+        "2025_04_10-12_16",
+        "2025_04_10-12_21",
+        "2025_04_10-12_30",
+        "2025_04_10-15_01",
+        "2025_04_10-17_31",
+        "2025_04_07-14_32", 
+        "2025_04_07-14_50", 
+        "2025_04_07-15_50", 
+        "2025_04_07-18_04"
+     ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
 
     datasetBuilder = DatasetBuilder(
         dataset_name=dataset_name,

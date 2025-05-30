@@ -207,8 +207,6 @@ class ModelTester:
         errvector = (pred - gt)          # (6,)
         return errvector
     
-
-
 """Model analysis utilities for HEKHUNTER demo.
 
 This module wraps the ad‑hoc logic that used to live in the
@@ -347,10 +345,19 @@ class ModelAnalyzer:
         predicted_positions = [init_pos]
         for delta in pred_deltas_arr:
             predicted_positions.append(predicted_positions[-1] + delta)
-        self.predicted_pip_positions = np.stack(predicted_positions[1:])  # (n,3)
-        self.observed_pip_positions = obs_positions
 
-    # ------------------------------------------------------------------
+        # --- keep t = 0 for BOTH series --------------------------------------
+        self.predicted_pip_positions = np.stack(predicted_positions[:-1])      # shape (n,3)
+        self.observed_pip_positions  = obs_positions[:pred_deltas_arr.shape[0]]
+
+        # --- re-zero everything around the first observed sample -------------
+        anchor = self.observed_pip_positions[0]        # (3,)
+        self.predicted_pip_positions -= anchor
+        self.observed_pip_positions  -= anchor
+        #debug 
+        print(f"[DEBUG] Predicted positions: {self.predicted_pip_positions} | "
+                f"Observed positions: {self.observed_pip_positions}")
+            # ------------------------------------------------------------------
     # Static 3‑D trajectory plot
     # ------------------------------------------------------------------
 
@@ -427,14 +434,22 @@ class ModelAnalyzer:
     # Animated trajectory (saves GIF)
     # ------------------------------------------------------------------
 
+
     def _animate_trajectory(self, *, save_gif: bool = True) -> None:
         if self.predicted_pip_positions is None or self.observed_pip_positions is None:
             raise RuntimeError("Prediction data not initialised — call run() first.")
 
+        # ── pre-compute step-wise vector-magnitude error ─────────────────
+        error_mag = np.linalg.norm(
+            self.predicted_pip_positions - self.observed_pip_positions, axis=1
+        )  # shape (n,)
+
+        from matplotlib.lines import Line2D  # tiny local import keeps edit minimal
+
         n_steps = self.predicted_pip_positions.shape[0]
         norm = plt.Normalize(vmin=0, vmax=n_steps - 1)
 
-        # Re‑use truncated colormaps as static plot
+        # Re-use truncated colormaps from static plot
         def _trunc_cmap(base_cmap, start=0.5, stop=1.0, n=256):
             new_colors = base_cmap(np.linspace(start, stop, n))
             return colors.LinearSegmentedColormap.from_list(f"{base_cmap.name}_trunc", new_colors)
@@ -444,41 +459,68 @@ class ModelAnalyzer:
 
         fig_anim = plt.figure(figsize=(10, 8))
         ax_anim = fig_anim.add_subplot(111, projection="3d")
-        ax_anim.set(xlim=(-5, 5), ylim=(-5, 5), zlim=(-20, 5),
-                    title="Animated 3‑D Pipette Trajectory",
-                    xlabel="Pipette X", ylabel="Pipette Y", zlabel="Pipette –Z")
+        ax_anim.set(
+            xlim=(-5, 5),
+            ylim=(-5, 5),
+            zlim=(-20, 5),
+            title="Animated 3-D Pipette Trajectory",
+            xlabel="Pipette X",
+            ylabel="Pipette Y",
+            zlabel="Pipette –Z",
+        )
         ax_anim.grid(False)
 
         # Artists
-        sc_pred = ax_anim.scatter([], [], [], c=[], cmap=cmap_pred, vmin=0, vmax=n_steps - 1, marker="o", s=20)
-        sc_obs = ax_anim.scatter([], [], [], c=[], cmap=cmap_obs, vmin=0, vmax=n_steps - 1, marker="^", s=20)
+        sc_pred = ax_anim.scatter(
+            [], [], [], c=[], cmap=cmap_pred, vmin=0, vmax=n_steps - 1, marker="o", s=20, label="Predicted"
+        )
+        sc_obs = ax_anim.scatter(
+            [], [], [], c=[], cmap=cmap_obs, vmin=0, vmax=n_steps - 1, marker="^", s=20, label="Observed"
+        )
+        err_handle = Line2D([], [], linestyle="none", marker="", color="red")  # legend entry
 
-        # Colour‑bars
-        mappable_pred = plt.cm.ScalarMappable(norm=norm, cmap=cmap_pred); mappable_pred.set_array([])
-        cbar_pred = plt.colorbar(mappable_pred, ax=ax_anim, pad=0.10, shrink=0.6)
-        cbar_pred.set_label("Time steps (Predicted)"); cbar_pred.ax.invert_yaxis()
+        # Colour-bars
+        for cm, pad, lbl in ((cmap_pred, 0.10, "Time steps (Predicted)"),
+                             (cmap_obs, 0.03, "Time steps (Observed)")):
+            m = plt.cm.ScalarMappable(norm=norm, cmap=cm); m.set_array([])
+            cb = plt.colorbar(m, ax=ax_anim, pad=pad, shrink=0.6)
+            cb.set_label(lbl); cb.ax.invert_yaxis()
 
-        mappable_obs = plt.cm.ScalarMappable(norm=norm, cmap=cmap_obs); mappable_obs.set_array([])
-        cbar_obs = plt.colorbar(mappable_obs, ax=ax_anim, pad=0.03, shrink=0.6)
-        cbar_obs.set_label("Time steps (Observed)"); cbar_obs.ax.invert_yaxis()
+        # Legend text handle will be captured in _init
+        error_text_handle = None
 
-        # Init + update
+        # ───── animation init/update ──────────────────────────────────
         def _init():
+            nonlocal error_text_handle
             for sc in (sc_pred, sc_obs):
                 sc._offsets3d = ([], [], [])
                 sc.set_array(np.array([]))
-            return sc_pred, sc_obs
+
+            legend = ax_anim.legend(
+                [sc_pred, sc_obs, err_handle],
+                ["Predicted", "Observed", ""],  # placeholder for error
+                loc="best",
+                frameon=True,
+            )
+            error_text_handle = legend.get_texts()[-1]
+            error_text_handle.set_color("red")
+            error_text_handle.set_text(f"Error: {error_mag[0]:.3f}")
+            return sc_pred, sc_obs, error_text_handle
 
         def _update(frame: int):
             # Predicted
             x_p, y_p, z_p = self.predicted_pip_positions[: frame + 1].T
             sc_pred._offsets3d = (x_p, y_p, -z_p)
             sc_pred.set_array(norm(np.arange(frame + 1)))
+
             # Observed
             x_o, y_o, z_o = self.observed_pip_positions[: frame + 1].T
             sc_obs._offsets3d = (x_o, y_o, -z_o)
             sc_obs.set_array(norm(np.arange(frame + 1)))
-            return sc_pred, sc_obs
+
+            # Update legend entry
+            error_text_handle.set_text(f"Error: {error_mag[frame]:.3f}")
+            return sc_pred, sc_obs, error_text_handle
 
         interval_ms = 1000 / self.animation_fps
         anim = animation.FuncAnimation(
@@ -501,11 +543,12 @@ class ModelAnalyzer:
         plt.show()
 
 
+
 if __name__ == "__main__":
     # Example invocation mirroring original behaviour
     root = Path(__file__).parent
     analyzer = ModelAnalyzer(
         model_path=root / "patchModel/models/HEKHUNTERv0_150.onnx",
-        data_path=root / "patchModel/test_data/HEKHUNTER_inference_set.hdf5",
+        data_path=root / "patchModel/test_data/HEKHUNTER_inference_set2.hdf5",
     )
     analyzer.run()
