@@ -215,9 +215,302 @@ class DAQ(TaskController):
         """
         return self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
 
+
+    # ----------------------------------------------------
+    #  PROTOCOL METHODS – generic stubs (device-specific)
+    # ----------------------------------------------------
+    def getDataFromSquareWave(self, *args, **kwargs):
+        """Send a voltage-clamp square wave and return device data.
+
+        Sub-classes **must** implement this.
+        """
+        raise NotImplementedError("Implement in subclass.")
+
+    def getDataFromCurrentProtocol(self, *args, **kwargs):
+        """Run the current-step protocol (I-clamp).
+
+        Sub-classes **must** implement this.
+        """
+        raise NotImplementedError("Implement in subclass.")
+
+    def getDataFromHoldingProtocol(self, *args, **kwargs):
+        """Acquire baseline holding data (no command output).
+
+        Sub-classes **must** implement this.
+        """
+        raise NotImplementedError("Implement in subclass.")
+
+    def getDataFromVoltageProtocol(self, *args, **kwargs):
+        """Run the voltage-step protocol (V-clamp).
+
+        Sub-classes **must** implement this.
+        """
+        raise NotImplementedError("Implement in subclass.")
+
     # --------------------------
-    # COMMON PROTOCOL METHODS
+    # COMMON CALCULATION METHODS
     # --------------------------
+
+    def capacitance(self):
+        """
+        Returns the latest membrane capacitance measurement.
+        If no measurement is available, returns None.
+        """
+        return self.latestMembraneCapacitance
+
+    def resistance(self):
+        """
+        Returns the latest total resistance measurement.
+        If no measurement is available, returns None.
+        """
+        return self.totalResistance
+    
+    def accessResistance(self):
+        """
+        Returns the latest access resistance measurement.
+        If no measurement is available, returns None.
+        """
+        return self.latestAccessResistance
+
+    def _getResistancefromCurrent(self, data, cmdVoltage) -> float | None:
+        try:
+            mean = np.mean(data)
+            lowAvg = np.mean(data[data < mean])
+            highAvg = np.mean(data[data > mean])
+            resistance = cmdVoltage / (highAvg - lowAvg)
+            return resistance
+        except Exception as e:
+            return None
+
+    def filter_data(self, T_ms, X_mV, Y_pA):
+        """
+        Process the acquired data to extract the relevant segment for curve-fitting,
+        using NumPy arrays instead of a pandas DataFrame.
+        
+        Parameters:
+          T_ms: np.array of time in milliseconds (shifted so first element is 0)
+          X_mV: np.array of command voltages in millivolts
+          Y_pA: np.array of responses in picoamps
+          
+        Returns:
+          sub_data: portion of Y_pA between the peak and negative peak indices
+          sub_time: corresponding time points from T_ms
+          sub_command: corresponding X_mV values
+          plot_params: list of [peak_time, peak_current_index, negative_peak_time, negative_peak_index]
+          mean_pre_peak: mean of Y_pA from start until the positive peak in dX/dT
+          mean_post_peak: mean of Y_pA from the first near-zero gradient point to the negative peak
+        """
+        # Compute gradient of the command signal
+        X_dT = np.gradient(X_mV, T_ms)
+        positive_peak_index = np.argmax(X_dT)
+        negative_peak_index = np.argmin(X_dT)
+        peak_current_index = np.argmax(Y_pA)
+        peak_time = T_ms[peak_current_index]
+        negative_peak_time = T_ms[negative_peak_index]
+        pre_peak_current = Y_pA[:positive_peak_index+1]
+        sub_data = Y_pA[peak_current_index:negative_peak_index+1]
+        sub_time = T_ms[peak_current_index:negative_peak_index+1]
+        sub_command = X_mV[peak_current_index:negative_peak_index+1]
+        mean_pre_peak = pre_peak_current.mean()
+        sub_gradient = np.gradient(sub_data, sub_time)
+        close_to_zero_index = np.where(np.isclose(sub_gradient, 0, atol=1e-2))[0]
+        zero_gradient_time = None
+        if close_to_zero_index.size > 0:
+            zero_gradient_index = close_to_zero_index[0]
+            zero_gradient_time = sub_time[zero_gradient_index]
+        if zero_gradient_time is not None:
+            mask = (T_ms >= zero_gradient_time) & (T_ms <= T_ms[negative_peak_index])
+            mean_post_peak = Y_pA[mask].mean() if np.any(mask) else None
+        else:
+            mean_post_peak = None
+        plot_params = [peak_time, peak_current_index, negative_peak_time, negative_peak_index]
+        return sub_data, sub_time, sub_command, plot_params, mean_pre_peak, mean_post_peak
+
+    def monoExp(self, x, m, t, b):
+        return m * np.exp(-t * x) + b
+
+    def optimizer(self, fit_data, I_peak_pA, I_peak_time, I_ss):
+        """
+        Fit the mono-exponential decay model using NumPy arrays.
+        
+        Parameters:
+          fit_data: dict with keys 'T_ms', 'X_mV', 'Y_pA' (all numpy arrays)
+          I_peak_pA: Peak current (pA) to help seed the fit
+          I_peak_time: Time corresponding to the peak current (ms)
+          I_ss: Steady-state current (pA)
+          
+        Returns:
+          m, t, b: Fitted parameters of the model: m * exp(-t*x) + b
+        """
+        xdata = fit_data['T_ms']
+        ydata = fit_data['Y_pA']
+        p0 = [I_peak_pA, I_peak_time, I_ss]
+
+        def residuals(params, x, y):
+            return self.monoExp(x, *params) - y
+
+        def jac(params, x, y):
+            m, t, b = params
+            exp_val = np.exp(-t * x)
+            J0 = exp_val                   # d/dm
+            J1 = -m * x * exp_val          # d/dt
+            J2 = np.ones_like(x)           # d/db
+            return np.vstack((J0, J1, J2)).T
+
+        res = scipy.optimize.least_squares(
+            residuals, p0, jac=jac, args=(xdata, ydata), max_nfev=1000000
+        )
+        if res.success:
+            m, t, b = res.x
+            return m, t, b
+        else:
+            return None, None, None
+
+    def _getParamsfromCurrent(self, readData, respData, timeData, amplitude) -> tuple:
+        """
+        Calculate access resistance, membrane resistance, and membrane capacitance
+        from the response of a voltage protocol using NumPy arrays instead of pandas.
+        """
+        R_a_MOhms, R_m_MOhms, C_m_pF = None, None, None
+        if len(readData) and len(respData) and len(timeData):
+            try:
+                # Shift time to start at zero and convert units:
+                T = timeData - timeData[0]           # seconds (shifted)
+                T_ms = T * 1000                      # convert to milliseconds
+                X_mV = readData * 1000               # volts -> millivolts
+                Y_pA = respData * 1e12               # amps -> picoamps
+
+                # Use the numpy-based filter_data function.
+                filtered_data, filtered_time, filtered_command, plot_params, I_prev_pA, I_post_pA = \
+                    self.filter_data(T_ms, X_mV, Y_pA)
+                self.holding_current = I_prev_pA
+                peak_time, peak_index, negative_peak_time, negative_peak_index = plot_params
+                if peak_index + 1 < len(Y_pA):
+                    I_peak_pA = Y_pA[peak_index + 1]
+                    I_peak_time = T_ms[peak_index + 1]
+                else:
+                    I_peak_pA = Y_pA[peak_index]
+                    I_peak_time = T_ms[peak_index]
+                # Prepare the data for curve fitting. Time axis zeroed.
+                fit_data = {
+                    'T_ms': filtered_time - filtered_time[0],
+                    'X_mV': filtered_command,
+                    'Y_pA': filtered_data
+                }
+                mean_voltage = filtered_command.mean()
+                m, t, b = self.optimizer(fit_data, I_peak_pA, I_peak_time, I_post_pA) # feed in previous initial conditions if exists
+                if m is not None and t is not None and b is not None:
+                    tau = 1 / t
+                    R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, mean_voltage, I_peak_pA, I_prev_pA, I_post_pA)
+            except Exception as e:
+                return None, None, None
+        else:
+            return 0, 0, 0
+        return R_a_MOhms, R_m_MOhms, C_m_pF
+
+    def calc_param(self, tau, mean_voltage, I_peak, I_prev, I_ss):
+        """
+        Calculate access resistance (R_a), membrane resistance (R_m) and membrane capacitance (C_m)
+        from the measured currents.
+        """
+        I_d = I_peak - I_prev   # in pA
+        I_dss = I_ss - I_prev   # in pA
+        R_a_MOhms = ((mean_voltage * 1e-3) / (I_d * 1e-12)) * 1e-6
+        R_m_MOhms = (((mean_voltage * 1e-3) - R_a_MOhms * 1e6 * I_dss * 1e-12) / (I_dss * 1e-12)) * 1e-6
+        C_m_pF = (tau * 1e-3) / (1 / (1 / (R_a_MOhms * 1e6) + 1 / (R_m_MOhms * 1e6))) * 1e12
+        return R_a_MOhms, R_m_MOhms, C_m_pF
+
+# ========================================================
+#  NI-DAQ Subclass
+# ========================================================
+class NiDAQ(DAQ):
+    C_CLAMP_AMP_PER_VOLT = 400 * 1e-12  # 400 pA per V (DAQ output)
+    C_CLAMP_VOLT_PER_VOLT = (10 * 1e-3) / (1e-3)  # 10 mV per V (DAQ input)
+    V_CLAMP_VOLT_PER_VOLT = (20 * 1e-3)  # 20 mV per V (DAQ output)
+    V_CLAMP_VOLT_PER_AMP = (2 * 1e-9)   # 2 mV per pA (DAQ input)
+
+    def __init__(self, readDev, readChannel, cmdDev, cmdChannel, respDev, respChannel):
+        super().__init__()
+        self.readDev = readDev
+        self.cmdDev = cmdDev
+        self.respDev = respDev
+        self.readChannel = readChannel
+        self.cmdChannel = cmdChannel
+        self.respChannel = respChannel
+        self.latestAccessResistance = None
+        self.totalResistance = None
+        self.latestMembraneResistance = None
+        self.latestMembraneCapacitance = None
+        self.cellMode = False
+        self.info(f'Using {self.readDev}/{self.readChannel} for reading; '
+                  f'{self.cmdDev}/{self.cmdChannel} for command; '
+                  f'and {self.respDev}/{self.respChannel} for response.')
+        # Initialize the DAQ device and set up channels, start the acquisition thread
+        self.start_acquisition(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
+                                amplitude=0.5, recordingTime=0.025, interval=None)
+
+    def _readAnalogInput(self, samplesPerSec, recordingTime):
+        numSamples = int(samplesPerSec * recordingTime)
+        with nidaqmx.Task() as task:
+            task.ai_channels.add_ai_voltage_chan(
+                f'{self.readDev}/{self.readChannel}',
+                max_val=10, min_val=0,
+                terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF
+            )
+            task.ai_channels.add_ai_voltage_chan(
+                f'{self.respDev}/{self.respChannel}',
+                max_val=10, min_val=0,
+                terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF
+            )
+            task.timing.cfg_samp_clk_timing(
+                samplesPerSec,
+                sample_mode=nidaqmx.constants.AcquisitionType.FINITE,
+                samps_per_chan=numSamples
+            )
+            data = task.read(number_of_samples_per_channel=numSamples, timeout=10)
+            data = np.array(data, dtype=float)
+            task.stop()
+        if data is None or np.where(data == None)[0].size > 0:
+            data = np.zeros((2, numSamples))
+        return data
+
+    def _sendSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        task = nidaqmx.Task()
+        task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
+        task.timing.cfg_samp_clk_timing(
+            samplesPerSec,
+            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS
+        )
+        numSamples = int(samplesPerSec * recordingTime)
+        data = np.zeros(numSamples)
+        period = int(samplesPerSec / wave_freq)
+        onTime = int(period * dutyCycle)
+        for i in range(0, numSamples, period):
+            data[i:i + onTime] = amplitude
+            data[i + onTime:i + period] = 0
+        task.write(data)
+        return task
+    
+    def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        task = nidaqmx.Task()
+        task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
+        task.timing.cfg_samp_clk_timing(samplesPerSec, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
+        
+        # create a wave_freq Hz square wave
+        data = np.zeros(int(samplesPerSec * recordingTime))
+            
+        period = int(1 / wave_freq * samplesPerSec)
+        onTime = int(period * dutyCycle)
+
+        wavesPerSec = samplesPerSec // period
+
+        data[:wavesPerSec*period:onTime] = 0
+        data[onTime:wavesPerSec*period] = amplitude
+
+        task.write(data)
+        
+        return task
+
     def getDataFromSquareWave(self, wave_freq, samplesPerSec: int, dutyCycle, amplitude, recordingTime) -> tuple:
         """
         Send a square wave (voltage protocol) and acquire the response.
@@ -460,269 +753,7 @@ class DAQ(TaskController):
         finally:
             self.isRunningProtocol = False
         return self.voltageMembraneCapacitance
-    
-    def capacitance(self):
-        """
-        Returns the latest membrane capacitance measurement.
-        If no measurement is available, returns None.
-        """
-        return self.latestMembraneCapacitance
 
-    def resistance(self):
-        """
-        Returns the latest total resistance measurement.
-        If no measurement is available, returns None.
-        """
-        return self.totalResistance
-    
-    def accessResistance(self):
-        """
-        Returns the latest access resistance measurement.
-        If no measurement is available, returns None.
-        """
-        return self.latestAccessResistance
-
-    # --------------------------
-    # COMMON CALCULATION METHODS
-    # --------------------------
-    def _getResistancefromCurrent(self, data, cmdVoltage) -> float | None:
-        try:
-            mean = np.mean(data)
-            lowAvg = np.mean(data[data < mean])
-            highAvg = np.mean(data[data > mean])
-            resistance = cmdVoltage / (highAvg - lowAvg)
-            return resistance
-        except Exception as e:
-            return None
-
-    def filter_data(self, T_ms, X_mV, Y_pA):
-        """
-        Process the acquired data to extract the relevant segment for curve-fitting,
-        using NumPy arrays instead of a pandas DataFrame.
-        
-        Parameters:
-          T_ms: np.array of time in milliseconds (shifted so first element is 0)
-          X_mV: np.array of command voltages in millivolts
-          Y_pA: np.array of responses in picoamps
-          
-        Returns:
-          sub_data: portion of Y_pA between the peak and negative peak indices
-          sub_time: corresponding time points from T_ms
-          sub_command: corresponding X_mV values
-          plot_params: list of [peak_time, peak_current_index, negative_peak_time, negative_peak_index]
-          mean_pre_peak: mean of Y_pA from start until the positive peak in dX/dT
-          mean_post_peak: mean of Y_pA from the first near-zero gradient point to the negative peak
-        """
-        # Compute gradient of the command signal
-        X_dT = np.gradient(X_mV, T_ms)
-        positive_peak_index = np.argmax(X_dT)
-        negative_peak_index = np.argmin(X_dT)
-        peak_current_index = np.argmax(Y_pA)
-        peak_time = T_ms[peak_current_index]
-        negative_peak_time = T_ms[negative_peak_index]
-        pre_peak_current = Y_pA[:positive_peak_index+1]
-        sub_data = Y_pA[peak_current_index:negative_peak_index+1]
-        sub_time = T_ms[peak_current_index:negative_peak_index+1]
-        sub_command = X_mV[peak_current_index:negative_peak_index+1]
-        mean_pre_peak = pre_peak_current.mean()
-        sub_gradient = np.gradient(sub_data, sub_time)
-        close_to_zero_index = np.where(np.isclose(sub_gradient, 0, atol=1e-2))[0]
-        zero_gradient_time = None
-        if close_to_zero_index.size > 0:
-            zero_gradient_index = close_to_zero_index[0]
-            zero_gradient_time = sub_time[zero_gradient_index]
-        if zero_gradient_time is not None:
-            mask = (T_ms >= zero_gradient_time) & (T_ms <= T_ms[negative_peak_index])
-            mean_post_peak = Y_pA[mask].mean() if np.any(mask) else None
-        else:
-            mean_post_peak = None
-        plot_params = [peak_time, peak_current_index, negative_peak_time, negative_peak_index]
-        return sub_data, sub_time, sub_command, plot_params, mean_pre_peak, mean_post_peak
-
-    def monoExp(self, x, m, t, b):
-        return m * np.exp(-t * x) + b
-
-    def optimizer(self, fit_data, I_peak_pA, I_peak_time, I_ss):
-        """
-        Fit the mono-exponential decay model using NumPy arrays.
-        
-        Parameters:
-          fit_data: dict with keys 'T_ms', 'X_mV', 'Y_pA' (all numpy arrays)
-          I_peak_pA: Peak current (pA) to help seed the fit
-          I_peak_time: Time corresponding to the peak current (ms)
-          I_ss: Steady-state current (pA)
-          
-        Returns:
-          m, t, b: Fitted parameters of the model: m * exp(-t*x) + b
-        """
-        xdata = fit_data['T_ms']
-        ydata = fit_data['Y_pA']
-        p0 = [I_peak_pA, I_peak_time, I_ss]
-
-        def residuals(params, x, y):
-            return self.monoExp(x, *params) - y
-
-        def jac(params, x, y):
-            m, t, b = params
-            exp_val = np.exp(-t * x)
-            J0 = exp_val                   # d/dm
-            J1 = -m * x * exp_val          # d/dt
-            J2 = np.ones_like(x)           # d/db
-            return np.vstack((J0, J1, J2)).T
-
-        res = scipy.optimize.least_squares(
-            residuals, p0, jac=jac, args=(xdata, ydata), max_nfev=1000000
-        )
-        if res.success:
-            m, t, b = res.x
-            return m, t, b
-        else:
-            return None, None, None
-
-    def _getParamsfromCurrent(self, readData, respData, timeData, amplitude) -> tuple:
-        """
-        Calculate access resistance, membrane resistance, and membrane capacitance
-        from the response of a voltage protocol using NumPy arrays instead of pandas.
-        """
-        R_a_MOhms, R_m_MOhms, C_m_pF = None, None, None
-        if len(readData) and len(respData) and len(timeData):
-            try:
-                # Shift time to start at zero and convert units:
-                T = timeData - timeData[0]           # seconds (shifted)
-                T_ms = T * 1000                      # convert to milliseconds
-                X_mV = readData * 1000               # volts -> millivolts
-                Y_pA = respData * 1e12               # amps -> picoamps
-
-                # Use the numpy-based filter_data function.
-                filtered_data, filtered_time, filtered_command, plot_params, I_prev_pA, I_post_pA = \
-                    self.filter_data(T_ms, X_mV, Y_pA)
-                self.holding_current = I_prev_pA
-                peak_time, peak_index, negative_peak_time, negative_peak_index = plot_params
-                if peak_index + 1 < len(Y_pA):
-                    I_peak_pA = Y_pA[peak_index + 1]
-                    I_peak_time = T_ms[peak_index + 1]
-                else:
-                    I_peak_pA = Y_pA[peak_index]
-                    I_peak_time = T_ms[peak_index]
-                # Prepare the data for curve fitting. Time axis zeroed.
-                fit_data = {
-                    'T_ms': filtered_time - filtered_time[0],
-                    'X_mV': filtered_command,
-                    'Y_pA': filtered_data
-                }
-                mean_voltage = filtered_command.mean()
-                m, t, b = self.optimizer(fit_data, I_peak_pA, I_peak_time, I_post_pA) # feed in previous initial conditions if exists
-                if m is not None and t is not None and b is not None:
-                    tau = 1 / t
-                    R_a_MOhms, R_m_MOhms, C_m_pF = self.calc_param(tau, mean_voltage, I_peak_pA, I_prev_pA, I_post_pA)
-            except Exception as e:
-                return None, None, None
-        else:
-            return 0, 0, 0
-        return R_a_MOhms, R_m_MOhms, C_m_pF
-
-    def calc_param(self, tau, mean_voltage, I_peak, I_prev, I_ss):
-        """
-        Calculate access resistance (R_a), membrane resistance (R_m) and membrane capacitance (C_m)
-        from the measured currents.
-        """
-        I_d = I_peak - I_prev   # in pA
-        I_dss = I_ss - I_prev   # in pA
-        R_a_MOhms = ((mean_voltage * 1e-3) / (I_d * 1e-12)) * 1e-6
-        R_m_MOhms = (((mean_voltage * 1e-3) - R_a_MOhms * 1e6 * I_dss * 1e-12) / (I_dss * 1e-12)) * 1e-6
-        C_m_pF = (tau * 1e-3) / (1 / (1 / (R_a_MOhms * 1e6) + 1 / (R_m_MOhms * 1e6))) * 1e12
-        return R_a_MOhms, R_m_MOhms, C_m_pF
-
-# ========================================================
-#  NI-DAQ Subclass
-# ========================================================
-class NiDAQ(DAQ):
-    C_CLAMP_AMP_PER_VOLT = 400 * 1e-12  # 400 pA per V (DAQ output)
-    C_CLAMP_VOLT_PER_VOLT = (10 * 1e-3) / (1e-3)  # 10 mV per V (DAQ input)
-    V_CLAMP_VOLT_PER_VOLT = (20 * 1e-3)  # 20 mV per V (DAQ output)
-    V_CLAMP_VOLT_PER_AMP = (2 * 1e-9)   # 2 mV per pA (DAQ input)
-
-    def __init__(self, readDev, readChannel, cmdDev, cmdChannel, respDev, respChannel):
-        super().__init__()
-        self.readDev = readDev
-        self.cmdDev = cmdDev
-        self.respDev = respDev
-        self.readChannel = readChannel
-        self.cmdChannel = cmdChannel
-        self.respChannel = respChannel
-        self.latestAccessResistance = None
-        self.totalResistance = None
-        self.latestMembraneResistance = None
-        self.latestMembraneCapacitance = None
-        self.cellMode = False
-        self.info(f'Using {self.readDev}/{self.readChannel} for reading; '
-                  f'{self.cmdDev}/{self.cmdChannel} for command; '
-                  f'and {self.respDev}/{self.respChannel} for response.')
-        # Initialize the DAQ device and set up channels, start the acquisition thread
-        self.start_acquisition(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
-                                amplitude=0.5, recordingTime=0.025, interval=None)
-
-    def _readAnalogInput(self, samplesPerSec, recordingTime):
-        numSamples = int(samplesPerSec * recordingTime)
-        with nidaqmx.Task() as task:
-            task.ai_channels.add_ai_voltage_chan(
-                f'{self.readDev}/{self.readChannel}',
-                max_val=10, min_val=0,
-                terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF
-            )
-            task.ai_channels.add_ai_voltage_chan(
-                f'{self.respDev}/{self.respChannel}',
-                max_val=10, min_val=0,
-                terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF
-            )
-            task.timing.cfg_samp_clk_timing(
-                samplesPerSec,
-                sample_mode=nidaqmx.constants.AcquisitionType.FINITE,
-                samps_per_chan=numSamples
-            )
-            data = task.read(number_of_samples_per_channel=numSamples, timeout=10)
-            data = np.array(data, dtype=float)
-            task.stop()
-        if data is None or np.where(data == None)[0].size > 0:
-            data = np.zeros((2, numSamples))
-        return data
-
-    def _sendSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
-        task = nidaqmx.Task()
-        task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
-        task.timing.cfg_samp_clk_timing(
-            samplesPerSec,
-            sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS
-        )
-        numSamples = int(samplesPerSec * recordingTime)
-        data = np.zeros(numSamples)
-        period = int(samplesPerSec / wave_freq)
-        onTime = int(period * dutyCycle)
-        for i in range(0, numSamples, period):
-            data[i:i + onTime] = amplitude
-            data[i + onTime:i + period] = 0
-        task.write(data)
-        return task
-    
-    def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
-        task = nidaqmx.Task()
-        task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
-        task.timing.cfg_samp_clk_timing(samplesPerSec, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
-        
-        # create a wave_freq Hz square wave
-        data = np.zeros(int(samplesPerSec * recordingTime))
-            
-        period = int(1 / wave_freq * samplesPerSec)
-        onTime = int(period * dutyCycle)
-
-        wavesPerSec = samplesPerSec // period
-
-        data[:wavesPerSec*period:onTime] = 0
-        data[onTime:wavesPerSec*period] = amplitude
-
-        task.write(data)
-        
-        return task
 # ========================================================
 #  ArduinoDAQ Subclass
 # ========================================================
