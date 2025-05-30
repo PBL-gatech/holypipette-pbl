@@ -1,112 +1,167 @@
+# -*- coding: utf-8 -*-
+"""
+Extended analysis & visualisation script for pipette, stage and resistance data
+==============================================================================
+
+Changes (May 29 2025)
+---------------------
+* **Plot 5** perfectly matches the static 3-D scatter look:
+  * Viridis colour-bar added.
+  * Time-progressive colouring now works (thanks to cmap/vmin/vmax).
+  * Still no legend or per-demo labels.
+* Animation defaults: ~6 × real-time (60 fps * multiplier 6).
+
+Toggle plots and GIF export with the flags below. Pillow is required only when
+`save_animation=True`.
+"""
+
+from __future__ import annotations
+
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import cm
+from matplotlib import cm, animation
+from pathlib import Path
 
-file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset.hdf5"
+# ====== CONFIGURATION FLAGS ======
+plot_pipette_3d = False          # Static 3-D scatter (Plot 1)
+plot_resistance = False          # Plot 2
+plot_stage_3d = False            # Plot 3
+plot_time_courses = False        # Plot 4
+plot_pipette_animation = True    # Animated scatter (Plot 5)
 
-pipette_positions_data = {}
-resistance_data = {}
-stage_positions_data = {}
+# Animation tuning -----------------------------------------------------------
+animation_speed_multiplier = 1   # ~6 × faster than real-time
+base_animation_fps = 60          # logical FPS before speed-up
+save_animation = True           # Export GIF (requires Pillow)
+animation_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\pipette_paths.gif")
+# ===========================================================================
 
-with h5py.File(file_path, 'r') as hdf:
-    for demo_key in hdf['data'].keys():
-        demo_group = hdf['data'][demo_key]['obs']
-        if 'pipette_positions' in demo_group:
-            pipette_positions = demo_group['pipette_positions'][:]
-            pipette_positions_data[demo_key] = pipette_positions
-        if 'resistance' in demo_group:
-            resistance = demo_group['resistance'][:]
-            resistance_data[demo_key] = resistance
-        if 'stage_positions' in demo_group:
-            stage_positions = demo_group['stage_positions'][:]
-            stage_positions_data[demo_key] = stage_positions
+file_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_1.hdf5")
 
-# Plot pipette positions
-fig = plt.figure(figsize=(12, 8))
-ax = fig.add_subplot(111, projection='3d')
-ax.grid(False)
-cmap = cm.viridis
-for positions in pipette_positions_data.values():
-    time_steps = np.arange(positions.shape[0])
-    colors = cmap(time_steps / positions.shape[0])
-    ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, marker='o', s=15)
-ax.set_xlim([-20, 20])
-ax.set_ylim([-20, 20])
-ax.set_zlim([30, 0])
-ax.set_title('3D Pipette Motion with Time-Colorimetric Encoding')
-ax.set_xlabel('X position')
-ax.set_ylabel('Y position')
-ax.set_zlabel('Z position (top-down)')
-mappable = cm.ScalarMappable(cmap=cmap)
-mappable.set_array([])
-cbar = plt.colorbar(mappable, ax=ax, pad=0.1, shrink=0.6)
-cbar.set_label('Time steps')
-cbar.ax.invert_yaxis()  # Flip color legend to start from the top
+pipette_positions_data: dict[str, np.ndarray] = {}
+resistance_data: dict[str, np.ndarray] = {}
+stage_positions_data: dict[str, np.ndarray] = {}
 
-# Plot resistance change
-fig, ax = plt.subplots(figsize=(12, 4))
-for resistance in resistance_data.values():
-    ax.plot(resistance)
-ax.set_title('Resistance Change over Time')
-ax.set_xlabel('Time steps')
-ax.set_ylabel('Resistance')
+# ---------------------------------------------------------------------------
+# 1. Load data ---------------------------------------------------------------
+# ---------------------------------------------------------------------------
+with h5py.File(file_path, "r") as hdf:
+    for demo_key in hdf["data"].keys():
+        demo_group = hdf["data"][demo_key]["obs"]
+        if "pipette_positions" in demo_group:
+            pipette_positions_data[demo_key] = demo_group["pipette_positions"][:]
+        if "resistance" in demo_group:
+            resistance_data[demo_key] = demo_group["resistance"][:]
+        if "stage_positions" in demo_group:
+            stage_positions_data[demo_key] = demo_group["stage_positions"][:]
 
-# to be done 
+# ---------------------------------------------------------------------------
+# 2. STATIC PLOTS (1-4) – original style ------------------------------------
+# ---------------------------------------------------------------------------
+if plot_pipette_3d:
+    fig = plt.figure(figsize=(12, 8))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.grid(False)
+    cmap = cm.viridis
+    for positions in pipette_positions_data.values():
+        t = np.arange(positions.shape[0])
+        ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2],
+                   c=cmap(t / positions.shape[0]), marker="o", s=15)
+    ax.set(xlim=[-20, 20], ylim=[-20, 20], zlim=[30, 0],
+           title="3-D Pipette Motion with Time-Colour Encoding",
+           xlabel="X position", ylabel="Y position", zlabel="Z position (top-down)")
+    mappable = cm.ScalarMappable(cmap=cmap); mappable.set_array([])
+    cbar = plt.colorbar(mappable, ax=ax, pad=0.1, shrink=0.6)
+    cbar.set_label("Time steps"); cbar.ax.invert_yaxis()
 
-fig = plt.figure(figsize=(12, 8))
-ax = fig.add_subplot(111, projection='3d')
-ax.grid(False)
-cmap = cm.viridis
-for positions in stage_positions_data.values():
-    time_steps = np.arange(positions.shape[0])
-    colors = cmap(time_steps / positions.shape[0])
-    ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], c=colors, marker='o', s=15)
-ax.set_xlim([-20, 20])
-ax.set_ylim([-20, 20])
-ax.set_zlim([-50, 50])
-ax.set_title('3D stage Motion with Time-Colorimetric Encoding')
-ax.set_xlabel('X position')
-ax.set_ylabel('Y position')
-ax.set_zlabel('Z position (top-down)')
-mappable = cm.ScalarMappable(cmap=cmap)
-mappable.set_array([])
-cbar = plt.colorbar(mappable, ax=ax, pad=0.1, shrink=0.6)
-cbar.set_label('Time steps')
-cbar.ax.invert_yaxis()  # Flip color legend to start from the top
+if plot_resistance:
+    fig, ax = plt.subplots(figsize=(12, 4))
+    for resistance in resistance_data.values():
+        ax.plot(resistance)
+    ax.set(title="Resistance Change over Time", xlabel="Time steps", ylabel="Resistance (Ω)")
 
-# 4th plot: Decompose 4D pipette motion into 3 time courses (X, Y, and Z)
-fig, axs = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+if plot_stage_3d:
+    fig = plt.figure(figsize=(12, 8))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.grid(False)
+    cmap = cm.viridis
+    for positions in stage_positions_data.values():
+        t = np.arange(positions.shape[0])
+        ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2],
+                   c=cmap(t / positions.shape[0]), marker="o", s=15)
+    ax.set(xlim=[-20, 20], ylim=[-20, 20], zlim=[-50, 50],
+           title="3-D Stage Motion with Time-Colour Encoding",
+           xlabel="X position", ylabel="Y position", zlabel="Z position (top-down)")
+    cb = plt.colorbar(cm.ScalarMappable(cmap=cmap), ax=ax, pad=0.1, shrink=0.6)
+    cb.set_label("Time steps"); cb.ax.invert_yaxis()
 
-# Loop through each demo key in pipette_positions_data
-for demo, positions in pipette_positions_data.items():
-    time_steps = np.arange(positions.shape[0])
-    axs[0].plot(time_steps, positions[:, 0], label=f'{demo} - X')
-    axs[1].plot(time_steps, positions[:, 1], label=f'{demo} - Y')
-    axs[2].plot(time_steps, positions[:, 2], label=f'{demo} - Z')
+if plot_time_courses:
+    fig, axs = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+    for pos in pipette_positions_data.values():
+        t = np.arange(pos.shape[0])
+        axs[0].plot(t, pos[:, 0]); axs[1].plot(t, pos[:, 1]); axs[2].plot(t, pos[:, 2])
+    for pos in stage_positions_data.values():
+        t = np.arange(pos.shape[0])
+        axs[0].plot(t, pos[:, 0]); axs[1].plot(t, pos[:, 1]); axs[2].plot(t, pos[:, 2])
+    axs[0].set_title("Pipette & Stage Positions Time Courses (X, Y, Z)")
+    axs[0].set_ylabel("X Position"); axs[1].set_ylabel("Y Position"); axs[2].set_ylabel("Z Position")
+    axs[2].set_xlabel("Time steps"); plt.tight_layout()
 
-# Set labels for each subplot
-axs[0].set_ylabel('X Position')
-axs[1].set_ylabel('Y Position')
-axs[2].set_ylabel('Z Position')
-axs[2].set_xlabel('Time steps')
-axs[0].set_title('Pipette Positions Time Courses (X, Y, Z)')
+# ---------------------------------------------------------------------------
+# 3. ANIMATED 3-D PIPETTE MOTION (Plot 5) -----------------------------------
+# ---------------------------------------------------------------------------
+if plot_pipette_animation and pipette_positions_data:
 
-plt.tight_layout()
+    fig_anim = plt.figure(figsize=(12, 8))
+    ax_anim = fig_anim.add_subplot(111, projection="3d")
+    ax_anim.grid(False)
+    ax_anim.set(xlim=[-20, 20], ylim=[-20, 20], zlim=[30, 0],
+                title="Animated 3-D Pipette Motion",
+                xlabel="X position", ylabel="Y position", zlabel="Z position (top-down)")
 
+    cmap = cm.viridis
 
-for demo, positions in stage_positions_data.items():
-    time_steps = np.arange(positions.shape[0])
-    axs[0].plot(time_steps, positions[:, 0], label=f'{demo} - X')
-    axs[1].plot(time_steps, positions[:, 1], label=f'{demo} - Y')
-    axs[2].plot(time_steps, positions[:, 2], label=f'{demo} - Z')
-# Set labels for each subplot
-axs[0].set_ylabel('X Position')
-axs[1].set_ylabel('Y Position')
-axs[2].set_ylabel('Z Position')
-axs[2].set_xlabel('Time steps')
-axs[0].set_title('Stage Positions Time Courses (X, Y, Z)')
-plt.tight_layout()
+    # Add viridis colour-bar (mirrors static plot)
+    mappable_anim = cm.ScalarMappable(cmap=cmap); mappable_anim.set_array([])
+    cbar_anim = plt.colorbar(mappable_anim, ax=ax_anim, pad=0.1, shrink=0.6)
+    cbar_anim.set_label("Time steps"); cbar_anim.ax.invert_yaxis()
+
+    # Prepare one scatter artist per trajectory
+    scatters: list[tuple[animation.Artist, np.ndarray]] = []
+    for pos in pipette_positions_data.values():
+        scatters.append((ax_anim.scatter([], [], [], c=[], cmap=cmap, vmin=0, vmax=1,
+                                         marker="o", s=15), pos))
+
+    max_len = max(pos.shape[0] for pos in pipette_positions_data.values())
+
+    def _init():
+        for sc, _ in scatters:
+            sc._offsets3d = ([], [], [])
+            sc.set_array(np.array([]))
+        return [sc for sc, _ in scatters]
+
+    def _update(frame: int):
+        for sc, pos in scatters:
+            if frame < pos.shape[0]:
+                x, y, z = pos[:frame + 1].T
+                sc._offsets3d = (x, y, z)
+                sc.set_array(np.linspace(0, 1, frame + 1))  # progressive colour gradient
+        return [sc for sc, _ in scatters]
+
+    interval_ms = 1000 / (base_animation_fps * animation_speed_multiplier)
+    anim = animation.FuncAnimation(fig_anim, _update, init_func=_init,
+                                   frames=max_len, interval=interval_ms, blit=False)
+
+    if save_animation:
+        try:
+            anim.save(animation_path, writer=animation.PillowWriter(
+                fps=base_animation_fps * animation_speed_multiplier))
+            print(f"[INFO] Animation saved → {animation_path.resolve()}")
+        except Exception as exc:
+            print("[WARNING] GIF not saved –", exc)
+
+# ---------------------------------------------------------------------------
+# 4. SHOW ALL FIGURES --------------------------------------------------------
+# ---------------------------------------------------------------------------
 plt.show()
-
-
