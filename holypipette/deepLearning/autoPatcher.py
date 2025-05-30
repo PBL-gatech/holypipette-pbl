@@ -548,7 +548,7 @@ if __name__ == "__main__":
     # Example invocation mirroring original behaviour
     root = Path(__file__).parent
     analyzer = ModelAnalyzer(
-        model_path=root / "patchModel/models/HEKHUNTERv0_150.onnx",
-        data_path=root / "patchModel/test_data/HEKHUNTER_inference_set.hdf5",
+        model_path=root / "patchModel/models/HEKHUNTERv0_170.onnx",
+        data_path=root / "patchModel/test_data/HEKHUNTER_inference_set3.hdf5",
     )
     analyzer.run()
