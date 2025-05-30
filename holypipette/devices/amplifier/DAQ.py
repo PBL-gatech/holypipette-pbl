@@ -571,184 +571,208 @@ class NiDAQ(DAQ):
         self.ao_task.write(self.wave, auto_start=False)
     
     def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
-        task = nidaqmx.Task()
-        task.ao_channels.add_ao_voltage_chan(f'{self.cmdDev}/{self.cmdChannel}')
-        task.timing.cfg_samp_clk_timing(samplesPerSec, sample_mode=nidaqmx.constants.AcquisitionType.CONTINUOUS)
-        
-        # create a wave_freq Hz square wave
-        data = np.zeros(int(samplesPerSec * recordingTime))
-            
-        period = int(1 / wave_freq * samplesPerSec)
+        """
+        Generate a new current-square-wave buffer on the fly,
+        write it to the always-running AO task, then restore the
+        original membrane-test wave.
+        """
+        # 1) Save the original wave buffer
+        orig_wave = self.wave.copy()
+        orig_rate = self._wave_rate
+        orig_samples = self._wave_samples
+
+        # 2) Build a new wave for this current pulse
+        numSamples = int(samplesPerSec * recordingTime)
+        period = int(samplesPerSec / wave_freq)
         onTime = int(period * dutyCycle)
+        curr_wave = np.zeros(numSamples, dtype=float)
+        for i in range(0, numSamples, period):
+            curr_wave[i:i+onTime] = amplitude
+        # temporarily override buffer
+        self.wave = curr_wave
+        self._wave_rate = samplesPerSec
+        self._wave_samples = numSamples
 
-        wavesPerSec = samplesPerSec // period
+        # 3) Write it to the AO task
+        self.ao_task.write(self.wave, auto_start=False)
 
-        data[:wavesPerSec*period:onTime] = 0
-        data[onTime:wavesPerSec*period] = amplitude
+        # 4) Restore original membrane-test wave
+        self.wave = orig_wave
+        self._wave_rate = orig_rate
+        self._wave_samples = orig_samples
 
-        task.write(data)
-        
-        return task
-
-    def getDataFromCurrentProtocol(self, custom=False, factor=None,
-                                   startCurrentPicoAmp=None, endCurrentPicoAmp=None,
-                                   stepCurrentPicoAmp=10, highTimeMs=400):
+    def getDataFromCurrentProtocol(self,
+                                   custom: bool = False,
+                                   factor: float = None,
+                                   startCurrentPicoAmp: float = None,
+                                   endCurrentPicoAmp: float = None,
+                                   stepCurrentPicoAmp: float = 10,
+                                   highTimeMs: float = 400):
         """
-        Send a series of current square waves to measure cell current responses.
-        Returns the acquired data, the pulse amplitudes, and the pulse range.
+        Send a series of current steps, defined by:
+          - if custom=False: range ± (voltageMembraneCapacitance * factor) in 10 pA increments
+          - if custom=True: from startCurrentPicoAmp to endCurrentPicoAmp in stepCurrentPicoAmp
+        Each step:
+          1) create & send the current‐wave
+          2) read back
+        Finally, restore the membrane‐test wave.
         """
-        if self.voltageMembraneCapacitance is None or self.voltageMembraneCapacitance == 0:
-            self.voltageMembraneCapacitance = 0
-            return None, None, None
-
+        # 1) Determine pulse amplitudes (pA)
         if not custom:
-            factor = 1
-            startCurrentPicoAmp = round(-self.voltageMembraneCapacitance * factor, -1)
-            endCurrentPicoAmp = round(self.voltageMembraneCapacitance * factor, -1)
- 
-            
-            if startCurrentPicoAmp < -200:
-                self.warning(f"starting current too great: {startCurrentPicoAmp}")
-                startCurrentPicoAmp = -200
-                self.info(f"starting current limited to: {startCurrentPicoAmp}")
-            if endCurrentPicoAmp > 200:
-                endCurrentPicoAmp = 200
-
+            if self.voltageMembraneCapacitance is None:
+                raise RuntimeError("Need voltageMembraneCapacitance from a prior V-protocol")
+            factor = factor or 1.0
+            span = round(self.voltageMembraneCapacitance * factor, -1)
+            start = -span
+            end   =  span
         else:
             if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
-                raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided when custom is True.")
-        self.info(f'Starting Current Protocol with start: {startCurrentPicoAmp}, '
-                  f'end: {endCurrentPicoAmp}, step: {stepCurrentPicoAmp}.')
-        self.pulses = np.arange(startCurrentPicoAmp, endCurrentPicoAmp + stepCurrentPicoAmp, stepCurrentPicoAmp)
-        if 0 not in self.pulses:
-            self.pulses = np.insert(self.pulses, len(self.pulses) // 2, 0)
-        self.info(f'Pulses: {self.pulses}')
-        self.pulseRange = len(self.pulses)
-        self.isRunningProtocol = True
-        self.latest_protocol_data = None  # clear previous data
+                raise ValueError("When custom=True, startCurrentPicoAmp and endCurrentPicoAmp must be provided")
+            start = startCurrentPicoAmp
+            end   = endCurrentPicoAmp
 
-        num_waves = int((endCurrentPicoAmp - startCurrentPicoAmp) / stepCurrentPicoAmp) + 2
-        # Convert to amps
-        startCurrent = startCurrentPicoAmp * 1e-12
-        # self.info(f"Start Current: {startCurrent}")
-        # Determine the square wave frequency (Hz)
-        wave_freq = 1 / (2 * highTimeMs * 1e-3)
-        samplesPerSec = 100000
-        recTime = 4 * highTimeMs * 1e-3
+        # clamp to ±200 pA
+        start = max(start, -200)
+        end   = min(end,   200)
 
-        for i in range(num_waves - 1):
-            # First, send nothing to stabilize starting point
-            recording_nothing = highTimeMs / 2 * 1e-3
+        # build pulse array (always include zero)
+        pulses = np.arange(start, end + stepCurrentPicoAmp, stepCurrentPicoAmp)
+        if 0 not in pulses:
+            pulses = np.sort(np.append(pulses, 0.))
+        self.pulses = pulses
+        self.pulseRange = len(pulses)
+
+        # 2) Hold onto membrane-test buffer for later restoration
+        test_wave    = self.wave.copy()
+        test_rate    = self._wave_rate
+        test_samples = self._wave_samples
+
+        # 3) Prepare for acquisition
+        self.isRunningProtocol     = True
+        self.current_protocol_data = []
+
+        # 4) Loop over each pulse
+        for pA in pulses:
+            # convert picoamp → DAQ‐units
+            amp_volts = (pA * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
+            freq      = 1.0 / (2 * highTimeMs * 1e-3)
+            recTime   = 4 * highTimeMs * 1e-3
+
             with self._deviceLock:
-                sendTask = self._sendSquareWaveCurrent(1, samplesPerSec, 0.5, 0, recording_nothing)
-                if hasattr(sendTask, 'start'):
-                    sendTask.start()
-                data_nothing = self._readAnalogInput(samplesPerSec, recording_nothing)
-                if hasattr(sendTask, 'stop'):
-                    sendTask.stop()
-                if hasattr(sendTask, 'close'):
-                    sendTask.close()
-            respData_nothing = data_nothing[1] / self.C_CLAMP_VOLT_PER_VOLT
-            readData_nothing = data_nothing[0]
+                # send/read one pulse
+                self._sendSquareWaveCurrent(freq, test_rate, 0.5, amp_volts, recTime)
+                data = self._readAnalogInput(test_rate, recTime)
 
-            # Second, send a parameter pulse at -20 pA
-            amp_pulse = (-20 * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
-            wave_pulse = 1 / (2 * (highTimeMs / 2) * 1e-3)
-            recording_pulse = 3 * highTimeMs / 2 * 1e-3
-            with self._deviceLock:
-                sendTask = self._sendSquareWaveCurrent(wave_pulse, samplesPerSec, 0.5, amp_pulse, recording_pulse)
-                if hasattr(sendTask, 'start'):
-                    sendTask.start()
-                data_pulse = self._readAnalogInput(samplesPerSec, recording_pulse)
-                if hasattr(sendTask, 'stop'):
-                    sendTask.stop()
-                if hasattr(sendTask, 'close'):
-                    sendTask.close()
-            respData_pulse = data_pulse[1] / self.C_CLAMP_VOLT_PER_VOLT
-            readData_pulse = data_pulse[0]
+            # unpack
+            resp = data[1] / self.C_CLAMP_VOLT_PER_VOLT
+            read = data[0]
+            t    = np.linspace(0, read.size / test_rate, read.size, dtype=float)
+            self.current_protocol_data.append([t, resp, read])
 
-            # Combine the stabilization phase and -20pA pulse phase
-            respData0 = np.concatenate((respData_nothing, respData_pulse))
-            readData0 = np.concatenate((readData_nothing, readData_pulse))
+            time.sleep(0.5)
 
-            self.sleep(0.5)
-
-            # Third, send the current square wave
-            currentAmps = self.pulses[i] * 1e-12
-            self.info(f'Sending {currentAmps * 1e12} pA square wave.')
-            amplitude = currentAmps / self.C_CLAMP_AMP_PER_VOLT
-            with self._deviceLock:
-                sendTask = self._sendSquareWaveCurrent(wave_freq, samplesPerSec, 0.5, amplitude, recTime)
-                if hasattr(sendTask, 'start'):
-                    sendTask.start()
-                data = self._readAnalogInput(samplesPerSec, recTime)
-                if hasattr(sendTask, 'stop'):
-                    sendTask.stop()
-                if hasattr(sendTask, 'close'):
-                    sendTask.close()
-            respData1 = data[1] / self.C_CLAMP_VOLT_PER_VOLT
-            readData1 = data[0]
-
-            # Combine the two phases of data
-            respData = np.concatenate((respData0, respData1))
-            readData = np.concatenate((readData0, readData1))
-            triggeredSamples = respData.shape[0]
-            timeData = np.linspace(0, triggeredSamples / samplesPerSec, triggeredSamples, dtype=float)
-
-            self.sleep(0.5)
-
-            if self.current_protocol_data is None:
-                self.current_protocol_data = [[timeData, respData, readData]]
-            else:
-                self.current_protocol_data.append([timeData, respData, readData])
+        # 5) Restore membrane-test wave once
+        self.wave         = test_wave
+        self._wave_rate   = test_rate
+        self._wave_samples= test_samples
+        self.ao_task.write(self.wave, auto_start=False)
 
         self.isRunningProtocol = False
         return self.current_protocol_data, self.pulses, self.pulseRange
 
     def getDataFromHoldingProtocol(self):
         """
-        Measures holding (baseline) currents to determine spontaneous activity.
+        Temporarily send zero volts (no command), read baseline,
+        then resume membrane-test buffer.
         """
+        # hold test buffer
+        test_wave = self.wave.copy()
+        test_rate = self._wave_rate
+        test_samples = self._wave_samples
+
         self.isRunningProtocol = True
-        self.holding_protocol_data = None
         with self._deviceLock:
-            data = self._readAnalogInput(50000, 1)
-        respData = data[1]
-        readData = data[0]
-        triggeredSamples = respData.shape[0]
-        timeData = np.linspace(0, triggeredSamples / 50000, triggeredSamples, dtype=float)
+            # 1) send “nothing”
+            zeros = np.zeros(test_samples, dtype=float)
+            self.ao_task.write(zeros, auto_start=False)
+
+            # 2) read AI
+            data = self._readAnalogInput(test_rate, test_samples / test_rate)
+
+            # 3) restore test wave
+            self.wave = test_wave
+            self._wave_rate = test_rate
+            self._wave_samples = test_samples
+            self.ao_task.write(self.wave, auto_start=False)
+
         self.isRunningProtocol = False
-        self.holding_protocol_data = np.array([timeData, respData, readData])
+
+        t = np.linspace(0, data.shape[1]/test_rate, data.shape[1])
+        resp = data[1]
+        read = data[0]
+        self.holding_protocol_data = np.array([t, resp, read])
         return self.holding_protocol_data
+
 
     def getDataFromVoltageProtocol(self):
         """
-        Sends a square wave to determine membrane properties (e.g. time constant, resistance, capacitance).
-        Retries up to 5 times if an invalid (zero) capacitance is obtained.
+        Sends one fresh square wave (voltage-step), reads back,
+        then re-loads the continuous membrane-test wave.
+        Retries up to 5× on zero capacitance.
         """
-        self.voltage_protocol_data, self.voltage_command_data = None, None  # clear data
         max_attempts = 5
         attempts = 0
+        # keep the membrane-test buffer on hand
+        test_wave = self.wave.copy()
+        test_rate = self._wave_rate
+        test_samples = self._wave_samples
+
         try:
             self.isRunningProtocol = True
             while attempts < max_attempts:
                 attempts += 1
-                result = self.getDataFromSquareWave(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5, amplitude=0.5, recordingTime=0.025)
+
+                # 1) generate the new protocol wave
+                self.createSquareWave(
+                    wave_freq=40,
+                    samplesPerSec=100000,
+                    dutyCycle=0.5,
+                    amplitude=0.5,
+                    recordingTime=0.025
+                )
+
+                # 2) send & read via base-class wrapper
+                result = self.getDataFromSquareWave(
+                    wave_freq=40,
+                    samplesPerSec=100000,
+                    dutyCycle=0.5,
+                    amplitude=0.5,
+                    recordingTime=0.025
+                )
                 if result is None:
                     continue
+
                 (self.voltage_protocol_data, self.voltage_command_data,
                  self.voltageTotalResistance, self.voltageMembraneResistance,
                  self.voltageAccessResistance, self.voltageMembraneCapacitance) = result
+
+                # 3) restore membrane-test buffer
+                self.wave = test_wave
+                self._wave_rate = test_rate
+                self._wave_samples = test_samples
+
                 if self.voltageMembraneCapacitance != 0:
                     break
                 else:
-                    self.warning(f"Attempt {attempts}: Capacitance is zero, retrying...")
+                    self.warning(f"Attempt {attempts}: Capacitance zero → retry")
         except Exception as e:
-            self.voltage_protocol_data, self.voltage_command_data = None, None
-            self.error(f"Error in getDataFromVoltageProtocol: {e}")
+            self.error(f"Voltage protocol error: {e}")
+            self.voltageMembraneCapacitance = None
         finally:
             self.isRunningProtocol = False
+
         return self.voltageMembraneCapacitance
+
 
 # ========================================================
 #  ArduinoDAQ Subclass
