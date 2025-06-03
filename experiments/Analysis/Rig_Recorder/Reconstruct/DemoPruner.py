@@ -2,7 +2,7 @@ import h5py
 import numpy as np
 
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_022.hdf5"
-file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_023.hdf5"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_024.hdf5"
 demo_folders_to_delete = ["demo_400","demo_401","demo_402","demo_403","demo_404","demo_405","demo_406","demo_407","demo_408","demo_409","demo_420","demo_421","demo_422","demo_423","demo_424","demo_425","demo_426","demo_427","demo_428","demo_429"]        # add as many keys as you like
 
 with h5py.File(file_path, "a") as hf:

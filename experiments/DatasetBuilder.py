@@ -9,9 +9,16 @@ from PIL import Image
 
 ATL_TO_UTC_TIME_DELTA = 4 #March 9 - Nov 1: 4 hours, otherwise 5 hours
 class DatasetBuilder():
-    def __init__(self, dataset_name, val_ratio: float = 1 / 6,
-                 omit_stage_movement: bool = False, random_seed: int = 0,
-                 rotate_valid: bool = True):
+    def __init__(self,
+                 dataset_name,
+                 val_ratio: float = 1 / 6,
+                 omit_stage_movement: bool = True,
+                 random_seed: int = 0,
+                 rotate_valid: bool = True,
+                 *,                              # ── NEW: keyword-only below
+                 stage_y_axis_flip: bool = True, # flip the stage Y axis
+                 pipette_rotation_deg: float = -60.75 # θ ─ rotate pipette XY
+                 ):
         """
         Parameters
         ----------
@@ -28,6 +35,8 @@ class DatasetBuilder():
         self.val_ratio = val_ratio
         self.omit_stage_movement = omit_stage_movement
         self.rng = np.random.default_rng(random_seed)
+        self.stage_y_axis_flip = stage_y_axis_flip
+        self.pipette_rotation_deg = pipette_rotation_deg
 
         # Only keep bookkeeping for the splits that will exist
         if self.val_ratio == 0:
@@ -40,6 +49,37 @@ class DatasetBuilder():
             with h5py.File(f'experiments/Datasets/{dataset_name}', 'w') as hf:
                 group = hf.create_group('data')
                 group.attrs['num_demos'] = 0
+
+        # ──────────────────────────────────────────────────────────────────────
+    def _transform_pipette_positions(self,
+                                     stage_positions: np.ndarray,
+                                     pipette_positions: np.ndarray
+                                     ) -> np.ndarray:
+        """
+        Express the pipette manipulator coordinates in the **stage frame**.
+
+        Steps  
+        1.  Optionally flip the stage Y axis.  
+        2.  Rotate raw pipette XY by `self.pipette_rotation_deg`.  
+        3.  Add the transformed stage coordinates to the rotated pipette
+            coordinates.
+
+        Returns
+        -------
+        np.ndarray      shape (N, 3)
+        """
+        stage_adj = stage_positions.copy()
+        if self.stage_y_axis_flip:
+            stage_adj[:, 1] = -stage_adj[:, 1]
+
+        pip_rot = self._rotate_positions(pipette_positions,
+                                         self.pipette_rotation_deg)
+
+        # combine -- only XY are coupled to the stage; Z stays independent
+        pip_rot[:, :2] += stage_adj[:, :2]
+        return pip_rot           # shape (N, 3)
+
+
 
     def _write_split_masks(self):
         """
@@ -598,6 +638,13 @@ class DatasetBuilder():
         # State and Pipette Positions
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
+
+
+        # ‼️ NEW: express pipette coords in the stage frame
+        pipette_positions = self._transform_pipette_positions(
+            stage_positions, pipette_positions
+        )
+
         # If a rotation angle is provided, rotate the position data (only x and y).
         if rotation_angle is not None:
             stage_positions = self._rotate_positions(stage_positions, rotation_angle)
@@ -656,60 +703,73 @@ class DatasetBuilder():
 
         return next_pressure_values, next_resistance_values, next_current_values, next_voltage_values, next_stage_positions, next_pipette_positions
     
-    def get_attempt_actions(self, attempt_movement_values, attempt_graph_values, log_values, include_high_level_actions=False):
-        '''
-        Retrieves and returns all movement and high-level actions (if include_high_level_actions is True) for the current attempt
-        Computes movement actions as the difference between current stage and pipette positions and previous stage and pipette positions
+    def get_attempt_actions(self,
+                            attempt_movement_values,
+                            attempt_graph_values,
+                            log_values,
+                            include_high_level_actions: bool = False):
+        """
+        Low-level actions  (Δstage + Δpipette)  
+        • Stage-Y may be flipped.  
+        • Pipette-XY is first rotated by `self.pipette_rotation_deg`
+          *then* added to the (optionally flipped) stage-XY delta.  
+        • Pipette-Z **never** receives any stage-Z contribution.
 
-        Author(s): Kaden Stillwagon
+        Optionally appends one extra column with a hashed high-level command.
+        """
+        # ───────────────────── raw frame deltas ────────────────────────
+        movement_actions_list = list(
+            np.diff(attempt_movement_values[:, 1:], axis=0)
+        )
+        movement_actions_list.insert(
+            0, list(np.zeros(attempt_movement_values.shape[1] - 1))
+        )
+        movement_actions = np.array(movement_actions_list)          # (N, 6)
 
-        args:
-            attempt_movement_values (np.array): array containing the movement value rows associated with the graph value rows
-            attempt_graph_values (np.array): array containing the graph values, truncated to only values within the current attempt
-            log_values (pd.Dataframe): dataframe containing the log messages from the log file that are within the rig_recorder_data_folder's time frame
-            include_high_level_actions (boolean): boolean determining whether to include high-level actions in the actions
+        # ─────────── transform pipette part into stage frame ───────────
+        stage_delta        = movement_actions[:, :3].copy()
+        pip_raw_delta      = movement_actions[:, 3:6].copy()
 
-        Returns:
-            actions (np.array): numpy array containing all actions for the current attempt
-        '''
-        #Low-level Actions
-        movement_actions_list = list(np.diff(attempt_movement_values[:, 1:], axis=0)) #Note: for hunt cell only need z stage coordinate (must be [:, 1:] to get all 3 stage coordinates)
-        movement_actions_list.insert(0, list(np.zeros(attempt_movement_values.shape[1] - 1))) #should be - 1 if need all 3 stage coordinates
-        movement_actions = np.array(movement_actions_list)
+        # 1 ─ flip stage-Y if requested
+        if self.stage_y_axis_flip:
+            stage_delta[:, 1] = -stage_delta[:, 1]
 
-        #High-level Actions (Not used for hunt cell datasets)
+        # 2 ─ rotate pipette XY
+        pip_rot_delta = self._rotate_positions(
+            pip_raw_delta, self.pipette_rotation_deg
+        )
+
+        # 3 ─ write back (XY coupled, Z independent)
+        movement_actions[:, :3]  = stage_delta                      # updated stage
+        movement_actions[:, 3:5] = stage_delta[:, :2] + pip_rot_delta[:, :2]
+        movement_actions[:, 5]   = pip_rot_delta[:, 2]              # pipette Z only
+
+        # ─────────────── optional high-level actions ──────────────────
         if include_high_level_actions:
             log_messages = log_values['Message'].str.contains('Executing command')
-            action_log_indices = np.where(log_messages == True)[0]
-            action_logs = log_values.iloc[action_log_indices]
-            action_logs['Full Time'] = (pd.to_datetime(action_logs['Time(HH:MM:SS)'] + '.' + action_logs['Time(ms)'].astype(str), format='%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)).apply(lambda x: x.timestamp())
+            action_logs  = log_values.loc[log_messages].copy()
+            action_logs['Full Time'] = (
+                pd.to_datetime(
+                    action_logs['Time(HH:MM:SS)'] + '.' +
+                    action_logs['Time(ms)'].astype(str),
+                    format='%Y-%m-%d %H:%M:%S.%f'
+                ) + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)
+            ).apply(lambda x: x.timestamp())
 
-            curr_demo_actions_logs = action_logs[action_logs['Full Time'] > attempt_movement_values[0][0]]
-            curr_demo_actions_logs = curr_demo_actions_logs[curr_demo_actions_logs['Full Time'] < attempt_movement_values[-1][0]]
-            filtered_action_logs = curr_demo_actions_logs.drop_duplicates()
-            
-            actions_list = []
-            for i in range(len(attempt_graph_values)):
-                curr_timestamp = attempt_graph_values[i][0]
-                if i == len(attempt_graph_values) - 1:
-                    timestamp_range = abs(curr_timestamp - attempt_graph_values[i-1][0])
-                else:
-                    timestamp_range = abs(curr_timestamp - attempt_graph_values[i+1][0])
+            # keep only those inside this attempt
+            mask = (action_logs['Full Time'] > attempt_movement_values[0, 0]) & \
+                   (action_logs['Full Time'] < attempt_movement_values[-1, 0])
+            action_logs = action_logs.loc[mask].drop_duplicates()
 
-                high_level_action = hash('None')
+            hi_lvl = np.full((movement_actions.shape[0], 1),
+                             hash('None'), dtype=np.int64)
+            for ts, msg in zip(action_logs['Full Time'], action_logs['Message']):
+                idx = np.argmin(np.abs(attempt_graph_values[:, 0] - ts))
+                hi_lvl[idx, 0] = hash(msg[19:])          # strip prefix
 
-                for j in range(filtered_action_logs.shape[0]):
-                    if abs(curr_timestamp - filtered_action_logs.iloc[j]['Full Time']) < timestamp_range:
-                        high_level_action = hash(filtered_action_logs.iloc[j]['Message'][19:])
-                        break
-
-                actions = list(movement_actions[i])
-                actions.append(high_level_action)
-                actions_list.append(actions)
+            actions = np.hstack([movement_actions, hi_lvl])
         else:
-            actions_list = list(movement_actions)
-
-        actions = np.array(actions_list)
+            actions = movement_actions
 
         return actions
 
@@ -950,7 +1010,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_023.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dataset_v0_024.df5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
 
 
     # rig_recorder_data_folder_set =  [
