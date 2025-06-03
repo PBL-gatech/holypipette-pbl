@@ -90,16 +90,27 @@ class DAQAcquisitionThread(threading.Thread):
                                 respData,
                                 readData
                             )
+                
+                except nidaqmx.errors.DaqError as e:
+                    # Log once, then try to heal if it was a FIFO error
+                    self.daq.warning(f"Acquisition error {e.error_code}: {e}")
+                    if e.error_code in (-200279, -200284, -200286):   # FIFO overr/underrun
+                        with self.daq._deviceLock:
+                            self.daq._restartAcquisition()
+                    time.sleep(0.05)       # brief pause before retry                   # Log once, then try to heal if it was a FIFO error
+
+
                 except Exception as e:
                     pass
-                    # logging.warning(f"Error in DAQAcquisitionThread: {e}")
+                    logging.warning(f"Error in DAQAcquisitionThread: {e}")
+
                 time.sleep(self.interval)
             else:
                 continue
 
     def get_last_data(self):
         """Return the most recent measurement or None if not available."""
-        return self._last_data_queue[-1] if self._last_data_queue else None
+        return dict(self._last_data_queue[-1]) if self._last_data_queue else None
 
     def stop(self):
         """Stop the acquisition thread."""
@@ -214,6 +225,13 @@ class DAQ(TaskController):
         Abstract: set up and start ai_task & ao_task.
         """
         raise NotImplementedError("Subclasses must implement _setupAcquisition()")
+    
+    def _restartAcquisition(self):
+        """
+        Abstract: restart the acquisition, if it hangs or needs to be reset.
+        This is used to reset the DAQ device when needed.
+        """
+        raise NotImplementedError("Subclasses must implement _restartAcquisition()")
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         """
@@ -525,6 +543,26 @@ class NiDAQ(DAQ):
             dutyCycle=0.5, amplitude=0.5,
             recordingTime=0.025
         )
+
+
+    def _restartAcquisition(self):
+        try:
+            self.ai_task.stop(); self.ao_task.stop()
+        except Exception:
+            pass                           # tasks may already be stopped
+        try:
+            self.ai_task.close(); self.ao_task.close()
+        except Exception:
+            pass
+        # Re-create tasks exactly as at start-up
+        self._setupAcquisition()
+        try:
+            # read and discard one buffer length
+            _ = self.ai_task.read(
+                number_of_samples_per_channel=self._wave_samples, timeout=1.0)
+        except nidaqmx.errors.DaqError:
+            pass
+
         
     def _setupAcquisition(self):
         """
@@ -559,7 +597,7 @@ class NiDAQ(DAQ):
             rate=self._wave_rate,
             sample_mode=c.AcquisitionType.CONTINUOUS,
         )
-
+        self.ai_task.in_stream.input_buf_size = self._wave_samples * 50
         # LabVIEW “Get Terminal with Device Prefix”  →  "/<device>/ai/StartTrigger"
         # On cDAQ the routable line lives on the CHASSIS, not the module.
         if "Mod" in self.readDev:                 # e.g.  "cDAQ1Mod1"
