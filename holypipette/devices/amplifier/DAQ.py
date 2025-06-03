@@ -307,7 +307,7 @@ class DAQ(TaskController):
         max_i = np.argmax(grad)
         min_i = np.argmin(grad[max_i:]) + max_i
 
-        left, right = 100, 300
+        left, right = 0, 300
         idx0 = max(0, max_i-left)
         idx1 = min(N, min_i+right)
         td = timeData[idx0:idx1] - timeData[idx0]
@@ -529,7 +529,7 @@ class NiDAQ(DAQ):
                   f'and {self.respDev}/{self.respChannel} for response.')
         # 1) Pre-generate the square wave buffer
         self.createSquareWave(
-            wave_freq=40, samplesPerSec=100000,
+            wave_freq=80, samplesPerSec=5000,
             dutyCycle=0.5, amplitude=0.5,
             recordingTime=0.025
         )
@@ -539,7 +539,7 @@ class NiDAQ(DAQ):
 
         # 3) Kick off the acquisition thread
         self.start_acquisition(
-            wave_freq=40, samplesPerSec=100000,
+            wave_freq=80, samplesPerSec=5000,
             dutyCycle=0.5, amplitude=0.5,
             recordingTime=0.025
         )
@@ -597,8 +597,10 @@ class NiDAQ(DAQ):
             rate=self._wave_rate,
             sample_mode=c.AcquisitionType.CONTINUOUS,
         )
-        self.ai_task.in_stream.input_buf_size = self._wave_samples * 50
-        # LabVIEW “Get Terminal with Device Prefix”  →  "/<device>/ai/StartTrigger"
+        self.ai_task.in_stream.input_buf_size = max(
+            self.ai_task.in_stream.input_buf_size,
+            self._wave_rate * 10)   # keep 10 s of slack (~200 k samples)
+                # LabVIEW “Get Terminal with Device Prefix”  →  "/<device>/ai/StartTrigger"
         # On cDAQ the routable line lives on the CHASSIS, not the module.
         if "Mod" in self.readDev:                 # e.g.  "cDAQ1Mod1"
             chassis_name = self.readDev.split("Mod")[0]   # "cDAQ1"
