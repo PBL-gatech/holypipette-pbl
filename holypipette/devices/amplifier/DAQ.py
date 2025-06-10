@@ -316,19 +316,39 @@ class DAQ(TaskController):
 
     def createSquareWave(self, wave_freq, samplesPerSec,
                         dutyCycle, amplitude, recordingTime,
-                        pre_pad_ms: float = 0.5):          #   ← NEW optional arg
-        numSamples   = int(samplesPerSec * recordingTime)
-        period       = int(samplesPerSec / wave_freq)
-        onTime       = int(period * dutyCycle)
-        wave         = np.zeros(numSamples, dtype=float)
+                        pre_pad_ms: float = 0.5,*, store: bool = True): 
+        
+        """
+        Build a square-wave buffer.
 
-        pad_samples  = int(pre_pad_ms * 1e-3 * samplesPerSec)
-        for i in range(0, numSamples - pad_samples, period):
-            wave[i + pad_samples : i + pad_samples + onTime] = amplitude
+        Returns
+        -------
+        (wave: np.ndarray, rate: int, numSamples: int)
 
-        self.wave         = wave
-        self._wave_rate   = samplesPerSec
-        self._wave_samples= numSamples
+        Setting *store=False* makes the routine **side-effect–free**,
+        letting protocol methods generate *temporary* buffers without
+        clobbering the continuous-acquisition one.
+
+        If *store=True* (default) the buffer is cached exactly as before
+        on the instance (`self.wave`, `_wave_rate`, `_wave_samples`) so
+        all existing callers continue to work unchanged.
+        """     
+        numSamples = int(samplesPerSec * recordingTime)
+        period     = int(samplesPerSec / wave_freq)
+        onTime     = int(period * dutyCycle)
+
+        wave = np.zeros(numSamples, dtype=float)
+        pad  = int(pre_pad_ms * 1e-3 * samplesPerSec)
+
+        for i in range(0, numSamples - pad, period):
+            wave[i + pad : i + pad + onTime] = amplitude
+
+        if store:
+            self.wave          = wave
+            self._wave_rate    = samplesPerSec
+            self._wave_samples = numSamples
+
+        return wave, samplesPerSec, numSamples
 
 
     def _squareWaveProcessor(self, raw_data, samplesPerSec, amplitude):
@@ -708,6 +728,7 @@ class NiDAQ(DAQ):
         (regen-mode allows this).
         • If rate or length must change, stop *both* tasks, re-configure,
         and restart them **in the same trigger order** (AO-first, AI-second).
+        
         """
         import nidaqmx.constants as c
 
@@ -923,46 +944,121 @@ class NiDAQ(DAQ):
 
     def getDataFromVoltageProtocol(self):
         """
-        Single-shot membrane-test square wave.  Retries up to 5× if the fit
-        returns capacitance == 0 pF.
+        Finite, single-shot 40 Hz V-step (0.5 V, 100 kS/s, 25 ms).
+
+        • Pauses and releases the continuous acquisition tasks.
+        • Runs up to 5 fresh finite AI+AO acquisitions until the
+          capacitance fit is non-zero.
+        • Restarts the background membrane-test stream.
+
+        Returns
+        -------
+        float | None
+            voltageMembraneCapacitance  (pF)  or None on failure.
         """
-        self.pause_acquisition()                       # <-- NEW handshake
-        max_attempts = 5
-        attempts = 0
-        test_wave, test_rate, test_samples = self.wave.copy(), self._wave_rate, self._wave_samples
+        import nidaqmx, time
+        import nidaqmx.constants as c
+        import numpy as np
+
+        # 1.  Pause background thread and *release* the hardware
+        self.pause_acquisition()
+        for tname in ("ai_task", "ao_task"):
+            try:
+                getattr(self, tname).stop()
+                getattr(self, tname).close()
+            except Exception:
+                pass                                # task may not exist
+
+        wave_freq      = 40
+        samplesPerSec  = 100_000
+        dutyCycle      = 0.5
+        amplitude      = 0.5
+        recordingTime  = 0.025          # s
+
+        max_attempts   = 5
+        attempts       = 0
+        success        = False
 
         try:
-            while attempts < max_attempts:
+            while attempts < max_attempts and not success:
                 attempts += 1
 
-                # build one-off 40 Hz, 0.5 V pulse at 100 kS/s
-                self.createSquareWave(40, 100000, 0.5, 0.5, 0.025)
-                result = self.getDataFromSquareWave(40, 100000, 0.5, 0.5, 0.025)
-                if result is None:
-                    continue
+                # --- build a *temporary* buffer (no side-effects) -----
+                wave, rate, numSamples = self.createSquareWave(
+                    wave_freq, samplesPerSec, dutyCycle, amplitude,
+                    recordingTime, pre_pad_ms=1.0, store=False)
 
-                (self.voltage_protocol_data, self.voltage_command_data,
-                self.voltageTotalResistance, self.voltageMembraneResistance,
-                self.voltageAccessResistance, self.voltageMembraneCapacitance) = result
+                # --- finite AO task -----------------------------------
+                ao = nidaqmx.Task()
+                ao.ao_channels.add_ao_voltage_chan(
+                    f"{self.cmdDev}/{self.cmdChannel}")
+                ao.timing.cfg_samp_clk_timing(
+                    rate=rate,
+                    sample_mode=c.AcquisitionType.FINITE,
+                    samps_per_chan=numSamples)
 
-                # restore continuous mem-test buffer
-                self.wave, self._wave_rate, self._wave_samples = test_wave, test_rate, test_samples
+                # --- finite AI task -----------------------------------
+                ai = nidaqmx.Task()
+                ai.ai_channels.add_ai_voltage_chan(
+                    f"{self.readDev}/{self.readChannel}",
+                    terminal_config=c.TerminalConfiguration.DIFF,
+                    min_val=-10.0, max_val=10.0)
+                ai.ai_channels.add_ai_voltage_chan(
+                    f"{self.respDev}/{self.respChannel}",
+                    terminal_config=c.TerminalConfiguration.DIFF,
+                    min_val=-10.0, max_val=10.0)
+                ai.timing.cfg_samp_clk_timing(
+                    rate=rate,
+                    sample_mode=c.AcquisitionType.FINITE,
+                    samps_per_chan=numSamples)
 
-                if self.voltageMembraneCapacitance != 0:
-                    break
+                # Trigger AO from AI StartTrigger
+
+                if "Mod" in self.readDev:                 # e.g. "cDAQ1Mod1"
+                    chassis_name = self.readDev.split("Mod")[0]   # "cDAQ1"
+                    trig_term = f"/{chassis_name}/ai/StartTrigger"
                 else:
-                    self.warning(f"Attempt {attempts}: Capacitance zero → retry")
+                    trig_term = f"/{self.readDev}/ai/StartTrigger"
+
+                ao.triggers.start_trigger.cfg_dig_edge_start_trig(trig_term)
+
+                # Prime & fire
+                ao.write(wave, auto_start=False)
+                ao.start()      # armed / waiting
+                ai.start()      # kicks off both tasks
+
+                raw = ai.read(
+                    number_of_samples_per_channel=numSamples, timeout=10.0)
+
+                # Clean up this finite pair
+                ao.stop(); ai.stop()
+                ao.close(); ai.close()
+
+                raw = np.array(raw, dtype=float)
+
+                # -------- process & evaluate result ------------------
+                result = self._squareWaveProcessor(raw, rate, amplitude)
+                (self.voltage_protocol_data,
+                 self.voltage_command_data,
+                 self.voltageTotalResistance,
+                 self.voltageMembraneResistance,
+                 self.voltageAccessResistance,
+                 self.voltageMembraneCapacitance) = result
+
+                success = (self.voltageMembraneCapacitance != 0)
+                if not success:
+                    self.warning(f"Attempt {attempts}: capacitance == 0 → retry")
+                    time.sleep(0.2)
 
         except Exception as e:
-            self.error(f"Voltage protocol error: {e}")
+            self.error(f"Voltage protocol failed: {e}")
             self.voltageMembraneCapacitance = None
 
         finally:
-            self.resume_acquisition()                  # <-- NEW handshake
+            # 4.  Hand control back to the continuous acquisition stream
+            self.resume_acquisition()
 
         return self.voltageMembraneCapacitance
-
-
 
 # ========================================================
 #  ArduinoDAQ Subclass
