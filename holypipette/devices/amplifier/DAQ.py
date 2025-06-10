@@ -918,28 +918,63 @@ class NiDAQ(DAQ):
             # -----------------------------------------------------------
             self.resume_acquisition()
 
-    def getDataFromHoldingProtocol(self):
+    def getDataFromHoldingProtocol(self, *, rate_hz: int = 50_000, duration_s: float = 1.0):
         """
-        Acquire baseline (no command) currents, then resume mem-test stream.
+        OLD-STYLE baseline read-out (no command output).
+
+        • Suspends the membrane-test thread.
+        • Builds one finite AI-only task at 50 kS/s for 1 s
+          (same numbers as the legacy code).
+        • Does *not* touch the AO task, avoiding the –200547 write error.
+        • Restarts the continuous stream afterwards.
+
+        Returns
+        -------
+        np.ndarray
+            [time_s, resp_V, read_V]  – identical to the legacy layout.
         """
-        self.pause_acquisition()                       # <-- NEW handshake
+        import nidaqmx
+        import nidaqmx.constants as c
+        import numpy as np
+
+        # -------------------------------------------------- 1. park background
+        self.pause_acquisition()
+
         try:
-            test_wave, test_rate, test_samples = self.wave.copy(), self._wave_rate, self._wave_samples
-            zeros = np.zeros(test_samples, dtype=float)
+            num_samples = int(rate_hz * duration_s)
 
-            with self._deviceLock:
-                self.ao_task.write(zeros, auto_start=False)
-                data = self._readAnalogInput(test_rate, test_samples / test_rate)
-                self.wave, self._wave_rate, self._wave_samples = test_wave, test_rate, test_samples
-                self.ao_task.write(self.wave, auto_start=False)
+            # ---------------------------------------------- 2. finite AI task
+            ai = nidaqmx.Task()
+            ai.ai_channels.add_ai_voltage_chan(
+                f"{self.readDev}/{self.readChannel}",
+                terminal_config=c.TerminalConfiguration.DIFF,
+                min_val=-10.0, max_val=10.0)
+            ai.ai_channels.add_ai_voltage_chan(
+                f"{self.respDev}/{self.respChannel}",
+                terminal_config=c.TerminalConfiguration.DIFF,
+                min_val=-10.0, max_val=10.0)
+            ai.timing.cfg_samp_clk_timing(
+                rate=rate_hz,
+                sample_mode=c.AcquisitionType.FINITE,
+                samps_per_chan=num_samples)
 
-            t = np.linspace(0, data.shape[1] / test_rate, data.shape[1])
-            resp, read = data[1], data[0]
+            ai.start()
+            raw = ai.read(
+                number_of_samples_per_channel=num_samples,
+                timeout=duration_s + 2.0)
+            ai.stop(); ai.close()
+
+            raw = np.array(raw, dtype=float)
+            resp = raw[1]      # still in DAQ volts
+            read = raw[0]
+            t = np.linspace(0, duration_s, num_samples, dtype=float)
+
             self.holding_protocol_data = np.array([t, resp, read])
             return self.holding_protocol_data
 
         finally:
-            self.resume_acquisition()                  # <-- NEW handshake
+            # ---------------------------------------------- 3. resume stream
+            self.resume_acquisition()
 
 
     def getDataFromVoltageProtocol(self):
@@ -986,7 +1021,7 @@ class NiDAQ(DAQ):
                 # --- build a *temporary* buffer (no side-effects) -----
                 wave, rate, numSamples = self.createSquareWave(
                     wave_freq, samplesPerSec, dutyCycle, amplitude,
-                    recordingTime, pre_pad_ms=1.0, store=False)
+                    recordingTime, pre_pad_ms=10.0, store=False)
 
                 # --- finite AO task -----------------------------------
                 ao = nidaqmx.Task()
