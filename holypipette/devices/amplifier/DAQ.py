@@ -279,19 +279,23 @@ class DAQ(TaskController):
     # COMMON CALCULATION METHODS
     # --------------------------
 
-    def createSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
-        """
-        Generate and cache one buffer of a square wave in self.wave.
-        """
-        numSamples = int(samplesPerSec * recordingTime)
-        period = int(samplesPerSec / wave_freq)
-        onTime = int(period * dutyCycle)
-        wave = np.zeros(numSamples, dtype=float)
-        for i in range(0, numSamples, period):
-            wave[i:i+onTime] = amplitude
-        self.wave = wave
-        self._wave_rate = samplesPerSec
-        self._wave_samples = numSamples
+
+    def createSquareWave(self, wave_freq, samplesPerSec,
+                        dutyCycle, amplitude, recordingTime,
+                        pre_pad_ms: float = 0.5):          #   ← NEW optional arg
+        numSamples   = int(samplesPerSec * recordingTime)
+        period       = int(samplesPerSec / wave_freq)
+        onTime       = int(period * dutyCycle)
+        wave         = np.zeros(numSamples, dtype=float)
+
+        pad_samples  = int(pre_pad_ms * 1e-3 * samplesPerSec)
+        for i in range(0, numSamples - pad_samples, period):
+            wave[i + pad_samples : i + pad_samples + onTime] = amplitude
+
+        self.wave         = wave
+        self._wave_rate   = samplesPerSec
+        self._wave_samples= numSamples
+
 
     def _squareWaveProcessor(self, raw_data, samplesPerSec, amplitude):
         """
@@ -307,7 +311,7 @@ class DAQ(TaskController):
         max_i = np.argmax(grad)
         min_i = np.argmin(grad[max_i:]) + max_i
 
-        left, right = 0, 300
+        left, right = 200, 50
         idx0 = max(0, max_i-left)
         idx1 = min(N, min_i+right)
         td = timeData[idx0:idx1] - timeData[idx0]
@@ -529,7 +533,7 @@ class NiDAQ(DAQ):
                   f'and {self.respDev}/{self.respChannel} for response.')
         # 1) Pre-generate the square wave buffer
         self.createSquareWave(
-            wave_freq=80, samplesPerSec=5000,
+            wave_freq=40, samplesPerSec=10000,
             dutyCycle=0.5, amplitude=0.5,
             recordingTime=0.025
         )
@@ -539,7 +543,7 @@ class NiDAQ(DAQ):
 
         # 3) Kick off the acquisition thread
         self.start_acquisition(
-            wave_freq=80, samplesPerSec=5000,
+            wave_freq=40, samplesPerSec=10000,
             dutyCycle=0.5, amplitude=0.5,
             recordingTime=0.025
         )
