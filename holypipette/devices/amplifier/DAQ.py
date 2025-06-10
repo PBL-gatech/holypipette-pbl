@@ -44,6 +44,8 @@ class DAQAcquisitionThread(threading.Thread):
                  amplitude=0.5, recordingTime=0.025, callback=None, interval=None):
         super().__init__(daemon=True)
         self.daq = daq
+        self._pause_evt = daq._pause_evt     # set == allowed to run
+        self._idle_evt  = daq._idle_evt      # set == thread is parked
         self.wave_freq = wave_freq
         self.samplesPerSec = samplesPerSec
         self.dutyCycle = dutyCycle
@@ -55,58 +57,61 @@ class DAQAcquisitionThread(threading.Thread):
         self._last_data_queue = collections.deque(maxlen=1)
 
     def run(self):
+        """
+        Continuous acquisition loop that honours the cooperative pause / resume
+        handshake.  Hardware tasks remain running while the thread is active,
+        but are stopped by DAQ.pause_acquisition() and restarted by
+        DAQ.resume_acquisition().
+        """
         while self.running:
-            if not self.daq.isRunningProtocol:
-                try:
-                    data = self.daq.getDataFromSquareWave(
-                        self.wave_freq,
-                        self.samplesPerSec,
-                        self.dutyCycle,
-                        self.amplitude,
-                        self.recordingTime
-                    )
-                    if data:
-                        (timeData, respData), (timeData, readData), totalResistance, \
-                            membraneResistance, accessResistance, membraneCapacitance = data
+            # ------------------- block here if paused --------------------
+            self._pause_evt.wait()      # returns immediately when set
+            if not self.running:        # allow clean shutdown
+                break
+            # -------------------------------------------------------------
 
-                        measurement = {
-                            "timeData": timeData,
-                            "respData": respData,
-                            "readData": readData,
-                            "totalResistance": totalResistance,
-                            "membraneResistance": membraneResistance,
-                            "accessResistance": accessResistance,
-                            "membraneCapacitance": membraneCapacitance
-                        }
-                        
-                        self._last_data_queue.append(measurement)
-                        
-                        if self.callback is not None:
-                            self.callback(
-                                totalResistance,
-                                accessResistance,
-                                membraneResistance,
-                                membraneCapacitance,
-                                respData,
-                                readData
-                            )
-                
-                except nidaqmx.errors.DaqError as e:
-                    # Log once, then try to heal if it was a FIFO error
-                    self.daq.warning(f"Acquisition error {e.error_code}: {e}")
-                    if e.error_code in (-200279, -200284, -200286):   # FIFO overr/underrun
-                        with self.daq._deviceLock:
-                            self.daq._restartAcquisition()
-                    time.sleep(0.05)       # brief pause before retry                   # Log once, then try to heal if it was a FIFO error
+            try:
+                data = self.daq.getDataFromSquareWave(
+                    self.wave_freq,
+                    self.samplesPerSec,
+                    self.dutyCycle,
+                    self.amplitude,
+                    self.recordingTime
+                )
 
+                if not data:
+                    continue          # nothing valid returned – try again
 
-                except Exception as e:
-                    pass
-                    logging.warning(f"Error in DAQAcquisitionThread: {e}")
+                (t_r, respData), (t_r, readData), totalR, memR, accR, memC = data
 
-                time.sleep(self.interval)
-            else:
-                continue
+                # skip iterations where the fit failed and returned None
+                if totalR is None:
+                    continue
+
+                self._last_data_queue.append({
+                    "timeData": t_r,
+                    "respData": respData,
+                    "readData": readData,
+                    "totalResistance": totalR,
+                    "membraneResistance": memR,
+                    "accessResistance": accR,
+                    "membraneCapacitance": memC
+                })
+
+                if self.callback:
+                    self.callback(totalR, accR, memR, memC, respData, readData)
+
+            except nidaqmx.errors.DaqError as e:
+                self.daq.warning(f"Acquisition error {e.error_code}: {e}")
+                if e.error_code in (-200279, -200284, -200286):  # FIFO over/underrun
+                    with self.daq._deviceLock:
+                        self.daq._restartAcquisition()
+                time.sleep(0.05)
+
+            except Exception as e:
+                logging.warning(f"Error in DAQAcquisitionThread: {e}")
+
+            time.sleep(self.interval)
 
     def get_last_data(self):
         """Return the most recent measurement or None if not available."""
@@ -146,6 +151,9 @@ class DAQ(TaskController):
         self.holding_voltage = None
         # False is for BATH mode, True for CELL mode
         self.cellMode = False
+        self._pause_evt = threading.Event(); self._pause_evt.set()   # allow run
+        self._idle_evt  = threading.Event(); self._idle_evt.set()    # initially idle
+
 
     def setCellMode(self, mode: bool) -> None:
         self.cellMode = mode
@@ -202,6 +210,32 @@ class DAQ(TaskController):
             self._daq_acq_thread.stop()
             self._daq_acq_thread.join()
             self._daq_acq_thread = None
+            
+    def pause_acquisition(self, timeout: float = 2.0):
+        """
+        Block until the acquisition thread is parked **and** both DAQmx tasks
+        have been stopped, giving the caller sole ownership of the hardware.
+        """
+        if self._pause_evt.is_set():
+            self._pause_evt.clear()                 # ask thread to park
+            if not self._idle_evt.wait(timeout):
+                raise TimeoutError("DAQ thread failed to become idle")
+
+            # --- stop the streaming tasks ---------------------------------
+            try:
+                if hasattr(self, "ai_task"): self.ai_task.stop()
+                if hasattr(self, "ao_task"): self.ao_task.stop()
+            except Exception:
+                pass                                # tasks may already be stopped
+
+    def resume_acquisition(self):
+        """
+        Restart the continuous AI+AO pair (freshly synced) and wake the thread.
+        """
+        if not self._pause_evt.is_set():
+            # ensure tasks are running and synchronized
+            self._restartAcquisition()              # subclass implementation
+            self._pause_evt.set()                   # let the thread continue
     
     def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         """
@@ -311,7 +345,7 @@ class DAQ(TaskController):
         max_i = np.argmax(grad)
         min_i = np.argmin(grad[max_i:]) + max_i
 
-        left, right = 200, 50
+        left, right = 100,300
         idx0 = max(0, max_i-left)
         idx1 = min(N, min_i+right)
         td = timeData[idx0:idx1] - timeData[idx0]
@@ -754,175 +788,180 @@ class NiDAQ(DAQ):
         self._wave_samples = orig_samples
 
     def getDataFromCurrentProtocol(self,
-                                   custom: bool = False,
-                                   factor: float = None,
-                                   startCurrentPicoAmp: float = None,
-                                   endCurrentPicoAmp: float = None,
-                                   stepCurrentPicoAmp: float = 10,
-                                   highTimeMs: float = 400):
+                                custom: bool = False,
+                                factor: float | None = None,
+                                startCurrentPicoAmp: float | None = None,
+                                endCurrentPicoAmp: float | None = None,
+                                stepCurrentPicoAmp: float = 10,
+                                highTimeMs: float = 400):
         """
-        Send a series of current steps, defined by:
-          - if custom=False: range ± (voltageMembraneCapacitance * factor) in 10 pA increments
-          - if custom=True: from startCurrentPicoAmp to endCurrentPicoAmp in stepCurrentPicoAmp
-        Each step:
-          1) create & send the current‐wave
-          2) read back
-        Finally, restore the membrane‐test wave.
+        Measure I-clamp responses with a series of *finite* current steps.
+        Each step builds its own AO + AI tasks, so it never collides with
+        the continuous membrane-test stream.
         """
-        # 1) Determine pulse amplitudes (pA)
+        import nidaqmx
+        import nidaqmx.constants as c
+
+        # ---------------------------------------------------------------
+        # 1) work out the list of pulse amplitudes             (pA)
+        # ---------------------------------------------------------------
         if not custom:
             if self.voltageMembraneCapacitance is None:
                 raise RuntimeError("Need voltageMembraneCapacitance from a prior V-protocol")
             factor = factor or 1.0
             span = round(self.voltageMembraneCapacitance * factor, -1)
-            start = -span
-            end   =  span
+            start, end = -span, span
         else:
             if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
-                raise ValueError("When custom=True, startCurrentPicoAmp and endCurrentPicoAmp must be provided")
-            start = startCurrentPicoAmp
-            end   = endCurrentPicoAmp
+                raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided")
+            start, end = startCurrentPicoAmp, endCurrentPicoAmp
 
-        # clamp to ±200 pA
-        start = max(start, -200)
-        end   = min(end,   200)
-
-        # build pulse array (always include zero)
+        start, end = max(start, -200), min(end, 200)        # clamp ±200 pA
         pulses = np.arange(start, end + stepCurrentPicoAmp, stepCurrentPicoAmp)
         if 0 not in pulses:
             pulses = np.sort(np.append(pulses, 0.))
-        self.pulses = pulses
-        self.pulseRange = len(pulses)
+        self.pulses, self.pulseRange = pulses, len(pulses)
 
-        # 2) Hold onto membrane-test buffer for later restoration
-        test_wave    = self.wave.copy()
-        test_rate    = self._wave_rate
-        test_samples = self._wave_samples
+        # ---------------------------------------------------------------
+        # 2) park the background acquisition     (thread + tasks)
+        # ---------------------------------------------------------------
+        self.pause_acquisition()
 
-        # 3) Prepare for acquisition
-        self.isRunningProtocol     = True
-        self.current_protocol_data = []
+        try:
+            data_list = []
+            rate      = 10000                                   # 10 kS/s
+            period_s  = 2 * highTimeMs * 1e-3                   # full on+off
+            recTime   = 2 * period_s                            # record two periods
+            numSamps  = int(rate * recTime)
+            duty      = 0.5
 
-        # 4) Loop over each pulse
-        for pA in pulses:
-            # convert picoamp → DAQ‐units
-            amp_volts = (pA * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
-            freq      = 1.0 / (2 * highTimeMs * 1e-3)
-            recTime   = 4 * highTimeMs * 1e-3
+            for pA in pulses:
+                amp_volts = (pA * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
+                freq      = 1.0 / period_s
 
-            with self._deviceLock:
-                # send/read one pulse
-                self._sendSquareWaveCurrent(freq, test_rate, 0.5, amp_volts, recTime)
-                data = self._readAnalogInput(test_rate, recTime)
+                # ---------------- build the square-wave buffer ----------
+                buf = np.zeros(numSamps, dtype=float)
+                on  = int(numSamps * duty * 0.5)                # first half ON
+                buf[:on] = amp_volts
 
-            # unpack
-            resp = data[1] / self.C_CLAMP_VOLT_PER_VOLT
-            read = data[0]
-            t    = np.linspace(0, read.size / test_rate, read.size, dtype=float)
-            self.current_protocol_data.append([t, resp, read])
+                # ---------------- finite AO task -----------------------
+                ao = nidaqmx.Task()
+                ao.ao_channels.add_ao_voltage_chan(f"{self.cmdDev}/{self.cmdChannel}")
+                ao.timing.cfg_samp_clk_timing(
+                    rate=rate,
+                    sample_mode=c.AcquisitionType.FINITE,
+                    samps_per_chan=numSamps)
 
-            time.sleep(0.5)
+                # ---------------- finite AI task -----------------------
+                ai = nidaqmx.Task()
+                ai.ai_channels.add_ai_voltage_chan(
+                    f"{self.readDev}/{self.readChannel}",
+                    terminal_config=c.TerminalConfiguration.DIFF,
+                    min_val=-10.0, max_val=10.0)
+                ai.ai_channels.add_ai_voltage_chan(
+                    f"{self.respDev}/{self.respChannel}",
+                    terminal_config=c.TerminalConfiguration.DIFF,
+                    min_val=-10.0, max_val=10.0)
+                ai.timing.cfg_samp_clk_timing(
+                    rate=rate,
+                    sample_mode=c.AcquisitionType.FINITE,
+                    samps_per_chan=numSamps)
 
-        # 5) Restore membrane-test wave once
-        self.wave         = test_wave
-        self._wave_rate   = test_rate
-        self._wave_samples= test_samples
-        self.ao_task.write(self.wave, auto_start=False)
+                # ----------- trigger AO from AI StartTrigger ----------
+                trig_term = f"/{self.readDev}/ai/StartTrigger"
+                ao.triggers.start_trigger.cfg_dig_edge_start_trig(trig_term)
 
-        self.isRunningProtocol = False
-        return self.current_protocol_data, self.pulses, self.pulseRange
+                # ---------------- prime & start tasks -----------------
+                ao.write(buf, auto_start=False)
+                ao.start()            # armed / waiting
+                ai.start()            # kicks off both tasks
+
+                raw = ai.read(number_of_samples_per_channel=numSamps, timeout=10.0)
+                ao.stop(); ai.stop()
+                ao.close(); ai.close()
+
+                raw = np.array(raw, dtype=float)
+                resp = raw[1] / self.C_CLAMP_VOLT_PER_VOLT
+                read = raw[0]
+                t = np.linspace(0, numSamps / rate, numSamps, dtype=float)
+                data_list.append([t, resp, read])
+
+                time.sleep(0.3)       # brief settle-time between steps
+
+            self.current_protocol_data = data_list
+            return self.current_protocol_data, self.pulses, self.pulseRange
+
+        finally:
+            # -----------------------------------------------------------
+            # 3) hand DAQ back to the background thread
+            # -----------------------------------------------------------
+            self.resume_acquisition()
 
     def getDataFromHoldingProtocol(self):
         """
-        Temporarily send zero volts (no command), read baseline,
-        then resume membrane-test buffer.
+        Acquire baseline (no command) currents, then resume mem-test stream.
         """
-        # hold test buffer
-        test_wave = self.wave.copy()
-        test_rate = self._wave_rate
-        test_samples = self._wave_samples
-
-        self.isRunningProtocol = True
-        with self._deviceLock:
-            # 1) send “nothing”
+        self.pause_acquisition()                       # <-- NEW handshake
+        try:
+            test_wave, test_rate, test_samples = self.wave.copy(), self._wave_rate, self._wave_samples
             zeros = np.zeros(test_samples, dtype=float)
-            self.ao_task.write(zeros, auto_start=False)
 
-            # 2) read AI
-            data = self._readAnalogInput(test_rate, test_samples / test_rate)
+            with self._deviceLock:
+                self.ao_task.write(zeros, auto_start=False)
+                data = self._readAnalogInput(test_rate, test_samples / test_rate)
+                self.wave, self._wave_rate, self._wave_samples = test_wave, test_rate, test_samples
+                self.ao_task.write(self.wave, auto_start=False)
 
-            # 3) restore test wave
-            self.wave = test_wave
-            self._wave_rate = test_rate
-            self._wave_samples = test_samples
-            self.ao_task.write(self.wave, auto_start=False)
+            t = np.linspace(0, data.shape[1] / test_rate, data.shape[1])
+            resp, read = data[1], data[0]
+            self.holding_protocol_data = np.array([t, resp, read])
+            return self.holding_protocol_data
 
-        self.isRunningProtocol = False
+        finally:
+            self.resume_acquisition()                  # <-- NEW handshake
 
-        t = np.linspace(0, data.shape[1]/test_rate, data.shape[1])
-        resp = data[1]
-        read = data[0]
-        self.holding_protocol_data = np.array([t, resp, read])
-        return self.holding_protocol_data
 
     def getDataFromVoltageProtocol(self):
         """
-        Sends one fresh square wave (voltage-step), reads back,
-        then re-loads the continuous membrane-test wave.
-        Retries up to 5× on zero capacitance.
+        Single-shot membrane-test square wave.  Retries up to 5× if the fit
+        returns capacitance == 0 pF.
         """
+        self.pause_acquisition()                       # <-- NEW handshake
         max_attempts = 5
         attempts = 0
-        # keep the membrane-test buffer on hand
-        test_wave = self.wave.copy()
-        test_rate = self._wave_rate
-        test_samples = self._wave_samples
+        test_wave, test_rate, test_samples = self.wave.copy(), self._wave_rate, self._wave_samples
 
         try:
-            self.isRunningProtocol = True
             while attempts < max_attempts:
                 attempts += 1
 
-                # 1) generate the new protocol wave
-                self.createSquareWave(
-                    wave_freq=40,
-                    samplesPerSec=100000,
-                    dutyCycle=0.5,
-                    amplitude=0.5,
-                    recordingTime=0.025
-                )
-
-                # 2) send & read via base-class wrapper
-                result = self.getDataFromSquareWave(
-                    wave_freq=40,
-                    samplesPerSec=100000,
-                    dutyCycle=0.5,
-                    amplitude=0.5,
-                    recordingTime=0.025
-                )
+                # build one-off 40 Hz, 0.5 V pulse at 100 kS/s
+                self.createSquareWave(40, 100000, 0.5, 0.5, 0.025)
+                result = self.getDataFromSquareWave(40, 100000, 0.5, 0.5, 0.025)
                 if result is None:
                     continue
 
                 (self.voltage_protocol_data, self.voltage_command_data,
-                 self.voltageTotalResistance, self.voltageMembraneResistance,
-                 self.voltageAccessResistance, self.voltageMembraneCapacitance) = result
+                self.voltageTotalResistance, self.voltageMembraneResistance,
+                self.voltageAccessResistance, self.voltageMembraneCapacitance) = result
 
-                # 3) restore membrane-test buffer
-                self.wave = test_wave
-                self._wave_rate = test_rate
-                self._wave_samples = test_samples
+                # restore continuous mem-test buffer
+                self.wave, self._wave_rate, self._wave_samples = test_wave, test_rate, test_samples
 
                 if self.voltageMembraneCapacitance != 0:
                     break
                 else:
                     self.warning(f"Attempt {attempts}: Capacitance zero → retry")
+
         except Exception as e:
             self.error(f"Voltage protocol error: {e}")
             self.voltageMembraneCapacitance = None
+
         finally:
-            self.isRunningProtocol = False
+            self.resume_acquisition()                  # <-- NEW handshake
 
         return self.voltageMembraneCapacitance
+
 
 
 # ========================================================

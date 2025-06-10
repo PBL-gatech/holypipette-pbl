@@ -61,6 +61,7 @@ class AutoPatcher(TaskController):
             self.run_voltage_protocol()
             self.sleep(0.25)
         if self.config.current_protocol:
+            self.daq.setCellMode(False)
             self.iholding = self.daq.holding_current
             # self.iholding = 0
             logging.debug(f"custom_current_protocol state: {self.config.custom_protocol}")
@@ -69,6 +70,7 @@ class AutoPatcher(TaskController):
             logging.debug(f"step cclamp current: {self.config.cclamp_step}")
             self.run_current_protocol()
             self.sleep(0.25)
+            self.daq.setCellMode(True)
         if self.config.holding_protocol:
             self.run_holding_protocol()
         # self.done = True
