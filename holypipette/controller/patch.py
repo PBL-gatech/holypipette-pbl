@@ -135,10 +135,10 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         if self.config.custom_protocol:
             self.debug('running custom current protocol')
-            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), highTimeMs=400)                                            
+            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), recordingTimeMs = 250)                                            
         else:
             self.debug('running default current protocol')
-            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, highTimeMs=400)
+            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs = 250)
         self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')
