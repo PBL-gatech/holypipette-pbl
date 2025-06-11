@@ -350,6 +350,59 @@ class DAQ(TaskController):
 
         return wave, samplesPerSec, numSamples
 
+    def createSquareWaveCurrent(self,
+                                wave_freq,          # test-pulse frequency (Hz)
+                                samplesPerSec,
+                                dutyCycle,
+                                amplitude,          # test-pulse amplitude (Volts)
+                                recordingTime):
+        """
+        Build the composite I-clamp buffer required by the legacy protocol.
+
+        Layout per pulse
+        ----------------
+            • baseline   : recordingTime / 8    @ 0 pA,   1 Hz square-wave
+            • calibrator : recordingTime × 3/8  @ –20 pA, freq = 2·wave_freq
+            • test pulse : recordingTime        @ ±pA,    freq = wave_freq
+
+        All segments share the same sampling rate and 50 % duty-cycle.
+
+        Returns
+        -------
+        wave : np.ndarray  (Volts)
+        rate : int         (samples / sec)
+        numSamples : int   (wave.size)
+        """
+        import numpy as np
+
+        # ───── segment durations ─────────────────────────────────────────
+        baseline_t   = recordingTime / 8.0          # s
+        calibrator_t = recordingTime * 3.0 / 8.0
+        test_t       = recordingTime                # s
+
+        # ───── 1. baseline : 0 pA, 1 Hz ──────────────────────────────────
+        base_wave, *_ = self.createSquareWave(
+            wave_freq=1, samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle, amplitude=0.0,
+            recordingTime=baseline_t, pre_pad_ms=0, store=False)
+
+        # ───── 2. calibrator : –20 pA, double test-freq ──────────────────
+        calib_wave, *_ = self.createSquareWave(
+            wave_freq=wave_freq * 2, samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=(-20e-12) / self.C_CLAMP_AMP_PER_VOLT,  # pA → Volts
+            recordingTime=calibrator_t, pre_pad_ms=0, store=False)
+
+        # ───── 3. test pulse : ±pA, wave_freq ────────────────────────────
+        test_wave, rate, _ = self.createSquareWave(
+            wave_freq=wave_freq, samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle, amplitude=amplitude,
+            recordingTime=test_t, pre_pad_ms=0, store=False)
+
+        # ───── concatenate and return ────────────────────────────────────
+        wave = np.concatenate((base_wave, calib_wave, test_wave))
+        return wave, rate, wave.size
+
 
     def _squareWaveProcessor(self, raw_data, samplesPerSec, amplitude):
         """
@@ -602,7 +655,6 @@ class NiDAQ(DAQ):
             recordingTime=0.025
         )
 
-
     def _restartAcquisition(self):
         try:
             self.ai_task.stop(); self.ao_task.stop()
@@ -621,7 +673,6 @@ class NiDAQ(DAQ):
         except nidaqmx.errors.DaqError:
             pass
 
-        
     def _setupAcquisition(self):
         """
         Configure the continuous AI + AO pair so they start exactly like
@@ -705,11 +756,73 @@ class NiDAQ(DAQ):
         self._cur_wave_amp   = 0.5
         self._cur_wave_rtime = 0.025
 
+    def _setupAcquisitionCurrent(self, highTimeMs: float = 400.0):
+        """
+        Configure a dedicated continuous AI + AO pair for the
+        current-step protocol.  The background stream must be paused first.
+        """
+        import nidaqmx, nidaqmx.constants as c
+
+        samplesPerSec = 100_000
+        dutyCycle     = 0.5
+        test_recTime  = 4.0 * highTimeMs * 1e-3      # seconds
+        wave_freq     = 1.0 / (2.0 * highTimeMs * 1e-3)
+
+        # ------------------------------------------------------------------
+        # 1. prime buffer (0 pA test pulse)
+        # ------------------------------------------------------------------
+        wave, rate, numSamples = self.createSquareWaveCurrent(
+            wave_freq=wave_freq, samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle, amplitude=0.0,
+            recordingTime=test_recTime)
+
+        # cache signature for later in-place edits
+        self.wave          = wave
+        self._wave_rate    = rate
+        self._wave_samples = numSamples
+        self._cur_wave_freq  = wave_freq
+        self._cur_wave_rate  = rate
+        self._cur_wave_duty  = dutyCycle
+        self._cur_wave_amp   = 0.0
+        self._cur_wave_rtime = test_recTime
+
+        # ------------------------------------------------------------------
+        # 2. tasks (AI owns clock; AO waits on AI start trigger)
+        # ------------------------------------------------------------------
+        self.ai_task = nidaqmx.Task()
+        self.ai_task.ai_channels.add_ai_voltage_chan(
+            f"{self.readDev}/{self.readChannel}",
+            terminal_config=c.TerminalConfiguration.DIFF, min_val=-10.0, max_val=10.0)
+        self.ai_task.ai_channels.add_ai_voltage_chan(
+            f"{self.respDev}/{self.respChannel}",
+            terminal_config=c.TerminalConfiguration.DIFF, min_val=-10.0, max_val=10.0)
+        self.ai_task.timing.cfg_samp_clk_timing(
+            rate=rate, sample_mode=c.AcquisitionType.CONTINUOUS)
+        self.ai_task.in_stream.input_buf_size = max(
+            self.ai_task.in_stream.input_buf_size, rate * 10)
+
+        self.ao_task = nidaqmx.Task()
+        self.ao_task.ao_channels.add_ao_voltage_chan(f"{self.cmdDev}/{self.cmdChannel}")
+        self.ao_task.timing.cfg_samp_clk_timing(
+            rate=rate, sample_mode=c.AcquisitionType.CONTINUOUS,
+            samps_per_chan=numSamples)
+        self.ao_task.out_stream.regen_mode = c.RegenerationMode.ALLOW_REGENERATION
+
+        start_trig_term = (f"/{self.readDev.split('Mod')[0] if 'Mod' in self.readDev else self.readDev}"
+                           "/ai/StartTrigger")
+        self.ao_task.triggers.start_trigger.cfg_dig_edge_start_trig(
+            start_trig_term, trigger_edge=c.Edge.RISING)
+
+        # prime AO FIFO, then start in LabVIEW order (AO-armed → AI-fires)
+        self.ao_task.write(wave, auto_start=False)
+        self.ao_task.start()
+        self.ai_task.start()
+
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         """
         Wrapper for the AI task: read exactly one bufferful.
         """
-        numSamples = self._wave_samples
+        numSamples = int(samplesPerSec * recordingTime)
         data = self.ai_task.read(
             number_of_samples_per_channel=numSamples,
             timeout=10.0
@@ -776,148 +889,116 @@ class NiDAQ(DAQ):
         self._cur_wave_amp   = amplitude
         self._cur_wave_rtime = recordingTime
 
-    
     def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         """
         Generate a new current-square-wave buffer on the fly,
         write it to the always-running AO task, then restore the
         original membrane-test wave.
         """
-        # 1) Save the original wave buffer
-        orig_wave = self.wave.copy()
-        orig_rate = self._wave_rate
-        orig_samples = self._wave_samples
 
-        # 2) Build a new wave for this current pulse
-        numSamples = int(samplesPerSec * recordingTime)
-        period = int(samplesPerSec / wave_freq)
-        onTime = int(period * dutyCycle)
-        curr_wave = np.zeros(numSamples, dtype=float)
-        for i in range(0, numSamples, period):
-            curr_wave[i:i+onTime] = amplitude
-        # temporarily override buffer
-        self.wave = curr_wave
-        self._wave_rate = samplesPerSec
-        self._wave_samples = numSamples
+        import nidaqmx.constants as c
+        # 1) create the current square wave
+        wave, rate, numSamples = self.createSquareWaveCurrent(
+            wave_freq=wave_freq, samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle, amplitude=amplitude,
+            recordingTime=recordingTime
+        )   
 
-        # 3) Write it to the AO task
-        self.ao_task.write(self.wave, auto_start=False)
-
-        # 4) Restore original membrane-test wave
-        self.wave = orig_wave
-        self._wave_rate = orig_rate
-        self._wave_samples = orig_samples
+        # rate and length should be unchanged, only the shape should be new
+        self.ao_task.timing.cfg_samp_clk_timing(
+            rate=self._wave_rate,
+            sample_mode=c.AcquisitionType.CONTINUOUS,
+            samps_per_chan=self._wave_samples
+        )
 
     def getDataFromCurrentProtocol(self,
-                                custom: bool = False,
-                                factor: float | None = None,
-                                startCurrentPicoAmp: float | None = None,
-                                endCurrentPicoAmp: float | None = None,
-                                stepCurrentPicoAmp: float = 10,
-                                highTimeMs: float = 400):
+                                   custom: bool = False,
+                                   factor: float | None = None,
+                                   startCurrentPicoAmp: float | None = None,
+                                   endCurrentPicoAmp: float | None = None,
+                                   stepCurrentPicoAmp: float = 10,
+                                   highTimeMs: float = 400):
         """
-        Measure I-clamp responses with a series of *finite* current steps.
-        Each step builds its own AO + AI tasks, so it never collides with
-        the continuous membrane-test stream.
+        Run an entire I-clamp step protocol **on one continuous stream**.
+        Returns
+        -------
+        (list_of_traces, pulses_array, pulse_count)
+            list_of_traces  :  [ [time_s, resp_pA, read_V], … ]
+            pulses_array     :  numpy array of picoamps sent
+            pulse_count      :  int
         """
-        import nidaqmx
-        import nidaqmx.constants as c
+        samplesPerSec = 100_000
+        dutyCycle     = 0.5
+        test_recTime  = 4.0 * highTimeMs * 1e-3     # seconds
+        total_recTime = 6.0 * highTimeMs * 1e-3     # baseline+calib+test
+        wave_freq     = 1.0 / (2.0 * highTimeMs * 1e-3)
 
-        # ---------------------------------------------------------------
-        # 1) work out the list of pulse amplitudes             (pA)
-        # ---------------------------------------------------------------
+        # ─ 1. build the pulse list ────────────────────────────────────────
         if not custom:
             if self.voltageMembraneCapacitance is None:
-                raise RuntimeError("Need voltageMembraneCapacitance from a prior V-protocol")
-            factor = factor or 1.0
-            span = round(self.voltageMembraneCapacitance * factor, -1)
-            start, end = -span, span
-        else:
-            if startCurrentPicoAmp is None or endCurrentPicoAmp is None:
-                raise ValueError("startCurrentPicoAmp and endCurrentPicoAmp must be provided")
-            start, end = startCurrentPicoAmp, endCurrentPicoAmp
+                raise RuntimeError("Run getDataFromVoltageProtocol() first.")
+            span = round(self.voltageMembraneCapacitance * (factor or 1.0), -1)
+            startCurrentPicoAmp, endCurrentPicoAmp = -span, span
 
-        start, end = max(start, -200), min(end, 200)        # clamp ±200 pA
-        pulses = np.arange(start, end + stepCurrentPicoAmp, stepCurrentPicoAmp)
-        if 0 not in pulses:
-            pulses = np.sort(np.append(pulses, 0.))
-        self.pulses, self.pulseRange = pulses, len(pulses)
+        startCurrentPicoAmp = max(startCurrentPicoAmp, -200)
+        endCurrentPicoAmp   = min(endCurrentPicoAmp,   200)
 
-        # ---------------------------------------------------------------
-        # 2) park the background acquisition     (thread + tasks)
-        # ---------------------------------------------------------------
+        pulses = np.arange(startCurrentPicoAmp,
+                           endCurrentPicoAmp + stepCurrentPicoAmp,
+                           stepCurrentPicoAmp, dtype=float)
+        if 0.0 not in pulses:
+            pulses = np.sort(np.append(pulses, 0.0))
+
+        self.pulses       = pulses
+        self.pulseRange   = len(pulses)
+        self.current_protocol_data = []
+        self.info(f"I-clamp pulses (pA): {pulses}")
+
+        # ─ 2. park the background membrane-test stream ───────────────────
         self.pause_acquisition()
+        for t in ("ai_task", "ao_task"):
+            try:
+                getattr(self, t).stop(); getattr(self, t).close()
+            except Exception:
+                pass
+
+        # ─ 3. spin up dedicated continuous tasks for the protocol ────────
+        self._setupAcquisitionCurrent(highTimeMs)
 
         try:
-            data_list = []
-            rate      = 10000                                   # 10 kS/s
-            period_s  = 2 * highTimeMs * 1e-3                   # full on+off
-            recTime   = 2 * period_s                            # record two periods
-            numSamps  = int(rate * recTime)
-            duty      = 0.5
+            for pulse in pulses:
+                amp_V = (pulse * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
+                self.info(f"Sending {pulse:.0f} pA pulse")
 
-            for pA in pulses:
-                amp_volts = (pA * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
-                freq      = 1.0 / period_s
+                # 3a. write new AO buffer
+                self._sendSquareWaveCurrent(
+                    wave_freq, samplesPerSec, dutyCycle, amp_V, test_recTime)
 
-                # ---------------- build the square-wave buffer ----------
-                buf = np.zeros(numSamps, dtype=float)
-                on  = int(numSamps * duty * 0.5)                # first half ON
-                buf[:on] = amp_volts
-
-                # ---------------- finite AO task -----------------------
-                ao = nidaqmx.Task()
-                ao.ao_channels.add_ao_voltage_chan(f"{self.cmdDev}/{self.cmdChannel}")
-                ao.timing.cfg_samp_clk_timing(
-                    rate=rate,
-                    sample_mode=c.AcquisitionType.FINITE,
-                    samps_per_chan=numSamps)
-
-                # ---------------- finite AI task -----------------------
-                ai = nidaqmx.Task()
-                ai.ai_channels.add_ai_voltage_chan(
-                    f"{self.readDev}/{self.readChannel}",
-                    terminal_config=c.TerminalConfiguration.DIFF,
-                    min_val=-10.0, max_val=10.0)
-                ai.ai_channels.add_ai_voltage_chan(
-                    f"{self.respDev}/{self.respChannel}",
-                    terminal_config=c.TerminalConfiguration.DIFF,
-                    min_val=-10.0, max_val=10.0)
-                ai.timing.cfg_samp_clk_timing(
-                    rate=rate,
-                    sample_mode=c.AcquisitionType.FINITE,
-                    samps_per_chan=numSamps)
-
-                # ----------- trigger AO from AI StartTrigger ----------
-                trig_term = f"/{self.readDev}/ai/StartTrigger"
-                ao.triggers.start_trigger.cfg_dig_edge_start_trig(trig_term)
-
-                # ---------------- prime & start tasks -----------------
-                ao.write(buf, auto_start=False)
-                ao.start()            # armed / waiting
-                ai.start()            # kicks off both tasks
-
-                raw = ai.read(number_of_samples_per_channel=numSamps, timeout=10.0)
-                ao.stop(); ai.stop()
-                ao.close(); ai.close()
-
-                raw = np.array(raw, dtype=float)
+                # 3b. read the matching AI block
+                raw = self._readAnalogInput(samplesPerSec, total_recTime)
                 resp = raw[1] / self.C_CLAMP_VOLT_PER_VOLT
                 read = raw[0]
-                t = np.linspace(0, numSamps / rate, numSamps, dtype=float)
-                data_list.append([t, resp, read])
+                N    = resp.size
+                t    = np.linspace(0, total_recTime, N, dtype=float)
 
-                time.sleep(0.3)       # brief settle-time between steps
+                self.current_protocol_data.append([t, resp, read])
 
-            self.current_protocol_data = data_list
-            return self.current_protocol_data, self.pulses, self.pulseRange
+                # slight pause to avoid back-to-back buffer churn
+                time.sleep(0.05)
 
         finally:
-            # -----------------------------------------------------------
-            # 3) hand DAQ back to the background thread
-            # -----------------------------------------------------------
+            # ─ 4. clean up protocol tasks & resume background stream ─────
+            try:
+                self.ai_task.stop(); self.ao_task.stop()
+                self.ai_task.close(); self.ao_task.close()
+            except Exception:
+                pass
             self.resume_acquisition()
 
+        return self.current_protocol_data, self.pulses, self.pulseRange
+
+
+  
     def getDataFromHoldingProtocol(self, *, rate_hz: int = 50_000, duration_s: float = 1.0):
         """
         OLD-STYLE baseline read-out (no command output).
@@ -975,7 +1056,6 @@ class NiDAQ(DAQ):
         finally:
             # ---------------------------------------------- 3. resume stream
             self.resume_acquisition()
-
 
     def getDataFromVoltageProtocol(self):
         """
