@@ -371,27 +371,26 @@ class AutoPatcher(TaskController):
             self.sleep(5)
             self.microscope.move_to_floor()
 
-    def accessRamp(self, num_measurements=3, interval=0.2):
+    def accessRamp(self, num_measurements=3, interval=0.333):
         measurements = []
         for _ in range(num_measurements):
             measurements.append(self.daq.accessResistance())
             self.sleep(interval)
         return sum(measurements) / len(measurements)
     
-    def resistanceRamp(self, num_measurements=3, interval=0.2):
+    def resistanceRamp(self, num_measurements=3, interval=0.333):
         measurements = []
         for _ in range(num_measurements):
             measurements.append(self.daq.resistance())
             self.sleep(interval)
         return sum(measurements) / len(measurements)
     
-    def capacitanceRamp(self, num_measurements=3, interval=0.2):
+    def capacitanceRamp(self, num_measurements=3, interval=0.333):
         measurements = []
         for _ in range(num_measurements):
             measurements.append(self.daq.capacitance())
             self.sleep(interval)
         return sum(measurements) / len(measurements)
-
 
     def gigaseal(self):
         if self.config.mode == 'Classic':
@@ -437,7 +436,7 @@ class AutoPatcher(TaskController):
             avg_resistance = self.resistanceRamp()
 
             delta_resistance = avg_resistance - prev_resistance
-            rate_mohm_per_sec = delta_resistance / (5 * 0.2)
+            rate_mohm_per_sec = delta_resistance / (3 * 0.333)  # 3 measurements, each 0.333 seconds apart
 
             if delta_resistance >= self.config.gigaseal_min_delta_R:
                 last_progress_time = time.time()
