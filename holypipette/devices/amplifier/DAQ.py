@@ -58,44 +58,34 @@ class DAQAcquisitionThread(threading.Thread):
 
     def run(self):
         """
-        Continuous acquisition loop that honours the cooperative pause / resume
-        handshake.  Hardware tasks remain running while the thread is active,
-        but are stopped by DAQ.pause_acquisition() and restarted by
-        DAQ.resume_acquisition().
+        Continuous acquisition loop that honours pause / resume and
+        guarantees that we service the NI-DAQ FIFO in time.
         """
         while self.running:
-            # ------------------- block here if paused --------------------
-            self._pause_evt.wait()      # returns immediately when set
-            if not self.running:        # allow clean shutdown
+            self._pause_evt.wait()
+            if not self.running:
                 break
-            # -------------------------------------------------------------
+
+            cycle_start = time.perf_counter()
 
             try:
                 data = self.daq.getDataFromSquareWave(
-                    self.wave_freq,
-                    self.samplesPerSec,
-                    self.dutyCycle,
-                    self.amplitude,
+                    self.wave_freq, self.samplesPerSec,
+                    self.dutyCycle, self.amplitude,
                     self.recordingTime
                 )
-
                 if not data:
-                    continue          # nothing valid returned – try again
+                    continue                        # invalid capture – retry
 
-                (t_r, respData), (t_r, readData), totalR, memR, accR, memC = data
-
-                # skip iterations where the fit failed and returned None
-                if totalR is None:
+                # ------------------- unpack & validate ---------------------
+                (t_r, respData), (_, readData), totalR, memR, accR, memC = data
+                if totalR is None:                 # fit failed → skip
                     continue
 
                 self._last_data_queue.append({
-                    "timeData": t_r,
-                    "respData": respData,
-                    "readData": readData,
-                    "totalResistance": totalR,
-                    "membraneResistance": memR,
-                    "accessResistance": accR,
-                    "membraneCapacitance": memC
+                    "timeData": t_r, "respData": respData, "readData": readData,
+                    "totalResistance": totalR, "membraneResistance": memR,
+                    "accessResistance": accR, "membraneCapacitance": memC
                 })
 
                 if self.callback:
@@ -103,15 +93,19 @@ class DAQAcquisitionThread(threading.Thread):
 
             except nidaqmx.errors.DaqError as e:
                 self.daq.warning(f"Acquisition error {e.error_code}: {e}")
-                if e.error_code in (-200279, -200284, -200286):  # FIFO over/underrun
+                if e.error_code in (-200279, -200284, -200286):
                     with self.daq._deviceLock:
                         self.daq._restartAcquisition()
-                time.sleep(0.05)
+                time.sleep(0.05)                   # brief cooldown
 
             except Exception as e:
                 logging.warning(f"Error in DAQAcquisitionThread: {e}")
 
-            time.sleep(self.interval)
+            # ---------------- dynamic sleep so period ≤ interval ----------
+            elapsed = time.perf_counter() - cycle_start
+            time_to_sleep = max(0.0, self.interval - elapsed)
+            if time_to_sleep and self.running:
+                time.sleep(time_to_sleep)
 
     def get_last_data(self):
         """Return the most recent measurement or None if not available."""
@@ -427,7 +421,9 @@ class DAQ(TaskController):
             accR, memR, memC = self._getParamsfromCurrent(
                 cd, rd, td, amplitude * self.V_CLAMP_VOLT_PER_VOLT
             )
-            totalR = accR + memR
+            totalR = None
+            if accR is not None and memR is not None:
+                totalR = accR + memR
         else:
             totalR = self._getResistancefromCurrent(rd, amplitude * self.V_CLAMP_VOLT_PER_VOLT)
             if totalR is not None:
@@ -902,22 +898,20 @@ class NiDAQ(DAQ):
                                    stepCurrentPicoAmp: float = 10,
                                    recordingTimeMs: float = 250):
         """
-        Run an entire I-clamp step protocol **on one continuous stream**.
+        Run an entire I-clamp step protocol on one continuous stream.
         Returns
         -------
         (list_of_traces, pulses_array, pulse_count)
-            list_of_traces  :  [ [time_s, resp_pA, read_V], … ]
-            pulses_array     :  numpy array of picoamps sent
-            pulse_count      :  int
         """
-        samplesPerSec = 100_000
-        dutyCycle     = 0.5
-        # test_recTime  = 4.0 * highTimeMs * 1e-3     # seconds
-        # total_recTime = 6.0 * highTimeMs * 1e-3     # baseline+calib+test
-        recordingTime = recordingTimeMs * 1e-3  # convert ms to seconds
-        wave_freq     = 1.0 / (recordingTime)
+        # ─────────────────────────  constants  ───────────────────────────
+        samplesPerSec  = 100_000
+        dutyCycle      = 0.5
+        recordingTime  = recordingTimeMs * 1e-3          # 0.25 s segment
+        wave_freq      = 1.0 / recordingTime             # 4 Hz
+        fullRecTime    = 4 * recordingTime               # 1.0 s train
+        exp_samples    = int(samplesPerSec * fullRecTime)
 
-        # ─ 1. build the pulse list ────────────────────────────────────────
+        # ─ 1. pulse list ─────────────────────────────────────────────────
         if not custom:
             if self.voltageMembraneCapacitance is None:
                 raise RuntimeError("Run getDataFromVoltageProtocol() first.")
@@ -933,12 +927,14 @@ class NiDAQ(DAQ):
         if 0.0 not in pulses:
             pulses = np.sort(np.append(pulses, 0.0))
 
-        self.pulses       = pulses
-        self.pulseRange   = len(pulses)
+        # ─── drop the very first pulse (prime-train duplicate) ───────────
+        pulses_to_run = pulses[1:]               # skip the first element
+        self.pulses   = pulses_to_run
+        self.pulseRange = len(pulses_to_run)
         self.current_protocol_data = []
-        self.info(f"I-clamp pulses (pA): {pulses}")
+        self.info(f"I-clamp pulses (pA): {pulses_to_run}")
 
-        # ─ 2. park the background membrane-test stream ───────────────────
+        # ─ 2. park background tasks ──────────────────────────────────────
         self.pause_acquisition()
         for t in ("ai_task", "ao_task"):
             try:
@@ -946,38 +942,42 @@ class NiDAQ(DAQ):
             except Exception:
                 pass
 
-        # ─ 3. spin up dedicated continuous tasks for the protocol ────────
-        self._setupAcquisitionCurrent(recordingTime * 1e3)
+        # ─ 3. dedicated continuous tasks ────────────────────────────────
+        self._setupAcquisitionCurrent(recordingTime * 1e3)   # expects ms
 
+        #       discard prime-buffer train (0 pA test) completely
+        self.sleep(fullRecTime)
+        _ = self.ai_task.read(exp_samples, timeout=2.0)
 
         try:
-            for pulse in pulses:
+            for pulse in pulses_to_run:
                 amp_V = (pulse * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
                 self.info(f"Sending {pulse:.0f} pA pulse")
 
-                # 3a. write new AO buffer
+                # 4a. write next 4-segment buffer
                 self._sendSquareWaveCurrent(
                     wave_freq, samplesPerSec, dutyCycle, amp_V, recordingTime)
-                avail = self.ai_task.in_stream.avail_samp_per_chan
-                if avail:                                      # FIFO not empty?
-                    _ = self.ai_task.read(avail, timeout=0.0)  # dump them
 
-                # 3b. read the matching AI block
-                raw = self._readAnalogInput(samplesPerSec, 4*recordingTime)
+                # 4b. wait until a full train is ready
+                while self.ai_task.in_stream.avail_samp_per_chan < exp_samples:
+                    self.sleep(0.002)                       # 2 ms poll
+
+                # 4c. read exactly that train
+                raw = np.asarray(
+                    self.ai_task.read(exp_samples, timeout=2.0), dtype=float
+                )
                 resp = raw[1] / self.C_CLAMP_VOLT_PER_VOLT
                 read = raw[0]
-                N    = resp.size
-                time    = np.linspace(0, 4*recordingTime, N, dtype=float)
+                tvec = np.linspace(0, fullRecTime, exp_samples, dtype=float)
+                self.current_protocol_data.append([tvec, resp, read])
 
-                self.current_protocol_data.append([time, resp, read])
-
-                # slight pause to avoid back-to-back buffer churn
+                # optional brief pause
                 self.sleep(0.05)
 
         finally:
-            # ─ 4. clean up protocol tasks & resume background stream ─────
+            # ─ 5. restore background stream ─────────────────────────────
             try:
-                self.ai_task.stop(); self.ao_task.stop()
+                self.ai_task.stop();  self.ao_task.stop()
                 self.ai_task.close(); self.ao_task.close()
             except Exception:
                 pass
@@ -985,8 +985,6 @@ class NiDAQ(DAQ):
 
         return self.current_protocol_data, self.pulses, self.pulseRange
 
-
-  
     def getDataFromHoldingProtocol(self, *, rate_hz: int = 50_000, duration_s: float = 1.0):
         """
         OLD-STYLE baseline read-out (no command output).
