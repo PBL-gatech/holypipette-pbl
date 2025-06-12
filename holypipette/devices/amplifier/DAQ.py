@@ -96,7 +96,7 @@ class DAQAcquisitionThread(threading.Thread):
                 if e.error_code in (-200279, -200284, -200286):
                     with self.daq._deviceLock:
                         self.daq._restartAcquisition()
-                time.sleep(0.05)                   # brief cooldown
+               # brief cooldown
 
             except Exception as e:
                 logging.warning(f"Error in DAQAcquisitionThread: {e}")
@@ -646,7 +646,8 @@ class NiDAQ(DAQ):
         self.start_acquisition(
             wave_freq=40, samplesPerSec=50000,
             dutyCycle=0.5, amplitude=0.5,
-            recordingTime=0.025
+            recordingTime=0.025,
+            interval= 0.000  # 0 ms per cycle
         )
 
     def _restartAcquisition(self):
@@ -700,6 +701,16 @@ class NiDAQ(DAQ):
             rate=self._wave_rate,
             sample_mode=c.AcquisitionType.CONTINUOUS,
         )
+        import nidaqmx.constants as c
+
+        # Allow the device to overwrite unread data so the fifo keeps running
+        self.ai_task.in_stream.overwrite_mode = c.OverwriteMode.OVERWRITE_UNREAD_SAMPLES
+
+        # When we call task.read(), start relative to the newest sample
+        self.ai_task.in_stream.read_relative_to = c.ReadRelativeTo.MOST_RECENT_SAMPLE
+        # …and back-up exactly one buffer-length so we still get a full cycle
+        self.ai_task.in_stream.read_offset = -self._wave_samples
+
         self.ai_task.in_stream.input_buf_size = max(
             self.ai_task.in_stream.input_buf_size,
             self._wave_rate * 10)   # keep 10 s of slack (~200 k samples)
