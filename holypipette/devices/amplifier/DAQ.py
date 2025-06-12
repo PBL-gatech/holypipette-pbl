@@ -62,6 +62,7 @@ class DAQAcquisitionThread(threading.Thread):
         guarantees that we service the NI-DAQ FIFO in time.
         """
         while self.running:
+            # Wait until we’re allowed to run
             self._pause_evt.wait()
             if not self.running:
                 break
@@ -69,6 +70,7 @@ class DAQAcquisitionThread(threading.Thread):
             cycle_start = time.perf_counter()
 
             try:
+                # Acquire one square-wave cycle
                 data = self.daq.getDataFromSquareWave(
                     self.wave_freq, self.samplesPerSec,
                     self.dutyCycle, self.amplitude,
@@ -77,35 +79,45 @@ class DAQAcquisitionThread(threading.Thread):
                 if not data:
                     continue                        # invalid capture – retry
 
-                # ------------------- unpack & validate ---------------------
+                # ─── unpack & validate ─────────────────────────────────
                 (t_r, respData), (_, readData), totalR, memR, accR, memC = data
                 if totalR is None:                 # fit failed → skip
                     continue
 
+                # Cache in the single-element queue
                 self._last_data_queue.append({
                     "timeData": t_r, "respData": respData, "readData": readData,
                     "totalResistance": totalR, "membraneResistance": memR,
                     "accessResistance": accR, "membraneCapacitance": memC
                 })
 
+                # *** NEW: publish live values to the parent DAQ instance ***
+                self.daq.totalResistance            = totalR
+                self.daq.latestMembraneResistance   = memR
+                self.daq.latestAccessResistance     = accR
+                self.daq.latestMembraneCapacitance  = memC
+
+                # Notify any user callback
                 if self.callback:
                     self.callback(totalR, accR, memR, memC, respData, readData)
 
             except nidaqmx.errors.DaqError as e:
                 self.daq.warning(f"Acquisition error {e.error_code}: {e}")
+                # Common FIFO/buffer overruns → restart tasks
                 if e.error_code in (-200279, -200284, -200286):
                     with self.daq._deviceLock:
                         self.daq._restartAcquisition()
-               # brief cooldown
+                time.sleep(0.05)                   # brief cooldown
 
             except Exception as e:
                 logging.warning(f"Error in DAQAcquisitionThread: {e}")
 
-            # ---------------- dynamic sleep so period ≤ interval ----------
+            # ─── dynamic sleep so total period ≤ requested interval ────
             elapsed = time.perf_counter() - cycle_start
             time_to_sleep = max(0.0, self.interval - elapsed)
             if time_to_sleep and self.running:
                 time.sleep(time_to_sleep)
+
 
     def get_last_data(self):
         """Return the most recent measurement or None if not available."""

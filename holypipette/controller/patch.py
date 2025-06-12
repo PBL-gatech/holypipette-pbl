@@ -370,27 +370,39 @@ class AutoPatcher(TaskController):
             self.move_to_safe_space()
             self.sleep(5)
             self.microscope.move_to_floor()
+    
+    def _safe_average(self, read_fn, num_measurements=5, interval=0.200):
+        """Collect `num_measurements` samples from `read_fn`, ignore None,
+        then return the arithmetic mean. Raises if every sample is None."""
+        readings = []
+        for _ in range(num_measurements):
+            val = read_fn()
+            if val is not None:          # defensive filter
+                readings.append(val)
+            self.sleep(interval)
+
+        if not readings:                # all samples were None → bail out
+            raise RuntimeError(
+                f"All measurements from {read_fn.__name__} returned None"
+            )
+
+        return sum(readings) / len(readings)
 
     def accessRamp(self, num_measurements=5, interval=0.200):
-        measurements = []
-        for _ in range(num_measurements):
-            measurements.append(self.daq.accessResistance())
-            self.sleep(interval)
-        return sum(measurements) / len(measurements)
-    
+        return self._safe_average(
+            self.daq.accessResistance, num_measurements, interval
+        )
+
     def resistanceRamp(self, num_measurements=5, interval=0.200):
-        measurements = []
-        for _ in range(num_measurements):
-            measurements.append(self.daq.resistance())
-            self.sleep(interval)
-        return sum(measurements) / len(measurements)
-    
+        return self._safe_average(
+            self.daq.resistance, num_measurements, interval
+        )
+
     def capacitanceRamp(self, num_measurements=5, interval=0.200):
-        measurements = []
-        for _ in range(num_measurements):
-            measurements.append(self.daq.capacitance())
-            self.sleep(interval)
-        return sum(measurements) / len(measurements)
+        return self._safe_average(
+            self.daq.capacitance, num_measurements, interval
+        )
+
 
     def gigaseal(self):
         if self.config.mode == 'Classic':
