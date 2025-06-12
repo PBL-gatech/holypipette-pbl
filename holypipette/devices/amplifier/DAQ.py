@@ -947,7 +947,7 @@ class NiDAQ(DAQ):
                 pass
 
         # ─ 3. spin up dedicated continuous tasks for the protocol ────────
-        self._setupAcquisitionCurrent(10*recordingTime)
+        self._setupAcquisitionCurrent(recordingTime * 1e3)
 
         try:
             for pulse in pulses:
@@ -959,11 +959,11 @@ class NiDAQ(DAQ):
                     wave_freq, samplesPerSec, dutyCycle, amp_V, recordingTime)
 
                 # 3b. read the matching AI block
-                raw = self._readAnalogInput(samplesPerSec, 2*recordingTime)
+                raw = self._readAnalogInput(samplesPerSec, 4*recordingTime)
                 resp = raw[1] / self.C_CLAMP_VOLT_PER_VOLT
                 read = raw[0]
                 N    = resp.size
-                time    = np.linspace(0, recordingTime, N, dtype=float)
+                time    = np.linspace(0, 4*recordingTime, N, dtype=float)
 
                 self.current_protocol_data.append([time, resp, read])
 
