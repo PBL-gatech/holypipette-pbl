@@ -949,6 +949,7 @@ class NiDAQ(DAQ):
         # ─ 3. spin up dedicated continuous tasks for the protocol ────────
         self._setupAcquisitionCurrent(recordingTime * 1e3)
 
+
         try:
             for pulse in pulses:
                 amp_V = (pulse * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
@@ -957,6 +958,9 @@ class NiDAQ(DAQ):
                 # 3a. write new AO buffer
                 self._sendSquareWaveCurrent(
                     wave_freq, samplesPerSec, dutyCycle, amp_V, recordingTime)
+                avail = self.ai_task.in_stream.avail_samp_per_chan
+                if avail:                                      # FIFO not empty?
+                    _ = self.ai_task.read(avail, timeout=0.0)  # dump them
 
                 # 3b. read the matching AI block
                 raw = self._readAnalogInput(samplesPerSec, 4*recordingTime)

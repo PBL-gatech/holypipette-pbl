@@ -337,7 +337,7 @@ class EPhysGraph(QWidget):
         self.modelType.clicked.connect(self.toggleModeType)
 
         # QTimer for periodic GUI updates 
-        self.updateDt = 33  # ms
+        self.updateDt = 42   # ms
         self.updateTimer = QtCore.QTimer()
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
