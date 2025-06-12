@@ -634,7 +634,7 @@ class NiDAQ(DAQ):
                   f'and {self.respDev}/{self.respChannel} for response.')
         # 1) Pre-generate the square wave buffer
         self.createSquareWave(
-            wave_freq=40, samplesPerSec=10000,
+            wave_freq=40, samplesPerSec=50000,
             dutyCycle=0.5, amplitude=0.5,
             recordingTime=0.025
         )
@@ -644,7 +644,7 @@ class NiDAQ(DAQ):
 
         # 3) Kick off the acquisition thread
         self.start_acquisition(
-            wave_freq=40, samplesPerSec=10000,
+            wave_freq=40, samplesPerSec=50000,
             dutyCycle=0.5, amplitude=0.5,
             recordingTime=0.025
         )
@@ -903,15 +903,15 @@ class NiDAQ(DAQ):
         -------
         (list_of_traces, pulses_array, pulse_count)
         """
-        # ─────────────────────────  constants  ───────────────────────────
+        # ───────── constants ─────────
         samplesPerSec  = 100_000
         dutyCycle      = 0.5
-        recordingTime  = recordingTimeMs * 1e-3          # 0.25 s segment
-        wave_freq      = 1.0 / recordingTime             # 4 Hz
-        fullRecTime    = 4 * recordingTime               # 1.0 s train
+        recordingTime  = recordingTimeMs * 1e-3   # 0.25 s / segment
+        wave_freq      = 1.0 / recordingTime      # 4 Hz
+        fullRecTime    = 4 * recordingTime        # 1.0 s / train
         exp_samples    = int(samplesPerSec * fullRecTime)
 
-        # ─ 1. pulse list ─────────────────────────────────────────────────
+        # ─ 1. build pulse list ───────
         if not custom:
             if self.voltageMembraneCapacitance is None:
                 raise RuntimeError("Run getDataFromVoltageProtocol() first.")
@@ -927,14 +927,12 @@ class NiDAQ(DAQ):
         if 0.0 not in pulses:
             pulses = np.sort(np.append(pulses, 0.0))
 
-        # ─── drop the very first pulse (prime-train duplicate) ───────────
-        pulses_to_run = pulses[1:]               # skip the first element
-        self.pulses   = pulses_to_run
-        self.pulseRange = len(pulses_to_run)
+        self.pulses       = pulses
+        self.pulseRange   = len(pulses)
         self.current_protocol_data = []
-        self.info(f"I-clamp pulses (pA): {pulses_to_run}")
+        self.info(f"I-clamp pulses (pA): {pulses}")
 
-        # ─ 2. park background tasks ──────────────────────────────────────
+        # ─ 2. park background stream ─
         self.pause_acquisition()
         for t in ("ai_task", "ao_task"):
             try:
@@ -942,40 +940,47 @@ class NiDAQ(DAQ):
             except Exception:
                 pass
 
-        # ─ 3. dedicated continuous tasks ────────────────────────────────
+        # ─ 3. start dedicated tasks (prime buffer = 0 pA test) ──────────
         self._setupAcquisitionCurrent(recordingTime * 1e3)   # expects ms
 
-        #       discard prime-buffer train (0 pA test) completely
-        self.sleep(fullRecTime)
+        # a) queue FIRST real pulse so it will become train #2
+        next_amp_V = (pulses[0] * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
+        self._sendSquareWaveCurrent(wave_freq, samplesPerSec,
+                                    dutyCycle, next_amp_V, recordingTime)
+
+        # b) wait 1 s and discard train #1 (0 pA prime)
+        while self.ai_task.in_stream.avail_samp_per_chan < exp_samples:
+            self.sleep(0.002)
         _ = self.ai_task.read(exp_samples, timeout=2.0)
 
         try:
-            for pulse in pulses_to_run:
-                amp_V = (pulse * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
-                self.info(f"Sending {pulse:.0f} pA pulse")
+            for idx, pulse in enumerate(pulses):
+                # ─── queue the NEXT pulse *before* waiting ───────────────
+                if idx + 1 < len(pulses):
+                    future_amp_V = (pulses[idx + 1] * 1e-12) \
+                                    / self.C_CLAMP_AMP_PER_VOLT
+                    self._sendSquareWaveCurrent(wave_freq, samplesPerSec,
+                                                dutyCycle, future_amp_V,
+                                                recordingTime)
 
-                # 4a. write next 4-segment buffer
-                self._sendSquareWaveCurrent(
-                    wave_freq, samplesPerSec, dutyCycle, amp_V, recordingTime)
+                self.info(f"Waiting for {pulse:.0f} pA train…")
 
-                # 4b. wait until a full train is ready
+                # ─── wait until exactly one full train is ready ─────────
                 while self.ai_task.in_stream.avail_samp_per_chan < exp_samples:
-                    self.sleep(0.002)                       # 2 ms poll
+                    self.sleep(0.002)
 
-                # 4c. read exactly that train
-                raw = np.asarray(
-                    self.ai_task.read(exp_samples, timeout=2.0), dtype=float
-                )
+                # ─── read it (matches current pulse) ────────────────────
+                raw = np.asarray(self.ai_task.read(exp_samples, timeout=2.0),
+                                 dtype=float)
                 resp = raw[1] / self.C_CLAMP_VOLT_PER_VOLT
                 read = raw[0]
                 tvec = np.linspace(0, fullRecTime, exp_samples, dtype=float)
                 self.current_protocol_data.append([tvec, resp, read])
 
-                # optional brief pause
-                self.sleep(0.05)
+                self.info(f"Captured {pulse:.0f} pA pulse")
 
         finally:
-            # ─ 5. restore background stream ─────────────────────────────
+            # ─ 4. restore background stream ────────────────────────────
             try:
                 self.ai_task.stop();  self.ao_task.stop()
                 self.ai_task.close(); self.ao_task.close()
