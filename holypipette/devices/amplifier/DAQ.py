@@ -55,14 +55,22 @@ class DAQAcquisitionThread(threading.Thread):
         self.interval = interval if interval is not None else recordingTime
         self.running = True
         self._last_data_queue = collections.deque(maxlen=1)
+        self._fail_streak = 0           # consecutive bad-fit counter
+        self._fail_limit  = 3           # restart after 3 misses
 
     def run(self):
         """
-        Continuous acquisition loop that honours pause / resume and
-        guarantees that we service the NI-DAQ FIFO in time.
+        Continuous acquisition loop that
+
+        • honours pause / resume,
+        • never feeds the GUI None values (uses NaN on bad fits),
+        • restarts the DAQ after three consecutive bad fits.
         """
+        self._fail_streak = 0            # counts consecutive bad fits
+        self._fail_limit  = 3            # restart threshold
+
         while self.running:
-            # Wait until we’re allowed to run
+            # ---------- wait until resumed ---------------------------------
             self._pause_evt.wait()
             if not self.running:
                 break
@@ -70,54 +78,66 @@ class DAQAcquisitionThread(threading.Thread):
             cycle_start = time.perf_counter()
 
             try:
-                # Acquire one square-wave cycle
+                # ---------- one square-wave cycle --------------------------
                 data = self.daq.getDataFromSquareWave(
                     self.wave_freq, self.samplesPerSec,
                     self.dutyCycle, self.amplitude,
                     self.recordingTime
                 )
-                if not data:
-                    continue                        # invalid capture – retry
-
-                # ─── unpack & validate ─────────────────────────────────
-                (t_r, respData), (_, readData), totalR, memR, accR, memC = data
-                if totalR is None:                 # fit failed → skip
+                if not data:                 # empty FIFO read → retry
                     continue
 
-                # Cache in the single-element queue
-                self._last_data_queue.append({
-                    "timeData": t_r, "respData": respData, "readData": readData,
-                    "totalResistance": totalR, "membraneResistance": memR,
-                    "accessResistance": accR, "membraneCapacitance": memC
-                })
+                (t_r, respData), (_, readData), totalR, memR, accR, memC = data
+                fit_ok = (totalR is not None)
 
-                # *** NEW: publish live values to the parent DAQ instance ***
-                self.daq.totalResistance            = totalR
-                self.daq.latestMembraneResistance   = memR
-                self.daq.latestAccessResistance     = accR
-                self.daq.latestMembraneCapacitance  = memC
+                # ---------- handle failed fit ------------------------------
+                if not fit_ok:
+                    self._fail_streak += 1
+                    totalR = accR = memR = memC = np.nan   # GUI-safe NaNs
 
-                # Notify any user callback
+                    if self._fail_streak >= self._fail_limit:
+                        with self.daq._deviceLock:
+                            self.daq._restartAcquisition()
+                        self._fail_streak = 0
+                else:
+                    self._fail_streak = 0     # reset on success
+
+                # ---------- enqueue for GUI / callback ---------------------
+                packet = {
+                    "timeData":            t_r,
+                    "respData":            respData,
+                    "readData":            readData,
+                    "totalResistance":     totalR,
+                    "membraneResistance":  memR,
+                    "accessResistance":    accR,
+                    "membraneCapacitance": memC
+                }
+                self._last_data_queue.append(packet)
+
+                # update live attributes even if NaN
+                self.daq.totalResistance           = totalR
+                self.daq.latestMembraneResistance  = memR
+                self.daq.latestAccessResistance    = accR
+                self.daq.latestMembraneCapacitance = memC
+
                 if self.callback:
-                    self.callback(totalR, accR, memR, memC, respData, readData)
+                    self.callback(totalR, accR, memR, memC,
+                                respData, readData)
 
             except nidaqmx.errors.DaqError as e:
+                # common FIFO/buffer overruns
                 self.daq.warning(f"Acquisition error {e.error_code}: {e}")
-                # Common FIFO/buffer overruns → restart tasks
                 if e.error_code in (-200279, -200284, -200286):
                     with self.daq._deviceLock:
                         self.daq._restartAcquisition()
-                time.sleep(0.05)                   # brief cooldown
+                time.sleep(0.05)            # brief cooldown
 
             except Exception as e:
                 logging.warning(f"Error in DAQAcquisitionThread: {e}")
 
-            # ─── dynamic sleep so total period ≤ requested interval ────
-            elapsed = time.perf_counter() - cycle_start
-            time_to_sleep = max(0.0, self.interval - elapsed)
-            if time_to_sleep and self.running:
-                time.sleep(time_to_sleep)
-
+            # ---------- honour requested interval --------------------------
+            elapsed       = time.perf_counter() - cycle_start
+            time.sleep(max(0.0, self.interval - elapsed))
 
     def get_last_data(self):
         """Return the most recent measurement or None if not available."""
@@ -126,6 +146,7 @@ class DAQAcquisitionThread(threading.Thread):
     def stop(self):
         """Stop the acquisition thread."""
         self.running = False
+
 class DAQ(TaskController):
     """
     Base DAQ class with common methods for patch-clamp protocols.
@@ -528,42 +549,72 @@ class DAQ(TaskController):
     def monoExp(self, x, m, t, b):
         return m * np.exp(-t * x) + b
 
-    def optimizer(self, fit_data, I_peak_pA, I_peak_time, I_ss):
+
+
+    def optimizer(self, fit_data, I_peak_pA, I_peak_time_ms, I_ss_pA):
         """
-        Fit the mono-exponential decay model using NumPy arrays.
-        
-        Parameters:
-          fit_data: dict with keys 'T_ms', 'X_mV', 'Y_pA' (all numpy arrays)
-          I_peak_pA: Peak current (pA) to help seed the fit
-          I_peak_time: Time corresponding to the peak current (ms)
-          I_ss: Steady-state current (pA)
-          
-        Returns:
-          m, t, b: Fitted parameters of the model: m * exp(-t*x) + b
+        Fit I(t) = m · exp(−T · t) + b   with robust loss and hard bounds.
+
+        Parameters
+        ----------
+        fit_data   : dict with numpy arrays 'T_ms', 'Y_pA'
+        I_peak_pA  : peak current (pA)      – seeds m
+        I_peak_time_ms : time of the peak (ms) – seeds T
+        I_ss_pA    : steady-state current (pA) – seeds b
+
+        Returns
+        -------
+        (m, T, b)  in pA, 1/ms, pA   or (None, None, None) on failure
         """
-        xdata = fit_data['T_ms']
-        ydata = fit_data['Y_pA']
-        p0 = [I_peak_pA, I_peak_time, I_ss]
+        # -------- data & unit scaling --------------------------------------
+        t_ms = fit_data['T_ms']
+        i_pA = fit_data['Y_pA']
 
-        def residuals(params, x, y):
-            return self.monoExp(x, *params) - y
-
-        def jac(params, x, y):
-            m, t, b = params
-            exp_val = np.exp(-t * x)
-            J0 = exp_val                   # d/dm
-            J1 = -m * x * exp_val          # d/dt
-            J2 = np.ones_like(x)           # d/db
-            return np.vstack((J0, J1, J2)).T
-
-        res = scipy.optimize.least_squares(
-            residuals, p0, jac=jac, args=(xdata, ydata), max_nfev=1000000
-        )
-        if res.success:
-            m, t, b = res.x
-            return m, t, b
-        else:
+        if not (np.isfinite(t_ms).all() and np.isfinite(i_pA).all()):
             return None, None, None
+
+        t_s  = t_ms * 1e-3          # seconds → keeps T in 1/s range
+        i_nA = i_pA * 1e-3          # nanoamps → keeps residuals O(1)
+
+        # -------- initial guess & bounds ----------------------------------
+        m0 = I_peak_pA  * 1e-3      # to nA
+        b0 = I_ss_pA    * 1e-3
+        T0 = max(I_peak_time_ms, 0.1)  # prevent zero division
+
+        p0 = [m0, 1.0 / T0, b0]     # T parameter ≈ 1/τ  (1/s)
+
+        # realistic biophysical limits (in nA, 1/s, nA)
+        bounds = ([-10.0,   1e-1, -10.0],    # lower
+                [ 10.0, 5e+3,  10.0])      # upper
+
+        # -------- residual & Jacobian -------------------------------------
+        def residual(p, t, i):
+            return self.monoExp(t, *p) - i
+
+        def jacobian(p, t, i):
+            m, T, b = p
+            e = np.exp(-T * t)
+            return np.vstack((e, -m * t * e, np.ones_like(t))).T
+
+        # -------- robust bounded least-squares -----------------------------
+        try:
+            res = scipy.optimize.least_squares(
+                residual, p0, jac=jacobian, args=(t_s, i_nA),
+                bounds=bounds,
+                loss='soft_l1',
+                f_scale=1.0,          # keeps z = (f / f_scale)**2 well-behaved
+                max_nfev=400
+            )
+        except Exception:
+            return None, None, None
+
+        if not (res.success and np.all(np.isfinite(res.x))):
+            return None, None, None
+
+        m_fit, T_fit, b_fit = res.x
+        return m_fit * 1e3, T_fit, b_fit * 1e3   # back to pA units
+
+
 
     def _getParamsfromCurrent(self, readData, respData, timeData, amplitude) -> tuple:
         """
