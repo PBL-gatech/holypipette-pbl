@@ -550,59 +550,61 @@ class DAQ(TaskController):
         return m * np.exp(-t * x) + b
 
 
-
     def optimizer(self, fit_data, I_peak_pA, I_peak_time_ms, I_ss_pA):
         """
-        Fit I(t) = m · exp(−T · t) + b   with robust loss and hard bounds.
+        Robust mono-exponential fit:
 
-        Parameters
-        ----------
-        fit_data   : dict with numpy arrays 'T_ms', 'Y_pA'
-        I_peak_pA  : peak current (pA)      – seeds m
-        I_peak_time_ms : time of the peak (ms) – seeds T
-        I_ss_pA    : steady-state current (pA) – seeds b
+            I(t_ms) = m · exp(−t · t_ms) + b
+
+        with parameter
+            t = 1 / τ      [1 / ms]
 
         Returns
         -------
-        (m, T, b)  in pA, 1/ms, pA   or (None, None, None) on failure
+        (m, t, b) in pA, 1/ms, pA   – or (None, None, None) on failure
         """
-        # -------- data & unit scaling --------------------------------------
-        t_ms = fit_data['T_ms']
-        i_pA = fit_data['Y_pA']
+        # -------- data -----------------------------------------------------
+        x_ms = fit_data['T_ms']
+        y_pA = fit_data['Y_pA']
 
-        if not (np.isfinite(t_ms).all() and np.isfinite(i_pA).all()):
+        if not (np.isfinite(x_ms).all() and np.isfinite(y_pA).all()):
             return None, None, None
 
-        t_s  = t_ms * 1e-3          # seconds → keeps T in 1/s range
-        i_nA = i_pA * 1e-3          # nanoamps → keeps residuals O(1)
+        # scale only the current to nA  (better conditioning)
+        y_nA = y_pA * 1e-3
 
-        # -------- initial guess & bounds ----------------------------------
-        m0 = I_peak_pA  * 1e-3      # to nA
-        b0 = I_ss_pA    * 1e-3
-        T0 = max(I_peak_time_ms, 0.1)  # prevent zero division
+        # -------- initial guess -------------------------------------------
+        m0 = I_peak_pA * 1e-3           # nA
+        b0 = I_ss_pA   * 1e-3           # nA
+        t0 = max(1.0 / max(I_peak_time_ms, 0.1), 0.01)   # 1/ms
 
-        p0 = [m0, 1.0 / T0, b0]     # T parameter ≈ 1/τ  (1/s)
+        p0 = [m0, t0, b0]
 
-        # realistic biophysical limits (in nA, 1/s, nA)
-        bounds = ([-10.0,   1e-1, -10.0],    # lower
-                [ 10.0, 5e+3,  10.0])      # upper
+        # -------- bounds ---------------------------------------------------
+        # Current:   ±10 nA   (±10 000 pA)
+        # Time const: t = 1/τ  → τ between 0.05 ms and 100 ms
+        bounds = ([-10.0,     1/100.0, -10.0],       # lower  (nA, 1/ms, nA)
+                [ 10.0,     1/0.05,  10.0])        # upper
 
         # -------- residual & Jacobian -------------------------------------
-        def residual(p, t, i):
-            return self.monoExp(t, *p) - i
+        def residual(p, x, y):
+            return self.monoExp(x, *p) - y
 
-        def jacobian(p, t, i):
-            m, T, b = p
-            e = np.exp(-T * t)
-            return np.vstack((e, -m * t * e, np.ones_like(t))).T
+        def jacobian(p, x, y):
+            m, t, b = p
+            e = np.exp(-t * x)
+            return np.vstack((e,               # ∂/∂m
+                            -m * x * e,      # ∂/∂t
+                            np.ones_like(x)  # ∂/∂b
+                            )).T
 
-        # -------- robust bounded least-squares -----------------------------
+        # -------- bounded robust least-squares -----------------------------
         try:
             res = scipy.optimize.least_squares(
-                residual, p0, jac=jacobian, args=(t_s, i_nA),
+                residual, p0, jac=jacobian, args=(x_ms, y_nA),
                 bounds=bounds,
-                loss='soft_l1',
-                f_scale=1.0,          # keeps z = (f / f_scale)**2 well-behaved
+                loss="soft_l1",
+                f_scale=1.0,          # keeps internal (f / f_scale)**2 in range
                 max_nfev=400
             )
         except Exception:
@@ -611,9 +613,8 @@ class DAQ(TaskController):
         if not (res.success and np.all(np.isfinite(res.x))):
             return None, None, None
 
-        m_fit, T_fit, b_fit = res.x
-        return m_fit * 1e3, T_fit, b_fit * 1e3   # back to pA units
-
+        m_fit_nA, t_fit, b_fit_nA = res.x
+        return m_fit_nA * 1e3, t_fit, b_fit_nA * 1e3   # back to pA
 
 
     def _getParamsfromCurrent(self, readData, respData, timeData, amplitude) -> tuple:
