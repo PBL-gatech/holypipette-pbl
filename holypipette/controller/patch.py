@@ -135,10 +135,10 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         if self.config.custom_protocol:
             self.debug('running custom current protocol')
-            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), recordingTimeMs = 250)                                            
+            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), recordingTimeMs = 500)                                            
         else:
             self.debug('running default current protocol')
-            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs = 250)
+            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs = 500)
         self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')
@@ -193,8 +193,8 @@ class AutoPatcher(TaskController):
         # move stage and pipette to safe space
         self.info("Moving to safe space")
         self.move_to_safe_space()
-        self.info("Setting pressure to 200 mbar")
-        self.pressure.set_pressure(200)
+        self.info("Setting pressure to 100 mbar")
+        self.pressure.set_pressure(100)
         # move to home space
         self.info("Moving to home space")
         self.move_to_home_space()
@@ -822,7 +822,7 @@ class AutoPatcher(TaskController):
                 self.sleep(0.75)
                 self.pressure.set_pressure(1000)
                 self.sleep(0.75)
-            self.pressure.set_pressure(200)
+            self.pressure.set_pressure(50)
   
             # Step 6: Move back to start from safespace
             self.calibrated_unit.absolute_move_group([start_x,safe_y,start_z], [0,1,2])
