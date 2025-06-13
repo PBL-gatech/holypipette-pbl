@@ -501,6 +501,8 @@ class DAQ(TaskController):
             return resistance
         except Exception as e:
             return None
+        
+    
 
     def filter_data(self, T_ms, X_mV, Y_pA):
         """
@@ -825,7 +827,7 @@ class NiDAQ(DAQ):
         self._cur_wave_amp   = 0.5
         self._cur_wave_rtime = 0.025
 
-    def _setupAcquisitionCurrent(self, recordingTime=250):
+    def _setupAcquisitionCurrent(self, recordingTime=500):
         """
         Configure a dedicated continuous AI + AO pair for the
         current-step protocol.  The background stream must be paused first.
@@ -971,7 +973,7 @@ class NiDAQ(DAQ):
                                    startCurrentPicoAmp: float | None = None,
                                    endCurrentPicoAmp: float | None = None,
                                    stepCurrentPicoAmp: float = 10,
-                                   recordingTimeMs: float = 250):
+                                   recordingTimeMs: float = 500):
         """
         Run an entire I-clamp step protocol on one continuous stream.
         Returns
