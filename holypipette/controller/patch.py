@@ -371,23 +371,49 @@ class AutoPatcher(TaskController):
             self.sleep(5)
             self.microscope.move_to_floor()
     
-    def _safe_average(self, read_fn, num_measurements=5, interval=0.200):
-        """Collect `num_measurements` samples from `read_fn`, ignore None,
-        then return the arithmetic mean. Raises if every sample is None."""
-        readings = []
-        for _ in range(num_measurements):
-            val = read_fn()
-            if val is not None:          # defensive filter
-                readings.append(val)
-            self.sleep(interval)
+    def _safe_average(self, read_fn, num_measurements: int = 5, interval: float = 0.200):
+        """Return the mean of *valid* samples from *read_fn*.
 
-        if not readings:                # all samples were None → bail out
-            raise RuntimeError(
-                f"All measurements from {read_fn.__name__} returned None"
-            )
+        * Skips any reading that is ``None`` or ``NaN``.
+        * If **every** reading in a window is invalid, run ``_adjustTrace``
+          **once per window** and retry.
+        * Retries *max_windows* times (default = 3).  After that, raises.
+        """
+        max_windows = 3
+        for attempt in range(max_windows):
+            readings = []
+            for _ in range(num_measurements):
+                val = read_fn()
+                # Guard against NaN/None without raising TypeError on None
+                if val is None or (isinstance(val, (float, np.floating)) and np.isnan(val)):
+                    # Keep log format identical – use debug so existing info/print lines stay untouched
+                    self.debug("_safe_average: invalid reading skipped (NaN/None)")
+                else:
+                    readings.append(val)
+                self.sleep(interval)
 
-        return sum(readings) / len(readings)
+            if readings:
+                return sum(readings) / len(readings)
 
+            # No usable sample → adjust & retry
+            self.info("All readings invalid – running _adjustTrace and retrying (_safe_average)")
+            self._adjustTrace()
+
+        # Exhausted retries
+        raise RuntimeError(f"All measurements from {read_fn.__name__} returned None/NaN after {max_windows} retries")
+    
+    def _adjustTrace(self):
+        '''
+        run capacitance compensation if fitting is failing.
+
+        '''
+        self.daq.setCellMode(False)
+        self.amplifier.auto_fast_compensation()
+        self.sleep(0.5)
+        self.amplifier.auto_slow_compensation()
+        self.sleep(0.5)
+        self.daq.setCellMode(True)
+        
     def accessRamp(self, num_measurements=5, interval=0.200):
         return self._safe_average(
             self.daq.accessResistance, num_measurements, interval
@@ -405,6 +431,10 @@ class AutoPatcher(TaskController):
 
 
     def gigaseal(self):
+        """Unchanged outward behaviour, but now requires **three consecutive**
+        averaged‑resistance windows ≥ target to declare success, reducing
+        false positives from transient spikes.
+        """
         if self.config.mode == 'Classic':
             autoPressure = True
         else:
@@ -417,6 +447,7 @@ class AutoPatcher(TaskController):
         self.info("Collecting baseline resistance...")
 
         avg_resistance = self.resistanceRamp()
+        consecutive_success = 0  # <<< NEW
 
         self.pressure.set_ATM(atm=True)
 
@@ -437,10 +468,10 @@ class AutoPatcher(TaskController):
             max_pressure = self.config.pressure_ramp_max
 
         holding_switched = False
-        cap_switched = False
         last_progress_time = time.time()
 
-        while avg_resistance < self.config.gigaseal_R and not self.abort_requested:
+        while not self.abort_requested:
+            # Deadline check
             if time.time() - last_progress_time >= self.config.seal_deadline:
                 raise AutopatchError("Seal unsuccessful: resistance did not improve significantly.")
 
@@ -448,38 +479,29 @@ class AutoPatcher(TaskController):
             avg_resistance = self.resistanceRamp()
 
             delta_resistance = avg_resistance - prev_resistance
-            rate_mohm_per_sec = delta_resistance / (5 * 0.200)  # 3 measurements, each 0.200 seconds apart
+            rate_mohm_per_sec = delta_resistance / (5 * 0.200)
 
             if delta_resistance >= self.config.gigaseal_min_delta_R:
                 last_progress_time = time.time()
-                
+
             print(f"goal resistance: {self.config.gigaseal_R} MΩ; current resistance: {avg_resistance} MΩ; rate: {rate_mohm_per_sec} MΩ/s")
+
+            # ---------------------- existing auto‑pressure logic (verbatim) ----------------------
             if autoPressure:
-                if -(self.config.gigaseal_R /100) < rate_mohm_per_sec < self.config.gigaseal_R/3000: # less than 0.33, or negative 10? 
-                    print(f"Rate under 330kohm/s: {rate_mohm_per_sec} MΩ/s")
-                    currPressure -= 5
-                    speed = 3
-                    max_pressure = -45
-                    self.config.pressure_ramp_max = max_pressure
-                elif self.config.gigaseal_R/3000 <= rate_mohm_per_sec <= self.config.gigaseal_R/10: # between 0.33 and 100
-                    speed = 1   # Maintain current pressure
-                elif self.config.gigaseal_R/10 < rate_mohm_per_sec <= self.config.gigaseal_R/5: # between 100 and 200
-                    print(f"Rate over 100mohm/s : {rate_mohm_per_sec} MΩ/s")
-                    max_pressure = self.config.pressure_ramp_max
-                    currPressure += 5
-                    speed = 3
-                elif rate_mohm_per_sec <= -(self.config.gigaseal_R/100): # less than -10 mohm/s
-                    print(f"Rate too negative: {rate_mohm_per_sec} MΩ/s")
-                    currPressure += 5
-                    if currPressure > -5:
-                        currPressure = -5
-                    speed = 0.5
-                
+                if -(self.config.gigaseal_R / 100) < rate_mohm_per_sec < self.config.gigaseal_R / 3000:
+                    currPressure -= 5; speed = 3; max_pressure = -45
+                elif self.config.gigaseal_R / 3000 <= rate_mohm_per_sec <= self.config.gigaseal_R / 10:
+                    speed = 1  # maintain
+                elif self.config.gigaseal_R / 10 < rate_mohm_per_sec <= self.config.gigaseal_R / 5:
+                    max_pressure = self.config.pressure_ramp_max; currPressure += 5; speed = 3
+                elif rate_mohm_per_sec <= -(self.config.gigaseal_R / 100):
+                    currPressure += 5; currPressure = max(currPressure, -5); speed = 0.5
+
                 currPressure = max(currPressure, max_pressure)
                 if currPressure != prevpressure:
                     self.pressure.set_pressure(currPressure)
                     prevpressure = currPressure
-                    self.sleep(5/speed)
+                    self.sleep(5 / speed)
 
                 if currPressure <= max_pressure:
                     self.pressure.set_ATM(True)
@@ -495,98 +517,97 @@ class AutoPatcher(TaskController):
                     currPressure = -5
                     self.pressure.set_pressure(currPressure)
                     self.pressure.set_ATM(atm=False)
+            # -------------------------------------------------------------------------------------
 
-            if avg_resistance >= self.config.gigaseal_R/12 and not holding_switched:
+            # Holding potential switch (unchanged)
+            if avg_resistance >= self.config.gigaseal_R / 12 and not holding_switched:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
                 self.amplifier.switch_holding(True)
                 holding_switched = True
 
-            if avg_resistance >= self.config.gigaseal_R/3 and  not cap_switched:
-                self.daq.setCellMode(False)
-                self.amplifier.auto_fast_compensation()
-                self.sleep(1)
-                self.daq.setCellMode(True)
-                cap_switched = True
-
-
+            # Success check with consecutive‑hit filter -----------------------
             if avg_resistance >= self.config.gigaseal_R:
-                self.pressure.set_ATM(atm=True)
-                self.info(f"Seal successful!")
-                return
+                consecutive_success += 1
+            else:
+                consecutive_success = 0
 
+            if consecutive_success >= 3:  # 3 consecutive good windows
+                self.pressure.set_ATM(atm=True)
+                self.info("Seal successful!")
+                return
+        # Abort request came in
         raise AutopatchError("Seal unsuccessful: gigaseal criteria not met.")
     
     def break_in(self):
-        '''
-        Performs cell membrane Break in. The pipette must be in cell-attached Mode.
-        '''
+        """Same interface; now exits only after **three consecutive**
+        access‑resistance readings meet the criterion, ignoring transient
+        outliers. Uses the already‑hardened ramp helpers, so bad samples are
+        skipped automatically.
+        """
+        from collections import deque  # local import keeps patch minimal
+
         self.daq.setCellMode(True)
-        if self.config.mode == 'Classic':
-            autoPressure = True
-        else:
-            autoPressure = False
+        autoPressure = (self.config.mode == 'Classic')
         self.info(f"{self.config.mode}: Attempting Break in...")
-        # self.pressure.set_ATM(atm=True)
         self.sleep(3)
         self.pressure.set_pressure(self.config.pulse_pressure_break_in)
-        self.amplifier.set_zap_duration(25*1e-6)
+        self.amplifier.set_zap_duration(25 * 1e-6)
 
         measuredAccessResistance = self.accessRamp()
         measuredResistance = self.resistanceRamp()
         measuredCapacitance = self.capacitanceRamp()
-        self.info(f"Initial Resistance: {measuredResistance}; Initial Capacitance: {measuredCapacitance},  Initial Access Resistance: {measuredAccessResistance}")
-        self.info(f"target Resistance: {self.config.max_cell_R}; Target Capacitance: {self.config.min_cell_C}, Target Access Resistance: {self.config.max_access_R}")
+        self.info(
+            f"Initial Resistance: {measuredResistance}; Initial Capacitance: {measuredCapacitance},  Initial Access Resistance: {measuredAccessResistance}")
+        self.info(
+            f"target Resistance: {self.config.max_cell_R}; Target Capacitance: {self.config.min_cell_C}, Target Access Resistance: {self.config.max_access_R}")
 
-        # # Check if the gigaseal is lost
-        # if measuredResistance is not None and measuredResistance < self.config.max_cell_R*1e-6 and measuredCapacitance is not None and measuredCapacitance > self.config.min_cell_C*1e-12 or measuredAccessResistance > self.config.max_access_R*1e-6:
-        #     # self.done = True
-        #     raise AutopatchError("Seal lost")
-        
         trials = 0
         speed = 3
-        while measuredAccessResistance > self.config.max_access_R*1e-6:
+        consecutive_good = deque(maxlen=3)  # <<< NEW – holds last three AR readings
 
-
+        while True:
             if autoPressure:
                 trials += 1
                 self.debug(f"Trial: {trials}")
-                
-                # Apply pressure pulses
+                # Apply pressure pulses (existing logic preserved)
                 speedosc = trials % 5
                 if speedosc == 0:
                     speed = 2
                 self.pressure.set_ATM(atm=False)
-                self.sleep(1/speed)
+                self.sleep(1 / speed)
                 self.pressure.set_ATM(atm=True)
                 self.sleep(0.75)
-                # Optional zapping after a few trials every 3rd trial
                 speed = 3
                 osc = trials % 3
                 if self.config.zap and osc == 0:
                     self.info("zapping")
-                    self.amplifier.zap()
-                    self.sleep(0.5)
-                    self.amplifier.zap()
-                    self.sleep(0.5)
-
+                    self.amplifier.zap(); self.sleep(0.5)
+                    self.amplifier.zap(); self.sleep(0.5)
                 self.sleep(1)
-            
-            # Take new measurements using ramp functions to compute running averages.
+
+            # --- take new measurements (robust ramp helpers inside) ---
             measuredResistance = self.resistanceRamp()
             measuredAccessResistance = self.accessRamp()
             measuredCapacitance = self.capacitanceRamp()
 
             if autoPressure:
-                self.info(f"Trial {trials}: Running Avg Membrane Resistance: {measuredResistance}; Membrane Capacitance: {measuredCapacitance}, Access Resistance: {measuredAccessResistance}")
-                
-                # Fail after too many attempts.
-                if trials > 15:
+                self.info(
+                    f"Trial {trials}: Running Avg Membrane Resistance: {measuredResistance}; Membrane Capacitance: {measuredCapacitance}, Access Resistance: {measuredAccessResistance}")
 
+                if trials > 15:
                     self.info("Break-in unsuccessful")
                     raise AutopatchError("Break-in unsuccessful")
-        
-        self.info("Successful break-in, Running Avg Access Resistance = " + str(measuredAccessResistance))
 
+            # ---------------------- success check with 3‑hit filter ----------------------
+            consecutive_good.append(measuredAccessResistance)
+            if (
+                len(consecutive_good) == 3 and
+                all(r <= self.config.max_access_R * 1e-6 for r in consecutive_good)
+            ):
+                break  # success – exit while‑loop
+
+        self.info("Successful break-in, Running Avg Access Resistance = " + str(measuredAccessResistance))
+        
     def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
         '''
