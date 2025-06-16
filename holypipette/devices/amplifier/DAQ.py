@@ -1125,102 +1125,45 @@ class NiDAQ(DAQ):
             # ---------------------------------------------- 3. resume stream
             self.resume_acquisition()
 
-    def getDataFromVoltageProtocol(self):
-        """
-        Finite, single-shot 40 Hz V-step (0.5 V, 100 kS/s, 25 ms).
 
-        • Pauses and releases the continuous acquisition tasks.
-        • Runs up to 5 fresh finite AI+AO acquisitions until the
-          capacitance fit is non-zero.
-        • Restarts the background membrane-test stream.
+    def getDataFromVoltageProtocol(self,
+                                   *,
+                                   wave_freq: int = 40,
+                                   samplesPerSec: int = 50_000,   # 50 kS/s as requested
+                                   dutyCycle: float = 0.5,
+                                   amplitude: float = 0.5,
+                                   recordingTime: float = 0.025,  # 25 ms per period
+                                   max_attempts: int = 5):
+        """
+        1. Pause the acquisition **thread** (tasks keep streaming).
+        2. Call getDataFromSquareWave() once per attempt on the live stream.
+        3. Retry until Cₘ is non-zero or max_attempts is hit.
+        4. Resume the acquisition thread.
 
         Returns
         -------
         float | None
-            voltageMembraneCapacitance  (pF)  or None on failure.
+            Membrane capacitance (pF) or None on failure.
         """
-        import nidaqmx, time
-        import nidaqmx.constants as c
-        import numpy as np
+        import time
 
-        # 1.  Pause background thread and *release* the hardware
-        self.pause_acquisition()
-        for tname in ("ai_task", "ao_task"):
-            try:
-                getattr(self, tname).stop()
-                getattr(self, tname).close()
-            except Exception:
-                pass                                # task may not exist
-
-        wave_freq      = 40
-        samplesPerSec  = 100_000
-        dutyCycle      = 0.5
-        amplitude      = 0.5
-        recordingTime  = 0.025          # s
-
-        max_attempts   = 5
-        attempts       = 0
-        success        = False
+        # ─── 1. park the worker thread, leave tasks untouched ───────────
+        self._pause_evt.clear()                  # DAQAcquisitionThread blocks at .wait()
+        time.sleep(recordingTime * 2)            # let the current cycle finish cleanly
 
         try:
-            while attempts < max_attempts and not success:
-                attempts += 1
+            attempt  = 0
+            success  = False
 
-                # --- build a *temporary* buffer (no side-effects) -----
-                wave, rate, numSamples = self.createSquareWave(
-                    wave_freq, samplesPerSec, dutyCycle, amplitude,
-                    recordingTime, pre_pad_ms=10.0, store=False)
+            while attempt < max_attempts and not success:
+                attempt += 1
 
-                # --- finite AO task -----------------------------------
-                ao = nidaqmx.Task()
-                ao.ao_channels.add_ao_voltage_chan(
-                    f"{self.cmdDev}/{self.cmdChannel}")
-                ao.timing.cfg_samp_clk_timing(
-                    rate=rate,
-                    sample_mode=c.AcquisitionType.FINITE,
-                    samps_per_chan=numSamples)
+                # ─── 2. one-shot measurement on the continuous stream ──
+                result = self.getDataFromSquareWave(
+                    wave_freq, samplesPerSec, dutyCycle,
+                    amplitude, recordingTime
+                )
 
-                # --- finite AI task -----------------------------------
-                ai = nidaqmx.Task()
-                ai.ai_channels.add_ai_voltage_chan(
-                    f"{self.readDev}/{self.readChannel}",
-                    terminal_config=c.TerminalConfiguration.DIFF,
-                    min_val=-10.0, max_val=10.0)
-                ai.ai_channels.add_ai_voltage_chan(
-                    f"{self.respDev}/{self.respChannel}",
-                    terminal_config=c.TerminalConfiguration.DIFF,
-                    min_val=-10.0, max_val=10.0)
-                ai.timing.cfg_samp_clk_timing(
-                    rate=rate,
-                    sample_mode=c.AcquisitionType.FINITE,
-                    samps_per_chan=numSamples)
-
-                # Trigger AO from AI StartTrigger
-
-                if "Mod" in self.readDev:                 # e.g. "cDAQ1Mod1"
-                    chassis_name = self.readDev.split("Mod")[0]   # "cDAQ1"
-                    trig_term = f"/{chassis_name}/ai/StartTrigger"
-                else:
-                    trig_term = f"/{self.readDev}/ai/StartTrigger"
-
-                ao.triggers.start_trigger.cfg_dig_edge_start_trig(trig_term)
-
-                # Prime & fire
-                ao.write(wave, auto_start=False)
-                ao.start()      # armed / waiting
-                ai.start()      # kicks off both tasks
-
-                raw = ai.read(
-                    number_of_samples_per_channel=numSamples, timeout=10.0)
-
-                # Clean up this finite pair
-                ao.stop(); ai.stop()
-                ao.close(); ai.close()
-
-                raw = np.array(raw, dtype=float)
-
-                # -------- process & evaluate result ------------------
-                result = self._squareWaveProcessor(raw, rate, amplitude)
                 (self.voltage_protocol_data,
                  self.voltage_command_data,
                  self.voltageTotalResistance,
@@ -1228,18 +1171,14 @@ class NiDAQ(DAQ):
                  self.voltageAccessResistance,
                  self.voltageMembraneCapacitance) = result
 
-                success = (self.voltageMembraneCapacitance != 0)
+                success = (self.voltageMembraneCapacitance not in (0, None))
                 if not success:
-                    self.warning(f"Attempt {attempts}: capacitance == 0 → retry")
-                    time.sleep(0.2)
-
-        except Exception as e:
-            self.error(f"Voltage protocol failed: {e}")
-            self.voltageMembraneCapacitance = None
+                    self.warning(f"Voltage step attempt {attempt}: fit failed → retry")
+                    time.sleep(recordingTime)    # wait one extra cycle before retry
 
         finally:
-            # 4.  Hand control back to the continuous acquisition stream
-            self.resume_acquisition()
+            # ─── 4. resume background acquisition ───────────────────────
+            self._pause_evt.set()                # worker thread resumes
 
         return self.voltageMembraneCapacitance
 
