@@ -1126,59 +1126,103 @@ class NiDAQ(DAQ):
             self.resume_acquisition()
 
 
-    def getDataFromVoltageProtocol(self,
-                                   *,
-                                   wave_freq: int = 40,
-                                   samplesPerSec: int = 50_000,   # 50 kS/s as requested
-                                   dutyCycle: float = 0.5,
-                                   amplitude: float = 0.5,
-                                   recordingTime: float = 0.025,  # 25 ms per period
-                                   max_attempts: int = 5):
+    def getDataFromVoltageProtocol(
+            self,
+            *,                       # keyword-only
+            wave_freq: int = 40,
+            samplesPerSec: int = 50_000,   # 50 kS/s
+            dutyCycle: float = 0.5,
+            amplitude: float = 0.5,
+            recordingTime: float = 0.025,  # 25 ms period
+            max_attempts: int = 15
+    ):
         """
-        1. Pause the acquisition **thread** (tasks keep streaming).
-        2. Call getDataFromSquareWave() once per attempt on the live stream.
-        3. Retry until Cₘ is non-zero or max_attempts is hit.
-        4. Resume the acquisition thread.
+        • Pauses the DAQAcquisitionThread (tasks keep streaming).
+        • Collects **five acceptable** traces (≤ `max_attempts` cycles).
+            – First acceptable trace populates the usual voltage-protocol
+              attributes (`voltage_protocol_data`, Rₐ, Rₘ, …).
+            – All five capacitances are averaged → `voltageMembraneCapacitance`.
+            – All five baseline currents (I_prev_pA) averaged → `holding_current_avg`.
+        • Resumes the acquisition thread.
 
         Returns
         -------
         float | None
-            Membrane capacitance (pF) or None on failure.
+            Averaged capacitance (pF), or None if no acceptable trace was found.
         """
-        import time
+        import math, time, numpy as np
 
-        # ─── 1. park the worker thread, leave tasks untouched ───────────
-        self._pause_evt.clear()                  # DAQAcquisitionThread blocks at .wait()
-        time.sleep(recordingTime * 2)            # let the current cycle finish cleanly
+        # ─── 1. Pause the worker thread (leave AI / AO running) ─────────
+        self._pause_evt.clear()
+        time.sleep(recordingTime * 2)        # let current cycle pass
+
+        cm_values      = []      # acceptable capacitances
+        i_prev_values  = []      # acceptable baseline currents
+        first_saved    = False
+        attempts       = 0
 
         try:
-            attempt  = 0
-            success  = False
+            while attempts < max_attempts and len(cm_values) < 5:
+                attempts += 1
 
-            while attempt < max_attempts and not success:
-                attempt += 1
-
-                # ─── 2. one-shot measurement on the continuous stream ──
+                # ─── 2. Grab one square-wave cycle on the live stream ──
                 result = self.getDataFromSquareWave(
                     wave_freq, samplesPerSec, dutyCycle,
                     amplitude, recordingTime
                 )
 
-                (self.voltage_protocol_data,
-                 self.voltage_command_data,
-                 self.voltageTotalResistance,
-                 self.voltageMembraneResistance,
-                 self.voltageAccessResistance,
-                 self.voltageMembraneCapacitance) = result
+                (prot_data, cmd_data,
+                 totalR, memR, accR, memC) = result
 
-                success = (self.voltageMembraneCapacitance not in (0, None))
-                if not success:
-                    self.warning(f"Voltage step attempt {attempt}: fit failed → retry")
-                    time.sleep(recordingTime)    # wait one extra cycle before retry
+                # _getParamsfromCurrent() has just updated self.holding_current
+                i_prev_pA = getattr(self, "holding_current", None)
+
+                # ─── 3. Acceptability check ────────────────────────────
+                good_cm   = memC is not None and math.isfinite(memC) and memC > 0
+                self.info(f'cm: {memC:.2f} pF, ')
+                good_i    = i_prev_pA is not None and math.isfinite(i_prev_pA)
+                self.info(f'i_prev: {i_prev_pA:.2f} pA, ')
+
+                if good_cm and good_i:
+                    # store the first good trace exactly as before
+                    if not first_saved:
+                        (self.voltage_protocol_data,
+                         self.voltage_command_data,
+                         self.voltageTotalResistance,
+                         self.voltageMembraneResistance,
+                         self.voltageAccessResistance,
+                         self.voltageMembraneCapacitance) = result
+                        first_saved = True
+
+                    cm_values.append(memC)
+                    i_prev_values.append(i_prev_pA)
+                else:
+                    self.warning(f"Voltage step attempt {attempts}: "
+                                 "unacceptable fit → skipped")
+
+                # wait one extra period so traces do not overlap in FIFO
+                time.sleep(recordingTime)
+
+            if not cm_values:
+                # no acceptable trace at all
+                self.error("Voltage protocol: no acceptable trace found")
+                self.holding_current_avg         = None
+                self.voltageMembraneCapacitance  = None
+                return None
+
+            # ─── 4. Average capacitance & baseline current ─────────────
+            self.voltageMembraneCapacitance = float(np.mean(cm_values))
+            self.holding_current_avg        = float(np.mean(i_prev_values))
+            self.info(f"Averages: cm: {self.voltageMembraneCapacitance:.2f} pF, ")
+            self.info(f"i_prev: {self.holding_current_avg:.2f} pA, ")
+
+            if len(cm_values) < 5:
+                self.warning(f"Voltage protocol collected only {len(cm_values)} "
+                             f"good traces (expected 5) within {attempts} attempts")
 
         finally:
-            # ─── 4. resume background acquisition ───────────────────────
-            self._pause_evt.set()                # worker thread resumes
+            # ─── 5. Resume background acquisition ──────────────────────
+            self._pause_evt.set()
 
         return self.voltageMembraneCapacitance
 

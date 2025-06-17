@@ -109,22 +109,20 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         self.amplifier.current_clamp()
         self.sleep(0.1)
-        self.amplifier.set_bridge_balance(True)
-        self.info('auto bridge balance')
-        self.amplifier.auto_bridge_balance()
-        self.sleep(0.1)
         self.amplifier.set_neutralization_capacitance(cap)
         self.info('set neutralization capacitance')
         self.amplifier.set_neutralization_enable(True)
         self.info('enabled neutralization')
+        self.sleep(0.1)
+        self.amplifier.set_bridge_balance(True)
+        self.info('auto bridge balance')
+        self.amplifier.auto_bridge_balance()
+        self.sleep(0.1)
         if self.iholding is None:
             current = -50
 
         else:
             current = (self.iholding)
-
-        if self.iholding < -80:
-            current = -80
 
         current = current * 1e-12
         self.amplifier.set_holding(current)
@@ -607,7 +605,7 @@ class AutoPatcher(TaskController):
                 break  # success – exit while‑loop
 
         self.info("Successful break-in, Running Avg Access Resistance = " + str(measuredAccessResistance))
-        
+
     def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
         '''
