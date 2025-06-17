@@ -207,7 +207,8 @@ class AutoPatcher(TaskController):
         if self.config.cell_type == "Plate":
             self.config.cell_distance = 20
         elif self.config.cell_type == "Slice":
-            self.config.cell_distance = 20
+            self.config.cell_distance = 75
+            
 
         self.info(f" Moving to Cell position: {cell_pos}") 
         # moving stage to xy position of cell
@@ -263,16 +264,17 @@ class AutoPatcher(TaskController):
         zdistleft  = z_pos - cell_pos[2]
         self.microscope.relative_move(-zdistleft)
         self.microscope.wait_until_still()
-        self.info("centering on cell")
-        self.calibrated_stage.center_on_cell(cell)
-        self.calibrated_stage.wait_until_still()
-        self.info(f"correcting pipette position, moving microscope by {zdistleft} um")
-        self.microscope.relative_move(-self.config.cell_distance)
-        self.microscope.wait_until_still()
-        self.calibrated_unit.center_pipette()
-        self.calibrated_unit.wait_until_still()
-        self.microscope.relative_move(self.config.cell_distance)
-        self.microscope.wait_until_still()
+        if self.config.cell_type == "Plate": 
+            self.info("centering on cell")
+            self.calibrated_stage.center_on_cell(cell)
+            self.calibrated_stage.wait_until_still()
+            self.info(f"correcting pipette position, moving microscope by {zdistleft} um")
+            self.microscope.relative_move(-self.config.cell_distance)
+            self.microscope.wait_until_still()
+            self.calibrated_unit.center_pipette()
+            self.calibrated_unit.wait_until_still()
+            self.microscope.relative_move(self.config.cell_distance)
+            self.microscope.wait_until_still()
         self.info("Located Cell")
 
         self.amplifier.start_patch()
@@ -324,7 +326,7 @@ class AutoPatcher(TaskController):
         if self.config.cell_type == "Plate":
             self.config.cell_R_increase = 0.300
         elif self.config.cell_type == "Slice":
-            self.config.cell_R_increase = 0.300
+            self.config.cell_R_increase = 0.200
 
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
             curr_pos = self.calibrated_unit.position()
