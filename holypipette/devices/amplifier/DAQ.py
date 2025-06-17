@@ -1067,12 +1067,12 @@ class NiDAQ(DAQ):
 
         return self.current_protocol_data, self.pulses, self.pulseRange
 
-    def getDataFromHoldingProtocol(self, *, rate_hz: int = 50_000, duration_s: float = 1.0):
+    def getDataFromHoldingProtocol(self, *, rate_hz: int = 50_000, duration_s: float = 60.0):
         """
         OLD-STYLE baseline read-out (no command output).
 
         • Suspends the membrane-test thread.
-        • Builds one finite AI-only task at 50 kS/s for 1 s
+        • Builds one finite AI-only task at 50 kS/s for 60 s
           (same numbers as the legacy code).
         • Does *not* touch the AO task, avoiding the –200547 write error.
         • Restarts the continuous stream afterwards.
