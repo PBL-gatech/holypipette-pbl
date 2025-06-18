@@ -67,3 +67,5 @@ experiments/Datasets/temp_dataset.hdf5
 /holypipette/deepLearning
 /holypipette/deepLearning
 /holypipette/experiments/Data
+/experiments/Analysis/Patch_Clamp/rowanexample
+/experiments/Analysis/Patch_Clamp/testCCdata
