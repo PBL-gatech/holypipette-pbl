@@ -56,20 +56,54 @@ class AutoPatcher(TaskController):
     def state_emitter(self, state):
         self.info(f"emitting state: {state}")
 
+    def getHolding(self):
+        """Get the holding current as measured by the DAQ."""
+        self.amplifier.voltage_clamp()
+        self.sleep(1)
+        self.amplifier.switch_holding(False) 
+        self.sleep(1)
+        base1a = self.daq.holding_current
+        self.sleep(1)
+        base1b = self.daq.holding_current
+        if base1a and base1b is not None:
+            base1 = float((base1a + base1b) / 2)
+        else: 
+            base1 = None
+        self.amplifier.switch_holding(True)
+        self.sleep(1)
+        base2a = self.daq.holding_current
+        self.sleep(1)
+        base2b = self.daq.holding_current
+        # average base2a and base2b
+        if base2a and base2b is not None:
+            base2 = float((base2a + base2b) / 2)
+        else:
+            base2 = None
+        if base1 is None or base2 is None:
+            self.info("Holding current not set, using default value")
+            return -50
+        else:
+            holding_current = (base2 - base1) 
+            # self.info(f"Base1: {base1}, Base2: {base2}")
+            self.info(f"Holding current: {holding_current} pA")
+            if abs(holding_current) > 150:
+                self.info("Holding current is too high, setting to default value of -50 pA")
+                holding_current = -50
+            return holding_current
+
+    
+
     def run_protocols(self):
 
         self.daq.setCellMode(True)
+        holding = self.getHolding()
+
         if self.config.voltage_protocol:
             self.run_voltage_protocol()
             self.sleep(0.25)
         if self.config.current_protocol:
             self.daq.setCellMode(False)
-            self.iholding = self.daq.holding_current
-            # self.iholding = 0
-            logging.debug(f"custom_current_protocol state: {self.config.custom_protocol}")
-            logging.debug(f"start cclamp current: {self.config.cclamp_start}")
-            logging.debug(f"end cclamp current: {self.config.cclamp_end}")
-            logging.debug(f"step cclamp current: {self.config.cclamp_step}")
+            self.iholding = holding
             self.run_current_protocol()
             self.sleep(0.25)
             self.daq.setCellMode(True)
@@ -133,12 +167,12 @@ class AutoPatcher(TaskController):
         self.amplifier.switch_holding(True)
         self.info('enabled holding')
         self.sleep(0.1)
-        if self.config.custom_protocol:
+        if self.config.custom_cclamp_protocol:
             self.debug('running custom current protocol')
-            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), recordingTimeMs = 500)                                            
+            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_cclamp_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), recordingTimeMs = 500)                                            
         else:
             self.debug('running default current protocol')
-            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs = 500)
+            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_cclamp_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs = 500)
         self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')
@@ -156,7 +190,7 @@ class AutoPatcher(TaskController):
         self.amplifier.set_holding(holding)
         self.info(f'holding at {holding} mV')
         self.sleep(0.25)
-        self.daq.getDataFromHoldingProtocol()
+        self.daq.getDataFromHoldingProtocol(duration_s = self.config.hclamp_duration)
         self.sleep(0.25)
         # self.amplifier.set_holding(0)
         self.sleep(0.25)
@@ -433,8 +467,8 @@ class AutoPatcher(TaskController):
 
 
     def gigaseal(self):
-        """Unchanged outward behaviour, but now requires **three consecutive**
-        averaged‑resistance windows ≥ target to declare success, reducing
+        """requires **three consecutive**
+        averaged-resistance windows ≥ target to declare success, reducing
         false positives from transient spikes.
         """
         if self.config.mode == 'Classic':
@@ -449,7 +483,7 @@ class AutoPatcher(TaskController):
         self.info("Collecting baseline resistance...")
 
         avg_resistance = self.resistanceRamp()
-        consecutive_success = 0  # <<< NEW
+        consecutive_success = 0
 
         self.pressure.set_ATM(atm=True)
 
@@ -467,6 +501,7 @@ class AutoPatcher(TaskController):
             prevpressure = currPressure
             speed = 1
             bad_cell_count = 0
+            # this is already negative, e.g. -30 mbar
             max_pressure = self.config.pressure_ramp_max
 
         holding_switched = False
@@ -486,10 +521,13 @@ class AutoPatcher(TaskController):
             if delta_resistance >= self.config.gigaseal_min_delta_R:
                 last_progress_time = time.time()
 
-            print(f"goal resistance: {self.config.gigaseal_R} MΩ; current resistance: {avg_resistance} MΩ; rate: {rate_mohm_per_sec} MΩ/s")
+            print(f"goal resistance: {self.config.gigaseal_R} MΩ; "
+                f"current resistance: {avg_resistance} MΩ; "
+                f"rate: {rate_mohm_per_sec} MΩ/s")
 
-            # ---------------------- existing auto‑pressure logic (verbatim) ----------------------
+            # ---------------------- auto-pressure logic ----------------------
             if autoPressure:
+                # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
                 if -(self.config.gigaseal_R / 100) < rate_mohm_per_sec < self.config.gigaseal_R / 3000:
                     currPressure -= 5; speed = 3; max_pressure = -45
                 elif self.config.gigaseal_R / 3000 <= rate_mohm_per_sec <= self.config.gigaseal_R / 10:
@@ -499,7 +537,12 @@ class AutoPatcher(TaskController):
                 elif rate_mohm_per_sec <= -(self.config.gigaseal_R / 100):
                     currPressure += 5; currPressure = max(currPressure, -5); speed = 0.5
 
-                currPressure = max(currPressure, max_pressure)
+                # <<< replace single clamp with two lines to forbid positive pressure >>>
+                # never above 0 mbar:
+                currPressure = min(currPressure, 0.0)
+                # never exceed deepest vacuum (e.g. -30 mbar):
+                currPressure = max(currPressure, self.config.pressure_ramp_max)
+
                 if currPressure != prevpressure:
                     self.pressure.set_pressure(currPressure)
                     prevpressure = currPressure
@@ -519,35 +562,44 @@ class AutoPatcher(TaskController):
                     currPressure = -5
                     self.pressure.set_pressure(currPressure)
                     self.pressure.set_ATM(atm=False)
-            # -------------------------------------------------------------------------------------
+            # ---------------------------------------------------------------
 
-            # Holding potential switch (unchanged)
+            # Holding potential switch
             if avg_resistance >= self.config.gigaseal_R / 12 and not holding_switched:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
                 self.amplifier.switch_holding(True)
                 holding_switched = True
 
-            # Success check with consecutive‑hit filter -----------------------
+            # Success check with consecutive-hit filter
             if avg_resistance >= self.config.gigaseal_R:
                 consecutive_success += 1
             else:
                 consecutive_success = 0
 
-            if consecutive_success >= 3:  # 3 consecutive good windows
+            if consecutive_success >= 3:
                 self.pressure.set_ATM(atm=True)
                 self.info("Seal successful!")
                 return
+
         # Abort request came in
         raise AutopatchError("Seal unsuccessful: gigaseal criteria not met.")
-    
+
     def break_in(self):
-        """Same interface; now exits only after **three consecutive**
-        access‑resistance readings meet the criterion, ignoring transient
-        outliers. Uses the already‑hardened ramp helpers, so bad samples are
-        skipped automatically.
+        """
+        Attempts whole-cell break-in.
+
+        NEW LOGIC
+        ---------
+        * Measure access resistance first each loop.
+        * On every sub-threshold reading, **pause** all pressure/zap activity and
+        skip the slow resistance & capacitance ramps.
+        * Require three consecutive good readings to confirm success.
+        * The moment a reading is above threshold, reset the streak and fall back
+        to the full pressure/zap/ramp cycle.
         """
         from collections import deque  # local import keeps patch minimal
 
+        # ---------- initial setup (unchanged) ----------
         self.daq.setCellMode(True)
         autoPressure = (self.config.mode == 'Classic')
         self.info(f"{self.config.mode}: Attempting Break in...")
@@ -556,22 +608,44 @@ class AutoPatcher(TaskController):
         self.amplifier.set_zap_duration(25 * 1e-6)
 
         measuredAccessResistance = self.accessRamp()
-        measuredResistance = self.resistanceRamp()
-        measuredCapacitance = self.capacitanceRamp()
+        measuredResistance       = self.resistanceRamp()
+        measuredCapacitance      = self.capacitanceRamp()
         self.info(
-            f"Initial Resistance: {measuredResistance}; Initial Capacitance: {measuredCapacitance},  Initial Access Resistance: {measuredAccessResistance}")
+            f"Initial Resistance: {measuredResistance}; "
+            f"Initial Capacitance: {measuredCapacitance},  "
+            f"Initial Access Resistance: {measuredAccessResistance}")
         self.info(
-            f"target Resistance: {self.config.max_cell_R}; Target Capacitance: {self.config.min_cell_C}, Target Access Resistance: {self.config.max_access_R}")
+            f"Target Resistance: {self.config.max_cell_R}; "
+            f"Target Capacitance: {self.config.min_cell_C}, "
+            f"Target Access Resistance: {self.config.max_access_R}")
 
-        trials = 0
-        speed = 3
-        consecutive_good = deque(maxlen=3)  # <<< NEW – holds last three AR readings
+        # ---------- loop variables ----------
+        trials        = 0
+        speed         = 3
+        good_count    = 0
+        threshold_AR  = self.config.max_access_R      # adjust here if units differ
 
+        # ---------- main loop ----------
         while True:
+            # ---- 1) quick access-R check ----
+            r_ax = self.accessRamp()
+            self.debug(f"Access-R check: {r_ax:.2f} Ω (good_count={good_count})")
+
+            if r_ax <= threshold_AR:
+                good_count += 1
+                if good_count >= 3:        # success: 3 good hits in a row
+                    measuredAccessResistance = r_ax
+                    break
+                # pause all actions; go straight to next access-R check
+                continue
+            else:
+                good_count = 0             # reset streak on failure
+
+            # ---- 2) full break-in cycle (runs only after a “bad” access-R) ----
             if autoPressure:
                 trials += 1
                 self.debug(f"Trial: {trials}")
-                # Apply pressure pulses (existing logic preserved)
+
                 speedosc = trials % 5
                 if speedosc == 0:
                     speed = 2
@@ -580,35 +654,32 @@ class AutoPatcher(TaskController):
                 self.pressure.set_ATM(atm=True)
                 self.sleep(0.75)
                 speed = 3
+
                 osc = trials % 3
                 if self.config.zap and osc == 0:
                     self.info("zapping")
                     self.amplifier.zap(); self.sleep(0.5)
                     self.amplifier.zap(); self.sleep(0.5)
+
                 self.sleep(1)
 
-            # --- take new measurements (robust ramp helpers inside) ---
-            measuredResistance = self.resistanceRamp()
-            measuredAccessResistance = self.accessRamp()
+            # slow ramps (only if previous access-R was “bad”)
+            measuredResistance  = self.resistanceRamp()
             measuredCapacitance = self.capacitanceRamp()
 
             if autoPressure:
                 self.info(
-                    f"Trial {trials}: Running Avg Membrane Resistance: {measuredResistance}; Membrane Capacitance: {measuredCapacitance}, Access Resistance: {measuredAccessResistance}")
+                    f"Trial {trials}: Running Avg Membrane Resistance: "
+                    f"{measuredResistance}; Membrane Capacitance: "
+                    f"{measuredCapacitance}, Access Resistance: {r_ax}")
 
                 if trials > 15:
                     self.info("Break-in unsuccessful")
                     raise AutopatchError("Break-in unsuccessful")
 
-            # ---------------------- success check with 3‑hit filter ----------------------
-            consecutive_good.append(measuredAccessResistance)
-            if (
-                len(consecutive_good) == 3 and
-                all(r <= self.config.max_access_R * 1e-6 for r in consecutive_good)
-            ):
-                break  # success – exit while‑loop
-
-        self.info("Successful break-in, Running Avg Access Resistance = " + str(measuredAccessResistance))
+        # ---------- success ----------
+        self.info("Successful break-in, Running Avg Access Resistance = "
+                f"{measuredAccessResistance:.2f}")
 
     def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?

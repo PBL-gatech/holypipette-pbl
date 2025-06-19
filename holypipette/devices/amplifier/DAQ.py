@@ -1125,7 +1125,6 @@ class NiDAQ(DAQ):
             # ---------------------------------------------- 3. resume stream
             self.resume_acquisition()
 
-
     def getDataFromVoltageProtocol(
             self,
             *,                       # keyword-only
@@ -1140,9 +1139,9 @@ class NiDAQ(DAQ):
         • Pauses the DAQAcquisitionThread (tasks keep streaming).
         • Collects **five acceptable** traces (≤ `max_attempts` cycles).
             – First acceptable trace populates the usual voltage-protocol
-              attributes (`voltage_protocol_data`, Rₐ, Rₘ, …).
+            attributes (`voltage_protocol_data`, Rₐ, Rₘ, …).
             – All five capacitances are averaged → `voltageMembraneCapacitance`.
-            – All five baseline currents (I_prev_pA) averaged → `holding_current_avg`.
+
         • Resumes the acquisition thread.
 
         Returns
@@ -1156,10 +1155,9 @@ class NiDAQ(DAQ):
         self._pause_evt.clear()
         time.sleep(recordingTime * 2)        # let current cycle pass
 
-        cm_values      = []      # acceptable capacitances
-        i_prev_values  = []      # acceptable baseline currents
-        first_saved    = False
-        attempts       = 0
+        cm_values   = []      # acceptable capacitances
+        first_saved = False
+        attempts    = 0
 
         try:
             while attempts < max_attempts and len(cm_values) < 5:
@@ -1170,35 +1168,31 @@ class NiDAQ(DAQ):
                     wave_freq, samplesPerSec, dutyCycle,
                     amplitude, recordingTime
                 )
-
                 (prot_data, cmd_data,
-                 totalR, memR, accR, memC) = result
-
-                # _getParamsfromCurrent() has just updated self.holding_current
-                i_prev_pA = getattr(self, "holding_current", None)
+                totalR, memR, accR, memC) = result
 
                 # ─── 3. Acceptability check ────────────────────────────
-                good_cm   = memC is not None and math.isfinite(memC) and memC > 0
+                good_cm = (memC is not None
+                        and math.isfinite(memC)
+                        and memC > 0
+                        and memC < 250)  # pF, arbitrary upper limit
                 self.info(f'cm: {memC:.2f} pF, ')
-                good_i    = i_prev_pA is not None and math.isfinite(i_prev_pA)
-                self.info(f'i_prev: {i_prev_pA:.2f} pA, ')
 
-                if good_cm and good_i:
+                if good_cm:
                     # store the first good trace exactly as before
                     if not first_saved:
                         (self.voltage_protocol_data,
-                         self.voltage_command_data,
-                         self.voltageTotalResistance,
-                         self.voltageMembraneResistance,
-                         self.voltageAccessResistance,
-                         self.voltageMembraneCapacitance) = result
+                        self.voltage_command_data,
+                        self.voltageTotalResistance,
+                        self.voltageMembraneResistance,
+                        self.voltageAccessResistance,
+                        self.voltageMembraneCapacitance) = result
                         first_saved = True
 
                     cm_values.append(memC)
-                    i_prev_values.append(i_prev_pA)
                 else:
                     self.warning(f"Voltage step attempt {attempts}: "
-                                 "unacceptable fit → skipped")
+                                "unacceptable fit → skipped")
 
                 # wait one extra period so traces do not overlap in FIFO
                 time.sleep(recordingTime)
@@ -1206,19 +1200,16 @@ class NiDAQ(DAQ):
             if not cm_values:
                 # no acceptable trace at all
                 self.error("Voltage protocol: no acceptable trace found")
-                self.holding_current_avg         = None
-                self.voltageMembraneCapacitance  = None
+                self.voltageMembraneCapacitance = None
                 return None
 
-            # ─── 4. Average capacitance & baseline current ─────────────
+            # ─── 4. Average capacitance ──────────────────────────────
             self.voltageMembraneCapacitance = float(np.mean(cm_values))
-            self.holding_current_avg        = float(np.mean(i_prev_values))
             self.info(f"Averages: cm: {self.voltageMembraneCapacitance:.2f} pF, ")
-            self.info(f"i_prev: {self.holding_current_avg:.2f} pA, ")
 
             if len(cm_values) < 5:
                 self.warning(f"Voltage protocol collected only {len(cm_values)} "
-                             f"good traces (expected 5) within {attempts} attempts")
+                            f"good traces (expected 5) within {attempts} attempts")
 
         finally:
             # ─── 5. Resume background acquisition ──────────────────────

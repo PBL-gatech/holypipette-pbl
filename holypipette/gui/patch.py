@@ -548,8 +548,9 @@ class ClassicPatchButtons(ButtonTabWidget):
     def update_pipette_pos_labels(self, indices):
         # Update the position labels
         # start_time = time.perf_counter_ns()
-        currPos = self.pipette_interface.calibrated_unit.unit.position()
-        currPos = currPos - self.tare_pipette_pos
+        # currPos = self.pipette_interface.calibrated_unit.unit.position()
+        recPos  = self.pipette_interface.calibrated_unit.unit.position()
+        currPos = recPos - self.tare_pipette_pos
         if self.recording_state_manager.is_recording_enabled():
             self.recorder.setBatchMoves(True)
             timestamp = datetime.now().timestamp()
@@ -559,9 +560,9 @@ class ClassicPatchButtons(ButtonTabWidget):
                 self.stage_xy[0],
                 self.stage_xy[1],
                 self.stage_z,
-                currPos[0],
-                currPos[1],
-                currPos[2]
+                recPos[0],
+                recPos[1],
+                recPos[2]
             )
 
         self.pipette_xyz = currPos
@@ -587,13 +588,12 @@ class ClassicPatchButtons(ButtonTabWidget):
         print("Tare stage z: ", self.currz_stage_pos)
 
     def update_stage_pos_labels(self, indices):
-        # Update the position labels
-        # start_time = time.perf_counter_ns()
-        xyPos = self.pipette_interface.calibrated_stage.position() - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
-        zPos = self.pipette_interface.microscope.position() - self.currz_stage_pos[2]
-
-        self.stage_xy = xyPos
-        self.stage_z = zPos
+        xyRecPos = self.pipette_interface.calibrated_stage.position()
+        zRecPos = self.pipette_interface.microscope.position()
+        xyPos = xyRecPos - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
+        zPos = zRecPos - self.currz_stage_pos[2]
+        self.stage_xy = xyRecPos
+        self.stage_z = zRecPos
 
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]
