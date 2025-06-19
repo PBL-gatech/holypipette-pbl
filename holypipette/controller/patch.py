@@ -64,7 +64,7 @@ class AutoPatcher(TaskController):
             self.daq.setCellMode(False)
             self.iholding = self.daq.holding_current
             # self.iholding = 0
-            logging.debug(f"custom_current_protocol state: {self.config.custom_protocol}")
+            logging.debug(f"custom_current_protocol state: {self.config.custom_cclamp_protocol}")
             logging.debug(f"start cclamp current: {self.config.cclamp_start}")
             logging.debug(f"end cclamp current: {self.config.cclamp_end}")
             logging.debug(f"step cclamp current: {self.config.cclamp_step}")
@@ -131,12 +131,12 @@ class AutoPatcher(TaskController):
         self.amplifier.switch_holding(True)
         self.info('enabled holding')
         self.sleep(0.1)
-        if self.config.custom_protocol:
+        if self.config.custom_cclamp_protocol:
             self.debug('running custom current protocol')
-            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), recordingTimeMs = 500)                                            
+            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_cclamp_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), recordingTimeMs = 500)                                            
         else:
             self.debug('running default current protocol')
-            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs = 500)
+            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_cclamp_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs = 500)
         self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')
@@ -154,7 +154,7 @@ class AutoPatcher(TaskController):
         self.amplifier.set_holding(holding)
         self.info(f'holding at {holding} mV')
         self.sleep(0.25)
-        self.daq.getDataFromHoldingProtocol()
+        self.daq.getDataFromHoldingProtocol(duration_s = self.config.hclamp_duration)
         self.sleep(0.25)
         # self.amplifier.set_holding(0)
         self.sleep(0.25)
