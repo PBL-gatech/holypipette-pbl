@@ -583,13 +583,21 @@ class AutoPatcher(TaskController):
         raise AutopatchError("Seal unsuccessful: gigaseal criteria not met.")
 
     def break_in(self):
-        """Same interface; now exits only after **three consecutive**
-        access‑resistance readings meet the criterion, ignoring transient
-        outliers. Uses the already‑hardened ramp helpers, so bad samples are
-        skipped automatically.
+        """
+        Attempts whole-cell break-in.
+
+        NEW LOGIC
+        ---------
+        * Measure access resistance first each loop.
+        * On every sub-threshold reading, **pause** all pressure/zap activity and
+        skip the slow resistance & capacitance ramps.
+        * Require three consecutive good readings to confirm success.
+        * The moment a reading is above threshold, reset the streak and fall back
+        to the full pressure/zap/ramp cycle.
         """
         from collections import deque  # local import keeps patch minimal
 
+        # ---------- initial setup (unchanged) ----------
         self.daq.setCellMode(True)
         autoPressure = (self.config.mode == 'Classic')
         self.info(f"{self.config.mode}: Attempting Break in...")
@@ -598,22 +606,44 @@ class AutoPatcher(TaskController):
         self.amplifier.set_zap_duration(25 * 1e-6)
 
         measuredAccessResistance = self.accessRamp()
-        measuredResistance = self.resistanceRamp()
-        measuredCapacitance = self.capacitanceRamp()
+        measuredResistance       = self.resistanceRamp()
+        measuredCapacitance      = self.capacitanceRamp()
         self.info(
-            f"Initial Resistance: {measuredResistance}; Initial Capacitance: {measuredCapacitance},  Initial Access Resistance: {measuredAccessResistance}")
+            f"Initial Resistance: {measuredResistance}; "
+            f"Initial Capacitance: {measuredCapacitance},  "
+            f"Initial Access Resistance: {measuredAccessResistance}")
         self.info(
-            f"target Resistance: {self.config.max_cell_R}; Target Capacitance: {self.config.min_cell_C}, Target Access Resistance: {self.config.max_access_R}")
+            f"Target Resistance: {self.config.max_cell_R}; "
+            f"Target Capacitance: {self.config.min_cell_C}, "
+            f"Target Access Resistance: {self.config.max_access_R}")
 
-        trials = 0
-        speed = 3
-        consecutive_good = deque(maxlen=3)  # <<< NEW – holds last three AR readings
+        # ---------- loop variables ----------
+        trials        = 0
+        speed         = 3
+        good_count    = 0
+        threshold_AR  = self.config.max_access_R      # adjust here if units differ
 
+        # ---------- main loop ----------
         while True:
+            # ---- 1) quick access-R check ----
+            r_ax = self.accessRamp()
+            self.debug(f"Access-R check: {r_ax:.2f} Ω (good_count={good_count})")
+
+            if r_ax <= threshold_AR:
+                good_count += 1
+                if good_count >= 3:        # success: 3 good hits in a row
+                    measuredAccessResistance = r_ax
+                    break
+                # pause all actions; go straight to next access-R check
+                continue
+            else:
+                good_count = 0             # reset streak on failure
+
+            # ---- 2) full break-in cycle (runs only after a “bad” access-R) ----
             if autoPressure:
                 trials += 1
                 self.debug(f"Trial: {trials}")
-                # Apply pressure pulses (existing logic preserved)
+
                 speedosc = trials % 5
                 if speedosc == 0:
                     speed = 2
@@ -622,35 +652,32 @@ class AutoPatcher(TaskController):
                 self.pressure.set_ATM(atm=True)
                 self.sleep(0.75)
                 speed = 3
+
                 osc = trials % 3
                 if self.config.zap and osc == 0:
                     self.info("zapping")
                     self.amplifier.zap(); self.sleep(0.5)
                     self.amplifier.zap(); self.sleep(0.5)
+
                 self.sleep(1)
 
-            # --- take new measurements (robust ramp helpers inside) ---
-            measuredResistance = self.resistanceRamp()
-            measuredAccessResistance = self.accessRamp()
+            # slow ramps (only if previous access-R was “bad”)
+            measuredResistance  = self.resistanceRamp()
             measuredCapacitance = self.capacitanceRamp()
 
             if autoPressure:
                 self.info(
-                    f"Trial {trials}: Running Avg Membrane Resistance: {measuredResistance}; Membrane Capacitance: {measuredCapacitance}, Access Resistance: {measuredAccessResistance}")
+                    f"Trial {trials}: Running Avg Membrane Resistance: "
+                    f"{measuredResistance}; Membrane Capacitance: "
+                    f"{measuredCapacitance}, Access Resistance: {r_ax}")
 
                 if trials > 15:
                     self.info("Break-in unsuccessful")
                     raise AutopatchError("Break-in unsuccessful")
 
-            # ---------------------- success check with 3‑hit filter ----------------------
-            consecutive_good.append(measuredAccessResistance)
-            if (
-                len(consecutive_good) == 3 and
-                all(r <= self.config.max_access_R * 1e-6 for r in consecutive_good)
-            ):
-                break  # success – exit while‑loop
-
-        self.info("Successful break-in, Running Avg Access Resistance = " + str(measuredAccessResistance))
+        # ---------- success ----------
+        self.info("Successful break-in, Running Avg Access Resistance = "
+                f"{measuredAccessResistance:.2f}")
 
     def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
