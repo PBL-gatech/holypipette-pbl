@@ -84,25 +84,24 @@ class AutoPatcher(TaskController):
             holding_current = (base2 - base1) 
             # self.info(f"Base1: {base1}, Base2: {base2}")
             self.info(f"Holding current: {holding_current} pA")
+            if abs(holding_current) > 150:
+                self.info("Holding current is too high, setting to default value of -50 pA")
+                holding_current = -50
             return holding_current
 
- 
+    
 
     def run_protocols(self):
 
         self.daq.setCellMode(True)
         holding = self.getHolding()
+
         if self.config.voltage_protocol:
             self.run_voltage_protocol()
             self.sleep(0.25)
         if self.config.current_protocol:
             self.daq.setCellMode(False)
             self.iholding = holding
-            # self.iholding = 0
-            # logging.debug(f"custom_current_protocol state: {self.config.custom_cclamp_protocol}")
-            # logging.debug(f"start cclamp current: {self.config.cclamp_start}")
-            # logging.debug(f"end cclamp current: {self.config.cclamp_end}")
-            # logging.debug(f"step cclamp current: {self.config.cclamp_step}")
             self.run_current_protocol()
             self.sleep(0.25)
             self.daq.setCellMode(True)
