@@ -465,8 +465,8 @@ class AutoPatcher(TaskController):
 
 
     def gigaseal(self):
-        """Unchanged outward behaviour, but now requires **three consecutive**
-        averaged‑resistance windows ≥ target to declare success, reducing
+        """requires **three consecutive**
+        averaged-resistance windows ≥ target to declare success, reducing
         false positives from transient spikes.
         """
         if self.config.mode == 'Classic':
@@ -481,7 +481,7 @@ class AutoPatcher(TaskController):
         self.info("Collecting baseline resistance...")
 
         avg_resistance = self.resistanceRamp()
-        consecutive_success = 0  # <<< NEW
+        consecutive_success = 0
 
         self.pressure.set_ATM(atm=True)
 
@@ -499,6 +499,7 @@ class AutoPatcher(TaskController):
             prevpressure = currPressure
             speed = 1
             bad_cell_count = 0
+            # this is already negative, e.g. -30 mbar
             max_pressure = self.config.pressure_ramp_max
 
         holding_switched = False
@@ -518,10 +519,13 @@ class AutoPatcher(TaskController):
             if delta_resistance >= self.config.gigaseal_min_delta_R:
                 last_progress_time = time.time()
 
-            print(f"goal resistance: {self.config.gigaseal_R} MΩ; current resistance: {avg_resistance} MΩ; rate: {rate_mohm_per_sec} MΩ/s")
+            print(f"goal resistance: {self.config.gigaseal_R} MΩ; "
+                f"current resistance: {avg_resistance} MΩ; "
+                f"rate: {rate_mohm_per_sec} MΩ/s")
 
-            # ---------------------- existing auto‑pressure logic (verbatim) ----------------------
+            # ---------------------- auto-pressure logic ----------------------
             if autoPressure:
+                # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
                 if -(self.config.gigaseal_R / 100) < rate_mohm_per_sec < self.config.gigaseal_R / 3000:
                     currPressure -= 5; speed = 3; max_pressure = -45
                 elif self.config.gigaseal_R / 3000 <= rate_mohm_per_sec <= self.config.gigaseal_R / 10:
@@ -531,7 +535,12 @@ class AutoPatcher(TaskController):
                 elif rate_mohm_per_sec <= -(self.config.gigaseal_R / 100):
                     currPressure += 5; currPressure = max(currPressure, -5); speed = 0.5
 
-                currPressure = max(currPressure, max_pressure)
+                # <<< replace single clamp with two lines to forbid positive pressure >>>
+                # never above 0 mbar:
+                currPressure = min(currPressure, 0.0)
+                # never exceed deepest vacuum (e.g. -30 mbar):
+                currPressure = max(currPressure, self.config.pressure_ramp_max)
+
                 if currPressure != prevpressure:
                     self.pressure.set_pressure(currPressure)
                     prevpressure = currPressure
@@ -551,27 +560,28 @@ class AutoPatcher(TaskController):
                     currPressure = -5
                     self.pressure.set_pressure(currPressure)
                     self.pressure.set_ATM(atm=False)
-            # -------------------------------------------------------------------------------------
+            # ---------------------------------------------------------------
 
-            # Holding potential switch (unchanged)
+            # Holding potential switch
             if avg_resistance >= self.config.gigaseal_R / 12 and not holding_switched:
                 self.amplifier.set_holding(self.config.Vramp_amplitude)
                 self.amplifier.switch_holding(True)
                 holding_switched = True
 
-            # Success check with consecutive‑hit filter -----------------------
+            # Success check with consecutive-hit filter
             if avg_resistance >= self.config.gigaseal_R:
                 consecutive_success += 1
             else:
                 consecutive_success = 0
 
-            if consecutive_success >= 3:  # 3 consecutive good windows
+            if consecutive_success >= 3:
                 self.pressure.set_ATM(atm=True)
                 self.info("Seal successful!")
                 return
+
         # Abort request came in
         raise AutopatchError("Seal unsuccessful: gigaseal criteria not met.")
-    
+
     def break_in(self):
         """Same interface; now exits only after **three consecutive**
         access‑resistance readings meet the criterion, ignoring transient
