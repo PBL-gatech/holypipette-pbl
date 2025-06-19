@@ -54,20 +54,55 @@ class AutoPatcher(TaskController):
     def state_emitter(self, state):
         self.info(f"emitting state: {state}")
 
+    def getHolding(self):
+        """Get the holding current as measured by the DAQ."""
+        self.amplifier.voltage_clamp()
+        self.sleep(1)
+        self.amplifier.switch_holding(False) 
+        self.sleep(1)
+        base1a = self.daq.holding_current
+        self.sleep(1)
+        base1b = self.daq.holding_current
+        if base1a and base1b is not None:
+            base1 = float((base1a + base1b) / 2)
+        else: 
+            base1 = None
+        self.amplifier.switch_holding(True)
+        self.sleep(1)
+        base2a = self.daq.holding_current
+        self.sleep(1)
+        base2b = self.daq.holding_current
+        # average base2a and base2b
+        if base2a and base2b is not None:
+            base2 = float((base2a + base2b) / 2)
+        else:
+            base2 = None
+        if base1 is None or base2 is None:
+            self.info("Holding current not set, using default value")
+            return -50
+        else:
+            holding_current = (base2 - base1) 
+            # self.info(f"Base1: {base1}, Base2: {base2}")
+            self.info(f"Holding current: {holding_current} pA")
+            return holding_current
+
+ 
+
     def run_protocols(self):
 
         self.daq.setCellMode(True)
+        holding = self.getHolding()
         if self.config.voltage_protocol:
             self.run_voltage_protocol()
             self.sleep(0.25)
         if self.config.current_protocol:
             self.daq.setCellMode(False)
-            self.iholding = self.daq.holding_current
+            self.iholding = holding
             # self.iholding = 0
-            logging.debug(f"custom_current_protocol state: {self.config.custom_cclamp_protocol}")
-            logging.debug(f"start cclamp current: {self.config.cclamp_start}")
-            logging.debug(f"end cclamp current: {self.config.cclamp_end}")
-            logging.debug(f"step cclamp current: {self.config.cclamp_step}")
+            # logging.debug(f"custom_current_protocol state: {self.config.custom_cclamp_protocol}")
+            # logging.debug(f"start cclamp current: {self.config.cclamp_start}")
+            # logging.debug(f"end cclamp current: {self.config.cclamp_end}")
+            # logging.debug(f"step cclamp current: {self.config.cclamp_step}")
             self.run_current_protocol()
             self.sleep(0.25)
             self.daq.setCellMode(True)
