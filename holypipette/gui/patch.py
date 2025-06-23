@@ -459,7 +459,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.center_on_cell],
                 [self.patch_interface.locate_cell,[self.start_recording,self.patch_interface.hunt_cell],self.patch_interface.gigaseal],
-                [self.patch_interface.break_in,[self.stop_recording,self.recording_state_manager.increment_sample_number,self.patch_interface.run_protocols,self.start_recording]],
+                [self.patch_interface.break_in,[self.stop_recording,self.recording_state_manager.increment_sample_number,self.patch_interface.run_protocols]],
                 [[self.start_recording,self.patch_interface.patch,self.stop_recording],[self.stop_recording,self.patch_interface.escape_cell]]
 ]
         self.addButtonList('patching', layout, buttonList, cmds,sequential=True)
@@ -510,11 +510,9 @@ class ClassicPatchButtons(ButtonTabWidget):
     def update_pipette_pos_labels(self, indices):
         # Update the position labels
         # start_time = time.perf_counter_ns()
-        # print("getting position")
-        currPos = self.pipette_interface.calibrated_unit.unit.position()
-        # print(f"pipette position: {currPos}")
-        currPos = currPos - self.tare_pipette_pos
-        # print(f"pipette position: {currPos}")
+        # currPos = self.pipette_interface.calibrated_unit.unit.position()
+        recPos  = self.pipette_interface.calibrated_unit.unit.position()
+        currPos = recPos - self.tare_pipette_pos
         if self.recording_state_manager.is_recording_enabled():
             self.recorder.setBatchMoves(True)
             timestamp = datetime.now().timestamp()
@@ -524,9 +522,9 @@ class ClassicPatchButtons(ButtonTabWidget):
                 self.stage_xy[0],
                 self.stage_xy[1],
                 self.stage_z,
-                currPos[0],
-                currPos[1],
-                currPos[2]
+                recPos[0],
+                recPos[1],
+                recPos[2]
             )
 
         self.pipette_xyz = currPos
@@ -551,12 +549,12 @@ class ClassicPatchButtons(ButtonTabWidget):
         print("Tare stage z: ", self.currz_stage_pos)
 
     def update_stage_pos_labels(self, indices):
-        # Update the position labels
-        # start_time = time.perf_counter_ns()
-        xyPos = self.pipette_interface.calibrated_stage.position() - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
-        zPos = self.pipette_interface.microscope.position() - self.currz_stage_pos[2]
-        self.stage_xy = xyPos
-        self.stage_z = zPos
+        xyRecPos = self.pipette_interface.calibrated_stage.position()
+        zRecPos = self.pipette_interface.microscope.position()
+        xyPos = xyRecPos - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
+        zPos = zRecPos - self.currz_stage_pos[2]
+        self.stage_xy = xyRecPos
+        self.stage_z = zRecPos
 
         for i, ind in enumerate(indices):
             label = self.pos_labels[ind]

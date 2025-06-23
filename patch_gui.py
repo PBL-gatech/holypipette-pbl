@@ -1,7 +1,7 @@
 # patch_gui.py
 import faulthandler
 faulthandler.enable()
-faulthandler.dump_traceback_later(5)
+# faulthandler.dump_traceback_later(5)
 
 import atexit
 import sys
@@ -36,7 +36,7 @@ def main():
     recording_state_manager = RecordingStateManager()
 
     pipette_controller = PipetteInterface(stage, microscope, camera, unit, cellSorterManip, cellSorterController)
-    patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller)
+    patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller, recording_state_manager)
     graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager)
     gui = PatchGui(camera, pipette_controller, patch_controller, recording_state_manager)
     graphs = EPhysGraph(graph_interface, recording_state_manager)

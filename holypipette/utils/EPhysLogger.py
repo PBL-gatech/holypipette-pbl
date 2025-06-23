@@ -4,6 +4,8 @@ import threading
 import os
 from PyQt5 import QtGui
 import imageio
+import numpy as np
+import cv2
 
 class EPhysLogger(threading.Thread):
     def __init__(self, recording_state_manager, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
@@ -16,6 +18,9 @@ class EPhysLogger(threading.Thread):
         self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/" + f"{ephys_filename}" + "/"
         self.filename = self.folder_path + f"{ephys_filename}"
         self.file = None
+
+        # file used to store cell metadata such as coordinates
+        self.cell_metadata_file = os.path.join(self.folder_path, "cell_metadata.csv")
 
         self.folder_created = False
         self.write_event = threading.Event()
@@ -82,15 +87,34 @@ class EPhysLogger(threading.Thread):
         else:
             logging.error("Failed to save plot to %s", image_path)
 
-    def save_image(self, index, image):
+    def _normalize_image(self, image):
+            """Return an 8-bit version of ``image`` suitable for saving."""
+            if image is None:
+                return None
+            if image.dtype != np.uint8:
+                image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
+                image = image.astype(np.uint8)
+            return image
+
+    def save_cell_metadata(self, index, stage_coords, image=None):
+        """Save cell image and stage coordinates for a given protocol index."""
         self.create_folder()
-        image_path = f"cell_{index}.webp"
+
         if image is None:
-            logging.error("No image to save")
+            logging.warning("No cell image provided; skipping cell metadata save")
             return
-        else:
-            imageio.imwrite(self.folder_path + image_path, image)
-            logging.info("Saved image to %s", self.folder_path + image_path)
+
+        img_filename = f"cell_{index}.webp"
+        image = self._normalize_image(image)
+        imageio.imwrite(os.path.join(self.folder_path, img_filename), image)
+
+        write_header = not os.path.exists(self.cell_metadata_file)
+        with open(self.cell_metadata_file, "a+") as f:
+            if write_header:
+                f.write("index;stage_x;stage_y;stage_z;image\n")
+            f.write(
+                f"{index};{stage_coords[0]};{stage_coords[1]};{stage_coords[2]};{img_filename}\n"
+            )
 
     def hold_image(self, index, image):
         if image is None:
