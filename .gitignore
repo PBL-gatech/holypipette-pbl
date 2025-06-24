@@ -29,3 +29,4 @@ experiments/Datasets
 /holypipette/experiments/Data
 /experiments/Analysis/Patch_Clamp/rowanexample
 /experiments/Analysis/Patch_Clamp/testCCdata
+*.log
