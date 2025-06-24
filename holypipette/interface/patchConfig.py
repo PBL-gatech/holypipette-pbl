@@ -21,7 +21,7 @@ class PatchConfig(Config):
     max_access_R = NumberWithUnit(50e6, bounds=(0, 1000e6), doc='Maximum access resistance', unit='MΩ', magnitude=1e6)
     min_cell_C = NumberWithUnit(5e-12, bounds=(0, 1), doc='Minimum cell capacitance', unit='pF', magnitude=1e-12)
     cell_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell', unit='μm') # 50 for Neurons, 20 for HEK cells
-    slice_start_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell in slice', unit='μm') # 20 um default
+    slice_start_distance = NumberWithUnit(20, bounds=(0, 100), doc='Starting distance above target cell in slice', unit='μm') # 20 um default
     max_distance = NumberWithUnit(30, bounds=(0, 100), doc='Maximum movement during approach', unit='μm')
 
     max_R_increase = NumberWithUnit(1e6, bounds=(0, 500e6), doc='Increase in resistance over time', unit='MΩ', magnitude=1e6)
@@ -51,7 +51,7 @@ class PatchConfig(Config):
     mode = Selector( default='Classic', objects =['Manual', 'Classic', 'Agent'], doc='Mode for AutoPatch algorithm')
 
     categories = [
-        ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance' 'max_distance', 'cell_R_increase']),
+        ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance', 'max_distance', 'cell_R_increase']),
         ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_duration', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
         ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol']),

@@ -194,15 +194,18 @@ class AutoPatchInterface(TaskInterface):
              success_message='Cleaning path position stored')
     def store_cleaning_position(self) -> None:
         self.current_autopatcher.cleaning_bath_position = self.pipette_controller.calibrated_unit.position()
+        self.current_autopatcher.calibrated_unit.config.bath_position = tuple(self.current_autopatcher.cleaning_bath_position)
 
     @command(category='Patch',
                 description='Store the position of the safe space',
                 success_message='Safe space position stored')
     def store_safe_position(self) -> None:
         self.current_autopatcher.safe_position = self.pipette_controller.calibrated_unit.position()
+        self.current_autopatcher.calibrated_unit.config.safe_position = tuple(self.current_autopatcher.safe_position)
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.safe_stage_position = [x,y,z]
+        self.current_autopatcher.calibrated_stage.config.safe_position_stage = tuple(self.current_autopatcher.safe_stage_position)
         self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
 
     @command(category='Patch',
@@ -211,9 +214,11 @@ class AutoPatchInterface(TaskInterface):
     def store_home_position(self) -> None:
         # modifying to store the safe position of the and stage as well.
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
+        self.current_autopatcher.calibrated_unit.config.home_position = tuple(self.current_autopatcher.home_position)
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
+        self.current_autopatcher.calibrated_stage.config.home_position_stage = tuple(self.current_autopatcher.home_stage_position)
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
 
 
@@ -231,6 +236,11 @@ class AutoPatchInterface(TaskInterface):
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.current_autopatcher.safe_stage_position = self.current_autopatcher.home_stage_position
+        # save all positions to the config
+        self.current_autopatcher.calibrated_unit.config.home_position = tuple(self.current_autopatcher.home_position)
+        self.current_autopatcher.calibrated_unit.config.safe_position = tuple(self.current_autopatcher.safe_position)
+        self.current_autopatcher.calibrated_stage.config.home_position_stage = tuple(self.current_autopatcher.home_stage_position)
+        self.current_autopatcher.calibrated_stage.config.safe_position_stage = tuple(self.current_autopatcher.safe_stage_position)
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
         self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
     
@@ -259,6 +269,13 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.safe_position = None
         self.current_autopatcher.home_stage_position = None
         self.current_autopatcher.safe_stage_position = None
+        # set tuple to None in the config
+        self.current_autopatcher.calibrated_unit.config.home_position = None
+        self.current_autopatcher.calibrated_unit.config.safe_position = None
+        self.current_autopatcher.calibrated_stage.config.home_position_stage = None
+        self.current_autopatcher.calibrated_stage.config.safe_position_stage = None
+        self.current_autopatcher.calibrated_unit.config.cleaning_bath_position = None
+        # self.current_autopatcher.calibrated_unit.config.rinsing_bath_position = None    
         self.info('All positions cleared')
 
     @blocking_command(category='Patch',
