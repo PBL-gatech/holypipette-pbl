@@ -329,6 +329,17 @@ class AutoPatcher(TaskController):
         if cell is None:
             raise AutopatchError("No cell given to patch!")
         
+        # if a slice, push pipette into slice from above surface, just about 20um above cell of interest
+
+        if self.config.cell_type == "Slice":
+            self.info("Moving pipette to slice position")
+            # move pipette down to slice position
+            dist = self.config.cell_distance - self.config.slice_start_distance
+            currspeed =  self.calibrated_unit.get_max_speed()
+            self.calibrated_unit.set_max_speed(50) # set speed to 10 um/s
+            self.calibrated_unit.relative_move(dist, axis=2)
+            self.calibrated_unit.set_max_speed(currspeed) # reset speed to previous value
+            
         # # #ensure "near cell" pressure
         self.info(f"Setting pressure to {self.config.pressure_near} mbar")
         self.pressure.set_pressure(self.config.pressure_near)
