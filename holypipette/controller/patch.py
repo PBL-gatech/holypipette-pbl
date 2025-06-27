@@ -56,46 +56,51 @@ class AutoPatcher(TaskController):
 
     def getHolding(self):
         """Get the holding current as measured by the DAQ."""
-        self.amplifier.voltage_clamp()
-        self.sleep(1)
-        self.amplifier.switch_holding(False) 
-        self.sleep(1)
-        base1a = self.daq.holding_current
-        self.sleep(1)
-        base1b = self.daq.holding_current
-        if base1a and base1b is not None:
-            base1 = float((base1a + base1b) / 2)
-        else: 
-            base1 = None
-        self.amplifier.switch_holding(True)
-        self.sleep(1)
-        base2a = self.daq.holding_current
-        self.sleep(1)
-        base2b = self.daq.holding_current
-        # average base2a and base2b
-        if base2a and base2b is not None:
-            base2 = float((base2a + base2b) / 2)
-        else:
-            base2 = None
-        if base1 is None or base2 is None:
-            self.info("Holding current not set, using default value")
-            return -50
-        else:
-            holding_current = (base2 - base1) 
-            # self.info(f"Base1: {base1}, Base2: {base2}")
-            self.info(f"Holding current: {holding_current} pA")
-            if abs(holding_current) > 150:
-                self.info("Holding current is too high, setting to default value of -50 pA")
-                holding_current = -50
+        if  self.config.custom_cclamp_protocol:
+            holding_current = self.config.cclamp_hold
             return holding_current
+        else:
+            self.amplifier.voltage_clamp()
+            self.sleep(1)
+            self.amplifier.switch_holding(False) 
+            self.sleep(1)
+            base1a = self.daq.holding_current
+            self.sleep(1)
+            base1b = self.daq.holding_current
+            if base1a and base1b is not None:
+                base1 = float((base1a + base1b) / 2)
+                if abs(base1) > 200:
+                    self.info(f'resting membrane current is too high:{base1} pA, setting to default value of 0 pA')
+                    base1 = 0
+            else: 
+                base1 = None
+            self.amplifier.switch_holding(True)
+            self.sleep(1)
+            base2a = self.daq.holding_current
+            self.sleep(1)
+            base2b = self.daq.holding_current
+            # average base2a and base2b
+            if base2a and base2b is not None:
+                base2 = float((base2a + base2b) / 2)
+            else:
+                base2 = None
+            if base1 is None or base2 is None:
+                self.info("Holding current not set, using default value")
+                return -50
+            else:
+                holding_current = (base2 - base1) 
+                # self.info(f"Base1: {base1}, Base2: {base2}")
+                self.info(f"Holding current: {holding_current} pA")
+                if abs(holding_current) > 150:
+                    self.info("Holding current is too high, setting to default value of -50 pA")
+                    holding_current = -50
+                return holding_current
 
     
 
     def run_protocols(self):
-
         self.daq.setCellMode(True)
         holding = self.getHolding()
-
         if self.config.voltage_protocol:
             self.run_voltage_protocol()
             self.sleep(0.25)

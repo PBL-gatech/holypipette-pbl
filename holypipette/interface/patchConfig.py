@@ -45,6 +45,7 @@ class PatchConfig(Config):
     cclamp_step = NumberWithUnit(10, bounds=(0, 20), doc='Step Current', unit='pA', magnitude=1)
     cclamp_start = NumberWithUnit(-50, bounds=(-300, -20), doc='Start Current', unit='pA', magnitude=1)
     cclamp_end = NumberWithUnit(50, bounds=(0, 300), doc='End Current', unit='pA', magnitude=1)
+    cclamp_hold = NumberWithUnit(-50, bounds=(-100, 0), doc='Holding Current', unit='pA', magnitude=1)
     hclamp_duration = NumberWithUnit(30, bounds=(0, 600), doc='Holding Protocol Duration', unit='s')
 
     cell_type = Selector(default='Plate',objects = ['Plate', 'Slice'], doc='Cell type for protocol selection')
