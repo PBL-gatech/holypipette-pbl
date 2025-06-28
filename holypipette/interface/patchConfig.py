@@ -45,7 +45,7 @@ class PatchConfig(Config):
     cclamp_step = NumberWithUnit(10, bounds=(0, 20), doc='Step Current', unit='pA', magnitude=1)
     cclamp_start = NumberWithUnit(-50, bounds=(-300, -20), doc='Start Current', unit='pA', magnitude=1)
     cclamp_end = NumberWithUnit(50, bounds=(0, 300), doc='End Current', unit='pA', magnitude=1)
-    cclamp_hold = NumberWithUnit(-50, bounds=(-100, 0), doc='Holding Current', unit='pA', magnitude=1)
+    cclamp_hold = NumberWithUnit(-50, bounds=(-200, 0), doc='Holding Current', unit='pA', magnitude=1)
     hclamp_duration = NumberWithUnit(30, bounds=(0, 600), doc='Holding Protocol Duration', unit='s')
 
     cell_type = Selector(default='Plate',objects = ['Plate', 'Slice'], doc='Cell type for protocol selection')
@@ -56,7 +56,7 @@ class PatchConfig(Config):
         ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_duration', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
         ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol']),
-        ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end', 'hclamp_duration']),
+        ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end','cclamp_hold', 'hclamp_duration']),
         ('AutoPatching', ['cell_type', 'mode'])
     ]
 
