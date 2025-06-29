@@ -42,9 +42,9 @@ class PatchConfig(Config):
     holding_protocol = Boolean(default = False, doc='Run the Holding Protocol automatically')
 
     custom_cclamp_protocol = Boolean(default = False, doc='Customize the protocol parameters')
-    cclamp_step = NumberWithUnit(10, bounds=(0, 20), doc='Step Current', unit='pA', magnitude=1)
-    cclamp_start = NumberWithUnit(-50, bounds=(-300, -20), doc='Start Current', unit='pA', magnitude=1)
-    cclamp_end = NumberWithUnit(50, bounds=(0, 300), doc='End Current', unit='pA', magnitude=1)
+    cclamp_step = NumberWithUnit(30, bounds=(0, 3000), doc='Step Current', unit='pA', magnitude=1)
+    cclamp_start = NumberWithUnit(-500, bounds=(-30000, -20), doc='Start Current', unit='pA', magnitude=1)
+    cclamp_end = NumberWithUnit(500, bounds=(0, 30000), doc='End Current', unit='pA', magnitude=1)
     cclamp_hold = NumberWithUnit(-50, bounds=(-200, 0), doc='Holding Current', unit='pA', magnitude=1)
     hclamp_duration = NumberWithUnit(30, bounds=(0, 600), doc='Holding Protocol Duration', unit='s')
 
