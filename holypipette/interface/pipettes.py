@@ -65,8 +65,8 @@ class PipetteInterface(TaskInterface):
         self.home_stage_position = None
         self.safe_position = None
         self.safe_stage_position = None
-        self.tare_pipette = None
-        self.tare_stage = None
+        self.tare_pipette = np.array([None, None, None])
+        self.tare_stage = np.array([None, None, None])
 
     def connect(self, main_gui):
         pass #TODO: unused?

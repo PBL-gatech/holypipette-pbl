@@ -188,6 +188,8 @@ class AutoPatchInterface(TaskInterface):
              success_message='Cleaning path position stored')
     def store_cleaning_position(self) -> None:
         self.current_autopatcher.cleaning_bath_position = self.pipette_controller.calibrated_unit.position()
+        # save calibration to file
+        self.pipette_controller.write_calibration()
 
     @command(category='Patch',
                 description='Store the position of the safe space',
