@@ -227,6 +227,13 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.safe_stage_position = self.current_autopatcher.home_stage_position
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
         self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
+        # send all positions to the pipette controller
+        self.pipette_controller.home_position = self.current_autopatcher.home_position
+        self.pipette_controller.safe_position = self.current_autopatcher.safe_position
+        self.pipette_controller.home_stage_position = self.current_autopatcher.home_stage_position
+        self.pipette_controller.safe_stage_position = self.current_autopatcher.safe_stage_position
+        self.pipette_controller.cleaning_bath_position = self.current_autopatcher.cleaning_bath_position
+        self.pipette_controller.write_calibration()
     
     # @command(category='Recording',
     #          description='Check to see if one of the patch methods is complete, whether failed or successful',
@@ -254,6 +261,7 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.home_stage_position = None
         self.current_autopatcher.safe_stage_position = None
         self.info('All positions cleared')
+
 
     @blocking_command(category='Patch',
                       description='Clean the pipette (wash and rinse)',

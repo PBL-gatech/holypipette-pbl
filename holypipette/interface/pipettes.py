@@ -3,6 +3,7 @@ import pickle
 import os
 
 import numpy as np
+from datetime import datetime
 
 from holypipette.interface import TaskInterface, command, blocking_command
 from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage, CalibrationConfig
@@ -31,23 +32,27 @@ class PipetteInterface(TaskInterface):
                                                 camera,
                                                 config=self.calibration_config)
         self.calibrated_cellsorter = CalibratedCellSorter(cellsorterManip, cellsorterController, self.calibrated_stage, microscope, camera)
+        self.time_truth = datetime.now()
+        self.folder_path = "experiments/Data/Calibration_data/" + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
+        self.folder_created = False  # Flag to track folder creation
 
-        if config_filename is not None:
-            #read calibration from file
-            if os.path.isfile(config_filename):
-                with open(config_filename, 'rb') as f:
-                    cal = pickle.load(f)
-                    self.calibrated_unit.load_configuration(cal['manip'])
-                    self.calibrated_stage.load_configuration(cal['stage'])
+   
+        # if config_filename is not None:
+        #     #read calibration from file
+        #     if os.path.isfile(config_filename):
+        #         with open(config_filename, 'rb') as f:
+        #             cal = pickle.load(f)
+        #             self.calibrated_unit.load_configuration(cal['manip'])
+        #             self.calibrated_stage.load_configuration(cal['stage'])
 
-                    print('Loaded calibration from file!')
-                    print('Manipulator calibration:')
-                    print(cal['manip'])
-                    print('Stage calibration:')
-                    print(cal['stage'])
-            else:
-                pass
-            # print('No calibration file found, need to calibrate before usage!')
+        #             print('Loaded calibration from file!')
+        #             print('Manipulator calibration:')
+        #             print(cal['manip'])
+        #             print('Stage calibration:')
+        #             print(cal['stage'])
+        #     else:
+        #         pass
+        #         print('No calibration file found, need to calibrate before usage!')
 
 
         self.cleaning_bath_position = None
@@ -56,6 +61,12 @@ class PipetteInterface(TaskInterface):
         self.paramecium_tank_position = None
         self.timer_t0 = time.time()
         self.pos_before_raise = None
+        self.home_position = None
+        self.home_stage_position = None
+        self.safe_position = None
+        self.safe_stage_position = None
+        self.tare_pipette = None
+        self.tare_stage = None
 
     def connect(self, main_gui):
         pass #TODO: unused?
@@ -66,7 +77,6 @@ class PipetteInterface(TaskInterface):
              default_arg=10)
     def fix_backlash(self, none):
         self.execute(self.microscope.fix_backlash)
-
 
     @command(category='Manipulators',
              description='Record a calibration point at the current position',
@@ -86,7 +96,6 @@ class PipetteInterface(TaskInterface):
     def move_pipette_x(self, distance):
         self.calibrated_unit.relative_move(distance, axis=0)
 
-    
 
     @command(category='Manipulators',
                 description='Write current calibration to file')
@@ -96,10 +105,90 @@ class PipetteInterface(TaskInterface):
         if not self.calibrated_unit.calibrated:
             raise RuntimeError('Manipulator not calibrated')
         
-        with open('calibration.pickle', 'wb') as f:
-            pickle.dump({'manip': self.calibrated_unit.save_configuration(),
-                         'stage': self.calibrated_stage.save_configuration()}, f)
+        # concatenate home position and home stage position
+        if self.home_position is None or self.home_stage_position is None:
+            raise RuntimeError('Home position not set')   
+        if self.safe_position is None or self.safe_stage_position is None:
+            raise RuntimeError('Safe position not set')
+        
+        self.home_position = np.array(self.home_position)
+        self.home_stage_position = np.array(self.home_stage_position)   
+        self.safe_position = np.array(self.safe_position)
+        self.safe_stage_position = np.array(self.safe_stage_position)
+        self.home = np.concatenate((self.home_position, self.home_stage_position))
+        self.safe = np.concatenate((self.safe_position, self.safe_stage_position))
+    
+        try:
+            # Build the complete file path for 'calibration.pickle'
+            file_path = os.path.join(self.folder_path, 'calibration.pickle')
+            if not os.path.exists(self.folder_path):
+                os.makedirs(self.folder_path, exist_ok=True)
+                self.folder_created = True
+
             
+            # Write calibration data to the file in the specified folder
+            with open(file_path, 'wb') as f:
+                pickle.dump({
+                    'manip': self.calibrated_unit.save_configuration(),
+                    'stage': self.calibrated_stage.save_configuration(),
+                    'home': self.home,
+                    'safe': self.safe,
+                    'bath': self.cleaning_bath_position,
+                }, f)
+            self.info('Calibration written to file')
+        except Exception as e:
+            self.error(f'Error writing calibration to file: {e}')
+            raise
+
+    @command(category='Manipulators',
+                description='read most recent calibration from file')
+    def read_calibration(self, config_filename='calibration.pickle'):
+        '''
+        Read calibration from file.
+        '''
+        if os.path.isfile(config_filename):
+            with open(config_filename, 'rb') as f:
+                cal = pickle.load(f)
+                self.calibrated_unit.load_configuration(cal['manip'])
+                self.calibrated_stage.load_configuration(cal['stage'])
+                self.home_position = cal['home'][:2]
+                self.home_stage_position = cal['home'][2:]
+                self.safe_position = cal['safe'][:2]
+                self.safe_stage_position = cal['safe'][2:]
+                self.cleaning_bath_position = cal['bath']
+
+                print('Loaded calibration from file!')
+                print('Manipulator calibration:')
+                print(cal['manip'])
+                print('Stage calibration:')
+                print(cal['stage'])
+        else:
+            raise RuntimeError('No calibration file found, need to calibrate before usage!')
+
+    @command(category='Manipulators',
+             description='write the current tared position to file',
+             success_message='Tared position written to file')
+    def write_tare(self):
+        if self.tare_pipette is None or self.tare_stage is None:
+            raise RuntimeError('Tare position not set')
+        try:
+            # Build the complete file path for 'tare.pickle'
+            file_path = os.path.join(self.folder_path, 'tare.pickle')
+            if not os.path.exists(self.folder_path):
+                os.makedirs(self.folder_path, exist_ok=True)
+                self.folder_created = True
+
+            # Write tare data to the file in the specified folder
+            with open(file_path, 'wb') as f:
+                pickle.dump({
+                    'pipette': self.tare_pipette,
+                    'stage': self.tare_stage,
+                }, f)
+            self.info('Tare position written to file')
+        except Exception as e:
+            self.error(f'Error writing tare position to file: {e}')
+            raise
+    
     @command(category='Manipulators',
                 description='recalibrate manipulator offset while preserving matrix')
     def recalibrate_manipulator(self):

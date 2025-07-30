@@ -31,7 +31,7 @@ __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
 verbose = True
 
 ##### Calibration parameters #####
-from holypipette.config import Config, NumberWithUnit, Number, Boolean,Tuple
+from holypipette.utils.config import Config, NumberWithUnit, Number, Boolean, Tuple
 
 
 class CalibrationConfig(Config):
@@ -65,11 +65,11 @@ class CalibrationConfig(Config):
                                 doc='Rotation of the pipette in the xz plane (degrees)',
                                 bounds=(-90, 90))
     
-    # home_position =  Tuple((0, 0, 0), doc='Home position of the pipette in um')
-    # home_position_stage =  Tuple((0, 0, 0), doc='Home position of the stage in um')
-    # safe_position =  Tuple((0, 0, 0), doc='Safe position of the pipette in um')
-    # safe_position_stage =  Tuple((0, 0, 0), doc='Safe position of the stage in um')
-    # bath_position =  Tuple((0, 0, 0), doc='Bath position of the pipette in um')
+    home_position =  Tuple((0, 0, 0), doc='Home position of the pipette in um')
+    home_position_stage =  Tuple((0, 0, 0), doc='Home position of the stage in um')
+    safe_position =  Tuple((0, 0, 0), doc='Safe position of the pipette in um')
+    safe_position_stage =  Tuple((0, 0, 0), doc='Safe position of the stage in um')
+    bath_position =  Tuple((0, 0, 0), doc='Bath position of the pipette in um')
     
 
     categories = [('Stage Calibration', ['autofocus_dist', 'stage_diag_move', 'frame_lag']),
@@ -79,7 +79,7 @@ class CalibrationConfig(Config):
                   ('Pipette z-axis rotation', ['pipette_z_rotation']),
                   ('Pipette y-axis rotation', ['pipette_y_rotation']),
                   ('Display', ['position_update']),
-                #   ('Positions', ['home_position', 'home_position_stage','safe_position','safe_position_stage','bath_position']),
+                  ('Positions', ['home_position', 'home_position_stage','safe_position','safe_position_stage','bath_position']),
                  ]
 
 
@@ -164,6 +164,7 @@ class CalibratedUnit(ManipulatorUnit):
             self.microscope.recover_state()
         self.absolute_move(self.saved_state)
 
+
     def pixels_to_um(self, pos_pixels):
         '''
         Converts pixel coordinates to pipette um.
@@ -205,8 +206,6 @@ class CalibratedUnit(ManipulatorUnit):
         -------
         The current position in um as an XYZ vector.
         '''
-        # if not self.calibrated:
-        #     raise CalibrationError
         pos_um = self.position() # position vector (um) in manipulator unit system
         self.debug(f"pipette position: {pos_um}")
         pipette_pos_pixels = self.um_to_pixels(pos_um) 
@@ -489,8 +488,6 @@ class CalibratedUnit(ManipulatorUnit):
         self.relative_move(rotated_vector)
         self.wait_until_still()
 
-
-
     def save_configuration(self):
         '''
         Outputs configuration in a dictionary.
@@ -500,6 +497,7 @@ class CalibratedUnit(ManipulatorUnit):
                   'r0' : self.r0}
 
         return config
+    
 
     def load_configuration(self, config):
         '''
