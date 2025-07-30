@@ -995,8 +995,8 @@ class NiDAQ(DAQ):
             span = round(self.voltageMembraneCapacitance * (factor or 1.0), -1)
             startCurrentPicoAmp, endCurrentPicoAmp = -span, span
 
-        startCurrentPicoAmp = max(startCurrentPicoAmp, -200)
-        endCurrentPicoAmp   = min(endCurrentPicoAmp,   200)
+        startCurrentPicoAmp = max(startCurrentPicoAmp, -20000)
+        endCurrentPicoAmp   = min(endCurrentPicoAmp,   20000)
 
         pulses = np.arange(startCurrentPicoAmp,
                            endCurrentPicoAmp + stepCurrentPicoAmp,
