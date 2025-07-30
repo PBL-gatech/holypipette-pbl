@@ -82,8 +82,8 @@ class AutoPatchInterface(TaskInterface):
     def run_protocols(self):
         index = self.recording_state_manager.sample_number
         if self.cells_to_patch:
-            stage_coords, img = self.cells_to_patch[0]
-            self.ephys_logger.save_cell_metadata(index, stage_coords, img)
+            stage_coords, img,stage_coords_um = self.cells_to_patch[0]
+            self.ephys_logger.save_cell_metadata(index, stage_coords_um, img)
         self.execute(self.current_autopatcher.run_protocols)
     
 
@@ -106,10 +106,16 @@ class AutoPatchInterface(TaskInterface):
             # add the z_pos to the stage position as a third dimension in the np array
 
             stage_pos_pixels = np.array([stage_pos_pixels[0], stage_pos_pixels[1], z_pos])
+            # get raw currnent stage position in pixels
+            stage_pos_plane = self.current_autopatcher.calibrated_stage.position()
+            stage_pos_um = np.array([stage_pos_plane[0], stage_pos_plane[1], z_pos])
+            print(f'Stage position in pixels: {stage_pos_pixels}')
+            print(f'Stage position in um: {stage_pos_um}')
 
 
-            print(f'Stage position dimensions: {np.size(stage_pos_pixels)}')
-            print(f'Stage um position: {stage_pos_pixels}')
+
+            # print(f'Stage position dimensions: {np.size(stage_pos_pixels)}')
+            # print(f'Stage um position: {stage_pos_pixels}')
             #take a 256x256 image centered on the cell
             img = self.current_autopatcher.calibrated_unit.camera.get_16bit_image()
             img = img[int(position[1]-128):int(position[1]+128), int(position[0]-128):int(position[0]+128)]
@@ -119,16 +125,16 @@ class AutoPatchInterface(TaskInterface):
             #save the image
             # img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
             # cv2.imwrite(f'cell_{len(self.cells_to_patch)}.png', img)
-            self.cells_to_patch.append((np.array(stage_pos_pixels), img))
+            self.cells_to_patch.append((np.array(stage_pos_pixels), img, stage_pos_um))
             self.is_selecting_cells = False
 
     # Update the cell list to store both cell coordinates and image.
     def update_camera_cell_list(self) -> None:
         self.current_autopatcher.calibrated_unit.camera.cell_list = []
-        for cell, img in self.cells_to_patch:
+        for cell, img,pos in self.cells_to_patch:
             camera_pos = -cell + self.current_autopatcher.calibrated_stage.reference_position()
             # Append a tuple of (coordinates, image)
-            self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img))
+            self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img,pos))
 
 
     @command(category='Patch',
@@ -140,9 +146,9 @@ class AutoPatchInterface(TaskInterface):
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
     def patch(self) -> None:
-        cell, img = self.cells_to_patch[0]
+        cell, img,pos = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.patch,
-                     argument=(cell, img))
+                     argument=(cell, img,pos))
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
 
@@ -150,27 +156,27 @@ class AutoPatchInterface(TaskInterface):
                         description='Locate the cell',
                         task_description='Moving to the cell')
     def locate_cell(self):
-        cell, img = self.cells_to_patch[0]
+        cell, img,pos = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.locate_cell,
-                      argument = (cell, img))
+                      argument = (cell, img,pos))
         time.sleep(2)
  
     @blocking_command(category='Stage',
                      description = 'Center the stage on cell',
                       task_description='Centering the stage on cell')
     def center_on_cell(self):
-        cell, img = self.cells_to_patch[0]
+        cell, img,pos = self.cells_to_patch[0]
         # print( f"patch.py: centering on cell {cell} with image {img.shape}")
         self.execute(self.current_autopatcher.calibrated_stage.center_on_cell,
-                      argument = (cell, img))
+                      argument = (cell, img,pos))
 
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
     def hunt_cell(self):
-        cell, img = self.cells_to_patch[0]
+        cell, img,pos = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.hunt_cell,
-                      argument = (cell, img))
+                      argument = (cell, img,pos))
         time.sleep(2)
         # self.cells_to_patch = self.cells_to_patch[1:]
 

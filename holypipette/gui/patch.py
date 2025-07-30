@@ -443,7 +443,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.addButtonList('calibration', layout, buttonList, cmds, sequential=True, 
                         change_color_on_complete=True, completion_color="rgba(173, 216, 230, 0.5)")
 
-        # Add a box for movement commands - example with different color
+        # Add a box for movement commands 
         buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane'],['Center Pipette','Clean pipette','Focus Pipette']]
         cmds = [
             [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
@@ -453,7 +453,13 @@ class ClassicPatchButtons(ButtonTabWidget):
         ]
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
-
+        # # Add a box for microscope and lamp commands
+        # buttonList = [['switch objective','toggle lamp'],['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
+        # # set a bunch of do nothing commands for now
+        # cmds = [[self.patch_interface.switch_objective, self.patch_interface.toggle_lamp],
+        #         [self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
+        #         [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
+        # ]
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.center_on_cell],

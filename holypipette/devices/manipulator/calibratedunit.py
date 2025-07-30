@@ -699,7 +699,7 @@ class CalibratedStage(CalibratedUnit):
         pipeline keeps working.
         
         """
-        cell_coords, reference_image = cell
+        cell_coords, reference_image,position = cell
         cell_coords = np.array(cell_coords)
 
         # subtract the stage reference position

@@ -33,7 +33,7 @@ class PipetteInterface(TaskInterface):
                                                 config=self.calibration_config)
         self.calibrated_cellsorter = CalibratedCellSorter(cellsorterManip, cellsorterController, self.calibrated_stage, microscope, camera)
         self.time_truth = datetime.now()
-        self.folder_path = "experiments/Data/Calibration_data/" + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
+        self.folder_path = "experiments/Data/calibration_data/" + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
         self.folder_created = False  # Flag to track folder creation
 
    

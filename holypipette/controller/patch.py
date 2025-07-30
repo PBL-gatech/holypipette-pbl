@@ -242,7 +242,7 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.center_pipette()
         
         # move to cell position 
-        cell_pos, cell_img = cell
+        cell_pos, cell_img,pos = cell
         if self.config.cell_type == "Plate":
             self.config.cell_distance = 20
         elif self.config.cell_type == "Slice":
