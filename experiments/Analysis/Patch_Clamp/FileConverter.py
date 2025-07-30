@@ -6,7 +6,7 @@ from pyabf.abfWriter import writeABF1
 
 # --- your conversion constants ---
 C_CLAMP_AMP_PER_VOLT   = 400e-12   # 400 pA per DAQ-V (current path)
-C_CLAMP_VOLT_PER_VOLT  = (1000e-3)   # 10 mV per DAQ-V (voltage path)
+C_CLAMP_VOLT_PER_VOLT  = (1000e-3)   # 1000 mV per DAQ-V (voltage path)
 
 # Folders
 

@@ -28,10 +28,10 @@ class DatasetBuilder():
         """
         self.dataset_name = dataset_name
         self.zero_values = False
-        self.center_crop = True
-        self.rotate = True                 # train-time augmentation
+        self.center_crop = False
+        self.rotate = False                 # train-time augmentation
         self.rotate_valid = rotate_valid
-        self.inaction = 3
+        self.inaction = 1
         self.val_ratio = val_ratio
         self.omit_stage_movement = omit_stage_movement
         self.rng = np.random.default_rng(random_seed)
@@ -598,7 +598,7 @@ class DatasetBuilder():
                 pil_image = pil_image.rotate(rotation_angle, resample=Image.BILINEAR, expand=True)
             if self.center_crop:
                 pil_image = self.crop_image_center(pil_image)
-            curr_frame = np.array(pil_image.resize((85, 85)))
+            curr_frame = np.array(pil_image.resize((1024, 1024)))
             frames_list.append(curr_frame)
             last_index = min_timestamp_diff_indice - 1
         camera_frames = np.array(frames_list)
@@ -1010,7 +1010,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_024.df5'  # For initial training dataset, uncomment this line to overwrite the existing dataset
+    dataset_name = 'HEK_dino_dataset_v0_001.df5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
 
 
     # rig_recorder_data_folder_set =  [
@@ -1052,7 +1052,7 @@ if __name__ == '__main__':
 
     datasetBuilder = DatasetBuilder(
         dataset_name=dataset_name,
-        val_ratio=0.1,              # 1-in-6 validation demos
+        val_ratio=0,              # 1-in-6 validation demos
         omit_stage_movement=True,   # skip demos with stage XYZ motion
         random_seed=0               # change to alter the split
     )
