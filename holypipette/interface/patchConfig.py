@@ -1,6 +1,6 @@
 
 
-from holypipette.config import Config, NumberWithUnit, Number, Boolean ,Selector
+from holypipette.utils.config import Config, NumberWithUnit, Number, Boolean ,Selector
 import logging
 
 class PatchConfig(Config):

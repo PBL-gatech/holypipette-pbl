@@ -23,7 +23,7 @@ import os, time, serial
 from contextlib import contextmanager
 from typing import Optional
 
-PORT = os.getenv("UCB_PORT", "COM18")
+PORT = os.getenv("UCB_PORT", "COM21")
 BAUD = 19200
 PREFIX = "1"
 DEBUG = False
