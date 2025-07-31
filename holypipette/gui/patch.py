@@ -460,6 +460,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         #         [self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
         #         [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
         # ]
+        
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.center_on_cell],
