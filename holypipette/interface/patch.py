@@ -150,7 +150,8 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.current_autopatcher.patch,
                      argument=(cell, img,pos))
         time.sleep(2)
-        # self.cells_to_patch = self.cells_to_patch[1:] for automaic patching only.
+        if  not self.current_autopatcher.config.custom_cclamp_protocol:
+                self.cells_to_patch = self.cells_to_patch[1:] # remove the cell from the list after patching if using the default protocol
 
     @blocking_command(category='Patch',
                         description='Locate the cell',
