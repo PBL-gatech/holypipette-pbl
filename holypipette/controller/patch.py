@@ -786,11 +786,6 @@ class AutoPatcher(TaskController):
             self._state_recorder = None
             self._in_patch = False
 
-    def record_states(self):
-        '''
-        saves a dictionary/object of the statemachine results from patch, or any of its submethods.
-        '''
-        # part of implementation should go here
 
     def move_to_safe_space(self):
         '''
