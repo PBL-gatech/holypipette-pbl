@@ -516,10 +516,10 @@ class AutoPatcher(TaskController):
 
         self.pressure.set_ATM(atm=True)
 
-        if self.config.cell_type == "Plate":
-            self.config.Vramp_amplitude = -0.020
-        elif self.config.cell_type == "Slice":
-            self.config.Vramp_amplitude = -0.070
+        # if self.config.cell_type == "Plate":
+        #     self.config.Vramp_amplitude = -0.070
+        # elif self.config.cell_type == "Slice":
+        #     self.config.Vramp_amplitude = -0.070
 
         self.sleep(10)
 
@@ -659,7 +659,8 @@ class AutoPatcher(TaskController):
         while True:
             # ---- 1) quick access-R check ----
             r_ax = self.accessRamp()
-            self.debug(f"Access-R check: {r_ax:.2f} Ω (good_count={good_count})")
+            self.debug(f"Access-R check: {r_ax:.2f} Ohm (good_count={good_count})")
+
 
             if r_ax <= threshold_AR:
                 good_count += 1
@@ -768,18 +769,19 @@ class AutoPatcher(TaskController):
 
             #! Phase 3: break into cell
             self.break_in()
-            self.info("Whole-cell achieved, resting for 60 seconds")
-            self.sleep(60)
+            self.info("Whole-cell achieved, resting for 30 seconds")
+            self.sleep(30)
+            
+            if not self.config.custom_cclamp_protocol: 
+                    #! Phase 4: run protocols
+                    for i in (1, 2, 3):
+                        self.info(f"Running protocol {i}")
+                        self.run_protocols()
+                        self.sleep(20 if i < 3 else 5)
 
-            #! Phase 4: run protocols
-            for i in (1, 2, 3):
-                self.info(f"Running protocol {i}")
-                self.run_protocols()
-                self.sleep(20 if i < 3 else 5)
-
-            #! Phase 5: clean pipette
-            self.info("Data collection complete, cleaning pipette")
-            self.escape()
+                    #! Phase 5: clean pipette
+                    self.info("Data collection complete, cleaning pipette")
+                    self.escape()
 
         finally:
             # ---- teardown so the next call starts a fresh attempt ----

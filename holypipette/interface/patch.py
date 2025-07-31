@@ -150,7 +150,7 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.current_autopatcher.patch,
                      argument=(cell, img,pos))
         time.sleep(2)
-        self.cells_to_patch = self.cells_to_patch[1:]
+        # self.cells_to_patch = self.cells_to_patch[1:] for automaic patching only.
 
     @blocking_command(category='Patch',
                         description='Locate the cell',
