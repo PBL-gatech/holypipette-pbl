@@ -108,12 +108,13 @@ class EPhysLogger(threading.Thread):
         image = self._normalize_image(image)
         imageio.imwrite(os.path.join(self.folder_path, img_filename), image)
 
+        timestamp = int(datetime.now().timestamp() * 1000)
         write_header = not os.path.exists(self.cell_metadata_file)
         with open(self.cell_metadata_file, "a+") as f:
             if write_header:
-                f.write("index;stage_x;stage_y;stage_z;image\n")
+                f.write("index;stage_x;stage_y;stage_z;image;timestamp\n")
             f.write(
-                f"{index};{stage_coords[0]};{stage_coords[1]};{stage_coords[2]};{img_filename}\n"
+                f"{index};{stage_coords[0]};{stage_coords[1]};{stage_coords[2]};{img_filename};{timestamp}\n"
             )
 
     def hold_image(self, index, image):

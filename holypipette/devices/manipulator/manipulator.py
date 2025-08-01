@@ -167,6 +167,16 @@ class Manipulator(TaskController):
             else:
                 current_position = self.position_group(axes)
             self.sleep(0.1)  # 100 ms
+            
+    def get_max_speed(self):
+        ''' returns the max speed of the device, (if possible)
+        '''
+        raise NotImplementedError('get_max_speed not implemented')
+    
+    def get_max_accel(self):
+        ''' returns the max acceleration of the device, (if possible)
+        '''
+        raise NotImplementedError('get_max_accel not implemented')
 
     def set_max_speed(self, speed):
         ''' sets the max speed of the device, (if possible)

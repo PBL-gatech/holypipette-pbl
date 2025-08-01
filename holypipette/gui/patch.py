@@ -454,7 +454,14 @@ class ClassicPatchButtons(ButtonTabWidget):
         ]
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
-
+        # # Add a box for microscope and lamp commands
+        # buttonList = [['switch objective','toggle lamp'],['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
+        # # set a bunch of do nothing commands for now
+        # cmds = [[self.patch_interface.switch_objective, self.patch_interface.toggle_lamp],
+        #         [self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
+        #         [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
+        # ]
+        
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.center_on_cell],
@@ -506,6 +513,9 @@ class ClassicPatchButtons(ButtonTabWidget):
     def tare_pipette(self):
         currPos = self.pipette_interface.calibrated_unit.unit.position()
         self.tare_pipette_pos = currPos
+        self.pipette_interface.tare_pipette = np.array(self.tare_pipette_pos)
+        print("Tare pipette: ", self.tare_pipette_pos)
+        self.pipette_interface.write_tare()
 
     def update_pipette_pos_labels(self, indices):
         # Update the position labels
@@ -536,17 +546,26 @@ class ClassicPatchButtons(ButtonTabWidget):
     def tare_stage_x(self):
         xPos = self.pipette_interface.calibrated_stage.position(0)
         self.currx_stage_pos = [xPos, 0, 0]
+        # update pipette controller stage tare at x position as a numpy array
+        self.pipette_interface.tare_stage[0] = xPos
         print("Tare stage x: ", self.currx_stage_pos)
+        self.pipette_interface.write_tare()
 
     def tare_stage_y(self):
         yPos = self.pipette_interface.calibrated_stage.position(1)
         self.curry_stage_pos = [0, yPos, 0]
+        # update pipette controller stage tare at y position as a numpy array
+        self.pipette_interface.tare_stage[1] = yPos
         print("Tare stage y: ", self.curry_stage_pos)
+        self.pipette_interface.write_tare()
 
     def tare_stage_z(self):
         zPos = self.pipette_interface.microscope.position()
         self.currz_stage_pos = [0, 0, zPos]
+        # update pipette controller stage tare at z position as a numpy array
+        self.pipette_interface.tare_stage[2] = zPos/5  # divide by 5 to account for z-axis gear ratio
         print("Tare stage z: ", self.currz_stage_pos)
+        self.pipette_interface.write_tare()
 
     def update_stage_pos_labels(self, indices):
         xyRecPos = self.pipette_interface.calibrated_stage.position()
