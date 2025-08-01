@@ -864,7 +864,7 @@ class AutoPatcher(TaskController):
         finally:
             pass
 
-    def move_group_down(self,dist = 100):
+    def move_group_down(self,dist = -100):
         '''
         Moves the microsope and manipulator down by input distance in the z axis
         '''
@@ -885,9 +885,9 @@ class AutoPatcher(TaskController):
         '''
     
         try:
-            self.calibrated_unit.relative_move(-dist, axis=2)
+            self.calibrated_unit.relative_move(dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
-            self.microscope.relative_move(-dist)
+            self.microscope.relative_move(dist)
             self.microscope.wait_until_still()
         finally:
             pass
