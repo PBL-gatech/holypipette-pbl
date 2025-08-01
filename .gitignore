@@ -31,3 +31,4 @@ experiments/Datasets
 /experiments/Analysis/Patch_Clamp/testCCdata
 *.log
 /experiments/reference
+/experiments
