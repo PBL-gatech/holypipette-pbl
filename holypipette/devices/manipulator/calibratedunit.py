@@ -43,11 +43,11 @@ class CalibrationConfig(Config):
                                      doc='z dist to scan for autofocusing.',
                                      bounds=(10, 5000))
     
-    stage_diag_move = NumberWithUnit(50, unit='um',
+    stage_diag_move = NumberWithUnit(150, unit='um',
                                      doc='x, y dist to move for stage cal.',
                                      bounds=(-10000, 10000))
     
-    frame_lag = NumberWithUnit(4, unit='frames',
+    frame_lag = NumberWithUnit(10, unit='frames',
                                      doc='number of frames between for computing change with optical flow',
                                      bounds=(1, 20))
     
