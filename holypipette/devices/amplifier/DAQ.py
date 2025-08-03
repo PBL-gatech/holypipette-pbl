@@ -990,10 +990,21 @@ class NiDAQ(DAQ):
 
         # ─ 1. build pulse list ───────
         if not custom:
-            if self.voltageMembraneCapacitance is None:
-                raise RuntimeError("Run getDataFromVoltageProtocol() first.")
-            span = round(self.voltageMembraneCapacitance * (factor or 1.0), -1)
-            startCurrentPicoAmp, endCurrentPicoAmp = -span, span
+            # Ensure we have a sensible capacitance measurement
+            if (self.voltageMembraneCapacitance is None or
+                not np.isfinite(self.voltageMembraneCapacitance) or
+                self.voltageMembraneCapacitance <= 0):
+                raise RuntimeError("Bad capacitance measurement; aborting I-clamp protocol.")
+
+            # Convert to absolute pF, round *down* to the nearest whole pF
+            cap_pf = int(abs(self.voltageMembraneCapacitance))
+
+            # Normalised stimulus: −2 pA/pF … +10 pA/pF with 1 pA/pF increments
+            startCurrentPicoAmp = -2 * cap_pf
+            endCurrentPicoAmp   = 10 * cap_pf
+            stepCurrentPicoAmp  = cap_pf
+
+        # Keep legacy manual mode untouched when custom=True
 
         startCurrentPicoAmp = max(startCurrentPicoAmp, -20000)
         endCurrentPicoAmp   = min(endCurrentPicoAmp,   20000)

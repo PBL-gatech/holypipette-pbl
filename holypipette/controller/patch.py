@@ -7,9 +7,12 @@ from holypipette.devices.amplifier.DAQ import NiDAQ
 from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
 from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.pressurecontroller import PressureController
+from holypipette.utils.StateMachineLogger import StateMachineLogger, record_state
 import collections
 import logging
-
+from datetime import datetime
+import pickle
+import os
 from holypipette.interface.patchConfig import PatchConfig
 
 from .base import TaskController
@@ -49,12 +52,23 @@ class AutoPatcher(TaskController):
         self.rig_ready = False
         self.first_res = None
         self.atm = False
+        self.attempt_counter = 0
+        self._state_recorder = None
+        self._in_patch       = False
+
 
 
         self.current_protocol_graph = None
-        
-    def state_emitter(self, state):
-        self.info(f"emitting state: {state}")
+
+    def _get_state_recorder(self) -> StateMachineLogger:
+        if self._state_recorder is None:
+            self.attempt_counter += 1
+            self._state_recorder = StateMachineLogger(
+                base_path="experiments/Data/state_recorder_data/",
+                attempt_id=self.attempt_counter
+            )
+        return self._state_recorder
+
 
     def getHolding(self):
         """Get the holding current as measured by the DAQ."""
@@ -98,8 +112,7 @@ class AutoPatcher(TaskController):
                     holding_current = -50
                 return holding_current
 
-    
-
+    @record_state("run_protocols")
     def run_protocols(self):
         self.daq.setCellMode(True)
         holding = self.getHolding()
@@ -223,7 +236,8 @@ class AutoPatcher(TaskController):
         except (AutopatchError, ValueError) as e:
             self.rig_ready = False
             raise e
-        
+
+    @record_state("locate_cell") 
     def locate_cell(self, cell):
         '''
         Performs regional pipette localization to bring pipette above the cell.
@@ -244,7 +258,7 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.center_pipette()
         
         # move to cell position 
-        cell_pos, cell_img = cell
+        cell_pos, cell_img,pos = cell
         if self.config.cell_type == "Plate":
             self.config.cell_distance = 20
         elif self.config.cell_type == "Slice":
@@ -321,7 +335,7 @@ class AutoPatcher(TaskController):
         self.amplifier.start_patch()
         self.sleep(0.1)
 
-
+    @record_state("hunt_cell")
     def hunt_cell(self,cell = None):
         '''
         Moves the pipette down to cell plane and detects a cell using resistance measurements
@@ -402,6 +416,7 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.stop()
         self.microscope.stop()
 
+    @record_state("escape")
     def escape(self):
             self.amplifier.stop_patch()
             self.calibrated_unit.stop()
@@ -481,7 +496,7 @@ class AutoPatcher(TaskController):
             self.daq.capacitance, num_measurements, interval
         )
 
-
+    @record_state("gigaseal")
     def gigaseal(self):
         """requires **three consecutive**
         averaged-resistance windows ≥ target to declare success, reducing
@@ -503,10 +518,10 @@ class AutoPatcher(TaskController):
 
         self.pressure.set_ATM(atm=True)
 
-        if self.config.cell_type == "Plate":
-            self.config.Vramp_amplitude = -0.020
-        elif self.config.cell_type == "Slice":
-            self.config.Vramp_amplitude = -0.070
+        # if self.config.cell_type == "Plate":
+        #     self.config.Vramp_amplitude = -0.070
+        # elif self.config.cell_type == "Slice":
+        #     self.config.Vramp_amplitude = -0.070
 
         self.sleep(10)
 
@@ -599,7 +614,8 @@ class AutoPatcher(TaskController):
 
         # Abort request came in
         raise AutopatchError("Seal unsuccessful: gigaseal criteria not met.")
-
+   
+    @record_state("break_in")
     def break_in(self):
         """
         Attempts whole-cell break-in.
@@ -645,7 +661,8 @@ class AutoPatcher(TaskController):
         while True:
             # ---- 1) quick access-R check ----
             r_ax = self.accessRamp()
-            self.debug(f"Access-R check: {r_ax:.2f} Ω (good_count={good_count})")
+            self.debug(f"Access-R check: {r_ax:.2f} Ohm (good_count={good_count})")
+
 
             if r_ax <= threshold_AR:
                 good_count += 1
@@ -722,53 +739,56 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.stop()
 
         return cellThreshold <= r_delta
-
+   
+    @record_state("patch")
     def patch(self, cell=None):
-        '''
-        Runs the automatic patch-clamp algorithm, including manipulator movements.
-        '''
+        """Runs the automatic patch-clamp algorithm, including manipulator movements."""
+        self._in_patch = True
+        self._get_state_recorder()          
 
-        # ------ rig preparation -------------------------------#
-        
-        #check for stage and pipette calibration
+        try:
+            # ------ rig preparation -------------------------------#
+            self.isrigready()
+            if self.rig_ready is False:
+                raise AutopatchError("Rig not ready for patching")
 
-        self.isrigready()
-        if self.rig_ready == False:
-            raise AutopatchError("Rig not ready for patching")
-        
-        if cell is None:
-            raise AutopatchError("No cell given to patch!")
+            if cell is None:
+                raise AutopatchError("No cell given to patch!")
 
-        self.info("Starting patching process")
+            self.info("Starting patching process")
 
-        #! Phase 0: locate cell
-        self.locate_cell(cell)
-        self.sleep(3)
-        #! phase 1: hunt for cell
-        self.hunt_cell(cell)
-        self.sleep(3)
-        # move a bit further down to make sure we're at the cell
-        # self.calibrated_unit.relative_move(1, axis=2)
-        #! phase 2: attempt to form a gigaseal
-        self.gigaseal()
-        self.sleep(10)
-        #! Phase 3: break into cell
-        self.break_in()
-        self.info("Whole cell Acheived, resting for 60 seconds")
-        self.sleep(60)
-        #! Phase 4: run protocols
-        self.info("Running protocol 1")
-        self.run_protocols()
-        self.sleep(20)
-        self.info("Running protocol 2")
-        self.run_protocols()
-        self.sleep(20)
-        self.info("Running protocol 3")
-        self.run_protocols()
-        self.sleep(5)
-        #! Phase 5: clean pipette
-        self.info("Data collection complete, cleaning pipette")
-        self.escape()
+            #! Phase 0: locate cell
+            self.locate_cell(cell)
+            self.sleep(3)
+
+            #! Phase 1: hunt for cell
+            self.hunt_cell(cell)
+            self.sleep(3)
+
+            #! Phase 2: attempt to form a gigaseal
+            self.gigaseal()
+            self.sleep(10)
+
+            #! Phase 3: break into cell
+            self.break_in()
+            self.info("Whole-cell achieved, resting for 30 seconds")
+            self.sleep(30)
+            
+            if not self.config.custom_cclamp_protocol: 
+                    #! Phase 4: run protocols
+                    for i in (1, 2, 3):
+                        self.info(f"Running protocol {i}")
+                        self.run_protocols()
+                        self.sleep(20 if i < 3 else 5)
+
+                    #! Phase 5: clean pipette
+                    self.info("Data collection complete, cleaning pipette")
+                    self.escape()
+
+        finally:
+            # ---- teardown so the next call starts a fresh attempt ----
+            self._state_recorder = None
+            self._in_patch = False
 
 
     def move_to_safe_space(self):
@@ -860,7 +880,7 @@ class AutoPatcher(TaskController):
             # print(f"Time taken to move down: {(end-start)/1e6} ms")
         finally:
             pass
-
+    
     def move_group_up(self,dist = 100):
         '''
         Moves the microscope and manipulator up by input distance in the z axis

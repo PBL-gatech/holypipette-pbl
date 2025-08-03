@@ -33,7 +33,7 @@ class PatchConfig(Config):
     seal_deadline = NumberWithUnit(150, bounds=(0, 300), doc='Maximum time for seal formation', unit='s')
 
     Vramp_duration = NumberWithUnit(10, bounds=(0, 60), doc='Voltage ramp duration', unit='s')
-    Vramp_amplitude = NumberWithUnit(-20e-3, bounds=(-200e-3, 0), doc='Holding Potential', unit='mV', magnitude=1e-3) # changed from -70 to -20 for HEK cells
+    Vramp_amplitude = NumberWithUnit(-70e-3, bounds=(-200e-3, 0), doc='Holding Potential', unit='mV', magnitude=1e-3) # changed from -70 to -20 for HEK cells
 
     zap = Boolean(True, doc='Zap the cell to break the seal')
 
@@ -43,7 +43,7 @@ class PatchConfig(Config):
 
     custom_cclamp_protocol = Boolean(default = False, doc='Customize the protocol parameters')
     cclamp_step = NumberWithUnit(30, bounds=(0, 3000), doc='Step Current', unit='pA', magnitude=1)
-    cclamp_start = NumberWithUnit(-500, bounds=(-30000, -20), doc='Start Current', unit='pA', magnitude=1)
+    cclamp_start = NumberWithUnit(-500, bounds=(-30000, 0), doc='Start Current', unit='pA', magnitude=1)
     cclamp_end = NumberWithUnit(500, bounds=(0, 30000), doc='End Current', unit='pA', magnitude=1)
     cclamp_hold = NumberWithUnit(-50, bounds=(-200, 0), doc='Holding Current', unit='pA', magnitude=1)
     hclamp_duration = NumberWithUnit(30, bounds=(0, 600), doc='Holding Protocol Duration', unit='s')
