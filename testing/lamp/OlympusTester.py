@@ -135,8 +135,13 @@ if __name__=="__main__":
         print("Shutter:", PREFIX+SHUT_CMD)
         print("Cube:", (CUBE_PREFIX+CUBE_CMD) if CUBE_CMD else "<none>")
         shutter_open(ucb); time.sleep(0.3)
+
         if CUBE_CMD:
-            set_cube(ucb,3)
             print("Cube at:", cube_pos(ucb))
+            set_cube(ucb,3)
+            print("Cube set to 3, now at:", cube_pos(ucb))
+            set_cube(ucb,1)
+            print("Cube set to 1, now at:", cube_pos(ucb))
+
         shutter_close(ucb); logout(ucb)
         print("Done.")

@@ -963,23 +963,49 @@ class AutoPatcher(TaskController):
         finally:
             pass
 
-    def toggle_shutter(self, state: bool):
-        """Toggle the Lamp shutter on or off."""
-        state = self.lamp.get_shutter_state()
-        if state == 'open':
-            self.lamp.close_shutter()
-        else:
-            self.lamp.open_shutter()
-    
+    def toggle_shutter(self):
+        # Toggle the Lamp shutter on or off.
+        try:
+            current_state = self.lamp.get_shutter_state()
+            if current_state == 'open':
+                self.lamp.close_shutter()
+                self.info("Lamp shutter closed.")
+            elif current_state == 'closed':
+                self.lamp.open_shutter()
+                self.info("Lamp shutter opened.")
+            else:
+                # If state is None or unexpected, default to opening
+                self.warning(f"Unknown shutter state '{current_state}', defaulting to open.")
+                self.lamp.open_shutter()
+        except Exception as e:
+            self.error(f"Error toggling shutter: {e}")
+
     def toggle_fluorescence(self):
+        """
+        Toggle a default fluorescence filter cube on or off.
+        """
         current = self.lamp.get_filter()
-        if current is None:
-            current = 1
-        new_slot = self.config.lamp if current == 1 else 1
-        self.lamp.set_filter(new_slot)
+        fluo = int(self.config.lamp)
+
+        # Initialise one-time history store
+        if not hasattr(self, "_prev_filter_slot"):
+            self._prev_filter_slot = 1          # sensible default
+
+        if current == fluo:
+            # On fluorescence → return to previously stored slot
+            target = self._prev_filter_slot or 1
+        else:
+            # Store current (if valid) and move to slot fluo
+            if current is not None and current != fluo:
+                self._prev_filter_slot = current
+            target = fluo
+
+        self.lamp.set_filter(target)
+
 
     def move_cube_left(self):
         current = self.lamp.get_filter()
+
         if current is None:
             current = 1
         new_slot = max(1, current - 1)
