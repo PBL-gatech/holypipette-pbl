@@ -11,6 +11,7 @@ from holypipette.devices.pressurecontroller.BasePressureController import Pressu
 from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.interface.pipettes import PipetteInterface
 from holypipette.devices.amplifier.DAQ import NiDAQ
+from holypipette.devices.lamp import Lamp
 from .patchConfig import PatchConfig
 from PyQt5 import QtCore
 import time
@@ -21,7 +22,7 @@ class AutoPatchInterface(TaskInterface):
     '''
     A class to run automatic patch-clamp
     '''
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface, recording_state_manager: RecordingStateManager):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface, recording_state_manager: RecordingStateManager,lamp: Lamp):
         super().__init__()
         self.config = PatchConfig(name='Patch')
         self.amplifier = amplifier
@@ -29,7 +30,7 @@ class AutoPatchInterface(TaskInterface):
         self.pressure = pressure
         self.pipette_controller = pipette_interface
         self.recording_state_manager = recording_state_manager
-
+        self.lamp = lamp
         self.ephys_logger = EPhysLogger(recording_state_manager=self.recording_state_manager, ephys_filename="CellMetadata")
         autopatcher = AutoPatcher(amplifier, daq, pressure, self.pipette_controller.calibrated_unit,
                                     self.pipette_controller.calibrated_unit.microscope,
@@ -347,3 +348,24 @@ class AutoPatchInterface(TaskInterface):
         '''puts the pipette under positive pressure to prevent blockages
         '''
         self.pressure.set_pressure(self.config.pressure_near)
+
+    @blocking_command(category='Lamp', 
+             description='Open or close the shutter',
+             task_description='Toggling the shutter')
+    def toggle_shutter(self):
+        self.current_autopatcher.toggle_shutter()
+
+    @blocking_command(category='Lamp', description='Toggle between fluorescence and filterless',
+             task_description='Toggling fluorescence')
+    def toggle_fluorescence(self):
+        self.current_autopatcher.toggle_fluorescence()
+    @blocking_command(category='Lamp', 
+             description='Move filter cube one slot left',
+             task_description='Moving filter cube left')
+    def move_cube_left(self):
+        self.current_autopatcher.move_cube_left()
+
+    @blocking_command(category='Lamp', description='Move filter cube one slot right',
+             task_description='Moving filter cube right')
+    def move_cube_right(self):
+        self.current_autopatcher.move_cube_right()

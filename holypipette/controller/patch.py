@@ -7,6 +7,7 @@ from holypipette.devices.amplifier.DAQ import NiDAQ
 from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
 from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.pressurecontroller import PressureController
+from holypipette.devices.lamp import Lamp
 from holypipette.utils.StateMachineLogger import StateMachineLogger, record_state
 import collections
 import logging
@@ -30,7 +31,7 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, config : PatchConfig):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp:Lamp,config : PatchConfig):
         super().__init__()
         self.config = config
         self.amplifier = amplifier
@@ -39,6 +40,7 @@ class AutoPatcher(TaskController):
         self.calibrated_unit = calibrated_unit
         self.calibrated_stage = calibrated_stage
         self.microscope = microscope
+        self.lamp = lamp
         self.safe_position = None
         self.safe_stage_position = None
         self.home_position = None
@@ -1062,3 +1064,32 @@ class AutoPatcher(TaskController):
             self.stop_event.set()
         if getattr(self, 'movement_thread', None):
             self.movement_thread.join()
+
+    def toggle_shutter(self, state: bool):
+        """Toggle the Lamp shutter on or off."""
+        state = self.lamp.get_shutter_state()
+        if state == 'open':
+            self.lamp.close_shutter()
+        else:
+            self.lamp.open_shutter()
+    
+    def toggle_fluorescence(self):
+        current = self.lamp.get_filter()
+        if current is None:
+            current = 1
+        new_slot = self.config.lamp if current == 1 else 1
+        self.lamp.set_filter(new_slot)
+
+    def move_cube_left(self):
+        current = self.lamp.get_filter()
+        if current is None:
+            current = 1
+        new_slot = max(1, current - 1)
+        self.lamp.set_filter(new_slot)
+
+    def move_cube_right(self):
+        current = self.lamp.get_filter()
+        if current is None:
+            current = 1
+        new_slot = current + 1
+        self.lamp.set_filter(new_slot)
