@@ -8,6 +8,7 @@ from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.pressurecontroller import MoscowPressureController
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
+from holypipette.devices.lamp import OlympusLamp
 
 
 # set up Camera
@@ -39,6 +40,8 @@ unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 cellSorterController = FakeCellSorterController()
 cellSorterManip = FakeCellSorterManip()
 
+# set up lamp
+lamp = OlympusLamp('COM21')  
 
 
 

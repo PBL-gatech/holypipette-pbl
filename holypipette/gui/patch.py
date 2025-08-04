@@ -454,12 +454,11 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
         # # Add a box for microscope and lamp commands
-        # buttonList = [['switch objective','toggle lamp'],['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
-        # # set a bunch of do nothing commands for now
-        # cmds = [[self.patch_interface.switch_objective, self.patch_interface.toggle_lamp],
-        #         [self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
-        #         [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
-        # ]
+        buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
+        # set a bunch of do nothing commands for now
+        cmds = [[self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
+                [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
+        ]
         
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
