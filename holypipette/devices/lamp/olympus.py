@@ -187,22 +187,3 @@ class OlympusLamp(Lamp):
             return self._current_filter   # last known – better than raising
 
 
-if __name__ == "__main__":
-    import time
-    lamp = OlympusLamp(port="COM21", baud=19200)
-
-    # Shutter test
-    print("Initial shutter state:", lamp.get_shutter_state())
-    lamp.open_shutter(); time.sleep(0.5)
-    print("After open():", lamp.get_shutter_state())
-    lamp.close_shutter(); time.sleep(0.5)
-    print("After close():", lamp.get_shutter_state())
-
-    # Cube test – move to slot 2
-    try:
-        lamp.set_filter(2)
-        print("Cube now at slot:", lamp.get_filter())
-    except Exception as e:
-        print("Cube test error:", e)
-
-    print("OlympusLamp test complete.")

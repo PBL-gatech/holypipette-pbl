@@ -29,7 +29,7 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp:Lamp,config : PatchConfig):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp:Lamp, config: PatchConfig):
         super().__init__()
         self.config = config
         self.amplifier = amplifier

@@ -35,6 +35,7 @@ class AutoPatchInterface(TaskInterface):
         autopatcher = AutoPatcher(amplifier, daq, pressure, self.pipette_controller.calibrated_unit,
                                     self.pipette_controller.calibrated_unit.microscope,
                                     calibrated_stage=self.pipette_controller.calibrated_stage,
+                                    lamp=self.lamp,
                                     config=self.config)
         self.current_autopatcher = autopatcher
 
