@@ -255,7 +255,7 @@ class Camera(object):
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
 
         # Process each cell's segmentation.
-        for cell_coords, cell_img in self.cell_list:
+        for cell_coords, cell_img, pos in self.cell_list:
             # cell_coords is assumed to be a 2D coordinate [x, y] in full-image space.
             x, y = cell_coords[0], cell_coords[1]
             if not (0 <= x < self.width and 0 <= y < self.height):

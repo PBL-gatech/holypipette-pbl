@@ -48,6 +48,19 @@ class ScientificaSerialEncoder(Manipulator):
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
         self._polling_thread.start()
         self._polling_thread.deamon = True
+
+    def get_max_speed(self):
+        '''Gets the max speed for the Scientifica Stage.  
+           It seems like the range for this is around (1000, 100000)
+        '''
+        resp = self._sendCmd(SerialCommands.GET_MAX_SPEED)
+        return int(resp)
+    def get_max_accel(self):
+        '''Gets the max acceleration for the Scientifica Stage.
+           It seems like the range for this is around (10, 10000)
+        '''
+        resp = self._sendCmd(SerialCommands.GET_MAX_ACCEL)
+        return int(resp)
     
     def set_max_speed(self, speed):
         '''Sets the max speed for the Scientifica Stage.  

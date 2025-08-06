@@ -66,7 +66,12 @@ experiments/Datasets/temp_dataset.hdf5
 /experiments/Datasets
 /testmasks
 /testing/testpatchconfig
-holypipette/deepLearning/cellModel/sam2.1_tiny.onnx
-/holypipette/deepLearning/cellModel
-/holypipette/deepLearning/patchModel
-/experiments/Data
+/holypipette/deepLearning
+/holypipette/deepLearning
+/holypipette/deepLearning
+/holypipette/experiments/Data
+/experiments/Analysis/Patch_Clamp/rowanexample
+/experiments/Analysis/Patch_Clamp/testCCdata
+*.log
+/experiments/Data/Calibration_data
+/experiments/Data/state_recorder_data

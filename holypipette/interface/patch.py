@@ -8,6 +8,7 @@ import numpy as np
 
 from holypipette.interface import TaskInterface, command, blocking_command
 from holypipette.controller import AutoPatcher
+from holypipette.utils import EPhysLogger, RecordingStateManager
 from holypipette.devices.pressurecontroller.BasePressureController import PressureController
 from holypipette.devices.amplifier.amplifier import Amplifier
 from holypipette.interface.pipettes import PipetteInterface
@@ -22,13 +23,16 @@ class AutoPatchInterface(TaskInterface):
     '''
     A class to run automatic patch-clamp
     '''
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface, recording_state_manager: RecordingStateManager):
         super().__init__()
         self.config = PatchConfig(name='Patch')
         self.amplifier = amplifier
         self.daq = daq
         self.pressure = pressure
         self.pipette_controller = pipette_interface
+        self.recording_state_manager = recording_state_manager
+
+        self.ephys_logger = EPhysLogger(recording_state_manager=self.recording_state_manager, ephys_filename="CellMetadata")
         autopatcher = AutoPatcher(amplifier, daq, pressure, self.pipette_controller.calibrated_unit,
                                     self.pipette_controller.calibrated_unit.microscope,
                                     calibrated_stage=self.pipette_controller.calibrated_stage,
@@ -78,6 +82,10 @@ class AutoPatchInterface(TaskInterface):
             description='Run Protocols on the Cell',
             task_description='Run Protocols on the Cell')
     def run_protocols(self):
+        index = self.recording_state_manager.sample_number
+        if self.cells_to_patch:
+            stage_coords, img,stage_coords_um = self.cells_to_patch[0]
+            self.ephys_logger.save_cell_metadata(index, stage_coords_um, img)
         self.execute(self.current_autopatcher.run_protocols)
     
 
@@ -100,10 +108,16 @@ class AutoPatchInterface(TaskInterface):
             # add the z_pos to the stage position as a third dimension in the np array
 
             stage_pos_pixels = np.array([stage_pos_pixels[0], stage_pos_pixels[1], z_pos])
+            # get raw currnent stage position in pixels
+            stage_pos_plane = self.current_autopatcher.calibrated_stage.position()
+            stage_pos_um = np.array([stage_pos_plane[0], stage_pos_plane[1], z_pos])
+            print(f'Stage position in pixels: {stage_pos_pixels}')
+            print(f'Stage position in um: {stage_pos_um}')
 
 
-            print(f'Stage position dimensions: {np.size(stage_pos_pixels)}')
-            print(f'Stage um position: {stage_pos_pixels}')
+
+            # print(f'Stage position dimensions: {np.size(stage_pos_pixels)}')
+            # print(f'Stage um position: {stage_pos_pixels}')
             #take a 256x256 image centered on the cell
             img = self.current_autopatcher.calibrated_unit.camera.get_16bit_image()
             img = img[int(position[1]-128):int(position[1]+128), int(position[0]-128):int(position[0]+128)]
@@ -113,16 +127,16 @@ class AutoPatchInterface(TaskInterface):
             #save the image
             # img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
             # cv2.imwrite(f'cell_{len(self.cells_to_patch)}.png', img)
-            self.cells_to_patch.append((np.array(stage_pos_pixels), img))
+            self.cells_to_patch.append((np.array(stage_pos_pixels), img, stage_pos_um))
             self.is_selecting_cells = False
 
     # Update the cell list to store both cell coordinates and image.
     def update_camera_cell_list(self) -> None:
         self.current_autopatcher.calibrated_unit.camera.cell_list = []
-        for cell, img in self.cells_to_patch:
+        for cell, img,pos in self.cells_to_patch:
             camera_pos = -cell + self.current_autopatcher.calibrated_stage.reference_position()
             # Append a tuple of (coordinates, image)
-            self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img))
+            self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img,pos))
 
 
     @command(category='Patch',
@@ -134,37 +148,38 @@ class AutoPatchInterface(TaskInterface):
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
     def patch(self) -> None:
-        cell, img = self.cells_to_patch[0]
+        cell, img,pos = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.patch,
-                     argument=(cell, img))
+                     argument=(cell, img,pos))
         time.sleep(2)
-        self.cells_to_patch = self.cells_to_patch[1:]
+        if  not self.current_autopatcher.config.custom_cclamp_protocol:
+                self.cells_to_patch = self.cells_to_patch[1:] # remove the cell from the list after patching if using the default protocol
 
     @blocking_command(category='Patch',
                         description='Locate the cell',
                         task_description='Moving to the cell')
     def locate_cell(self):
-        cell, img = self.cells_to_patch[0]
+        cell, img,pos = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.locate_cell,
-                      argument = (cell, img))
+                      argument = (cell, img,pos))
         time.sleep(2)
  
     @blocking_command(category='Stage',
                      description = 'Center the stage on cell',
                       task_description='Centering the stage on cell')
     def center_on_cell(self):
-        cell, img = self.cells_to_patch[0]
+        cell, img,pos = self.cells_to_patch[0]
         # print( f"patch.py: centering on cell {cell} with image {img.shape}")
         self.execute(self.current_autopatcher.calibrated_stage.center_on_cell,
-                      argument = (cell, img))
+                      argument = (cell, img,pos))
 
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
     def hunt_cell(self):
-        cell, img = self.cells_to_patch[0]
+        cell, img,pos = self.cells_to_patch[0]
         self.execute(self.current_autopatcher.hunt_cell,
-                      argument = (cell, img))
+                      argument = (cell, img,pos))
         time.sleep(2)
         # self.cells_to_patch = self.cells_to_patch[1:]
 
@@ -182,6 +197,8 @@ class AutoPatchInterface(TaskInterface):
              success_message='Cleaning path position stored')
     def store_cleaning_position(self) -> None:
         self.current_autopatcher.cleaning_bath_position = self.pipette_controller.calibrated_unit.position()
+        # save calibration to file
+        self.pipette_controller.write_calibration()
 
     @command(category='Patch',
                 description='Store the position of the safe space',
@@ -221,6 +238,13 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.safe_stage_position = self.current_autopatcher.home_stage_position
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
         self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
+        # send all positions to the pipette controller
+        self.pipette_controller.home_position = self.current_autopatcher.home_position
+        self.pipette_controller.safe_position = self.current_autopatcher.safe_position
+        self.pipette_controller.home_stage_position = self.current_autopatcher.home_stage_position
+        self.pipette_controller.safe_stage_position = self.current_autopatcher.safe_stage_position
+        self.pipette_controller.cleaning_bath_position = self.current_autopatcher.cleaning_bath_position
+        self.pipette_controller.write_calibration()
     
     # @command(category='Recording',
     #          description='Check to see if one of the patch methods is complete, whether failed or successful',
@@ -248,6 +272,7 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.home_stage_position = None
         self.current_autopatcher.safe_stage_position = None
         self.info('All positions cleared')
+
 
     @blocking_command(category='Patch',
                       description='Clean the pipette (wash and rinse)',

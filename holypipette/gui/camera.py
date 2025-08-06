@@ -25,7 +25,7 @@ import qtawesome as qta
 
 from holypipette.interface.camera import CameraInterface
 from holypipette.controller import TaskController
-from holypipette.config import NumberWithUnit
+from holypipette.utils.config import NumberWithUnit
 from holypipette.interface.base import command
 from .livefeed import LiveFeedQt
 
@@ -1006,7 +1006,7 @@ class ConfigGui(QtWidgets.QWidget):
         self.save_button.setIcon(qta.icon('fa.download'))
         top_row.addWidget(self.save_button)
         layout.addLayout(top_row)
-        all_params = config.params()
+        all_params = config.param
         self.value_widgets = {}
         for category, params in config.categories:
             box = QtWidgets.QGroupBox(category)
@@ -1044,6 +1044,11 @@ class ConfigGui(QtWidgets.QWidget):
                         value_widget.setCurrentIndex(param_obj.objects.index(current))
                     value_widget.currentIndexChanged.connect(
                         functools.partial(self.set_selector_value, param_name, param_obj.objects))
+                elif isinstance(param_obj, param.Tuple):         
+                    value_widget = QtWidgets.QLineEdit()          
+                    value_widget.setReadOnly(True)                
+                    value_widget.setEnabled(False)               
+                    value_widget.setText(str(getattr(config, param_name))) 
                 value_widget.setToolTip(param_obj.doc)
                 value_widget.setObjectName(param_name)
                 self.value_widgets[param_name] = value_widget
@@ -1064,7 +1069,7 @@ class ConfigGui(QtWidgets.QWidget):
         if key not in self.value_widgets:
             return
 
-        param_obj  = self.config.params()[key]
+        param_obj  = self.config.param[key]
         magnitude  = getattr(param_obj, 'magnitude', 1)
 
         # Only scale numeric values; leave strings / bools intact
@@ -1094,6 +1099,13 @@ class ConfigGui(QtWidgets.QWidget):
             spin.blockSignals(True)
             spin.setValue(value) 
             spin.blockSignals(False)
+            return                                             # (unchanged)
+
+        line = self.findChild(QtWidgets.QLineEdit, key)        
+        if line is not None and line.isReadOnly():             
+            line.blockSignals(True)                            
+            line.setText(str(value))                           
+            line.blockSignals(False)                           
 
 
     def set_numerical_value(self, name, value):
