@@ -569,9 +569,9 @@ class ClassicPatchButtons(ButtonTabWidget):
 
     def update_stage_pos_labels(self, indices):
         xyRecPos = self.pipette_interface.calibrated_stage.position()
-        zRecPos = self.pipette_interface.microscope.position()
+        zRecPos = - self.pipette_interface.microscope.position()
         xyPos = xyRecPos - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]
-        zPos = zRecPos - self.currz_stage_pos[2]
+        zPos = zRecPos + self.currz_stage_pos[2]
         self.stage_xy = xyRecPos
         self.stage_z = zRecPos
 

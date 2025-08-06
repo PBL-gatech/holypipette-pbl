@@ -56,9 +56,9 @@ class CalibrationConfig(Config):
                                      bounds=(50, 10000))
     stage_x_axis_flip = Boolean(False, 
                                 doc='Flip the x axis of the stage')
-    stage_y_axis_flip = Boolean(False, 
+    stage_y_axis_flip = Boolean(True, 
                                 doc='Flip the y axis of the stage')
-    pipette_z_rotation = NumberWithUnit(-50.8, unit = 'degrees',
+    pipette_z_rotation = NumberWithUnit(131.77, unit = 'degrees',
                                 doc='Rotation of the pipette in the xy plane (degrees)',
                                 bounds=(-360, 360))
     pipette_y_rotation = NumberWithUnit(26, unit = 'degrees',
@@ -483,7 +483,7 @@ class CalibratedUnit(ManipulatorUnit):
         
         if use_random:
             # generate random movement vector
-            random_movement = (np.random.rand(2) * 2 - 1) * movement
+            random_movement = (np.random.rand(2) * 2 - 1) * movement + 6
             movement_vector = np.array([random_movement[0], random_movement[1], 0])
         else:
             # generate fixed movement vector

@@ -41,7 +41,7 @@ class PipetteCalHelper():
         #   (image_x, image_y, encoder_x, encoder_y)
         self.cal_points = []
 
-    def collect_cal_points(self, num_points=10, xy_step=3, max_retries=5):
+    def collect_cal_points(self, num_points=10, xy_step=5, max_retries=5):
         """
         Collects 'num_points' calibration points.
         
@@ -56,8 +56,8 @@ class PipetteCalHelper():
             self._record_point_with_retries(max_retries)
             if i < num_points - 1:
                 # Move pipette slightly in the plane to spread out calibration data.
-                dx = xy_step + np.random.uniform(-1, 1)
-                dy = xy_step + np.random.uniform(-1, 1)
+                dx = xy_step + np.random.uniform(-2, 2)
+                dy = xy_step + np.random.uniform(-2, 2)
                 self.pipette.relative_move([dx, dy, 0])
                 self.pipette.wait_until_still()
         return len(self.cal_points) >= num_points
