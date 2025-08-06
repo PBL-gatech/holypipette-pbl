@@ -69,3 +69,4 @@ experiments/Datasets/temp_dataset.hdf5
 holypipette/deepLearning/cellModel/sam2.1_tiny.onnx
 /holypipette/deepLearning/cellModel
 /holypipette/deepLearning/patchModel
+/experiments/Data
