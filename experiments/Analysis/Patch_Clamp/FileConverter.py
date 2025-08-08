@@ -10,7 +10,8 @@ C_CLAMP_VOLT_PER_VOLT  = (1000e-3)   # 1000 mV per DAQ-V (voltage path)
 
 # Folders
 
-csv_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Analysis\Patch_Clamp\rowanexample\CurrentProtocol"
+# csv_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Analysis\Patch_Clamp\rowanexample\CurrentProtocol"
+csv_folder =r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\patch_clamp_data\2025_06_30-13_46\HoldingProtocol"
 
 
 out_folder = csv_folder

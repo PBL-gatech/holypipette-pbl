@@ -7,6 +7,7 @@ from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, Calib
 from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.pressurecontroller import PressureController
 from holypipette.devices.lamp import Lamp
+from holypipette.devices.manipulator.AutoPatchHelper import *
 from holypipette.utils.StateMachineLogger import StateMachineLogger, record_state
 import collections
 import logging
@@ -377,25 +378,26 @@ class AutoPatcher(TaskController):
         start_pos = self.calibrated_unit.position()
 
         self.first_res = self.resistanceRamp()
+
         self.info(f"Initial resistance: {self.first_res}")
-        self.info("starting descent....")
-
-        if self.config.mode == 'Classic':
-            autoHunt = True
-        else:
-            autoHunt = False
-
         self.info(f"{self.config.mode}: starting hunt")
 
-        if autoHunt:
+        if self.config.mode == 'classic':
             self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
-
+            autoHunt=True
+        else: 
+            autoHunt=False
         if self.config.cell_type == "Plate":
             self.config.cell_R_increase = 0.300
         elif self.config.cell_type == "Slice":
             self.config.cell_R_increase = 0.200
 
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
+        # if autoHunt:
+            # send an image,resistance, pipette and stage positions to autopatchHelper.hunt, and get back
+            # 6D vector that contains stage and pipette velocities to move at. a path planner 
+            # self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
+
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
                 # we have moved expected um down and still no cell detected
@@ -519,11 +521,6 @@ class AutoPatcher(TaskController):
 
         self.pressure.set_ATM(atm=True)
 
-        # if self.config.cell_type == "Plate":
-        #     self.config.Vramp_amplitude = -0.070
-        # elif self.config.cell_type == "Slice":
-        #     self.config.Vramp_amplitude = -0.070
-
         self.sleep(10)
 
         if autoPressure:
@@ -553,10 +550,6 @@ class AutoPatcher(TaskController):
             if delta_resistance >= self.config.gigaseal_min_delta_R:
                 last_progress_time = time.time()
 
-            print(f"goal resistance: {self.config.gigaseal_R} MΩ; "
-                f"current resistance: {avg_resistance} MΩ; "
-                f"rate: {rate_mohm_per_sec} MΩ/s")
-
             # ---------------------- auto-pressure logic ----------------------
             if autoPressure:
                 # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
@@ -569,10 +562,7 @@ class AutoPatcher(TaskController):
                 elif rate_mohm_per_sec <= -(self.config.gigaseal_R / 100):
                     currPressure += 5; currPressure = max(currPressure, -5); speed = 0.5
 
-                # <<< replace single clamp with two lines to forbid positive pressure >>>
-                # never above 0 mbar:
                 currPressure = min(currPressure, 0.0)
-                # never exceed deepest vacuum (e.g. -30 mbar):
                 currPressure = max(currPressure, self.config.pressure_ramp_max)
 
                 if currPressure != prevpressure:
@@ -790,7 +780,6 @@ class AutoPatcher(TaskController):
             # ---- teardown so the next call starts a fresh attempt ----
             self._state_recorder = None
             self._in_patch = False
-
 
     def move_to_safe_space(self):
         '''
@@ -1102,7 +1091,6 @@ class AutoPatcher(TaskController):
             target = fluo
 
         self.lamp.set_filter(target)
-
 
     def move_cube_left(self):
         current = self.lamp.get_filter()
