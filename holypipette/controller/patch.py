@@ -7,7 +7,7 @@ from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, Calib
 from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.pressurecontroller import PressureController
 from holypipette.devices.lamp import Lamp
-from holypipette.devices.manipulator.AutoPatchHelper import *
+from holypipette.devices.manipulator.AutoPatchHelper import AutoPatchHelper
 from holypipette.utils.StateMachineLogger import StateMachineLogger, record_state
 import collections
 import logging
@@ -57,9 +57,7 @@ class AutoPatcher(TaskController):
         self.attempt_counter = 0
         self._state_recorder = None
         self._in_patch       = False
-
-
-
+        self.autopatchhelper = AutoPatchHelper
         self.current_protocol_graph = None
 
     def _get_state_recorder(self) -> StateMachineLogger:
@@ -70,7 +68,6 @@ class AutoPatcher(TaskController):
                 attempt_id=self.attempt_counter
             )
         return self._state_recorder
-
 
     def getHolding(self):
         """Get the holding current as measured by the DAQ."""
@@ -385,18 +382,35 @@ class AutoPatcher(TaskController):
         if self.config.mode == 'classic':
             self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
             autoHunt=True
-        else: 
-            autoHunt=False
+        elif self.config.mode == 'Agent':
+            # load and prime model
+            autoHunt = True
+        else:
+            autoHunt = False
+
         if self.config.cell_type == "Plate":
             self.config.cell_R_increase = 0.300
         elif self.config.cell_type == "Slice":
             self.config.cell_R_increase = 0.200
 
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
-        # if autoHunt:
-            # send an image,resistance, pipette and stage positions to autopatchHelper.hunt, and get back
-            # 6D vector that contains stage and pipette velocities to move at. a path planner 
-            # self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
+            if autoHunt:
+                _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
+                pi = self.calibrated_unit.position()
+                st = self.calibrated_stage.position()
+                res = self.first_res
+                #package into input
+                input = np.array([pi, st, img,res])
+                
+            else: 
+                input = np.array(self.first_res)
+            # send to helper inference
+            vel = self.autopatchhelper.hunt(self.config.mode,self.config.cell_type,input)
+            # break vel into two lists
+            st_vel = vel[:2]
+            pi_vel = vel[2:]
+            self.calibrated_stage.absolute_move_group_velocity(st_vel)
+            self.calibrated_unit.absolute_move_group_velocity(pi_vel)
 
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
@@ -404,11 +418,15 @@ class AutoPatcher(TaskController):
                 self.info("cell not detected")
                 if autoHunt:
                     self.calibrated_unit.stop()
+                    self.calibrated_stage.stop()
+                    self.microscope.stop()
                     self.escape()
                 break
             elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
                 if autoHunt:
                     self.calibrated_unit.stop()
+                    self.calibrated_stage.stop()
+                    self.microscope.stop()
                 self.info("Cell Detected")
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
@@ -1101,8 +1119,10 @@ class AutoPatcher(TaskController):
         self.lamp.set_filter(new_slot)
 
     def move_cube_right(self):
+
         current = self.lamp.get_filter()
         if current is None:
             current = 1
         new_slot = current + 1
         self.lamp.set_filter(new_slot)
+

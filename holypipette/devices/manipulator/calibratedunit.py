@@ -346,8 +346,8 @@ class CalibratedUnit(ManipulatorUnit):
         h, w = img.shape[:2]
         # self.debug("DEBUG: Camera image dimensions: width =", w, "height =", h)
         
-        # (2) Get the detected pipette position (in pixels) from the deep-learning finder.
-        detected_px = self.pipetteCalHelper.pipetteFinder.find_pipette(img)
+        # (2) Get the detected pipette position (in pixels) from the deep-learning detector.
+        detected_px = self.pipetteCalHelper.pipetteDetector.detect_pipette(img)
         if detected_px is None:
             self.error("No pipette detected in the current frame.")
             return
@@ -443,7 +443,7 @@ class CalibratedUnit(ManipulatorUnit):
         emperical_poses = []
         for i in range(10):
             _, _, _, frame = self.camera.raw_frame_queue[0]
-            pos = self.pipetteCalHelper.pipetteFinder.find_pipette(frame)
+            pos = self.pipetteCalHelper.pipetteDetector.detect_pipette(frame)
             if pos != None:
                 emperical_poses.append([pos[0], pos[1]])
         

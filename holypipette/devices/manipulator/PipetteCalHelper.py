@@ -4,7 +4,7 @@ import numpy as np
 from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.manipulator import Manipulator
 from holypipette.devices.camera import Camera
-from holypipette.deepLearning.pipetteFinder import PipetteFinder
+from holypipette.deepLearning.pipetteDetector import PipetteDetector
 from holypipette.deepLearning.pipetteFocuser import PipetteFocuser
 from threading import Thread
 import logging
@@ -35,7 +35,7 @@ class PipetteCalHelper():
         self.pipette: Manipulator = pipette
         self.microscope: Microscope = microscope
         self.camera = camera
-        self.pipetteFinder: PipetteFinder = PipetteFinder()
+        self.pipetteDetector: PipetteDetector = PipetteDetector()
         self.calibrated_stage = calibrated_stage
         # Each calibration point will be a tuple:
         #   (image_x, image_y, encoder_x, encoder_y)
@@ -86,13 +86,13 @@ class PipetteCalHelper():
         """
         Records a calibration point as follows:
          - Retrieves the current camera frame.
-         - Uses the pipetteFinder to detect the pipette’s (x, y) position.
+         - Uses the pipetteDetector to detect the pipette’s (x, y) position.
          - Subtracts the stage’s reference position so that the result is in the stage’s coordinate system.
          - Pairs the (x, y) image position with the pipette’s encoder (x, y) coordinates.
         """
         # Get the latest frame from the camera.
         _, _, _, frame = self.camera.raw_frame_queue[0]
-        pos_pix = self.pipetteFinder.find_pipette(frame)
+        pos_pix = self.pipetteDetector.detect_pipette(frame)
         if pos_pix is not None:
             # Optionally, display the detected pipette on the frame.
             frame = cv2.circle(frame, pos_pix, 10, 0, 2)
@@ -108,7 +108,7 @@ class PipetteCalHelper():
             self.camera.show_point(pos_pix)
             print("Recorded calibration point:", self.cal_points[-1])
         else:
-            print("No pipette found in current frame.")
+            print("No pipette detected in current frame.")
 
     def calibrate(self):
         """

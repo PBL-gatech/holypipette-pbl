@@ -6,7 +6,7 @@ import time
 
 from . import *
 import warnings
-from holypipette.deepLearning.pipetteFinder import PipetteFinder
+from holypipette.deepLearning.pipetteDetector import PipetteDetector
 from holypipette.deepLearning.pipetteFocuser import PipetteFocuser
 from collections import deque
 import pymmcore
@@ -57,7 +57,6 @@ class moscowQCamera(Camera):
         self.currExposure = 0
         self.upperBound = 255
         self.lowerBound = 0
-        # self.pipetteFinder = PipetteFinder()
         self.pipetteFocuser = PipetteFocuser()
         self.lastFrame = self.prev_frame
         self.normalize() #normalize image on startup
