@@ -59,6 +59,7 @@ class AutoPatcher(TaskController):
         self._in_patch       = False
         self.autopatchhelper = AutoPatchHelper
         self.current_protocol_graph = None
+        self.ninput = None
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -258,10 +259,11 @@ class AutoPatcher(TaskController):
         
         # move to cell position 
         cell_pos, cell_img,pos = cell
-        if self.config.cell_type == "Plate":
-            self.config.cell_distance = 20
-        elif self.config.cell_type == "Slice":
-            self.config.cell_distance = 75
+        if self.config.cell_type_toggle:
+            if self.config.cell_type == "Plate":
+                self.config.cell_distance = 20
+            elif self.config.cell_type == "Slice":
+                self.config.cell_distance = 75
             
 
         self.info(f" Moving to Cell position: {cell_pos}") 
@@ -318,7 +320,7 @@ class AutoPatcher(TaskController):
         zdistleft  = z_pos - cell_pos[2]
         self.microscope.relative_move(-zdistleft)
         self.microscope.wait_until_still()
-        if self.config.cell_type == "Plate": 
+        if self.config.cell_type_toggle and self.config.cell_type == "Plate": 
             self.info("centering on cell")
             self.calibrated_stage.center_on_cell(cell)
             self.calibrated_stage.wait_until_still()
@@ -351,7 +353,7 @@ class AutoPatcher(TaskController):
         
         # if a slice, push pipette into slice from above surface, just about 20um above cell of interest
 
-        if self.config.cell_type == "Slice":
+        if self.config.cell_type_toggle and self.config.cell_type == "Slice":
             self.info("Moving pipette to slice position")
             # move pipette down to slice position
             dist = self.config.cell_distance - self.config.slice_start_distance
@@ -383,34 +385,33 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
             autoHunt=True
         elif self.config.mode == 'Agent':
-            # load and prime model
+            # get 16 inputs from observation to prime model with. build a nested input list
+            for i in range(16):
+                self.ninput[i] = self.observe()
+            self.autopatchhelper.prime_model("hunt",self.ninput)
             autoHunt = True
         else:
             autoHunt = False
 
-        if self.config.cell_type == "Plate":
-            self.config.cell_R_increase = 0.300
-        elif self.config.cell_type == "Slice":
-            self.config.cell_R_increase = 0.200
+        if self.config.cell_type_toggle:
+            if self.config.cell_type == "Plate":
+                self.config.cell_R_increase = 0.300
+            elif self.config.cell_type == "Slice":
+                self.config.cell_R_increase = 0.200
 
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
             if autoHunt:
-                _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
-                pi = self.calibrated_unit.position()
-                st = self.calibrated_stage.position()
-                res = self.first_res
-                #package into input
-                input = np.array([pi, st, img,res])
-                
-            else: 
-                input = np.array(self.first_res)
-            # send to helper inference
-            vel = self.autopatchhelper.hunt(self.config.mode,self.config.cell_type,input)
-            # break vel into two lists
-            st_vel = vel[:2]
-            pi_vel = vel[2:]
-            self.calibrated_stage.absolute_move_group_velocity(st_vel)
-            self.calibrated_unit.absolute_move_group_velocity(pi_vel)
+                try: 
+                    input = self.observe()
+                    pos = self.autopatchhelper.hunt(self.config.mode,self.config.cell_type,input)
+                    st_pos = pos[:2]
+                    pi_pos = pos[2:]
+                except: 
+                    self.error("Error in prediction, skipping movement")
+                    st_pos = [0,0,0]
+                    pi_pos = [0,0,0]
+                self.calibrated_stage.relative_move_group([0,1,2],st_pos)
+                self.calibrated_unit.relative_move_group([0,1,2],pi_pos)
 
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
@@ -1126,3 +1127,12 @@ class AutoPatcher(TaskController):
         new_slot = current + 1
         self.lamp.set_filter(new_slot)
 
+    def observe(self):
+        """ collects all inputs required for the models"""
+        _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
+        pi = self.calibrated_unit.position()
+        st = self.calibrated_stage.position()
+        res = self.resistanceRamp()
+        input = np.array([pi, st, img,res])
+        return input
+        

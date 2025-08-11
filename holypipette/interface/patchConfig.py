@@ -46,6 +46,7 @@ class PatchConfig(Config):
     cclamp_hold = NumberWithUnit(-50, bounds=(-200, 0), doc='Holding Current', unit='pA', magnitude=1)
     hclamp_duration = NumberWithUnit(30, bounds=(0, 600), doc='Holding Protocol Duration', unit='s')
 
+    cell_type_toggle = Boolean(default=False, doc='Toggle for automatic cell type protocol selection')
     cell_type = Selector(default='Plate',objects = ['Plate', 'Slice'], doc='Cell type for protocol selection')
     mode = Selector( default='Classic', objects =['Manual', 'Classic', 'Agent'], doc='Mode for AutoPatch algorithm')
     lamp = Selector(default= '2', objects = ['1', '2', '3','4','5','6'], doc='default fluorescence cube slot')
@@ -55,7 +56,7 @@ class PatchConfig(Config):
         ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol']),
         ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end','cclamp_hold', 'hclamp_duration']),
-        ('AutoPatching', ['cell_type', 'mode']),
+        ('AutoPatching', ['cell_type_toggle','cell_type', 'mode']),
         ('Fluorescence', ['lamp'])  
     ]
 

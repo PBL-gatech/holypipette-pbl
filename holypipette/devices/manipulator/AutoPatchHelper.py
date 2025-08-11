@@ -1,7 +1,7 @@
 import time
 import cv2
 import numpy as np
-from holypipette.deepLearning.autoPatcher import CellHunter
+from holypipette.deepLearning.autoPatcher import CellHunter,GigaSealer,Burglar
 
 
 class AutoPatchHelper():
@@ -11,22 +11,25 @@ class AutoPatchHelper():
     Gigasealing 
     Break in
     """
-    def __init__(self,  hunter: CellHunter, ):
+    def __init__(self, hunter: CellHunter,gigasealer:GigaSealer, burglar:Burglar):
         self.hunter = hunter
+        self.gigasealer = gigasealer
+        self.burglar = burglar
+        self.poslist =[]
+        self.hunterh0 = 0
+        self.hunterc0 = 0
+    
+
+    def hunt(self,cell_type,model_input):
+        pos,self.hunterh0,self.hunterc0 = self.hunter.inference(model_input,self.hunterh0,self.hunterc0)
+        pos = self.clamp_positions(pos)
+
+        return pos
+    
+    def gigaseal(self,mode,type,input):
+       pass
+    def breakin(self,mode,type,input):
         pass
-
-    def hunt(self,mode,type,input):
-        # check mode, if classic, send back vector with just [0,0, 0,0, 0, -10], if Agent, send to hunter class in autopatcher.
-        if mode == 'classic':
-             vel = [0,0, 0,0, 0, -10]
-        elif mode == 'Agent': 
-              # pass type and input into hunter class, get position trajectory data
-              
-              pos = self.hunter.inference(type,input)
-              # send position data into path planning script to convert to velocities.
-              vel = self.pathplan(pos)
-
-        return vel
     
     def pathplan(self, pos):
         """
@@ -73,3 +76,42 @@ class AutoPatchHelper():
                 vel_flat[i:i + 3] = (v3 * scale).tolist()
 
         return vel_flat
+    
+    def clamp_positions(self,positions):
+        '''
+        restrict maximum distance model can predict for manipulators/stage to move to 10 microns
+        '''
+        positions = np.array(positions)
+        max_distance = 10 # microns
+        positions[positions > max_distance] = max_distance
+        return positions.tolist()
+
+    def prime_model(self,model,cell_type,model_input):
+        """
+        Prepare a given model for accurate inferencing. requires loading and preloading inputs to provide an accurate prediction set
+    
+        """
+        if model == 'hunt':
+            self.hunter.load_model(cell_type)
+            modelactor = self.hunter
+        elif model == 'gigaseal':
+             self.gigasealer.load_model(cell_type)
+             modelactor=self.gigasealer
+        elif model == 'break_in':
+             self.burglar.load_model(cell_type)
+             modelactor = self.burglar
+
+        predlist = []
+        h0list = []
+        c0list = []
+        for i in range(len(model_input)):
+                if i == 0:
+                    h0list[i] = 0
+                    c0list[i] = 0
+                predlist[i],h0list[i],c0list[i] = modelactor.inference(model_input,h0list[i-1],c0list[i-1])
+ 
+
+
+
+        
+        

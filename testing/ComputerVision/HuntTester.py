@@ -12,13 +12,13 @@ import numpy as np
 
 
 # -------------------------------------------------
-# AutoPatcher: model loader
+# HuntTester: model loader
 # -------------------------------------------------
 import onnxruntime as ort
 from pathlib import Path
 import numpy as np
 
-class AutoPatcher:
+class HuntTester:
     """
     Locate an .onnx file and return an onnxruntime.InferenceSession plus
     input/output name lists. Also provides simple inference helpers for live deque usage,
@@ -209,7 +209,7 @@ behaviour **and** writes a 60 fps animated 3‑D trajectory GIF.
 Dependencies (beyond the standard ones already present in your script):
     • numpy
     • matplotlib (with Pillow or FFmpeg installed for animation saving)
-    • AutoPatcher, ModelTester from your existing project tree
+    • HuntTester, ModelTester from your existing project tree
 
 Typical usage
 -------------
@@ -267,7 +267,7 @@ class ModelAnalyzer:
         self.observed_pip_positions: Optional[np.ndarray] = None
 
         # ── Model + tester ───────────────────────────────────────────────
-        patcher = AutoPatcher()
+        patcher = HuntTester()
         self.session, self.in_names, self.out_names = patcher.load_model(str(self.model_path))
         self.tester = ModelTester(
             self.session,
@@ -537,10 +537,11 @@ class ModelAnalyzer:
 
 
 if __name__ == "__main__":
-    # Example invocation mirroring original behaviour
-    root = Path(__file__).parent
+    model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\models\HEKHUNTERv0_180.onnx"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\test_data\HEKHUNTER_inference_set3.hdf5"
+    # root = Path(__file__).parent
     analyzer = ModelAnalyzer(
-        model_path=root / "patchModel/models/HEKHUNTERv0_180.onnx",
-        data_path=root / "patchModel/test_data/HEKHUNTER_inference_set3.hdf5",
+        model_path=model_path,
+        data_path=data_path,
     )
     analyzer.run()
