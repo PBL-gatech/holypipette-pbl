@@ -4,15 +4,18 @@ import pandas as pd
 import numpy as np
 from pyabf.abfWriter import writeABF1
 
-# --- your conversion constants ---
-C_CLAMP_AMP_PER_VOLT   = 400e-12   # 400 pA per DAQ-V (current path)
-C_CLAMP_VOLT_PER_VOLT  = (1000e-3)   # 1000 mV per DAQ-V (voltage path)
+# --- conversion constants ---
+C_CLAMP_AMP_PER_VOLT = 400 * 1e-12  # 400 pA per V (DAQ output)
+C_CLAMP_VOLT_PER_VOLT = (1 * 1e-3) / (1e-3)  # 10 mV per V (DAQ input)
+V_CLAMP_VOLT_PER_VOLT = (1 * 1e-3)  # 1 mV per V (DAQ output)
+V_CLAMP_VOLT_PER_AMP = (1 * 1e-12)    # 1 mV per pA (DAQ input)
+
+prottype = "holding"
 
 # Folders
-
-# csv_folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Analysis\Patch_Clamp\rowanexample\CurrentProtocol"
-csv_folder =r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\patch_clamp_data\2025_06_30-13_46\HoldingProtocol"
-
+csv_folder = r"C:\Users\sa-forest\Documents\GitHub\PatchAnalyzer\Data\Test\2025_06_28-14_16\HoldingProtocol\splits"
+# csv_folder = r"C:\Users\sa-forest\Documents\GitHub\PatchAnalyzer\Data\Test\2025_06_28-14_16\CurrentProtocol\temp"
+# csv_folder = r"c:\Users\sa-forest\Documents\GitHub\PatchAnalyzer\Data\Test\2025_06_28-14_16\VoltageProtocol\temp"
 
 out_folder = csv_folder
 os.makedirs(out_folder, exist_ok=True)
@@ -27,8 +30,8 @@ for path in all_csvs:
 # 2) process each group
 for prefix, paths in groups.items():
     paths.sort()
-    raws_current = []
-    raws_voltage = []
+    raws_input = []
+    raws_output = []
     times = None
     sample_rate = None
 
@@ -46,23 +49,52 @@ for prefix, paths in groups.items():
         else:
             assert len(df) == len(times), f"Length mismatch in {p}"
 
-        raws_current.append(df["raw_current"].to_numpy())
-        raws_voltage.append(df["raw_voltage"].to_numpy())
+        raws_input.append(df["raw_current"].to_numpy())
+        raws_output.append(df["raw_voltage"].to_numpy())
 
-    # scale to physical units
-    currents_pa = [r * C_CLAMP_AMP_PER_VOLT * 1e12 for r in raws_current]     # pA
-    voltages_mv = [r * C_CLAMP_VOLT_PER_VOLT * 1e3 for r in raws_voltage]     # mV
+    if prottype == "current":
+        inputs_pa = [r *  C_CLAMP_AMP_PER_VOLT * 1e12 for r in raws_input]   # pA
+        outputs_mv = [r * C_CLAMP_VOLT_PER_VOLT * 1e3 for r in raws_output] # mV
+        out_state = "(voltage in mV)"
+        in_state = "(current in pA)"
+        C_stack = np.vstack(inputs_pa)
+        R_stack = np.vstack(outputs_mv)
+        c_unit = "pA"
+        r_unit = "mV"
 
-    # stack into (nSweeps × nPoints)
-    I_stack = np.vstack(currents_pa)
-    V_stack = np.vstack(voltages_mv)
+    elif prottype == "voltage":
+        # inputs_mv = raws_input*1e3 # mV
+        # outputs_pa = raws_output*1e9  # pA
+        inputs_mV = [r / V_CLAMP_VOLT_PER_VOLT for r in raws_input] # V
+        outputs_pa = [r / V_CLAMP_VOLT_PER_AMP for r in raws_output] # A
+        in_state = "(voltage in mV)"
+        out_state = "(current in pA)"
+        C_stack = np.vstack(inputs_mV)
+        R_stack = np.vstack(outputs_pa)
+        c_unit = "mV"
+        r_unit = "pA"
+        # data converted already.
+    
+    elif prottype == "holding":
+         inputs_mV = raws_output
+         outputs_pa = raws_input
+         inputs_mV = [r/V_CLAMP_VOLT_PER_VOLT for r in raws_output]
+         outputs_pa = [r * 1000 for r in raws_input]
+         in_state = "(voltage in mV)"
+         out_state = "(current in pA)"
+         C_stack = np.vstack(inputs_mV)
+         R_stack = np.vstack(outputs_pa)
+         c_unit = "mV"
+         r_unit = "pA"
+         # for some reason, the command is the third column on holding protocol data
+
 
     # write current ABF1 as *_Command.abf
     cmd_abf = os.path.join(out_folder, f"{prefix.rstrip('_')}_Command.abf")
-    writeABF1(I_stack, cmd_abf, sample_rate, units="pA")
-    print(f"Wrote {len(I_stack)} sweeps → {os.path.basename(cmd_abf)} (current in pA)")
+    writeABF1(C_stack, cmd_abf, sample_rate, units=c_unit)
+    print(f"Wrote {len(C_stack)} sweeps → {os.path.basename(cmd_abf)} {in_state}")
 
     # write voltage ABF1 as *_Response.abf
     resp_abf = os.path.join(out_folder, f"{prefix.rstrip('_')}_Response.abf")
-    writeABF1(V_stack, resp_abf, sample_rate, units="mV")
-    print(f"Wrote {len(V_stack)} sweeps → {os.path.basename(resp_abf)} (voltage in mV)")
+    writeABF1(R_stack, resp_abf, sample_rate, units=r_unit)
+    print(f"Wrote {len(R_stack)} sweeps → {os.path.basename(resp_abf)} {out_state}")
