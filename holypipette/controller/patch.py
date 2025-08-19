@@ -292,7 +292,8 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
         zdist_cell = self.home_stage_position[2] - cell_pos[2]
-        self.move_group_down(-zdist_cell/2)# on real rig
+        self.info(f"distance to cell: {zdist_cell}")
+        self.move_group_down(zdist_cell/2)
         self.sleep(0.1)
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
@@ -302,8 +303,9 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
-        second = zdist_cell/2 + self.config.cell_distance
-        self.move_group_down(-second)
+        second = zdist_cell/2 - self.config.cell_distance
+        self.info(f"distance to cell again: {second}")
+        self.move_group_down(second)
         self.sleep(0.1)
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
@@ -897,7 +899,7 @@ class AutoPatcher(TaskController):
         Moves the pipette up by input distance in the z axis
         '''
         try:
-            self.calibrated_unit.relative_move(-dist, axis=2)
+            self.calibrated_unit.relative_move(dist, axis=2)
             self.calibrated_unit.wait_until_still(2)
         finally:
             pass
