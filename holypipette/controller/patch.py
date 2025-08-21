@@ -411,8 +411,10 @@ class AutoPatcher(TaskController):
                     self.error("Error in prediction, skipping movement")
                     st_pos = [0,0,0]
                     pi_pos = [0,0,0]
-                self.calibrated_stage.relative_move_group([0,1,2],st_pos)
-                self.calibrated_unit.relative_move_group([0,1,2],pi_pos)
+                self.calibrated_stage.relative_move_group(st_pos, [0,1,2])
+                self.calibrated_unit.relative_move_group(pi_pos, [0,1,2])
+
+
 
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
@@ -1135,8 +1137,8 @@ class AutoPatcher(TaskController):
         _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
         pi = self.calibrated_unit.reference_position()
         self.info(f"pipette position: '{pi}' ")
-        st = self.calibrated_stage.reference_position()
-        stz = self.calibrated_unit.microscope.position()/5
+        st = self.calibrated_stage.reference_position()[:2]
+        stz = self.calibrated_unit.microscope.position() / 5
         st.append(stz)
         self.info(f"stage position: '{st}' ")
         res = self.resistanceRamp()
