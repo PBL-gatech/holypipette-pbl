@@ -4,27 +4,29 @@ import numpy as np
 from holypipette.deepLearning.autoPatcher import CellHunter,GigaSealer,Burglar
 
 
-class AutoPatchHelper():
+class AutoPatchHelper:
     """
     A helper class to aid with different stages of the auto patching process.
     Neuron Hunting
     Gigasealing 
     Break in
     """
-    def __init__(self, hunter: CellHunter,gigasealer:GigaSealer, burglar:Burglar):
-        self.hunter = hunter
-        self.gigasealer = gigasealer
-        self.burglar = burglar
+    def __init__(self):
+        self.hunter = CellHunter()
+        self.gigasealer = GigaSealer()
+        self.burglar = Burglar()
         self.poslist =[]
-        self.hunterh0 = 0
-        self.hunterc0 = 0
+        self.hunterh0 = None
+        self.hunterc0 = None
     
 
-    def hunt(self,cell_type,model_input):
-        pos,self.hunterh0,self.hunterc0 = self.hunter.inference(model_input,self.hunterh0,self.hunterc0)
+    def hunt(self,model_input):
+        pos, self.hunterh0, self.hunterc0 = self.hunter.inference(model_input, self.hunterh0, self.hunterc0)
+        # onnx returns shape (1,6); flatten to (6,) for downstream slicing
+        pos = np.asarray(pos).reshape(-1)
         pos = self.clamp_positions(pos)
-
         return pos
+
     
     def gigaseal(self,mode,type,input):
        pass
@@ -76,7 +78,7 @@ class AutoPatchHelper():
                 vel_flat[i:i + 3] = (v3 * scale).tolist()
 
         return vel_flat
-    
+
     def clamp_positions(self,positions):
         '''
         restrict maximum distance model can predict for manipulators/stage to move to 10 microns
@@ -86,30 +88,39 @@ class AutoPatchHelper():
         positions[positions > max_distance] = max_distance
         return positions.tolist()
 
-    def prime_model(self,model,cell_type,model_input):
+    def prime_model(self,model,model_input):
         """
         Prepare a given model for accurate inferencing. requires loading and preloading inputs to provide an accurate prediction set
     
         """
         if model == 'hunt':
-            self.hunter.load_model(cell_type)
+            self.hunter.load_model()
             modelactor = self.hunter
         elif model == 'gigaseal':
-             self.gigasealer.load_model(cell_type)
+             self.gigasealer.load_model()
              modelactor=self.gigasealer
         elif model == 'break_in':
-             self.burglar.load_model(cell_type)
+             self.burglar.load_model()
              modelactor = self.burglar
 
         predlist = []
         h0list = []
         c0list = []
         for i in range(len(model_input)):
-                if i == 0:
-                    h0list[i] = 0
-                    c0list[i] = 0
-                predlist[i],h0list[i],c0list[i] = modelactor.inference(model_input,h0list[i-1],c0list[i-1])
- 
+            if i == 0:
+                h0 = None
+                c0 = None
+            else:
+                h0 = h0list[i-1]
+                c0 = c0list[i-1]
+
+            pred, h0, c0 = modelactor.inference(model_input[i], h0, c0)
+
+            predlist.append(pred)
+            h0list.append(h0)
+            c0list.append(c0)
+            print(f"observation primed {i}")
+
 
 
 

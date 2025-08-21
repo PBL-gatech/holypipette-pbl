@@ -57,7 +57,7 @@ class AutoPatcher(TaskController):
         self.attempt_counter = 0
         self._state_recorder = None
         self._in_patch       = False
-        self.autopatchhelper = AutoPatchHelper
+        self.autopatchhelper = AutoPatchHelper()
         self.current_protocol_graph = None
         self.ninput = None
 
@@ -386,6 +386,7 @@ class AutoPatcher(TaskController):
             autoHunt=True
         elif self.config.mode == 'Agent':
             # get 16 inputs from observation to prime model with. build a nested input list
+            self.ninput = [None] * 16
             for i in range(16):
                 self.ninput[i] = self.observe()
             self.autopatchhelper.prime_model("hunt",self.ninput)
@@ -402,10 +403,10 @@ class AutoPatcher(TaskController):
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
             if autoHunt:
                 try: 
-                    input = self.observe()
-                    pos = self.autopatchhelper.hunt(self.config.mode,self.config.cell_type,input)
-                    st_pos = pos[:2]
-                    pi_pos = pos[2:]
+                    model_input = self.observe()
+                    pos = self.autopatchhelper.hunt(model_input)
+                    st_pos = pos[:3]
+                    pi_pos = pos[3:]
                 except: 
                     self.error("Error in prediction, skipping movement")
                     st_pos = [0,0,0]
@@ -437,6 +438,8 @@ class AutoPatcher(TaskController):
 
         self.calibrated_unit.stop()
         self.microscope.stop()
+
+
 
     @record_state("escape")
     def escape(self):
@@ -1130,9 +1133,15 @@ class AutoPatcher(TaskController):
     def observe(self):
         """ collects all inputs required for the models"""
         _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
-        pi = self.calibrated_unit.position()
-        st = self.calibrated_stage.position()
+        pi = self.calibrated_unit.reference_position()
+        self.info(f"pipette position: '{pi}' ")
+        st = self.calibrated_stage.reference_position()
+        stz = self.calibrated_unit.microscope.position()/5
+        st.append(stz)
+        self.info(f"stage position: '{st}' ")
         res = self.resistanceRamp()
-        input = np.array([pi, st, img,res])
-        return input
+        self.info(f"resistance: {res}")
+        
+        # Return a list instead of trying to create heterogeneous numpy array
+        return [pi, st, img, res]
         
