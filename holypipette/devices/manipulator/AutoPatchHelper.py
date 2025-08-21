@@ -120,6 +120,8 @@ class AutoPatchHelper:
             h0list.append(h0)
             c0list.append(c0)
             print(f"observation primed {i}")
+        self.hunterh0, self.hunterc0 = h0, c0
+
 
 
 
