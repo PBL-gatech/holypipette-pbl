@@ -351,7 +351,7 @@ class EPhysGraph(QWidget):
         """
         # --- Update Pressure Plot ---
         pressure = int(self.graph_interface.get_last_pressure())
-        pressure_set = int(self.graph_interface.get_pressure())
+        pressure_set = int(self.graph_interface.get_pressure()) -5
         if pressure is not None:
             self.pressureData.append(pressure)
             pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]

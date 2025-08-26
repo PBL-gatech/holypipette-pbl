@@ -20,8 +20,8 @@ class EmoryPressureController(PressureController):
     '''
     validProducts = ["USB Serial"] # TODO: move to a constants or json file?
     validVIDs = [0x1a86, 0x403]
-    nativeZero = 2161 # The native units at a 0 pressure (y-intercept)
-    nativePerMbar = float(3078/1000) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
+    nativeZero = 2170 # The native units at a 0 pressure (y-intercept)
+    nativePerMbar = 3.1329113924  # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
     serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
 
     def __init__(self, channel, controllerSerial = None, readerSerial = None):
@@ -57,7 +57,7 @@ class EmoryPressureController(PressureController):
         '''
         Tell pressure controller to go to a given setpoint pressure in mbar
         '''
-        nativeUnits = self.mbarToNative(pressure)
+        nativeUnits = self.mbarToNative(pressure+5)
         # self.info(f"Setting pressure to {nativeUnits} mbar")
         self.set_pressure_raw(nativeUnits)
     
@@ -110,7 +110,7 @@ class EmoryPressureController(PressureController):
                 pressure_str = reading[1:-1]
                 try:
                     pressureVal = float(pressure_str)
-                    pressureVal = float((pressureVal - 516.72)/0.3923) # conversion to raw because the seeed is not working
+                    pressureVal = float((pressureVal - 516.72)/0.3923) - 9 # conversion to raw because the seeed is not working
                     self.lastVal = pressureVal
                 except ValueError:
                     self.warning("Invalid pressure data received")
