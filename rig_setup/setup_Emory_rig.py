@@ -14,7 +14,7 @@ from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSor
 camera = ElectroCamera()
 
 # set up Pressure Controller
-pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
+pressureControllerSerial = serial.Serial(port='COM4', baudrate=9600, timeout=0)
 pressureReaderSerial = serial.Serial(port='COM3', baudrate=9600, timeout=0)
 pressure = EmoryPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
 
