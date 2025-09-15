@@ -24,20 +24,20 @@ from matplotlib import cm, animation
 from pathlib import Path
 
 # ====== CONFIGURATION FLAGS ======
-plot_pipette_3d = False          # Static 3-D scatter (Plot 1)
+plot_pipette_3d = True   # Static 3-D scatter (Plot 1)
 plot_resistance = False          # Plot 2
 plot_stage_3d = False            # Plot 3
 plot_time_courses = False        # Plot 4
-plot_pipette_animation = True    # Animated scatter (Plot 5)
+plot_pipette_animation = False    # Animated scatter (Plot 5)
 
 # Animation tuning -----------------------------------------------------------
 animation_speed_multiplier = 1   # ~6 × faster than real-time
 base_animation_fps = 60          # logical FPS before speed-up
-save_animation = True           # Export GIF (requires Pillow)
+save_animation = False           # Export GIF (requires Pillow)
 animation_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\pipette_paths.gif")
 # ===========================================================================
 
-file_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_1.hdf5")
+file_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_030.hdf5")
 
 pipette_positions_data: dict[str, np.ndarray] = {}
 resistance_data: dict[str, np.ndarray] = {}

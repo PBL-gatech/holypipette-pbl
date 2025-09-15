@@ -69,7 +69,7 @@ class AutoPatchHelper:
             vel_flat.extend(v.tolist())
 
         # Clamp each 3‑D velocity to a maximum speed
-        max_speed = 30.0  # adjust as needed
+        max_speed = 5.0  # adjust as needed
         for i in range(0, len(vel_flat), 3):
             v3 = np.array(vel_flat[i:i + 3])
             speed = np.linalg.norm(v3)
@@ -79,14 +79,12 @@ class AutoPatchHelper:
 
         return vel_flat
 
-    def clamp_positions(self,positions):
-        '''
-        restrict maximum distance model can predict for manipulators/stage to move to 10 microns
-        '''
-        positions = np.array(positions)
-        max_distance = 10 # microns
-        positions[positions > max_distance] = max_distance
-        return positions.tolist()
+    def clamp_positions(self, positions, max_distance=10.0):
+        # ensure 1-D float array
+        arr = np.asarray(positions, dtype=float).ravel()
+        # clamp both positive and negative to ±max_distance
+        arr = np.clip(arr, -max_distance, max_distance)
+        return arr.tolist()  # <-- returns a plain Python list
 
     def prime_model(self,model,model_input):
         """

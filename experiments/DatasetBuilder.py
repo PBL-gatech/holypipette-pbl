@@ -11,24 +11,26 @@ ATL_TO_UTC_TIME_DELTA = 4 #March 9 - Nov 1: 4 hours, otherwise 5 hours
 class DatasetBuilder():
     def __init__(self,
                  dataset_name,
+                 calfile = None,
                  val_ratio: float = 1 / 6,
                  omit_stage_movement: bool = True,
                  random_seed: int = 0,
-                 rotate_valid: bool = True,
+                 rotate_valid: bool = False,
                  *,                              # ── NEW: keyword-only below
                  stage_y_axis_flip: bool = True, # flip the stage Y axis
-                 pipette_rotation_deg: float = -60.75 # θ ─ rotate pipette XY
+                 pipette_rotation_deg: float = -60.75, # θ ─ rotate pipette XY
+                 load_next_obs: bool = False
                  ):
         """
         Parameters
         ----------
-        val_ratio : float
-            Fraction of demos reserved for validation.  If set to 0 there will
-            be *no* validation split and no “mask” group will be written.
+
         """
         self.dataset_name = dataset_name
+        self.calfile = calfile
+        self.calibrate = False
         self.zero_values = False
-        self.center_crop = False
+        self.center_crop = True
         self.rotate = False                 # train-time augmentation
         self.rotate_valid = rotate_valid
         self.inaction = 1
@@ -37,6 +39,8 @@ class DatasetBuilder():
         self.rng = np.random.default_rng(random_seed)
         self.stage_y_axis_flip = stage_y_axis_flip
         self.pipette_rotation_deg = pipette_rotation_deg
+        self.load_next_obs = load_next_obs
+
 
         # Only keep bookkeeping for the splits that will exist
         if self.val_ratio == 0:
@@ -78,6 +82,56 @@ class DatasetBuilder():
         # combine -- only XY are coupled to the stage; Z stays independent
         pip_rot[:, :2] += stage_adj[:, :2]
         return pip_rot           # shape (N, 3)
+
+    def _pixel_coordinate_transform(self,
+                                    stage_positions: np.ndarray,
+                                    pipette_positions: np.ndarray,
+                                    ) -> np.ndarray:
+        """
+        Express the stage coordinates  in the **Camera frame**
+
+        steps
+        1. extract given calibration file affine matrix transform
+        2. multiply matrix transform to stage coordinates.
+        3. add offset to stage coordinates.
+        
+        """
+
+        #load file and extract matrix
+
+        M,r0 = self._load_calfile()
+
+        # if 2D stage matrix is not none, apply the multiplication to stage coordinates 2D plane, leave z axis unaffected
+        if M ==None: 
+            stage_pixels = stage_positions
+            pipette_pixels = pipette_positions
+            print(f"no calibration matrix found in {self.calfile}!")
+            print("passing uncalibrated inputs...")
+        else: 
+            
+        # if 2D stage matrix is not none, apply the multiplication to stage coordinates 2D plane, leave z axis unaffected and do the same to pipette
+            stage_pixels, pipette_pixels = self._apply_transform(stage_positions,pipette_positions,M)
+
+
+
+        return stage_pixels,pipette_pixels
+    
+    def _load_calfile(self):
+        """
+        Load calibration file and extract M matrix from pickle
+        
+        """
+        pass
+
+    def _apply_transform(stage_positions,pipette_positions,M):
+
+        """
+        apply M matrix tranformation to the X and Y coordinates of the pipette and stage
+
+        """
+        stage_pixels = np.dot()
+
+        pass
 
 
 
@@ -598,7 +652,7 @@ class DatasetBuilder():
                 pil_image = pil_image.rotate(rotation_angle, resample=Image.BILINEAR, expand=True)
             if self.center_crop:
                 pil_image = self.crop_image_center(pil_image)
-            curr_frame = np.array(pil_image.resize((1024, 1024)))
+            curr_frame = np.array(pil_image.resize((85, 85)))
             frames_list.append(curr_frame)
             last_index = min_timestamp_diff_indice - 1
         camera_frames = np.array(frames_list)
@@ -639,6 +693,9 @@ class DatasetBuilder():
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
 
+
+        # ‼️ NEW: express stage coords in the microscope/camera frame
+        # stage_positions,pipette_positions = self._pixel_coordinate_transform(stage_positions,pipette_positions)
 
         # ‼️ NEW: express pipette coords in the stage frame
         pipette_positions = self._transform_pipette_positions(
@@ -687,21 +744,35 @@ class DatasetBuilder():
         if not include_next_obs:
             return None, None, None, None, None, None, None
 
-        graph_values_rolled = np.roll(attempt_graph_values, -1, axis=0)
-        next_pressure_values = graph_values_rolled[:, 1].astype(np.uint8)
-        next_resistance_values = graph_values_rolled[:, 2].astype(np.uint8)
+        # shift-by-one (no wraparound); last element duplicates the last obs
+        # Ensure numeric dtypes for HDF5 (avoid object dtype)
+        # Pressure / Resistance come from attempt_graph_values columns 1 and 2
+        pressure   = attempt_graph_values[:, 1].astype(np.float64)
+        resistance = attempt_graph_values[:, 2].astype(np.float64)
 
-        next_current_values = np.roll(current_values, -1, axis=0)
-        next_voltage_values = np.roll(voltage_values, -1, axis=0)
-        next_stage_positions = np.roll(stage_positions, -1, axis=0)
-        next_pipette_positions = np.roll(pipette_positions, -1, axis=0)
+        next_pressure_values = np.empty_like(pressure)
+        next_pressure_values[:-1] = pressure[1:]
+        next_pressure_values[-1]  = pressure[-1]
+
+        next_resistance_values = np.empty_like(resistance)
+        next_resistance_values[:-1] = resistance[1:]
+        next_resistance_values[-1]  = resistance[-1]
+
+        # High-frequency waveforms (already numeric arrays)
+        next_current_values = np.empty_like(current_values); next_current_values[:-1] = current_values[1:]; next_current_values[-1] = current_values[-1]
+        next_voltage_values = np.empty_like(voltage_values); next_voltage_values[:-1] = voltage_values[1:]; next_voltage_values[-1] = voltage_values[-1]
+
+        # Positions (float64)
+        next_stage_positions   = np.empty_like(stage_positions);   next_stage_positions[:-1]   = stage_positions[1:];   next_stage_positions[-1]   = stage_positions[-1]
+        next_pipette_positions = np.empty_like(pipette_positions); next_pipette_positions[:-1] = pipette_positions[1:]; next_pipette_positions[-1] = pipette_positions[-1]
 
         if include_camera:
-            next_camera_frames = np.roll(camera_frames, -1, axis=0)
-
+            # Images (uint8)
+            next_camera_frames = np.empty_like(camera_frames); next_camera_frames[:-1] = camera_frames[1:]; next_camera_frames[-1] = camera_frames[-1]
             return next_pressure_values, next_resistance_values, next_current_values, next_voltage_values, next_stage_positions, next_pipette_positions, next_camera_frames
 
         return next_pressure_values, next_resistance_values, next_current_values, next_voltage_values, next_stage_positions, next_pipette_positions
+
     
     def get_attempt_actions(self,
                             attempt_movement_values,
@@ -856,12 +927,17 @@ class DatasetBuilder():
             #Next Observations Group
             if include_next_obs:
                 next_observations = demo.create_group('next_obs')
-                next_observations.create_dataset('pressure', data=next_pressure_values)
+                # Optional scalar streams:
+                # next_observations.create_dataset('pressure', data=next_pressure_values)
                 next_observations.create_dataset('resistance', data=next_resistance_values)
-                next_observations.create_dataset('current', data=next_current_values)
+                # next_observations.create_dataset('current', data=next_current_values)
+                # Keys required for goal-conditioning (mirror obs group):
+                next_observations.create_dataset('stage_positions', data=next_stage_positions)
+                next_observations.create_dataset('pipette_positions', data=next_pipette_positions)
                 # next_observations.create_dataset('voltage', data=next_voltage_values)
                 if include_camera:
                     next_observations.create_dataset('camera_image', data=next_camera_frames)
+
 
             hf['data'].attrs['num_demos'] = hf['data'].attrs['num_demos'] + 1
             print(f"Added {split_label} demo_{demo_number} to dataset '{self.dataset_name}' with {num_samples} samples.")
@@ -875,7 +951,7 @@ class DatasetBuilder():
         """
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
 
-        include_next_obs = False
+        include_next_obs = self.load_next_obs
         include_camera = True
         include_high_level_actions = False
 
@@ -1010,9 +1086,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dino_dataset_v0_001.df5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
-
-
+    dataset_name = 'HEK_dataset_v0_031.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
     #     "2025_03_11-16_32",
@@ -1034,29 +1108,39 @@ if __name__ == '__main__':
 
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
         
-    rig_recorder_data_folder_set =  [
-        "2025_05_20-15_50",
-        "2025_05_20-15_16",
-        "2025_05_20-14_05",
-        "2025_04_10-11_57",
-        "2025_04_10-12_16",
-        "2025_04_10-12_21",
-        "2025_04_10-12_30",
-        "2025_04_10-15_01",
-        "2025_04_10-17_31",
-        "2025_04_07-14_32", 
-        "2025_04_07-14_50", 
-        "2025_04_07-15_50", 
-        "2025_04_07-18_04"
-     ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
+    # rig_recorder_data_folder_set =  [
+    #     "2025_05_20-15_50",
+    #     "2025_05_20-15_16",
+    #     "2025_05_20-14_05",
+    #     "2025_04_10-11_57",
+    #     "2025_04_10-12_16",
+    #     "2025_04_10-12_21",
+    #     "2025_04_10-12_30",
+    #     "2025_04_10-15_01",
+    #     "2025_04_10-17_31",
+    #     "2025_04_07-14_32", 
+    #     "2025_04_07-14_50", 
+    #     "2025_04_07-15_50", 
+    #     "2025_04_07-18_04"
+    #  ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
+
+
+    rig_recorder_data_folder_set = [
+    "2025_05_20-15_50",
+    "2025_05_20-15_16",
+    "2025_05_20-14_05",
+    "2025_04_10-11_57",
+    "2025_04_10-12_16"
+    ]
 
     datasetBuilder = DatasetBuilder(
         dataset_name=dataset_name,
+        calfile = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\average_calibration_full.pickle",
         val_ratio=0,              # 1-in-6 validation demos
         omit_stage_movement=True,   # skip demos with stage XYZ motion
-        random_seed=0               # change to alter the split
+        random_seed=0,               # change to alter the split
+        load_next_obs=True,        # include next observations
     )
-
 
     for folder in rig_recorder_data_folder_set:
         print(f"Processing folder: {folder}")
@@ -1064,6 +1148,4 @@ if __name__ == '__main__':
             rig_recorder_data_folder=folder,
             record_to_file=True
         )
-
-
     datasetBuilder._write_split_masks()

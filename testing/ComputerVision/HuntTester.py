@@ -1,12 +1,11 @@
-
 from __future__ import annotations
 import time, statistics, collections
 from pathlib import Path
 
-import cv2                         
+import cv2
 import h5py
 import numpy as np
-import onnxruntime as ort          
+import onnxruntime as ort
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -17,6 +16,7 @@ import numpy as np
 import onnxruntime as ort
 from pathlib import Path
 import numpy as np
+
 
 class HuntTester:
     """
@@ -29,7 +29,8 @@ class HuntTester:
         self.input_names = None
         self.output_names = None
         self.num_layers = num_layers
-        self.hidden_size = hidden_size
+        self._h0 = None  # internal cache for recurrent state (optional)
+        self._c0 = None
         if onnx_path is not None:
             self.load_model(onnx_path, providers)
 
@@ -45,51 +46,104 @@ class HuntTester:
         self.session = ort.InferenceSession(str(onnx_path), providers=providers)
         self.input_names  = [i.name for i in self.session.get_inputs()]
         self.output_names = [o.name for o in self.session.get_outputs()]
+        # Detect whether model expects a sequence (legacy) or single step (new)
+        cam_input = next((i for i in self.session.get_inputs() if i.name == "camera_image"), None)
+        if cam_input is not None and cam_input.shape is not None:
+            dims_known = [d for d in cam_input.shape if d is not None]
+            self.seq_mode = len(dims_known) >= 5   # (B,T,C,H,W) → legacy
+        else:
+            self.seq_mode = True  # safe fallback
+        print(f"Sequence mode: {self.seq_mode}")
         print(f"Loaded model {onnx_path} with inputs {self.input_names} → outputs {self.output_names}")
         return self.session, self.input_names, self.output_names
 
     def inference(self, img_q, pip_q, stage_q, res_q, h0=None, c0=None):
+        """Run a single forward pass.
+        Works with legacy sequence models and new single-step exports.
         """
-        Accepts four deques of length 16 (images, pipettes, stages, resistance), and
-        optional LSTM state (h0, c0). Returns the (1,6) action vector and updated states.
-        """
-        # Prepare input arrays
-        inputs = {
-            "camera_image":      np.stack(img_q, 0)[None],  # (1,16,3,H,W)
-            "pipette_positions": np.stack(pip_q, 0)[None],  # (1,16,3)
-            "stage_positions":   np.stack(stage_q, 0)[None],# (1,16,3)
-            "resistance":        np.stack(res_q, 0).reshape(1, -1), # (1,16)
-        }
-        # If model needs states, initialize if not provided
+        # Build inputs depending on model type
+        if getattr(self, 'seq_mode', True):
+            inputs = {
+                "camera_image":      np.stack(img_q, 0)[None],
+                "pipette_positions": np.stack(pip_q, 0)[None],
+                "stage_positions":   np.stack(stage_q, 0)[None],
+                "resistance":        np.stack(res_q, 0).reshape(1, -1),
+            }
+        else:
+            # Use only the most recent step
+            last_img   = img_q[-1]
+            last_pip   = pip_q[-1]
+            last_stage = stage_q[-1]
+            last_res   = res_q[-1]
+            inputs = {
+                "camera_image":      last_img[None],
+                "pipette_positions": np.asarray(last_pip,   np.float32).reshape(1, 3),
+                "stage_positions":   np.asarray(last_stage, np.float32).reshape(1, 3),
+                "resistance"            : np.asarray(last_res, np.float32).reshape(1),
+            }
+
+        # Initialize hidden states if required by model
+        # [TEMP DEBUG]
+        if (("h0" in self.input_names and h0 is None) or ("c0" in self.input_names and c0 is None)):
+            print("[DEBUG] RNN state was None → zero-initializing for this call (expect repeated early-step actions if you do this every frame).")
+        # [/TEMP DEBUG]
         if "h0" in self.input_names and h0 is None:
             h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
         if "c0" in self.input_names and c0 is None:
-            c0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
+            c0 = np.zeros_like(h0)
+
         if "h0" in self.input_names:
             inputs["h0"] = h0
         if "c0" in self.input_names:
             inputs["c0"] = c0
-        # Filter unused
+
+
+        # Filter to provided inputs only
         filtered_inputs = {k: v for k, v in inputs.items() if k in self.input_names}
         outputs = self.session.run(None, filtered_inputs)
         output_dict = dict(zip(self.output_names, outputs))
-        # Retrieve new states if available
-        new_h0 = output_dict["h1"] if "h1" in output_dict else h0
-        new_c0 = output_dict["c1"] if "c1" in output_dict else c0
-        action = output_dict["actions"][:, -1, :]  # (1,6)
+
+        # Updated states (handle GRU/LSTM)
+        new_h0 = output_dict.get("h1", h0)
+        new_c0 = output_dict.get("c1", c0)
+        # [TEMP DEBUG]
+        if (new_h0 is not None) and (h0 is not None):
+            try:
+                print("[DEBUG] ||Δh||:", float(np.linalg.norm(new_h0 - h0)))
+            except Exception:
+                pass
+        # [/TEMP DEBUG]
+
+        # Actions may be (1,6) or (1,T,6)
+        actions = output_dict["actions"]
+        if actions.ndim == 3:
+            action = actions[:, -1, :]
+        elif actions.ndim == 2:
+            action = actions
+        else:
+            raise RuntimeError(f"Unexpected actions shape: {actions.shape}")
         return action, new_h0, new_c0
+
+
 
 class ModelTester:
     """
     Feeds a 16-step history into an ONNX Runtime session and
     returns the 6-D action for the current frame.
     """
-    def __init__(self, session, input_names, output_names, input_path=None, prefill_init=False):
+    def __init__(self, session, input_names, output_names, input_path=None):
         import h5py, numpy as np, collections, cv2
         self.session      = session
         self.input_names  = {i.name for i in session.get_inputs()}
         self.output_names = [o.name for o in session.get_outputs()]
 
+        # Detect sequence vs single-step model
+        cam_input = next((i for i in self.session.get_inputs() if i.name == "camera_image"), None)
+        if cam_input is not None and cam_input.shape is not None:
+            dims_known = [d for d in cam_input.shape if d is not None]
+            self.seq_mode = len(dims_known) >= 5
+        else:
+            self.seq_mode = True
         # -------- load HDF5 demo (optional) --------
         if input_path:
             h5 = h5py.File(str(input_path), "r")
@@ -120,9 +174,19 @@ class ModelTester:
         H, W = self.images.shape[1:3]
         self.resize = lambda im: cv2.resize(im, (W, H)).astype(np.float32).transpose(2,0,1)/255.0
 
-        # --- prefill logic ---
-        self.prefill_init = prefill_init
-        self._prefilled = False
+    def _center_crop_and_resize(self, im, crop_h=78, crop_w=78):
+        """
+        Center-crop the HxWx3 image to (crop_h, crop_w), then resize back to original (H, W).
+        Keeps ONNX input shape identical to training-time encoder output dims (post-crop).
+        """
+        import numpy as np, cv2
+        H0, W0 = im.shape[:2]
+        y0 = max(0, (H0 - crop_h) // 2);  x0 = max(0, (W0 - crop_w) // 2)
+        y1, x1 = y0 + crop_h, x0 + crop_w
+        im_c = im[y0:y1, x0:x1]
+        im_r = cv2.resize(im_c, (W0, H0))
+        # to CHW float32 in [0,1]
+        return im_r.astype(np.float32).transpose(2, 0, 1) / 255.0
 
     # --------------------------------------------------------------
     def _stack_3d(self, q):              # → (1,16,features)
@@ -132,54 +196,88 @@ class ModelTester:
         return np.stack(q, 0).reshape(1, -1)
 
     def run_inference(self, idx):
-        img, res, pip, stage = (self.images[idx],
-                                self.resistance[idx],
-                                self.pipette_positions[idx],
-                                self.stage_positions[idx])
+            img, res, pip, stage = (self.images[idx],
+                                    self.resistance[idx],
+                                    self.pipette_positions[idx],
+                                    self.stage_positions[idx])
 
-        # push one step into deques
-        self.img_q.append(self.resize(img))
-        self.pip_q.append(pip.astype(np.float32))
-        self.stage_q.append(stage.astype(np.float32))
-        self.res_q.append(np.array(res, np.float32))     # scalar → ()
+            # push one step into deques
+            self.img_q.append(self._center_crop_and_resize(img, 78, 78))
+            self.pip_q.append(pip.astype(np.float32))
+            self.stage_q.append(stage.astype(np.float32))
+            self.res_q.append(np.array(res, np.float32))     # scalar → ()
 
-        # --- prefill logic ---
-        if self.prefill_init and not self._prefilled and len(self.img_q) == 1:
-            for _ in range(self.seq_len - 1):
-                self.img_q.append(self.img_q[0].copy())
-                self.pip_q.append(self.pip_q[0].copy())
-                self.stage_q.append(self.stage_q[0].copy())
-                self.res_q.append(np.array(self.res_q[0]))
-            self._prefilled = True
+            # --- Diagnostics: input drift between last two frames ---
+            if len(self.img_q) >= 2:
+                try:
+                    d_img = float(np.linalg.norm(self.img_q[-1] - self.img_q[-2]))
+                    d_pip = float(np.linalg.norm(self.pip_q[-1] - self.pip_q[-2]))
+                    d_stage = float(np.linalg.norm(self.stage_q[-1] - self.stage_q[-2]))
+                    d_res = float(abs(self.res_q[-1] - self.res_q[-2]))
+                    print(f"[DIAG] Δimg={d_img:.4f} | Δpip={d_pip:.4f} | Δstage={d_stage:.4f} | Δres={d_res:.4f}")
+                except Exception:
+                    pass
 
-        if len(self.img_q) < self.seq_len:
-            return None          # warm-up
+            # Build inputs
+            if getattr(self, 'seq_mode', True):
+                # Require warm-up to full sequence
+                if len(self.img_q) < self.seq_len:
+                    return None
+                inputs = {
+                    "camera_image"     : self._stack_3d(self.img_q),    # (1,16,3,H,W)
+                    "pipette_positions": self._stack_3d(self.pip_q),    # (1,16,3)
+                    "stage_positions"  : self._stack_3d(self.stage_q),  # (1,16,3)
+                    "resistance"       : self._stack_2d(self.res_q),    # (1,16)
+                }
+            else:
+                # Single step: use last element only
+                last_img   = self.img_q[-1]
+                last_pip   = self.pip_q[-1]
+                last_stage = self.stage_q[-1]
+                last_res   = self.res_q[-1]
+                inputs = {
+                    "camera_image"     : last_img[None],                       # (1,3,H,W)
+                    "pipette_positions": np.asarray(last_pip, np.float32).reshape(1, 3),
+                    "stage_positions"  : np.asarray(last_stage, np.float32).reshape(1, 3),
+                    "resistance"       : np.asarray(last_res, np.float32).reshape(1),
+                }
 
-        # build input dict with correct ranks
-        inputs = {
-            "camera_image"     : self._stack_3d(self.img_q),      # (1,16,3,85,85)
-            "pipette_positions": self._stack_3d(self.pip_q),      # (1,16,3)
-            "stage_positions"  : self._stack_3d(self.stage_q),    # (1,16,3)
-            "resistance"       : self._stack_2d(self.res_q),      # (1,16)
-        }
+            # LSTM hidden state
+            if self.h0 is None:
+                self.h0 = np.zeros((self.num_layers,1,self.hidden_size), np.float32)
+                self.c0 = np.zeros_like(self.h0)
+            inputs["h0"], inputs["c0"] = self.h0, self.c0
 
-        # LSTM hidden state
-        if self.h0 is None:
-            self.h0 = np.zeros((self.num_layers,1,self.hidden_size), np.float32)
-            self.c0 = np.zeros_like(self.h0)
-        inputs["h0"], inputs["c0"] = self.h0, self.c0
+            # drop unused inputs (robust to future exports)
+            inputs = {k:v for k,v in inputs.items() if k in self.input_names}
 
-        # drop unused inputs (robust to future exports)
-        inputs = {k:v for k,v in inputs.items() if k in self.input_names}
+            # forward
+            outs = self.session.run(None, inputs)
+            out = dict(zip(self.output_names, outs))
 
-        # forward
-        outs = self.session.run(None, inputs)
-        out = dict(zip(self.output_names, outs))
-        if "h1" in out: self.h0, self.c0 = out["h1"], out["c1"]
+            # [DEBUG] check if RNN state is updating across calls  (A)
+            if "h1" in out:
+                try:
+                    print("[DEBUG] ||Δh|| =", float(np.linalg.norm(out["h1"] - self.h0)))
+                except Exception:
+                    pass
 
-        # return 6-D command for the current frame
-        return out["actions"][:, -1, :]    # (1,6)
-    
+            # update state if provided
+            if "h1" in out:
+                self.h0 = out["h1"]
+                if "c1" in out: self.c0 = out["c1"]
+
+            # return 6-D command for the current frame
+            actions = out["actions"]
+            # [DEBUG] print first 10 action rows to inspect repetition  (B)
+            try:
+                print("[DEBUG] actions sample:", actions.reshape(-1, actions.shape[-1])[:10])
+            except Exception:
+                pass
+            if actions.ndim == 3:
+                actions = actions[:, -1, :]
+            return actions
+ 
     def calculate_error(self, pred, gt):
         """
         Absolute error on each of the 6 action axes.
@@ -198,13 +296,12 @@ class ModelTester:
 
 
 
-
 """Model analysis utilities for HEKHUNTER demo.
 
 This module wraps the ad‑hoc logic that used to live in the
 ``if __name__ == "__main__":`` block inside a reusable class called
 :class:`ModelAnalyzer`.  Its ``run`` method reproduces all previous
-behaviour **and** writes a 60 fps animated 3‑D trajectory GIF.
+behaviour **and** writes a 60 fps animated 3‑D trajectory GIF.
 
 Dependencies (beyond the standard ones already present in your script):
     • numpy
@@ -248,14 +345,12 @@ class ModelAnalyzer:
         model_path: Path | str,
         data_path: Path | str,
         *,
-        prefill_init: bool = True,
         save_dir: Path | str | None = None,
         animation_fname: str = "pipette_trajectory.gif",
         animation_fps: int = 60,
     ) -> None:
         self.model_path = Path(model_path)
         self.data_path = Path(data_path)
-        self.prefill_init = prefill_init
         self.save_dir = Path(save_dir) if save_dir is not None else self.model_path.parent
         self.animation_fname = animation_fname
         self.animation_fps = animation_fps
@@ -273,8 +368,7 @@ class ModelAnalyzer:
             self.session,
             self.in_names,
             self.out_names,
-            str(self.data_path),
-            prefill_init=self.prefill_init,
+            str(self.data_path)
         )
 
     # ---------------------------------------------------------------------
@@ -292,64 +386,79 @@ class ModelAnalyzer:
     # ------------------------------------------------------------------
 
     def _compute_latency_and_error(self) -> None:
-        """Profiles inference latency and collects prediction error."""
-        print("[INFO] Running inference over frames…")
-        for idx in range(len(self.tester.images)):
-            t0 = time.perf_counter()
-            out = self.tester.run_inference(idx)
-            self.lat_ms.append((time.perf_counter() - t0) * 1_000)
-            if out is not None:
-                self.error_frames.append(self.tester.calculate_error(out, self.tester.actions[idx]))
+            """Profiles inference latency and collects prediction error."""
+            print("[INFO] Running inference over frames…")
+            # ensure fresh store (single pass)
+            self.stored_actions = []
+            for idx in range(len(self.tester.images)):
+                t0 = time.perf_counter()
+                out = self.tester.run_inference(idx)
+                self.lat_ms.append((time.perf_counter() - t0) * 1_000)
+                if out is not None:
+                    # keep error for plots
+                    self.error_frames.append(self.tester.calculate_error(out, self.tester.actions[idx]))
+                    # store actions for later integration (avoid second model pass)
+                    self.stored_actions.append(out)
+                        # --- Diagnostics: cosine similarity between successive actions ---
+            if hasattr(self, "stored_actions") and len(self.stored_actions) > 2:
+                A = np.asarray(self.stored_actions).reshape(len(self.stored_actions), -1)  # (n,6)
+                num = np.sum(A[1:] * A[:-1], axis=1)
+                den = (np.linalg.norm(A[1:], axis=1) * np.linalg.norm(A[:-1], axis=1) + 1e-12)
+                cos_sim = num / den
+                print(f"[DIAG] action cos-sim: mean={cos_sim.mean():.6f} | p95={np.percentile(cos_sim,95):.6f} | max={cos_sim.max():.6f}")
 
-        if self.lat_ms:
-            mean_ms = statistics.mean(self.lat_ms)
-            sd_ms = statistics.stdev(self.lat_ms) if len(self.lat_ms) > 1 else 0.0
-            print(f"[RESULT] Inference latency — mean: {mean_ms:.2f} ms | sd: {sd_ms:.2f} ms")
 
-        # Compute pipette positions here so both static + animation reuse them
-        self._integrate_pipette_predictions()
+            if self.lat_ms:
+                mean_ms = statistics.mean(self.lat_ms)
+                sd_ms = statistics.stdev(self.lat_ms) if len(self.lat_ms) > 1 else 0.0
+                print(f"[RESULT] Inference latency — mean: {mean_ms:.2f} ms | sd: {sd_ms:.2f} ms")
+
+            # Compute pipette positions once, reusing stored actions
+            self._integrate_pipette_predictions()
+
 
     # ------------------------------------------------------------------
     # Trajectory helpers
     # ------------------------------------------------------------------
 
     def _integrate_pipette_predictions(self) -> None:
-        """Integrate predicted pipette deltas -> absolute positions."""
-        # 1. Collect predicted pipette deltas
-        pred_deltas: list[np.ndarray] = []
-        for idx in range(len(self.tester.images)):
-            out = self.tester.run_inference(idx)
-            if out is not None:
-                pred_deltas.append(out[0, 3:6])
-        pred_deltas_arr = np.stack(pred_deltas)  # (n, 3)
+            """Integrate predicted pipette deltas -> absolute positions (single-pass)."""
+            # 1) Build predicted delta array from stored actions (shape ~ (n, 1, 6) or (n,6))
+            if not hasattr(self, 'stored_actions') or len(self.stored_actions) == 0:
+                raise RuntimeError("No stored actions found — call _compute_latency_and_error() first.")
+            pred_actions = np.asarray(self.stored_actions)
+            if pred_actions.ndim == 3:   # (n,1,6)
+                pred_actions = pred_actions[:, 0, :]
+            # extract Δxyz
+            pred_deltas_arr = pred_actions[:, 3:6]
 
-        # 2. Choose trajectory alignment
-        if self.prefill_init:
-            init_pos = self.tester.pipette_positions[0]
-            obs_positions = self.tester.pipette_positions[: pred_deltas_arr.shape[0]]
-        else:
-            init_pos = self.tester.pipette_positions[self.tester.seq_len - 1]
-            obs_positions = self.tester.pipette_positions[
-                self.tester.seq_len - 1 : self.tester.seq_len - 1 + pred_deltas_arr.shape[0]
-            ]
+            # 2) Trajectory alignment: with no prefill, first valid action aligns at seq_len-1
+            start = self.tester.seq_len - 1
+            end = min(start + pred_deltas_arr.shape[0], len(self.tester.pipette_positions))
+            init_pos = self.tester.pipette_positions[start]
+            obs_positions = self.tester.pipette_positions[start:end]
 
-        # 3. Integrate → absolute predicted positions
-        predicted_positions = [init_pos]
-        for delta in pred_deltas_arr:
-            predicted_positions.append(predicted_positions[-1] + delta)
+            # Equalize lengths
+            n = min(pred_deltas_arr.shape[0], obs_positions.shape[0])
+            pred_deltas_arr = pred_deltas_arr[:n]
+            obs_positions   = obs_positions[:n]
 
-        # --- keep t = 0 for BOTH series --------------------------------------
-        self.predicted_pip_positions = np.stack(predicted_positions[:-1])      # shape (n,3)
-        self.observed_pip_positions  = obs_positions[:pred_deltas_arr.shape[0]]
+            # 3) Integrate deltas -> absolute predicted positions
+            predicted_positions = [init_pos]
+            for delta in pred_deltas_arr:
+                predicted_positions.append(predicted_positions[-1] + delta)
 
-        # --- re-zero everything around the first observed sample -------------
-        anchor = self.observed_pip_positions[0]        # (3,)
-        self.predicted_pip_positions -= anchor
-        self.observed_pip_positions  -= anchor
-        #debug 
-        print(f"[DEBUG] Predicted positions: {self.predicted_pip_positions} | "
-                f"Observed positions: {self.observed_pip_positions}")
-            # ------------------------------------------------------------------
+            self.predicted_pip_positions = np.stack(predicted_positions[:-1])  # (n,3)
+            self.observed_pip_positions  = obs_positions
+
+            # 4) re-zero around first observed sample for visual clarity
+            anchor = self.observed_pip_positions[0]
+            self.predicted_pip_positions -= anchor
+            self.observed_pip_positions  -= anchor
+
+            # debug
+            print(f"[DEBUG] Predicted positions: {self.predicted_pip_positions} | Observed positions: {self.observed_pip_positions}")
+   
     # Static 3‑D trajectory plot
     # ------------------------------------------------------------------
 
@@ -425,6 +534,7 @@ class ModelAnalyzer:
     # ------------------------------------------------------------------
     # Animated trajectory (saves GIF)
     # ------------------------------------------------------------------
+
 
 
     def _animate_trajectory(self, *, save_gif: bool = True) -> None:
@@ -537,11 +647,10 @@ class ModelAnalyzer:
 
 
 if __name__ == "__main__":
-    model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\models\HEKHUNTERv0_180.onnx"
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\test_data\HEKHUNTER_inference_set3.hdf5"
-    # root = Path(__file__).parent
+    model_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\models\\HEKHUNTERv0_187.onnx"
+    data_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\test_data\\HEKHUNTER_inference_set3.hdf5"
     analyzer = ModelAnalyzer(
         model_path=model_path,
-        data_path=data_path,
+        data_path=data_path
     )
     analyzer.run()

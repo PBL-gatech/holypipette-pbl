@@ -399,7 +399,7 @@ class AutoPatcher(TaskController):
                 self.config.cell_R_increase = 0.300
             elif self.config.cell_type == "Slice":
                 self.config.cell_R_increase = 0.200
-
+        test_scalar = 10
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
             if autoHunt:
                 try: 
@@ -407,14 +407,19 @@ class AutoPatcher(TaskController):
                     pos = self.autopatchhelper.hunt(model_input)
                     st_pos = pos[:3]
                     pi_pos = pos[3:]
+                    # pi_pos = [x * 1 for x in pos[3:]]
+                    print(type(pi_pos))
+                    
                 except: 
                     self.error("Error in prediction, skipping movement")
                     st_pos = [0,0,0]
                     pi_pos = [0,0,0]
-                self.calibrated_stage.relative_move_group(st_pos, [0,1,2])
-                self.calibrated_unit.relative_move_group(pi_pos, [0,1,2])
-
-
+                # self.info(f"stage command: {st_pos}")
+                self.info(f"pipette command: {pi_pos}")
+                # self.calibrated_stage.relative_move_group(st_pos)
+                # # simple debug
+                # pip_disp = [0,0,1]
+                self.calibrated_unit.relative_move(pi_pos)
 
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
@@ -1135,14 +1140,14 @@ class AutoPatcher(TaskController):
     def observe(self):
         """ collects all inputs required for the models"""
         _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
-        pi = self.calibrated_unit.reference_position()
+        pi = self.calibrated_unit.position()
         self.info(f"pipette position: '{pi}' ")
-        st = self.calibrated_stage.reference_position()[:2]
+        st = self.calibrated_stage.position()[:2]
         stz = self.calibrated_unit.microscope.position() / 5
-        st.append(stz)
-        self.info(f"stage position: '{st}' ")
+        st= np.append(st, stz)
+        # self.info(f"stage position: '{st}' ")
         res = self.resistanceRamp()
-        self.info(f"resistance: {res}")
+        # self.info(f"resistance: {res}")
         
         # Return a list instead of trying to create heterogeneous numpy array
         return [pi, st, img, res]
