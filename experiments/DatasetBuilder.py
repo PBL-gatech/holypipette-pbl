@@ -19,7 +19,7 @@ class DatasetBuilder():
                  *,                              # ── NEW: keyword-only below
                  stage_y_axis_flip: bool = True, # flip the stage Y axis
                  pipette_rotation_deg: float = -60.75, # θ ─ rotate pipette XY
-                 load_next_obs: bool = False
+                 load_next_obs: bool = True
                  ):
         """
         Parameters
@@ -29,7 +29,7 @@ class DatasetBuilder():
         self.dataset_name = dataset_name
         self.calfile = calfile
         self.calibrate = False
-        self.zero_values = False
+        self.zero_values = True
         self.center_crop = True
         self.rotate = False                 # train-time augmentation
         self.rotate_valid = rotate_valid
@@ -1086,7 +1086,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_031.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
+    dataset_name = 'HEK_dataset_v0_032.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
     #     "2025_03_11-16_32",
