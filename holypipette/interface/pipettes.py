@@ -150,7 +150,7 @@ class PipetteInterface(TaskInterface):
              description='Move stage horizontally by {:.0f}μm',
              default_arg=10)
     def move_stage_horizontal(self, distance):
-        self.calibrated_stage.relative_move(distance, axis=0)
+        self.calibrated_stage.relative_move(-distance, axis=0)
 
     @blocking_command(category='Stage',
                       description='Calibrate stage only',
@@ -233,7 +233,7 @@ class PipetteInterface(TaskInterface):
                      task_description='Moving stage to position')
     def move_stage(self, xy_position):
         x, y = xy_position
-        position = np.array([x, y])
+        position = np.array([x, -y])
         self.debug('asking for reference move to {}'.format(position))
         self.execute(self.calibrated_stage.reference_relative_move, argument=-position) # compensatory move
 

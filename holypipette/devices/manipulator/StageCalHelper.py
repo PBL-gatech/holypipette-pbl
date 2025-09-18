@@ -107,6 +107,7 @@ class StageCalHelper():
     
     CAL_MAX_SPEED = 1000
     NORMAL_MAX_SPEED = 10000
+    CAL_MAX_SPEED = 500
 
     def __init__(self, stage: Manipulator, camera: Camera, frameLag: int):
         self.stage : Manipulator = stage
@@ -206,9 +207,17 @@ class StageCalHelper():
         print('completed optical flow. matrix:')
         print(mat)
 
-        #return transformation matrix
-        return mat
+        # ─── THE ONLY LINE TO CHANGE ─────────────────────────────────────
+        new_calib = -mat          # hand CalibratedStage stage-µm → image-px
+        # ─────────────────────────────────────────────────────────────────
+        # (translation column is already zero)
 
+        print('calibration matrix sent to CalibratedStage:')
+        print(new_calib)
+
+        return new_calib
+
+    
     def calcOpticalFlowP0(self, firstFrame):
         #params for corner detector
         feature_params = dict(maxCorners = 100,
@@ -260,19 +269,11 @@ class StageCalHelper():
     def calibrate(self, dist=500):
         '''Calibrates the microscope stage using optical flow and stage encoders to create a um -> pixels transformation matrix
         '''
-
         self.stage.set_max_speed(self.CAL_MAX_SPEED)
-        # self.stage.set_max_accel(10)
-
         initPos = self.stage.position()
         print('starting optical flow')
         mat = self.calibrateContinuous(dist)
-        # commandedPos = np.array([initPos[0] + 200, initPos[1] - 200])
-        # axes = np.array([0, 1], dtype=int)
-        # self.stage.absolute_move_group(commandedPos, axes)
         self.stage.wait_until_still()
-        currPos = self.stage.position()
-        
         self.stage.set_max_speed(self.NORMAL_MAX_SPEED)
         self.stage.absolute_move(initPos)
         self.stage.wait_until_still()
