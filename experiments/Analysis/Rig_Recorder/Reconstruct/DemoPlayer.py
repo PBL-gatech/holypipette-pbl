@@ -127,13 +127,24 @@ class DemoPlayer(QWidget):
             self.video_label.setFixedSize(w_img, h_img)
 
         # Validate the resistance data.
+        # if self.resistance.ndim != 1:
+        #     QMessageBox.critical(
+        #         self,
+        #         "Data Error",
+        #         f"Expected 'resistance' to be 1D, got shape {self.resistance.shape}"
+        #     )
+        #     self.resistance = np.array([])
         if self.resistance.ndim != 1:
-            QMessageBox.critical(
-                self,
-                "Data Error",
-                f"Expected 'resistance' to be 1D, got shape {self.resistance.shape}"
-            )
-            self.resistance = np.array([])
+            # reshape if possible
+            if self.resistance.ndim == 2 and 1 in self.resistance.shape:
+                self.resistance = self.resistance.flatten()
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Data Error",
+                    f"Expected 'resistance' to be 1D, got shape {self.resistance.shape}"
+                )
+                self.resistance = np.array([])
 
         self.plot_resistance()
         self.plot_actions()
@@ -293,7 +304,7 @@ class DemoPlayer(QWidget):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_027.hdf5"
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_031.hdf5"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_035.hdf5"
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_coordinate_transform.hdf5"
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\ HEK_dataset_v0_022.hdf5"
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset.hdf5"

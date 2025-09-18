@@ -29,7 +29,7 @@ class DatasetBuilder():
         self.dataset_name = dataset_name
         self.calfile = calfile
         self.calibrate = False
-        self.zero_values = True
+        self.zero_values = False
         self.center_crop = True
         self.rotate = False                 # train-time augmentation
         self.rotate_valid = rotate_valid
@@ -915,10 +915,10 @@ class DatasetBuilder():
 
             #Observations Group
             observations = demo.create_group('obs')
-            # observations.create_dataset('pressure', data=pressure_values)
-            observations.create_dataset('resistance', data=resistance_values)
-            # observations.create_dataset('current', data=current_values)
-            # observations.create_dataset('voltage', data=voltage_values)
+            # observations.create_dataset('pressure', data=pressure_values.reshape(-1, 1))
+            observations.create_dataset('resistance', data=resistance_values.reshape(-1, 1))
+            # observations.create_dataset('current', data=current_values.reshape(-1, 1))
+            # observations.create_dataset('voltage', data=voltage_values.reshape(-1, 1))
             observations.create_dataset('stage_positions', data=stage_positions)
             observations.create_dataset('pipette_positions', data=pipette_positions)
             if include_camera:
@@ -928,13 +928,13 @@ class DatasetBuilder():
             if include_next_obs:
                 next_observations = demo.create_group('next_obs')
                 # Optional scalar streams:
-                # next_observations.create_dataset('pressure', data=next_pressure_values)
-                next_observations.create_dataset('resistance', data=next_resistance_values)
-                # next_observations.create_dataset('current', data=next_current_values)
+                # next_observations.create_dataset('pressure', data=next_pressure_values.reshape(-1, 1))
+                next_observations.create_dataset('resistance', data=next_resistance_values.reshape(-1, 1))
+                # next_observations.create_dataset('current', data=next_current_values.reshape(-1, 1))
                 # Keys required for goal-conditioning (mirror obs group):
                 next_observations.create_dataset('stage_positions', data=next_stage_positions)
                 next_observations.create_dataset('pipette_positions', data=next_pipette_positions)
-                # next_observations.create_dataset('voltage', data=next_voltage_values)
+                # next_observations.create_dataset('voltage', data=next_voltage_values.reshape(-1, 1))
                 if include_camera:
                     next_observations.create_dataset('camera_image', data=next_camera_frames)
 
@@ -1086,7 +1086,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_dataset_v0_032.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
+    dataset_name = 'HEKHUNTER_dataset_v0_035.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
     #     "2025_03_11-16_32",
@@ -1106,32 +1106,34 @@ if __name__ == '__main__':
     #     "2025_04_07-18_04"
     #  ] # completely manual HEK data with no overlays. (4/10/2025)
 
-    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025)
+    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen
+    # rig_recorder_data_folder_set = ["2025_05_20-15_50"] # sanity check dataset (5/20/2025), used in training dataset
+    # rig_recorder_data_folder_set = ["2025_04_07-15_50"] # another inference set, from data not used in v33 and above.
         
-    # rig_recorder_data_folder_set =  [
-    #     "2025_05_20-15_50",
-    #     "2025_05_20-15_16",
-    #     "2025_05_20-14_05",
-    #     "2025_04_10-11_57",
-    #     "2025_04_10-12_16",
-    #     "2025_04_10-12_21",
-    #     "2025_04_10-12_30",
-    #     "2025_04_10-15_01",
-    #     "2025_04_10-17_31",
-    #     "2025_04_07-14_32", 
-    #     "2025_04_07-14_50", 
-    #     "2025_04_07-15_50", 
-    #     "2025_04_07-18_04"
-    #  ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions
+    rig_recorder_data_folder_set =  [
+        "2025_05_20-15_50",
+        "2025_05_20-15_16",
+        "2025_05_20-14_05",
+        "2025_04_10-11_57",
+        "2025_04_10-12_16",
+        "2025_04_10-12_21",
+        "2025_04_10-12_30",
+        "2025_04_10-15_01",
+        "2025_04_10-17_31",
+        "2025_04_07-14_32", 
+        "2025_04_07-14_50", 
+        "2025_04_07-15_50", 
+        "2025_04_07-18_04"
+     ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions this is version 35 as well
 
 
-    rig_recorder_data_folder_set = [
-    "2025_05_20-15_50",
-    "2025_05_20-15_16",
-    "2025_05_20-14_05",
-    "2025_04_10-11_57",
-    "2025_04_10-12_16"
-    ]
+    # rig_recorder_data_folder_set = [
+    # "2025_05_20-15_50",
+    # "2025_05_20-15_16",
+    # "2025_05_20-14_05",
+    # "2025_04_10-11_57",
+    # "2025_04_10-12_16"
+    # ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions, but using only 5/20 and 4/10 data for a smaller dataset to start with.
 
     datasetBuilder = DatasetBuilder(
         dataset_name=dataset_name,
