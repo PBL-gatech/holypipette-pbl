@@ -1,7 +1,7 @@
 
 '''
 Pressure Controller classes to communicate with the Pressure Controller Box made by the IBB.
-Additionally, redesigning a closed loop pressure controller for the Moscow Rig
+Additionally, redesigning a closed loop pressure controller for the Bo Rig
 '''
 import logging
 from .BasePressureController import PressureController
@@ -11,11 +11,11 @@ import time
 import collections
 
 
-all = ['MoscowPressureController']
+all = ['BoPressureController']
 
-class MoscowPressureController(PressureController):
+class BoPressureController(PressureController):
     '''A PressureController child class that handles serial communication between the PC and
-       the Arduino controlling the Moscow Pressure box
+       the Arduino controlling the Bo Pressure box
     '''
     validProducts = ["USB Serial"] # TODO: move to a constants or json file?
     validVIDs = [0x1a86, 0x403]
@@ -64,15 +64,15 @@ class MoscowPressureController(PressureController):
         '''
         Comvert from a pressure in mBar to native units
         '''
-        raw_pressure = int((pressure * MoscowPressureController.nativePerMbar + MoscowPressureController.nativeZero))
-        return min(max(raw_pressure, 0), MoscowPressureController.nativeZero*2) # clamp native units to 0-3924
+        raw_pressure = int((pressure * BoPressureController.nativePerMbar + BoPressureController.nativeZero))
+        return min(max(raw_pressure, 0), BoPressureController.nativeZero*2) # clamp native units to 0-3924
 
 
     def nativeToMbar(self, raw_pressure) -> float:
         '''
         Comvert from native units to a pressure in mBar
         '''
-        pressure = (raw_pressure - MoscowPressureController.nativeZero) / MoscowPressureController.nativePerMbar
+        pressure = (raw_pressure - BoPressureController.nativeZero) / BoPressureController.nativePerMbar
         return pressure
 
     def set_pressure_raw(self, raw_pressure: int):

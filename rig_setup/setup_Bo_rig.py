@@ -6,7 +6,7 @@ from holypipette.devices.amplifier.amplifier import FakeAmplifier
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
 from holypipette.devices.amplifier.DAQ import FakeDAQ, NiDAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
-from holypipette.devices.pressurecontroller import MoscowPressureController, FakePressureController
+from holypipette.devices.pressurecontroller import BoPressureController, FakePressureController
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 
@@ -17,7 +17,7 @@ camera = PcoCamera()
 # set up Pressure Controller
 pressureControllerSerial = serial.Serial(port='COM7', baudrate=9600, timeout=0)
 pressureReaderSerial = serial.Serial(port='COM8', baudrate=9600, timeout=0)
-pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
+pressure = BoPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
 #pressure = FakePressureController()
 
 # set up Ephys
