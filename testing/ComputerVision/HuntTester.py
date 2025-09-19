@@ -1,36 +1,56 @@
+# HuntTester.py
 from __future__ import annotations
-import time, statistics, collections
+
+import time
+import statistics
+import collections
 from pathlib import Path
+from typing import Optional, Sequence
 
 import cv2
 import h5py
 import numpy as np
 import onnxruntime as ort
 import matplotlib.pyplot as plt
-import numpy as np
+from matplotlib import animation, colors
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (needed for 3‑D projection)
 
 
 # -------------------------------------------------
 # HuntTester: model loader
 # -------------------------------------------------
-import onnxruntime as ort
-from pathlib import Path
-import numpy as np
-
 
 class HuntTester:
     """
     Locate an .onnx file and return an onnxruntime.InferenceSession plus
     input/output name lists. Also provides simple inference helpers for live deque usage,
     handling LSTM states (h0, c0) if present in the model.
+
+    This implementation is compatible with:
+      • Legacy exports (inputs like "camera_image", possibly (B,T,C,H,W))
+      • New wrapper exports (inputs like "obs::<key>" and "goal::<key>";
+        obs tensors shaped (B, S=1, ...), goals shaped (B, ...); images are HWC)
     """
+
     def __init__(self, onnx_path=None, providers=None, num_layers=2, hidden_size=400):
         self.session = None
         self.input_names = None
         self.output_names = None
-        self.num_layers = num_layers
-        self._h0 = None  # internal cache for recurrent state (optional)
+        self.in_desc = None
+
+        # Flags / modes
+        self.uses_obs_prefix = False
+        self.is_goal_conditioned = False
+        self.seq_mode = True  # legacy default
+
+        # RNN defaults (may be overridden by ONNX input shapes)
+        self.num_layers = int(num_layers)
+        self.hidden_size = int(hidden_size)
+
+        # internal caches for recurrent state (optional)
+        self._h0 = None
         self._c0 = None
+
         if onnx_path is not None:
             self.load_model(onnx_path, providers)
 
@@ -43,26 +63,104 @@ class HuntTester:
                 onnx_path = next(model_dir.glob("*.onnx"))
             except StopIteration:
                 raise FileNotFoundError(f"No .onnx model found in {model_dir}")
+
         self.session = ort.InferenceSession(str(onnx_path), providers=providers)
-        self.input_names  = [i.name for i in self.session.get_inputs()]
-        self.output_names = [o.name for o in self.session.get_outputs()]
-        # Detect whether model expects a sequence (legacy) or single step (new)
-        cam_input = next((i for i in self.session.get_inputs() if i.name == "camera_image"), None)
-        if cam_input is not None and cam_input.shape is not None:
-            dims_known = [d for d in cam_input.shape if d is not None]
-            self.seq_mode = len(dims_known) >= 5   # (B,T,C,H,W) → legacy
+        inputs = self.session.get_inputs()
+        outputs = self.session.get_outputs()
+        self.input_names = [i.name for i in inputs]
+        self.output_names = [o.name for o in outputs]
+        self.in_desc = {i.name: i for i in inputs}
+
+        # New-style IO flags
+        self.uses_obs_prefix = any(n.startswith("obs::") for n in self.input_names)
+        self.is_goal_conditioned = any(n.startswith("goal::") for n in self.input_names)
+
+        # Detect whether model expects a sequence (legacy) or single step (new wrapper)
+        cam_input = None
+        for name in ("obs::camera_image", "camera_image"):
+            if name in self.in_desc:
+                cam_input = self.in_desc[name]
+                break
+
+        if self.uses_obs_prefix:
+            # Wrapper uses single-step obs with explicit seq dim = 1
+            self.seq_mode = False
         else:
-            self.seq_mode = True  # safe fallback
-        print(f"Sequence mode: {self.seq_mode}")
+            # Legacy heuristic: (B,T,C,H,W) → ≥5 dims and channels-first (last dim != 3)
+            if cam_input is not None and cam_input.shape is not None:
+                dims_known = [d for d in cam_input.shape if d is not None]
+                self.seq_mode = (len(dims_known) >= 5 and cam_input.shape[-1] != 3)
+            else:
+                self.seq_mode = True  # safe fallback
+
+        # Infer RNN sizes from ONNX input metadata if available
+        if "h0" in self.input_names:
+            h0_shape = self.in_desc["h0"].shape
+            if h0_shape and len(h0_shape) == 3:
+                try:
+                    self.num_layers = int(h0_shape[0])
+                    self.hidden_size = int(h0_shape[-1])
+                except Exception:
+                    pass
+
+        print(f"Sequence mode: {self.seq_mode} | uses_obs_prefix={self.uses_obs_prefix} | goal_conditioned={self.is_goal_conditioned}")
         print(f"Loaded model {onnx_path} with inputs {self.input_names} → outputs {self.output_names}")
         return self.session, self.input_names, self.output_names
 
     def inference(self, img_q, pip_q, stage_q, res_q, h0=None, c0=None):
         """Run a single forward pass.
-        Works with legacy sequence models and new single-step exports.
+        Works with legacy sequence models, legacy single-step, and new wrapper exports.
         """
-        # Build inputs depending on model type
-        if getattr(self, 'seq_mode', True):
+        # Helper to expand arrays to expected ONNX ranks / dtype
+        def _expand(name, arr):
+            exp_rank = len(self.in_desc[name].shape)
+            a = np.asarray(arr)
+            while a.ndim < exp_rank:
+                a = np.expand_dims(a, 0)
+            if a.dtype != np.float32:
+                a = a.astype(np.float32)
+            return a
+
+        # Build inputs depending on model type and IO convention
+        if getattr(self, 'uses_obs_prefix', False):
+            # Single-step wrapper with 'obs::' / 'goal::' names
+            last_img   = img_q[-1]                               # (H,W,3) raw
+            last_pip   = np.asarray(pip_q[-1],   np.float32).reshape(-1)
+            last_stage = np.asarray(stage_q[-1], np.float32).reshape(-1)
+            last_res   = np.asarray(res_q[-1],   np.float32).reshape(-1)
+
+            inputs = {}
+            # Observations
+            for nm in self.input_names:
+                if not nm.startswith("obs::"):
+                    continue
+                key = nm.split("obs::", 1)[1]
+                if key == "camera_image":
+                    inputs[nm] = _expand(nm, last_img)
+                elif key == "pipette_positions":
+                    inputs[nm] = _expand(nm, last_pip)
+                elif key == "stage_positions":
+                    inputs[nm] = _expand(nm, last_stage)
+                elif key == "resistance":
+                    inputs[nm] = _expand(nm, last_res)
+
+            # Goals (if requested by the model) – use current obs if no separate goal given
+            if any(nm.startswith("goal::") for nm in self.input_names):
+                for nm in self.input_names:
+                    if not nm.startswith("goal::"):
+                        continue
+                    key = nm.split("goal::", 1)[1]
+                    if key == "camera_image":
+                        inputs[nm] = _expand(nm, last_img)
+                    elif key == "pipette_positions":
+                        inputs[nm] = _expand(nm, last_pip)
+                    elif key == "stage_positions":
+                        inputs[nm] = _expand(nm, last_stage)
+                    elif key == "resistance":
+                        inputs[nm] = _expand(nm, last_res)
+
+        elif getattr(self, 'seq_mode', True):
+            # Legacy sequence model: stacks (T) along axis=1 with batch=1
             inputs = {
                 "camera_image":      np.stack(img_q, 0)[None],
                 "pipette_positions": np.stack(pip_q, 0)[None],
@@ -70,7 +168,7 @@ class HuntTester:
                 "resistance":        np.stack(res_q, 0).reshape(1, -1),
             }
         else:
-            # Use only the most recent step
+            # Legacy single-step: use only the most recent step (channels-first image)
             last_img   = img_q[-1]
             last_pip   = pip_q[-1]
             last_stage = stage_q[-1]
@@ -79,16 +177,20 @@ class HuntTester:
                 "camera_image":      last_img[None],
                 "pipette_positions": np.asarray(last_pip,   np.float32).reshape(1, 3),
                 "stage_positions":   np.asarray(last_stage, np.float32).reshape(1, 3),
-                "resistance"            : np.asarray(last_res, np.float32).reshape(1),
+                "resistance":        np.asarray(last_res,   np.float32).reshape(1),
             }
 
         # Initialize hidden states if required by model
-        # [TEMP DEBUG]
         if (("h0" in self.input_names and h0 is None) or ("c0" in self.input_names and c0 is None)):
-            print("[DEBUG] RNN state was None → zero-initializing for this call (expect repeated early-step actions if you do this every frame).")
-        # [/TEMP DEBUG]
+            print("[DEBUG] RNN state was None → zero-initializing for this call (if you do this every frame, "
+                  "expect repeated early-step actions).")
         if "h0" in self.input_names and h0 is None:
-            h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
+            # Derive shape from model if possible
+            try:
+                shape = tuple(int(d) for d in self.in_desc["h0"].shape)
+                h0 = np.zeros(shape, np.float32)
+            except Exception:
+                h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
         if "c0" in self.input_names and c0 is None:
             c0 = np.zeros_like(h0)
 
@@ -97,22 +199,19 @@ class HuntTester:
         if "c0" in self.input_names:
             inputs["c0"] = c0
 
-
-        # Filter to provided inputs only
+        # Filter to provided inputs only (robust to different exports)
         filtered_inputs = {k: v for k, v in inputs.items() if k in self.input_names}
         outputs = self.session.run(None, filtered_inputs)
         output_dict = dict(zip(self.output_names, outputs))
 
-        # Updated states (handle GRU/LSTM)
+        # Updated states (handle GRU/LSTM with "h1"/"c1")
         new_h0 = output_dict.get("h1", h0)
         new_c0 = output_dict.get("c1", c0)
-        # [TEMP DEBUG]
         if (new_h0 is not None) and (h0 is not None):
             try:
                 print("[DEBUG] ||Δh||:", float(np.linalg.norm(new_h0 - h0)))
             except Exception:
                 pass
-        # [/TEMP DEBUG]
 
         # Actions may be (1,6) or (1,T,6)
         actions = output_dict["actions"]
@@ -125,63 +224,96 @@ class HuntTester:
         return action, new_h0, new_c0
 
 
-
 class ModelTester:
     """
     Feeds a 16-step history into an ONNX Runtime session and
     returns the 6-D action for the current frame.
+
+    Compatible with both legacy and new wrapper-style ONNX exports.
     """
+
     def __init__(self, session, input_names, output_names, input_path=None):
-        import h5py, numpy as np, collections, cv2
-        self.session      = session
-        self.input_names  = {i.name for i in session.get_inputs()}
+        self.session = session
+        self.in_desc = {i.name: i for i in session.get_inputs()}
+        self.input_names = set(self.in_desc.keys())
         self.output_names = [o.name for o in session.get_outputs()]
 
-        # Detect sequence vs single-step model
-        cam_input = next((i for i in self.session.get_inputs() if i.name == "camera_image"), None)
-        if cam_input is not None and cam_input.shape is not None:
-            dims_known = [d for d in cam_input.shape if d is not None]
-            self.seq_mode = len(dims_known) >= 5
+        # Flags and mode detection
+        self.uses_obs_prefix = any(n.startswith("obs::") for n in self.input_names)
+        self.goal_input_names = [n for n in self.input_names if n.startswith("goal::")]
+
+        cam_input = None
+        for name in ("obs::camera_image", "camera_image"):
+            if name in self.in_desc:
+                cam_input = self.in_desc[name]
+                break
+
+        if self.uses_obs_prefix:
+            self.seq_mode = False
         else:
-            self.seq_mode = True
+            if cam_input is not None and cam_input.shape is not None:
+                dims_known = [d for d in cam_input.shape if d is not None]
+                self.seq_mode = (len(dims_known) >= 5 and cam_input.shape[-1] != 3)
+            else:
+                self.seq_mode = True
+
+        # RNN sizes if available on inputs
+        self.num_layers, self.hidden_size = 2, 400
+        if "h0" in self.input_names:
+            h0_shape = self.in_desc["h0"].shape
+            if h0_shape and len(h0_shape) == 3:
+                try:
+                    self.num_layers = int(h0_shape[0])
+                    self.hidden_size = int(h0_shape[-1])
+                except Exception:
+                    pass
+
         # -------- load HDF5 demo (optional) --------
         if input_path:
             h5 = h5py.File(str(input_path), "r")
-            demo_id  = sorted(h5["data"].keys())[0]
+            demo_id = sorted(h5["data"].keys())[0]
             obs_root = f"data/{demo_id}/obs"
             act_root = f"data/{demo_id}"
-            self.images            = h5[f"{obs_root}/camera_image"][:]
-            self.resistance        = h5[f"{obs_root}/resistance"][:]
-            self.pipette_positions = h5[f"{obs_root}/pipette_positions"][:]
-            self.stage_positions   = h5[f"{obs_root}/stage_positions"][:]
-            self.actions           = h5[f"{act_root}/actions"][:]
+            self.images = h5[f"{obs_root}/camera_image"][:]           # (N,H,W,3)
+            self.resistance = h5[f"{obs_root}/resistance"][:]         # (N,)
+            self.pipette_positions = h5[f"{obs_root}/pipette_positions"][:]  # (N,3)
+            self.stage_positions = h5[f"{obs_root}/stage_positions"][:]      # (N,3)
+            self.actions = h5[f"{act_root}/actions"][:]               # (N,6)
             print(f"Loaded demo '{demo_id}': images {self.images.shape}, "
                   f"resistance {self.resistance.shape}, pipette {self.pipette_positions.shape}, "
                   f"stage {self.stage_positions.shape}")
             print(f"Actions: {self.actions.shape} → {self.actions.dtype}")
 
+            # Default goal sample mirrors EnvPatcher: last frame as goal
+            self.goal_index = max(0, len(self.images) - 1)
+            self.goal_data = {
+                "camera_image": self.images[self.goal_index],
+                "pipette_positions": self.pipette_positions[self.goal_index].astype(np.float32),
+                "stage_positions": self.stage_positions[self.goal_index].astype(np.float32),
+                "resistance": np.array(self.resistance[self.goal_index], np.float32).reshape(-1),
+            }
+
         # -------- runtime buffers --------
         self.seq_len = 16
-        self.img_q   = collections.deque(maxlen=self.seq_len)
-        self.pip_q   = collections.deque(maxlen=self.seq_len)
+        self.img_q = collections.deque(maxlen=self.seq_len)
+        self.pip_q = collections.deque(maxlen=self.seq_len)
         self.stage_q = collections.deque(maxlen=self.seq_len)
-        self.res_q   = collections.deque(maxlen=self.seq_len)
+        self.res_q = collections.deque(maxlen=self.seq_len)
 
-        self.h0 = self.c0 = None          # LSTM state
-        self.num_layers, self.hidden_size = 2, 400
+        self.h0 = self.c0 = None  # LSTM state
 
-        # resize helper
+        # resize helper (for legacy models that expect CHW normalized crops)
         H, W = self.images.shape[1:3]
-        self.resize = lambda im: cv2.resize(im, (W, H)).astype(np.float32).transpose(2,0,1)/255.0
+        self.resize = lambda im: cv2.resize(im, (W, H)).astype(np.float32).transpose(2, 0, 1) / 255.0
 
     def _center_crop_and_resize(self, im, crop_h=78, crop_w=78):
         """
         Center-crop the HxWx3 image to (crop_h, crop_w), then resize back to original (H, W).
         Keeps ONNX input shape identical to training-time encoder output dims (post-crop).
         """
-        import numpy as np, cv2
         H0, W0 = im.shape[:2]
-        y0 = max(0, (H0 - crop_h) // 2);  x0 = max(0, (W0 - crop_w) // 2)
+        y0 = max(0, (H0 - crop_h) // 2)
+        x0 = max(0, (W0 - crop_w) // 2)
         y1, x1 = y0 + crop_h, x0 + crop_w
         im_c = im[y0:y1, x0:x1]
         im_r = cv2.resize(im_c, (W0, H0))
@@ -189,95 +321,150 @@ class ModelTester:
         return im_r.astype(np.float32).transpose(2, 0, 1) / 255.0
 
     # --------------------------------------------------------------
-    def _stack_3d(self, q):              # → (1,16,features)
+    def _stack_3d(self, q):              # → (1,16,features or 3,H,W)
         return np.stack(q, 0)[None]
 
     def _stack_2d(self, q):              # → (1,16)
         return np.stack(q, 0).reshape(1, -1)
 
     def run_inference(self, idx):
-            img, res, pip, stage = (self.images[idx],
-                                    self.resistance[idx],
-                                    self.pipette_positions[idx],
-                                    self.stage_positions[idx])
+        img, res, pip, stage = (self.images[idx],
+                                self.resistance[idx],
+                                self.pipette_positions[idx],
+                                self.stage_positions[idx])
 
-            # push one step into deques
+        # push one step into deques
+        if getattr(self, 'uses_obs_prefix', False):
+            # New wrapper expects raw HWC images; normalization happens inside the model
+            self.img_q.append(img)  # (H,W,3) uint8 / float32
+        else:
             self.img_q.append(self._center_crop_and_resize(img, 78, 78))
-            self.pip_q.append(pip.astype(np.float32))
-            self.stage_q.append(stage.astype(np.float32))
-            self.res_q.append(np.array(res, np.float32))     # scalar → ()
+        self.pip_q.append(pip.astype(np.float32))
+        self.stage_q.append(stage.astype(np.float32))
+        self.res_q.append(np.array(res, np.float32))  # scalar → ()
 
-            # --- Diagnostics: input drift between last two frames ---
-            if len(self.img_q) >= 2:
-                try:
-                    d_img = float(np.linalg.norm(self.img_q[-1] - self.img_q[-2]))
-                    d_pip = float(np.linalg.norm(self.pip_q[-1] - self.pip_q[-2]))
-                    d_stage = float(np.linalg.norm(self.stage_q[-1] - self.stage_q[-2]))
-                    d_res = float(abs(self.res_q[-1] - self.res_q[-2]))
-                    print(f"[DIAG] Δimg={d_img:.4f} | Δpip={d_pip:.4f} | Δstage={d_stage:.4f} | Δres={d_res:.4f}")
-                except Exception:
-                    pass
-
-            # Build inputs
-            if getattr(self, 'seq_mode', True):
-                # Require warm-up to full sequence
-                if len(self.img_q) < self.seq_len:
-                    return None
-                inputs = {
-                    "camera_image"     : self._stack_3d(self.img_q),    # (1,16,3,H,W)
-                    "pipette_positions": self._stack_3d(self.pip_q),    # (1,16,3)
-                    "stage_positions"  : self._stack_3d(self.stage_q),  # (1,16,3)
-                    "resistance"       : self._stack_2d(self.res_q),    # (1,16)
-                }
-            else:
-                # Single step: use last element only
-                last_img   = self.img_q[-1]
-                last_pip   = self.pip_q[-1]
-                last_stage = self.stage_q[-1]
-                last_res   = self.res_q[-1]
-                inputs = {
-                    "camera_image"     : last_img[None],                       # (1,3,H,W)
-                    "pipette_positions": np.asarray(last_pip, np.float32).reshape(1, 3),
-                    "stage_positions"  : np.asarray(last_stage, np.float32).reshape(1, 3),
-                    "resistance"       : np.asarray(last_res, np.float32).reshape(1),
-                }
-
-            # LSTM hidden state
-            if self.h0 is None:
-                self.h0 = np.zeros((self.num_layers,1,self.hidden_size), np.float32)
-                self.c0 = np.zeros_like(self.h0)
-            inputs["h0"], inputs["c0"] = self.h0, self.c0
-
-            # drop unused inputs (robust to future exports)
-            inputs = {k:v for k,v in inputs.items() if k in self.input_names}
-
-            # forward
-            outs = self.session.run(None, inputs)
-            out = dict(zip(self.output_names, outs))
-
-            # [DEBUG] check if RNN state is updating across calls  (A)
-            if "h1" in out:
-                try:
-                    print("[DEBUG] ||Δh|| =", float(np.linalg.norm(out["h1"] - self.h0)))
-                except Exception:
-                    pass
-
-            # update state if provided
-            if "h1" in out:
-                self.h0 = out["h1"]
-                if "c1" in out: self.c0 = out["c1"]
-
-            # return 6-D command for the current frame
-            actions = out["actions"]
-            # [DEBUG] print first 10 action rows to inspect repetition  (B)
+        # --- Diagnostics: input drift between last two frames ---
+        if len(self.img_q) >= 2:
             try:
-                print("[DEBUG] actions sample:", actions.reshape(-1, actions.shape[-1])[:10])
+                d_img = float(np.linalg.norm(self.img_q[-1] - self.img_q[-2]))
+                d_pip = float(np.linalg.norm(self.pip_q[-1] - self.pip_q[-2]))
+                d_stage = float(np.linalg.norm(self.stage_q[-1] - self.stage_q[-2]))
+                d_res = float(abs(self.res_q[-1] - self.res_q[-2]))
+                print(f"[DIAG] Δimg={d_img:.4f} | Δpip={d_pip:.4f} | Δstage={d_stage:.4f} | Δres={d_res:.4f}")
             except Exception:
                 pass
-            if actions.ndim == 3:
-                actions = actions[:, -1, :]
-            return actions
- 
+
+        # Build inputs
+        if getattr(self, 'uses_obs_prefix', False):
+            # Single-step wrapper with explicit obs + goal inputs
+            last_img = self.img_q[-1]
+            last_pip = self.pip_q[-1]
+            last_stage = self.stage_q[-1]
+            last_res = self.res_q[-1]
+
+            def _expand(name, arr):
+                exp_rank = len(self.in_desc[name].shape)
+                a = np.asarray(arr)
+                while a.ndim < exp_rank:
+                    a = np.expand_dims(a, 0)
+                if a.dtype != np.float32:
+                    a = a.astype(np.float32)
+                return a
+
+            inputs = {}
+            for nm in self.input_names:
+                if not nm.startswith("obs::"):
+                    continue
+                key = nm.split("obs::", 1)[1]
+                if key == "camera_image":
+                    inputs[nm] = _expand(nm, last_img)
+                elif key == "pipette_positions":
+                    inputs[nm] = _expand(nm, last_pip)
+                elif key == "stage_positions":
+                    inputs[nm] = _expand(nm, last_stage)
+                elif key == "resistance":
+                    inputs[nm] = _expand(nm, last_res)
+
+            # Add goals if requested by the model
+            for nm in getattr(self, 'goal_input_names', []):
+                key = nm.split("goal::", 1)[1]
+                # Prefer explicit goal_data if present; else mirror current obs
+                source = None
+                if hasattr(self, 'goal_data'):
+                    source = self.goal_data.get(key, None)
+                if source is None:
+                    source = {
+                        "camera_image": last_img,
+                        "pipette_positions": last_pip,
+                        "stage_positions": last_stage,
+                        "resistance": last_res,
+                    }.get(key)
+                inputs[nm] = _expand(nm, source)
+
+        elif getattr(self, 'seq_mode', True):
+            # Require warm-up to full sequence
+            if len(self.img_q) < self.seq_len:
+                return None
+            inputs = {
+                "camera_image": self._stack_3d(self.img_q),      # (1,16,3,H,W)
+                "pipette_positions": self._stack_3d(self.pip_q),  # (1,16,3)
+                "stage_positions": self._stack_3d(self.stage_q),  # (1,16,3)
+                "resistance": self._stack_2d(self.res_q),         # (1,16)
+            }
+        else:
+            # Single step: use last element only (legacy non-sequence)
+            last_img = self.img_q[-1]
+            last_pip = self.pip_q[-1]
+            last_stage = self.stage_q[-1]
+            last_res = self.res_q[-1]
+            inputs = {
+                "camera_image": last_img[None],  # (1,3,H,W)
+                "pipette_positions": np.asarray(last_pip, np.float32).reshape(1, 3),
+                "stage_positions": np.asarray(last_stage, np.float32).reshape(1, 3),
+                "resistance": np.asarray(last_res, np.float32).reshape(1),
+            }
+
+        # LSTM hidden state
+        if "h0" in self.input_names and self.h0 is None:
+            try:
+                shape = tuple(int(d) for d in self.in_desc["h0"].shape)
+                self.h0 = np.zeros(shape, np.float32)
+            except Exception:
+                self.h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
+            self.c0 = np.zeros_like(self.h0)
+        if "h0" in self.input_names:
+            inputs["h0"], inputs["c0"] = self.h0, self.c0
+
+        # drop unused inputs (robust to varying exports)
+        inputs = {k: v for k, v in inputs.items() if k in self.input_names}
+
+        # forward
+        outs = self.session.run(None, inputs)
+        out = dict(zip(self.output_names, outs))
+
+        # [DEBUG] check if RNN state is updating across calls
+        if "h1" in out:
+            try:
+                print("[DEBUG] ||Δh|| =", float(np.linalg.norm(out["h1"] - self.h0)))
+            except Exception:
+                pass
+
+        # update state if provided
+        if "h1" in out:
+            self.h0 = out["h1"]
+            if "c1" in out:
+                self.c0 = out["c1"]
+
+        # return 6-D command for the current frame
+        actions = out["actions"]
+        try:
+            print("[DEBUG] actions sample:", actions.reshape(-1, actions.shape[-1])[:10])
+        except Exception:
+            pass
+        if actions.ndim == 3:
+            actions = actions[:, -1, :]
+        return actions
+
     def calculate_error(self, pred, gt):
         """
         Absolute error on each of the 6 action axes.
@@ -287,13 +474,10 @@ class ModelTester:
         pred : (1,6) or (6,) array
         gt   : (6,)  array
         """
-        import numpy as np
         pred = np.asarray(pred).reshape(-1)    # → (6,)
-        gt   = np.asarray(gt).reshape(-1)      # already (6,)
-
-        errvector = (pred - gt)          # (6,)
+        gt = np.asarray(gt).reshape(-1)        # already (6,)
+        errvector = (pred - gt)                # (6,)
         return errvector
-
 
 
 """Model analysis utilities for HEKHUNTER demo.
@@ -302,11 +486,6 @@ This module wraps the ad‑hoc logic that used to live in the
 ``if __name__ == "__main__":`` block inside a reusable class called
 :class:`ModelAnalyzer`.  Its ``run`` method reproduces all previous
 behaviour **and** writes a 60 fps animated 3‑D trajectory GIF.
-
-Dependencies (beyond the standard ones already present in your script):
-    • numpy
-    • matplotlib (with Pillow or FFmpeg installed for animation saving)
-    • HuntTester, ModelTester from your existing project tree
 
 Typical usage
 -------------
@@ -317,18 +496,6 @@ Typical usage
 ... )
 >>> analyzer.run()  # produces plots + pipette_trajectory.gif
 """
-
-from pathlib import Path
-import time
-import statistics
-from typing import Optional, Sequence
-
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib import animation, colors
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (import needed for 3‑D projection)
-
-
 
 __all__ = ["ModelAnalyzer"]
 
@@ -386,79 +553,77 @@ class ModelAnalyzer:
     # ------------------------------------------------------------------
 
     def _compute_latency_and_error(self) -> None:
-            """Profiles inference latency and collects prediction error."""
-            print("[INFO] Running inference over frames…")
-            # ensure fresh store (single pass)
-            self.stored_actions = []
-            for idx in range(len(self.tester.images)):
-                t0 = time.perf_counter()
-                out = self.tester.run_inference(idx)
-                self.lat_ms.append((time.perf_counter() - t0) * 1_000)
-                if out is not None:
-                    # keep error for plots
-                    self.error_frames.append(self.tester.calculate_error(out, self.tester.actions[idx]))
-                    # store actions for later integration (avoid second model pass)
-                    self.stored_actions.append(out)
-                        # --- Diagnostics: cosine similarity between successive actions ---
-            if hasattr(self, "stored_actions") and len(self.stored_actions) > 2:
-                A = np.asarray(self.stored_actions).reshape(len(self.stored_actions), -1)  # (n,6)
-                num = np.sum(A[1:] * A[:-1], axis=1)
-                den = (np.linalg.norm(A[1:], axis=1) * np.linalg.norm(A[:-1], axis=1) + 1e-12)
-                cos_sim = num / den
-                print(f"[DIAG] action cos-sim: mean={cos_sim.mean():.6f} | p95={np.percentile(cos_sim,95):.6f} | max={cos_sim.max():.6f}")
+        """Profiles inference latency and collects prediction error."""
+        print("[INFO] Running inference over frames…")
+        # ensure fresh store (single pass)
+        self.stored_actions = []
+        for idx in range(len(self.tester.images)):
+            t0 = time.perf_counter()
+            out = self.tester.run_inference(idx)
+            self.lat_ms.append((time.perf_counter() - t0) * 1_000)
+            if out is not None:
+                # keep error for plots
+                self.error_frames.append(self.tester.calculate_error(out, self.tester.actions[idx]))
+                # store actions for later integration (avoid second model pass)
+                self.stored_actions.append(out)
+        # --- Diagnostics: cosine similarity between successive actions ---
+        if hasattr(self, "stored_actions") and len(self.stored_actions) > 2:
+            A = np.asarray(self.stored_actions).reshape(len(self.stored_actions), -1)  # (n,6)
+            num = np.sum(A[1:] * A[:-1], axis=1)
+            den = (np.linalg.norm(A[1:], axis=1) * np.linalg.norm(A[:-1], axis=1) + 1e-12)
+            cos_sim = num / den
+            print(f"[DIAG] action cos-sim: mean={cos_sim.mean():.6f} | p95={np.percentile(cos_sim,95):.6f} | max={cos_sim.max():.6f}")
 
+        if self.lat_ms:
+            mean_ms = statistics.mean(self.lat_ms)
+            sd_ms = statistics.stdev(self.lat_ms) if len(self.lat_ms) > 1 else 0.0
+            print(f"[RESULT] Inference latency — mean: {mean_ms:.2f} ms | sd: {sd_ms:.2f} ms")
 
-            if self.lat_ms:
-                mean_ms = statistics.mean(self.lat_ms)
-                sd_ms = statistics.stdev(self.lat_ms) if len(self.lat_ms) > 1 else 0.0
-                print(f"[RESULT] Inference latency — mean: {mean_ms:.2f} ms | sd: {sd_ms:.2f} ms")
-
-            # Compute pipette positions once, reusing stored actions
-            self._integrate_pipette_predictions()
-
+        # Compute pipette positions once, reusing stored actions
+        self._integrate_pipette_predictions()
 
     # ------------------------------------------------------------------
     # Trajectory helpers
     # ------------------------------------------------------------------
 
     def _integrate_pipette_predictions(self) -> None:
-            """Integrate predicted pipette deltas -> absolute positions (single-pass)."""
-            # 1) Build predicted delta array from stored actions (shape ~ (n, 1, 6) or (n,6))
-            if not hasattr(self, 'stored_actions') or len(self.stored_actions) == 0:
-                raise RuntimeError("No stored actions found — call _compute_latency_and_error() first.")
-            pred_actions = np.asarray(self.stored_actions)
-            if pred_actions.ndim == 3:   # (n,1,6)
-                pred_actions = pred_actions[:, 0, :]
-            # extract Δxyz
-            pred_deltas_arr = pred_actions[:, 3:6]
+        """Integrate predicted pipette deltas -> absolute positions (single-pass)."""
+        # 1) Build predicted delta array from stored actions (shape ~ (n, 1, 6) or (n,6))
+        if not hasattr(self, 'stored_actions') or len(self.stored_actions) == 0:
+            raise RuntimeError("No stored actions found — call _compute_latency_and_error() first.")
+        pred_actions = np.asarray(self.stored_actions)
+        if pred_actions.ndim == 3:   # (n,1,6)
+            pred_actions = pred_actions[:, 0, :]
+        # extract Δxyz
+        pred_deltas_arr = pred_actions[:, 3:6]
 
-            # 2) Trajectory alignment: with no prefill, first valid action aligns at seq_len-1
-            start = self.tester.seq_len - 1
-            end = min(start + pred_deltas_arr.shape[0], len(self.tester.pipette_positions))
-            init_pos = self.tester.pipette_positions[start]
-            obs_positions = self.tester.pipette_positions[start:end]
+        # 2) Trajectory alignment: with no prefill, first valid action aligns at seq_len-1
+        start = self.tester.seq_len - 1
+        end = min(start + pred_deltas_arr.shape[0], len(self.tester.pipette_positions))
+        init_pos = self.tester.pipette_positions[start]
+        obs_positions = self.tester.pipette_positions[start:end]
 
-            # Equalize lengths
-            n = min(pred_deltas_arr.shape[0], obs_positions.shape[0])
-            pred_deltas_arr = pred_deltas_arr[:n]
-            obs_positions   = obs_positions[:n]
+        # Equalize lengths
+        n = min(pred_deltas_arr.shape[0], obs_positions.shape[0])
+        pred_deltas_arr = pred_deltas_arr[:n]
+        obs_positions = obs_positions[:n]
 
-            # 3) Integrate deltas -> absolute predicted positions
-            predicted_positions = [init_pos]
-            for delta in pred_deltas_arr:
-                predicted_positions.append(predicted_positions[-1] + delta)
+        # 3) Integrate deltas -> absolute predicted positions
+        predicted_positions = [init_pos]
+        for delta in pred_deltas_arr:
+            predicted_positions.append(predicted_positions[-1] + delta)
 
-            self.predicted_pip_positions = np.stack(predicted_positions[:-1])  # (n,3)
-            self.observed_pip_positions  = obs_positions
+        self.predicted_pip_positions = np.stack(predicted_positions[:-1])  # (n,3)
+        self.observed_pip_positions = obs_positions
 
-            # 4) re-zero around first observed sample for visual clarity
-            anchor = self.observed_pip_positions[0]
-            self.predicted_pip_positions -= anchor
-            self.observed_pip_positions  -= anchor
+        # 4) re-zero around first observed sample for visual clarity
+        anchor = self.observed_pip_positions[0]
+        self.predicted_pip_positions -= anchor
+        self.observed_pip_positions -= anchor
 
-            # debug
-            print(f"[DEBUG] Predicted positions: {self.predicted_pip_positions} | Observed positions: {self.observed_pip_positions}")
-   
+        # debug
+        print(f"[DEBUG] Predicted positions: {self.predicted_pip_positions} | Observed positions: {self.observed_pip_positions}")
+
     # Static 3‑D trajectory plot
     # ------------------------------------------------------------------
 
@@ -534,8 +699,6 @@ class ModelAnalyzer:
     # ------------------------------------------------------------------
     # Animated trajectory (saves GIF)
     # ------------------------------------------------------------------
-
-
 
     def _animate_trajectory(self, *, save_gif: bool = True) -> None:
         if self.predicted_pip_positions is None or self.observed_pip_positions is None:
@@ -645,10 +808,9 @@ class ModelAnalyzer:
         plt.show()
 
 
-
 if __name__ == "__main__":
-    model_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\models\\HEKHUNTERv0_187.onnx"
-    data_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\test_data\\HEKHUNTER_inference_set3.hdf5"
+    model_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\models\\HEKHUNTERv0_200.onnx"
+    data_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\test_data\\HEKHUNTER_inference_set_goal.hdf5"
     analyzer = ModelAnalyzer(
         model_path=model_path,
         data_path=data_path
