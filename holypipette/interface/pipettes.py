@@ -233,9 +233,9 @@ class PipetteInterface(TaskInterface):
                      task_description='Moving stage to position')
     def move_stage(self, xy_position):
         x, y = xy_position
-        position = np.array([x, -y])
+        position = np.array([y, x])
         self.debug('asking for reference move to {}'.format(position))
-        self.execute(self.calibrated_stage.reference_relative_move, argument=-position) # compensatory move
+        self.execute(self.calibrated_stage.reference_relative_move, argument=position) # compensatory move
 
 
     @blocking_command(category='Microscope',

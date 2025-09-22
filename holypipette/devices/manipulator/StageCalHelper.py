@@ -59,7 +59,6 @@ class FocusHelper():
         self.microscope.absolute_move(finalPos)
         self.microscope.wait_until_still()
 
-
 class FocusUpdater(Thread):
     def __init__(self, microscope: Microscope, camera: Camera):
         super().__init__()
@@ -105,9 +104,8 @@ class StageCalHelper():
     '''A helper class to aid with Stage Calibration
     '''
     
-    CAL_MAX_SPEED = 1000
-    NORMAL_MAX_SPEED = 10000
-    CAL_MAX_SPEED = 500
+    CAL_MAX_SPEED = 100
+    NORMAL_MAX_SPEED = 5000
 
     def __init__(self, stage: Manipulator, camera: Camera, frameLag: int):
         self.stage : Manipulator = stage
@@ -208,12 +206,14 @@ class StageCalHelper():
         print(mat)
 
         # ─── THE ONLY LINE TO CHANGE ─────────────────────────────────────
+      
         new_calib = -mat          # hand CalibratedStage stage-µm → image-px
         # ─────────────────────────────────────────────────────────────────
         # (translation column is already zero)
 
         print('calibration matrix sent to CalibratedStage:')
         print(new_calib)
+        
 
         return new_calib
 
