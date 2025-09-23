@@ -17,7 +17,7 @@ camera = PcoCamera()
 # set up Pressure Controller
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
 pressureReaderSerial = serial.Serial(port='COM9', baudrate=9600, timeout=0)
-pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
+pressure = MoscowPressureController(channel=4, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
 
 
 # set up Ephys

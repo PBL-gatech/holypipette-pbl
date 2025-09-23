@@ -133,10 +133,10 @@ class MoscowPressureController(PressureController):
         '''
         if atm:
             cmd = f"switchAtm {self.channel}\n" # switch to ATM command
-            self.info("Switching to ATM")
+            self.info(f"Switching to ATM: {cmd}")
         else:
             cmd = f"switchP {self.channel}\n" # switch to Pressure command
-            self.info("Switching to Pressure")
+            self.info(f"Switching to Pressure: {cmd}")
         self.controllerSerial.write(bytes(cmd, 'ascii'))
         self.controllerSerial.flush()
         self.state = atm
