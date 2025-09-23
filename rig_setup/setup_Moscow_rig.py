@@ -16,7 +16,7 @@ camera = PcoCamera()
 
 # set up Pressure Controller
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
-pressureReaderSerial = serial.Serial(port='COM22', baudrate=9600, timeout=0)
+pressureReaderSerial = serial.Serial(port='COM9', baudrate=9600, timeout=0)
 pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
 
 
@@ -25,12 +25,13 @@ amplifier = MultiClampChannel(channel=1)
 daq = NiDAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
 
 # set up movement controllers
-
+print("Setting up stage controllers...")
 controllerSerial = serial.Serial('COM6')
 controller = ScientificaSerialNoEncoder(controllerSerial)
 microscope = Microscope(controller, 3)
 microscope.up_direction = 1.0
 
+print("Setting up pipette controllers...")
 pipetteSerial = serial.Serial('COM3')
 pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
 stage = ManipulatorUnit(controller, [1, 2])

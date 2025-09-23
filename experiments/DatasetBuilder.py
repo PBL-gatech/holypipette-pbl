@@ -19,7 +19,8 @@ class DatasetBuilder():
                  *,                              # ── NEW: keyword-only below
                  stage_y_axis_flip: bool = True, # flip the stage Y axis
                  pipette_rotation_deg: float = -60.75, # θ ─ rotate pipette XY
-                 load_next_obs: bool = True
+                 load_next_obs: bool = True,
+                 frequency_mod: int = 3
                  ):
         """
         Parameters
@@ -40,6 +41,8 @@ class DatasetBuilder():
         self.stage_y_axis_flip = stage_y_axis_flip
         self.pipette_rotation_deg = pipette_rotation_deg
         self.load_next_obs = load_next_obs
+        self.frequency_mod = int(max(1, frequency_mod))
+
 
 
         # Only keep bookkeeping for the splits that will exist
@@ -216,6 +219,81 @@ class DatasetBuilder():
 
         filtered = (actions[keep],) + tuple(arr[keep] for arr in arrays)
         return filtered
+    
+    def _decimate_by_step(self, *arrays, keep_last: bool = True):
+        """
+        Subsample a batch of time-synchronised arrays by ``self.frequency_mod``
+        along axis 0 using a **shared** index. Returns (decimated_arrays, idx).
+        Any ``None`` inputs are returned unchanged in the same position.
+
+        The final index is optionally forced in so terminal flags (e.g., dones)
+        are preserved even if the length isn't divisible by the stride.
+        """
+        step = int(getattr(self, "frequency_mod", 1) or 1)
+        if step <= 1:
+            return arrays, None
+
+        # Find reference length from the first non-None array
+        ref = next((a for a in arrays if a is not None), None)
+        if ref is None:
+            return arrays, None
+        N = len(ref)
+
+        # If there are zero samples after filtering, return as-is (no decimation to do)
+        if N == 0:
+            return arrays, None
+
+        idx = np.arange(0, N, step, dtype=np.int64)          # 0, step, 2*step, ...
+        if keep_last:
+            if idx.size == 0:
+                # No starts selected by the stride; keep only the last element
+                idx = np.array([N - 1], dtype=np.int64)
+            elif idx[-1] != N - 1:
+                idx = np.concatenate([idx, np.array([N - 1], dtype=np.int64)])
+
+
+        out = []
+        for a in arrays:
+            if a is None:
+                out.append(None)
+            else:
+                out.append(a[idx])
+        return tuple(out), idx
+
+    def _aggregate_actions_over_windows(self, actions: np.ndarray, idx: np.ndarray,
+                                        mode: str = "sum") -> np.ndarray:
+        """
+        Aggregate per-step **relative** actions across each decimation window.
+
+        Parameters
+        ----------
+        actions : (N, D) per-step deltas (relative)
+        idx     : window *starts* as produced by _decimate_by_step
+        mode    : "sum"  -> integrate deltas within each window (default)
+                  "last" -> sample-and-hold (use the last action in the window)
+
+        Returns
+        -------
+        (M, D) aggregated actions where M = len(idx)
+        """
+        if idx is None or len(idx) == 0:
+            return actions
+
+        N, D = actions.shape
+        # Window ends are the next start minus one, except the last which ends at N-1
+        ends = np.concatenate([idx[1:] - 1, np.array([N - 1], dtype=idx.dtype)])
+
+        if mode == "last":
+            return actions[idx]
+
+        if mode != "sum":
+            raise ValueError("mode must be 'sum' or 'last'.")
+
+        out = np.zeros((len(idx), D), dtype=actions.dtype)
+        for k, (a, b) in enumerate(zip(idx, ends)):
+            # inclusive of b
+            out[k] = actions[a:b + 1].sum(axis=0)
+        return out
 
     def convert_graph_recording_csv_to_new_format(self, demo_file_path):
         graph_recording_file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
@@ -900,6 +978,38 @@ class DatasetBuilder():
         # Update the num_samples based on the filtered actions array:
         num_samples = actions.shape[0]
         # --- END NEW CODE ---
+
+        # --- Optional decimation to slower observation cadence --------------------
+        step = int(getattr(self, 'frequency_mod', 1) or 1)
+        if step > 1:
+            if include_camera:
+                (dummy_actions, dones, pressure_values, resistance_values, current_values, voltage_values,
+                 stage_positions, pipette_positions, camera_frames), idx = \
+                    self._decimate_by_step(None, dones, pressure_values, resistance_values, current_values,
+                                           voltage_values, stage_positions, pipette_positions, camera_frames)
+            else:
+                (dummy_actions, dones, pressure_values, resistance_values, current_values, voltage_values,
+                 stage_positions, pipette_positions, _), idx = \
+                    self._decimate_by_step(None, dones, pressure_values, resistance_values, current_values,
+                                           voltage_values, stage_positions, pipette_positions, None)
+
+            # Aggregate RELATIVE per-step actions across each kept window (window-sum)
+            actions = self._aggregate_actions_over_windows(actions, idx, mode="sum")
+
+            # Recompute "next" arrays so they remain one step ahead in the DECIMATED sequence
+            num_samples = dones.shape[0]  # or actions.shape[0] after aggregation
+            if include_next_obs and num_samples > 0:
+                next_resistance_values = np.empty_like(resistance_values); next_resistance_values[:-1] = resistance_values[1:]; next_resistance_values[-1] = resistance_values[-1]
+                next_stage_positions   = np.empty_like(stage_positions);   next_stage_positions[:-1]   = stage_positions[1:];   next_stage_positions[-1]   = stage_positions[-1]
+                next_pipette_positions = np.empty_like(pipette_positions); next_pipette_positions[:-1] = pipette_positions[1:]; next_pipette_positions[-1] = pipette_positions[-1]
+                if include_camera:
+                    next_camera_frames = np.empty_like(camera_frames); next_camera_frames[:-1] = camera_frames[1:]; next_camera_frames[-1] = camera_frames[-1]
+            # If num_samples == 0, leave the provided next_* arrays as-is (they should already be empty)
+
+            # Update sample count post-decimation
+            num_samples = actions.shape[0]
+        # --- END decimation block --------------------------------------------------
+
         
         with h5py.File(f'experiments/Datasets/{self.dataset_name}', 'a') as hf:
             # Create a demo within the dataset_1
@@ -1086,7 +1196,7 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEKHUNTER_dataset_v0_035.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
+    dataset_name = 'HEK_sanity_set_goal_3.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
     #     "2025_03_11-16_32",
@@ -1107,24 +1217,24 @@ if __name__ == '__main__':
     #  ] # completely manual HEK data with no overlays. (4/10/2025)
 
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen
-    # rig_recorder_data_folder_set = ["2025_05_20-15_50"] # sanity check dataset (5/20/2025), used in training dataset
+    rig_recorder_data_folder_set = ["2025_05_20-15_50"] # sanity check dataset (5/20/2025), used in training dataset
     # rig_recorder_data_folder_set = ["2025_04_07-15_50"] # another inference set, from data not used in v33 and above.
         
-    rig_recorder_data_folder_set =  [
-        "2025_05_20-15_50",
-        "2025_05_20-15_16",
-        "2025_05_20-14_05",
-        "2025_04_10-11_57",
-        "2025_04_10-12_16",
-        "2025_04_10-12_21",
-        "2025_04_10-12_30",
-        "2025_04_10-15_01",
-        "2025_04_10-17_31",
-        "2025_04_07-14_32", 
-        "2025_04_07-14_50", 
-        "2025_04_07-15_50", 
-        "2025_04_07-18_04"
-     ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions this is version 35 as well
+    # rig_recorder_data_folder_set =  [
+    #     "2025_05_20-15_50",
+    #     "2025_05_20-15_16",
+    #     "2025_05_20-14_05",
+    #     "2025_04_10-11_57",
+    #     "2025_04_10-12_16",
+    #     "2025_04_10-12_21",
+    #     "2025_04_10-12_30",
+    #     "2025_04_10-15_01",
+    #     "2025_04_10-17_31",
+    #     "2025_04_07-14_32", 
+    #     "2025_04_07-14_50", 
+    #     "2025_04_07-15_50", 
+    #     "2025_04_07-18_04"
+    #  ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions this is version 35 as well
 
 
     # rig_recorder_data_folder_set = [

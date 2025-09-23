@@ -233,12 +233,16 @@ class PipetteInterface(TaskInterface):
              description='Move stage vertically by {:.0f}μm',
              default_arg=-50)
     def move_stage_vertical(self, distance):
+        if distance < 0:
+            print(f"distance is negative: {distance}")
         self.calibrated_stage.relative_move(distance, axis=1)
 
     @command(category='Stage',
              description='Move stage horizontally by {:.0f}μm',
              default_arg=10)
     def move_stage_horizontal(self, distance):
+        if distance < 0:
+            print(f"distance is negative: {distance}")
         self.calibrated_stage.relative_move(distance, axis=0)
 
     @blocking_command(category='Stage',

@@ -126,6 +126,7 @@ class ScientificaSerialEncoder(Manipulator):
                 time.sleep(sleepTime)
 
     def absolute_move(self, pos, axis):
+
         if axis == 1:
             yPos = self.position(axis=2)
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos * 10) , int(yPos * 10)))
@@ -183,6 +184,7 @@ class ScientificaSerialEncoder(Manipulator):
             cmd[axis  - 1] = pos
         
         if cmd[0] != 0 or cmd[1] != 0:
+            print("sent cmd", cmd[0], cmd[1])
             self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] * 10), int(cmd[1] * 10)))
 
         if cmd[2] != 0:
@@ -289,16 +291,16 @@ class ScientificaSerialNoEncoder(Manipulator):
     def absolute_move(self, pos, axis, speed=None):
         '''Moves the device to an absolute position in um.
         '''
-        # self.abort_if_requested()
+        print(f"absolute move {pos} {axis}")
         try: 
             if axis == 1:
                 yPos = self.position(axis=2)
-                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos * 10) , int(yPos * 10)))
+                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(round(pos * 10) , round(yPos * 10)))
             if axis == 2:
                 xPos = self.position(axis=1)
-                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(pos * 10)))
+                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(round(xPos * 10), round(pos * 10)))
             if axis == 3:
-                self._sendCmd(SerialCommands.SET_Z_POS.format(int(pos * 10)))
+                self._sendCmd(SerialCommands.SET_Z_POS.format(round(pos * 10)))
         except Exception as e:
             self.error(f"Error in absolute_move: {e}")
     
