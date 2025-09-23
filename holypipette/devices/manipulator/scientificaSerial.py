@@ -192,6 +192,7 @@ class ScientificaSerialEncoder(Manipulator):
 
     def absolute_move_group_velocity(self,vel,axes):   
         try: 
+         self.info(f"Setting velocity to {vel} on axes {axes}")
          vel = list(vel)
          axes = list(axes)
          xvel = vel[axes.index(1)]
