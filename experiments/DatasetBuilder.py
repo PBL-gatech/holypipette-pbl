@@ -5,23 +5,29 @@ import numpy as np
 import datetime
 import json
 from PIL import Image
+import albumentations as A
+import hashlib
 
 
 ATL_TO_UTC_TIME_DELTA = 4 #March 9 - Nov 1: 4 hours, otherwise 5 hours
 class DatasetBuilder():
     def __init__(self,
-                 dataset_name,
-                 calfile = None,
-                 val_ratio: float = 1 / 6,
-                 omit_stage_movement: bool = True,
-                 random_seed: int = 0,
-                 rotate_valid: bool = False,
-                 *,                              # ── NEW: keyword-only below
-                 stage_y_axis_flip: bool = True, # flip the stage Y axis
-                 pipette_rotation_deg: float = -60.75, # θ ─ rotate pipette XY
-                 load_next_obs: bool = True,
-                 frequency_mod: int = 3
-                 ):
+             dataset_name,
+             calfile = None,
+             val_ratio: float = 1 / 6,
+             omit_stage_movement: bool = True,
+             random_seed: int = 0,
+             rotate_valid: bool = False,
+             *,                              # keyword-only below
+             stage_y_axis_flip: bool = True,
+             pipette_rotation_deg: float = -60.75,
+             load_next_obs: bool = True,
+             frequency_mod: int = 5,
+             enable_random_filter: bool = True,
+             image_filter_prob: float = 0.65,
+             filter_train_only: bool = False,
+             filter_same_per_demo: bool = False
+             ):
         """
         Parameters
         ----------
@@ -42,6 +48,25 @@ class DatasetBuilder():
         self.pipette_rotation_deg = pipette_rotation_deg
         self.load_next_obs = load_next_obs
         self.frequency_mod = int(max(1, frequency_mod))
+        self.enable_random_filter   = bool(enable_random_filter)
+        self.image_filter_prob      = float(image_filter_prob)
+        self.filter_train_only      = bool(filter_train_only)
+        self.filter_same_per_demo   = bool(filter_same_per_demo)
+
+        self._albu_filter = None
+        if self.enable_random_filter:
+            self._albu_filter = A.Compose([
+                A.OneOf([
+                    A.GaussianBlur(blur_limit=(3, 7), p=1.0),
+                    A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1.0),
+                    A.Sharpen(p=1.0),
+                ], p=self.image_filter_prob)
+            ], seed=random_seed)
+
+        self._filter_active_for_demo = False
+        self._albu_replay_comp = None
+        self._albu_replay_state = None
+
 
 
 
@@ -692,6 +717,60 @@ class DatasetBuilder():
 
         return pipette_positions
     
+
+    def _stable_int_seed(self, *parts) -> int:
+        data = ("||".join(map(str, parts))).encode("utf-8")
+        return int.from_bytes(hashlib.sha256(data).digest()[:4], "big")
+
+    def _begin_demo_filter_context(self, split_label: str, demo_seed: int) -> None:
+        if not self.enable_random_filter:
+            self._filter_active_for_demo = False
+            self._albu_replay_comp = None
+            self._albu_replay_state = None
+            return
+        if self.filter_train_only and split_label != "train":
+            self._filter_active_for_demo = False
+            self._albu_replay_comp = None
+            self._albu_replay_state = None
+            return
+
+        self._filter_active_for_demo = True
+
+        if self.filter_same_per_demo:
+            self._albu_replay_comp = A.ReplayCompose([
+                A.OneOf([
+                    A.GaussianBlur(blur_limit=(3, 7), p=1.0),
+                    A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1.0),
+                    A.Sharpen(p=1.0),
+                ], p=self.image_filter_prob)
+            ], seed=int(demo_seed))
+            self._albu_replay_state = None
+        else:
+            self._albu_replay_comp = None
+            self._albu_replay_state = None
+
+    def _end_demo_filter_context(self) -> None:
+        self._filter_active_for_demo = False
+        self._albu_replay_comp = None
+        self._albu_replay_state = None
+
+    def _apply_albu_filter_to_pil(self, pil_image: Image.Image) -> Image.Image:
+        if not self._filter_active_for_demo:
+            return pil_image
+        if self._albu_filter is None and self._albu_replay_comp is None:
+            return pil_image
+        np_img = np.array(pil_image.convert("RGB"))
+        if self._albu_replay_comp is not None:
+            if self._albu_replay_state is None:
+                out = self._albu_replay_comp(image=np_img)
+                self._albu_replay_state = out["replay"]
+                np_img = out["image"]
+            else:
+                np_img = A.ReplayCompose.replay(self._albu_replay_state, image=np_img)["image"]
+        else:
+            np_img = self._albu_filter(image=np_img)["image"]
+        return Image.fromarray(np_img)
+
     def get_attempt_camera_frames(self, rig_recorder_data_folder, attempt_graph_values, rotation_angle=None):
         camera_files = os.listdir(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames')
         camera_files.sort()
@@ -725,7 +804,10 @@ class DatasetBuilder():
                     min_timestamp_diff_indice = valid_camera_indices[j]
             # Open the image from the selected camera frame.
             pil_image = Image.open(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames/{camera_files[min_timestamp_diff_indice]}')
-            # Apply rotation augmentation before cropping and resizing if requested.
+
+            # Apply a single Albumentations FILTER before rotation/crop/resize
+            pil_image = self._apply_albu_filter_to_pil(pil_image)
+
             if rotation_angle is not None:
                 pil_image = pil_image.rotate(rotation_angle, resample=Image.BILINEAR, expand=True)
             if self.center_crop:
@@ -1093,6 +1175,12 @@ class DatasetBuilder():
             # ─── build observations & actions ─────────────────────────────────────
             dones = self.get_attempt_dones(attempt_graph_values)
 
+            split_lbl = "valid" if self.rng.random() < self.val_ratio else "train"
+
+            demo_seed = self._stable_int_seed(self.dataset_name, rig_recorder_data_folder,
+                                              attempt_first_timestamp, attempt_last_timestamp, "orig")
+            self._begin_demo_filter_context(split_lbl, demo_seed)
+
             (pressure_values, resistance_values, current_values, voltage_values,
             stage_positions, pipette_positions, camera_frames) = \
                 self.get_attempt_observations(
@@ -1114,11 +1202,11 @@ class DatasetBuilder():
 
             # ─── optional: skip demos with stage XYZ motion ───────────────────────
             if self.omit_stage_movement and np.any(actions[:, :3]):
-                print("  skipped – demo contains stage movement")
+                print("  skipped - demo contains stage movement")
+                self._end_demo_filter_context()
                 continue
 
-            # ─── decide train / valid split BEFORE augmentation ───────────────────
-            split_lbl = "valid" if self.rng.random() < self.val_ratio else "train"
+            # split_lbl was decided above for gating and reproducibility
 
             # ─── write ORIGINAL demo ──────────────────────────────────────────────
             if record_to_file:
@@ -1147,11 +1235,24 @@ class DatasetBuilder():
                 self._split_keys[split_lbl].append(demo_key)
                 print(f"  added original {split_lbl} demo")
 
+                # end filter context for original demo
+                self._end_demo_filter_context()
+
+            else:
+                self._end_demo_filter_context()
+
             # ─── rotation augmentation (train always; valid if rotate_valid) ─────
+
             if self.rotate and record_to_file and (split_lbl == "train" or
                                                 (split_lbl == "valid" and self.rotate_valid)):
                 angles = np.linspace(0, 360, num=10, endpoint=False)[1:]   # 10-way, skip 0 °
                 for angle in angles:
+
+                    # Start a separate filter context for each augmented demo
+                    aug_demo_seed = self._stable_int_seed(self.dataset_name, rig_recorder_data_folder,
+                                                          attempt_first_timestamp, attempt_last_timestamp,
+                                                          f"angle={angle}")
+                    self._begin_demo_filter_context(split_lbl, aug_demo_seed)
 
                     (aug_pressure, aug_resistance, aug_current, aug_voltage,
                     aug_stage_pos, aug_pipette_pos, aug_cam) = \
@@ -1194,9 +1295,11 @@ class DatasetBuilder():
                     self._split_keys[split_lbl].append(aug_key)
                     print(f"  added augmented {split_lbl} demo (angle {angle}°)")
 
+                    self._end_demo_filter_context()
+
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_sanity_set_goal_3.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
+    dataset_name = 'HEK_dataset_v0_040.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
     #     "2025_03_11-16_32",
@@ -1217,7 +1320,7 @@ if __name__ == '__main__':
     #  ] # completely manual HEK data with no overlays. (4/10/2025)
 
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen
-    rig_recorder_data_folder_set = ["2025_05_20-15_50"] # sanity check dataset (5/20/2025), used in training dataset
+    # rig_recorder_data_folder_set = ["2025_05_20-15_50"] # sanity check dataset (5/20/2025), used in training dataset
     # rig_recorder_data_folder_set = ["2025_04_07-15_50"] # another inference set, from data not used in v33 and above.
         
     # rig_recorder_data_folder_set =  [
@@ -1237,13 +1340,13 @@ if __name__ == '__main__':
     #  ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions this is version 35 as well
 
 
-    # rig_recorder_data_folder_set = [
-    # "2025_05_20-15_50",
-    # "2025_05_20-15_16",
-    # "2025_05_20-14_05",
-    # "2025_04_10-11_57",
-    # "2025_04_10-12_16"
-    # ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions, but using only 5/20 and 4/10 data for a smaller dataset to start with.
+    rig_recorder_data_folder_set = [
+    "2025_05_20-15_50",
+    "2025_05_20-15_16",
+    "2025_05_20-14_05",
+    "2025_04_10-11_57",
+    "2025_04_10-12_16"
+    ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions, but using only 5/20 and 4/10 data for a smaller dataset to start with.
 
     datasetBuilder = DatasetBuilder(
         dataset_name=dataset_name,
