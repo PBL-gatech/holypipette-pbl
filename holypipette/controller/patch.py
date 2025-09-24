@@ -60,6 +60,7 @@ class AutoPatcher(TaskController):
         self.autopatchhelper = AutoPatchHelper()
         self.current_protocol_graph = None
         self.ninput = None
+        self.done = False
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -116,16 +117,23 @@ class AutoPatcher(TaskController):
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
-        self.isrigready()
-        if self.rig_ready == False:
-            raise AutopatchError("Rig not ready for pipette finding")
-        if self.calibrated_unit is None:
-            raise AutopatchError("No calibrated pipette unit found")
+        # self.isrigready()
+        # if self.rig_ready == False:
+        #     raise AutopatchError("Rig not ready for pipette finding")
+        # if self.calibrated_unit is None:
+        #     raise AutopatchError("No calibrated pipette unit found")
         done = False
         while not done:
             # wait in loop until done
-            done = True
+            done = self.done
+            if self.done:
+                self.info("Pipette found")
+                break
+            self.sleep(0.04)
+        self.done = False
 
+    def task_done(self):
+        self.done = True
 
 
     @record_state("run_protocols")

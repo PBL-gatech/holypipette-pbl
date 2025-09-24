@@ -10,7 +10,7 @@ from types import MethodType
 
 from PyQt5 import QtCore
 
-from holypipette.controller import TaskController, RequestedAbortException
+from holypipette.controller import TaskController, RequestedAbortException, RequestedSuccessException
 from holypipette.utils.log_utils import LoggingObject
 
 
@@ -224,29 +224,44 @@ class TaskInterface(QtCore.QObject, LoggingObject):
 
         self._current_controller = controller
         controller.abort_requested = False
+        controller.success_requested = False
+        manual_success = False
         try:
             if argument is not None:
                 func(argument)
             else:
                 func()
+        except RequestedSuccessException:
+            manual_success = True
         # We send a reference to the "controller" with the task_finished signal,
         # this can be used to ask the user for a state reset after a failed
         # command (e.g. move back the pipette to its start position in case a
         # calibration failed or was aborted)
         except RequestedAbortException:
+            controller.success_requested = False
             self.info('Task "{}" aborted'.format(func.__name__))
             self.task_finished.emit(2, controller)
             self._current_controller = None
             return False
         except Exception:
+            controller.success_requested = False
             self.exception('Task "{}" failed'.format(func.__name__))
             self.task_finished.emit(1, controller)
             self._current_controller = None
             return False
 
-        # Task finished successfully
+        if controller.success_requested:
+            manual_success = True
+
         controller.delete_state()
+        controller.success_requested = False
         self._current_controller = None
+
+        if manual_success:
+            self.info('Task "{}" finished manually'.format(func.__name__))
+            self.task_finished.emit(0, controller)
+            return False
+
         return True
 
     def execute(self, task, argument=None):
@@ -310,9 +325,20 @@ class TaskInterface(QtCore.QObject, LoggingObject):
             # Set abort_requested to False, otherwise it will trigger another
             # abort when it uses sleep, etc.
             controller.abort_requested = False
+            controller.success_requested = False
             controller.recover_state()
         except Exception:
             self.exception('Recovering the state for {} failed.'.format(controller))
+
+    def complete_task(self):
+        """
+        The user asked to finish the currently running (blocking) command
+        successfully. The success request is forwarded by setting the
+        `TaskController.success_requested` attribute so that the running
+        controller can react accordingly.
+        """
+        self._current_controller.success_requested = True
+        self._current_controller.abort_requested = False
 
     def abort_task(self):
         """
