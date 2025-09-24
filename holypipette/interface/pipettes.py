@@ -273,6 +273,15 @@ class PipetteInterface(TaskInterface):
     def follow_stage(self):
         self.execute([self.calibrated_unit.follow_stage])
 
+
+    @blocking_command(category='Manipulators and Stage',
+                      description='Move pipette randomly in xyz',
+                        task_description='displacing pipette randomly in xyz...')
+    def move_pipette_random(self):
+        self.execute([self.calibrated_unit.move_pipette_random])
+
+
+
     @blocking_command(category='Stage',
                         description='focus the stage',
                         task_description='Focusing the stage')

@@ -112,6 +112,22 @@ class AutoPatcher(TaskController):
                     holding_current = -50
                 return holding_current
 
+
+    @record_state("find_pipette")
+    def find_pipette(self):
+        self.info("Finding pipette")
+        self.isrigready()
+        if self.rig_ready == False:
+            raise AutopatchError("Rig not ready for pipette finding")
+        if self.calibrated_unit is None:
+            raise AutopatchError("No calibrated pipette unit found")
+        done = False
+        while not done:
+            # wait in loop until done
+            done = True
+
+
+
     @record_state("run_protocols")
     def run_protocols(self):
         self.daq.setCellMode(True)
@@ -443,8 +459,6 @@ class AutoPatcher(TaskController):
 
         self.calibrated_unit.stop()
         self.microscope.stop()
-
-
 
     @record_state("escape")
     def escape(self):

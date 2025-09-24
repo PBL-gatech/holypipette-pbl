@@ -198,6 +198,15 @@ class AutoPatchInterface(TaskInterface):
         self.cells_to_patch = self.cells_to_patch[1:]
 
 
+    @blocking_command(category='Patch',
+                        description='find the pipette',
+                        task_description='locating pipette')
+    def escape_cell(self):
+        self.execute(self.current_autopatcher.find_pipette)
+        time.sleep(2)
+
+    
+
     @command(category='Patch',
              description='Store the position of the washing bath',
              success_message='Cleaning path position stored')

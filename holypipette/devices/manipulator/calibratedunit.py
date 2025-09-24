@@ -488,6 +488,16 @@ class CalibratedUnit(ManipulatorUnit):
         self.relative_move(rotated_vector)
         self.wait_until_still()
 
+
+    def move_pipette_random(self, movement = 100):
+        '''
+        Moves the pipette randomly in xy plane, method used for testing/calibration.
+        '''
+        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5)])
+        self.relative_move(movement_vector)
+        self.wait_until_still()
+
+
     def save_configuration(self):
         '''
         Outputs configuration in a dictionary.

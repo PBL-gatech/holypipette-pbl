@@ -475,11 +475,12 @@ class ClassicPatchButtons(ButtonTabWidget):
         ]
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
+        self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.start_recording,self.patch_interface.find_pipette,self.stop_recording]
 
-        # # add a box for testing controllability of the pipette and stage
-        # buttonList = [['Test Movement']]
-        # cmds = [ [self.test_movement]]
-        # self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
+        # add a box for testing controllability of the pipette and stage
+        buttonList = [['Test Movement']['Find Pipette']]
+        cmds = [ [self.test_movement]]
+        self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
 
         # # Add a box for lamp commands
         buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
@@ -508,6 +509,7 @@ class ClassicPatchButtons(ButtonTabWidget):
 
         self.setLayout(layout)
 
+
     def test_movement(self):
         # check if recording is enabled
         if self.recording_state_manager.is_recording_enabled():
@@ -531,7 +533,6 @@ class ClassicPatchButtons(ButtonTabWidget):
         else:
             self.start_recording()
 
-
     def start_recording(self):
         self.recording_state_manager.set_recording(True)
         self.record_button.setText("Stop Recording")
@@ -543,6 +544,8 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.record_button.setText("Start Recording")
         self.record_button.setStyleSheet("")
         logging.info("Recording stopped")
+
+
 
     def close(self):
         self.recorder.close()
