@@ -20,12 +20,46 @@ class AutoPatchHelper:
         self.hunterc0 = None
     
 
-    def hunt(self,model_input):
-        pos, self.hunterh0, self.hunterc0 = self.hunter.inference(model_input, self.hunterh0, self.hunterc0)
-        # onnx returns shape (1,6); flatten to (6,) for downstream slicing
-        pos = np.asarray(pos).reshape(-1)
+    def hunt(self, model_input):
+        """
+        Preprocess + handshake:
+          • Wrapper models (obs::/goal::): build {"obs": (...), "goal": partial or omitted}
+            and pass RAW HWC image + raw numerics (normalization handled inside ONNX).
+          • Legacy models: pass (pip, stage, img, res); CellHunter will normalize/crop/stack.
+        """
+        # Ensure model is loaded and wrapper flags are known
+        if not hasattr(self, "_hunter_uses_wrapper") or getattr(self.hunter, "input_names", None) is None:
+            self.prepare_model("hunt")
+
+        # Coerce observation (mild normalization of types/shapes only)
+        pip, stage, img, res = model_input
+        pip   = np.asarray(pip,   np.float32).reshape(-1)
+        stage = np.asarray(stage, np.float32).reshape(-1)
+        if stage.shape[0] == 2:
+            stage = np.concatenate([stage, [0.0]]).astype(np.float32)
+        else:
+            stage = stage[:3].astype(np.float32)
+        res = np.asarray(res, np.float32).reshape(-1)
+        img = np.asarray(img)
+        if img.ndim == 2:  # gray → 3‑chan
+            img = np.stack([img]*3, axis=-1)
+
+        if getattr(self, "_hunter_uses_wrapper", False):
+            payload = {"obs": (pip, stage, img, res)}
+            if getattr(self, "_hunter_has_goal", False) and hasattr(self, "_goal") and len(self._goal) > 0:
+                # Partial goal OK (e.g., no image) — CellHunter fills missing keys from obs
+                payload["goal"] = self._goal
+            model_payload = payload
+        else:
+            # Legacy model — give tuple; CellHunter does CHW+resize+[0,1] and stacking
+            model_payload = (pip, stage, img, res)
+        print(f"model payload prepared {type(model_payload)}")
+        pos, self.hunterh0, self.hunterc0 = self.hunter.inference(model_payload, self.hunterh0, self.hunterc0)
+        print(f"model inference returned pos {pos}")
+        pos = np.asarray(pos).reshape(-1)     # (6,)
         pos = self.clamp_positions(pos)
         return pos
+
 
     
     def gigaseal(self,mode,type,input):
@@ -121,8 +155,47 @@ class AutoPatchHelper:
         self.hunterh0, self.hunterc0 = h0, c0
 
 
+    def prepare_model(self, which="hunt", *, onnx_path=None, providers=None):
+        """
+        Loads the selected model and records whether it uses new wrapper IO (obs::/goal::).
+        Compatible with your call site: self.autopatchhelper.prepare_model("hunt")
+        You may optionally pass an explicit `onnx_path` to control which policy is loaded.
+        """
+        if which == "hunt":
+            self.hunter.load_model(onnx_path, providers=providers)
+            self._hunter_uses_wrapper = any(n.startswith("obs::") for n in self.hunter.input_names)
+            self._hunter_has_goal     = any(n.startswith("goal::") for n in self.hunter.input_names)
+        elif which == "gigaseal":
+            self.gigasealer.load_model(onnx_path, providers=providers)
+        elif which == "break_in":
+            self.burglar.load_model(onnx_path, providers=providers)
+        else:
+            raise ValueError(f"Unknown model '{which}'")
+        return self
 
 
+    def set_goal(self, *, pip=None, stage=None, resistance=None, image=None):
+        """
+        Store a (possibly partial) goal. Any missing keys (e.g., image) will be mirrored
+        from the current observation by the wrapper-aware path in CellHunter.
+        """
+        g = {}
+        if pip is not None:
+            g["pipette_positions"] = np.asarray(pip, np.float32).reshape(-1)
+        if stage is not None:
+            s = np.asarray(stage, np.float32).reshape(-1)
+            if s.shape[0] == 2:
+                s = np.concatenate([s, [0.0]]).astype(np.float32)
+            else:
+                s = s[:3].astype(np.float32)
+            g["stage_positions"] = s
+        if resistance is not None:
+            g["resistance"] = np.asarray(resistance, np.float32).reshape(-1)
+        if image is not None:
+            im = np.asarray(image)
+            if im.ndim == 2:  # gray → 3‑chan
+                im = np.stack([im]*3, axis=-1)
+            g["camera_image"] = im
+        self._goal = g
+        return self
 
-        
-        

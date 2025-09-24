@@ -76,7 +76,7 @@ class Manipulator(TaskController):
             self.absolute_move(self.position(axis)+x, axis, speed)
         else:
             ##self.abort_if_requested()
-            self.absolute_move(self.position(axis)+x, axis)
+            self.absolute_move(self.position(axis)+float(x), axis)
 
     def position_group(self, axes):
         '''

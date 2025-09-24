@@ -385,11 +385,10 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
             autoHunt=True
         elif self.config.mode == 'Agent':
-            # get 16 inputs from observation to prime model with. build a nested input list
-            self.ninput = [None] * 16
-            for i in range(16):
-                self.ninput[i] = self.observe()
-            self.autopatchhelper.prime_model("hunt",self.ninput)
+            #prepare model
+            # cell_pos, cell_img,goal_pos = cell
+            # goal_res  = self.first_res + self.config.cell_R_increase*1e6
+            self.autopatchhelper.prepare_model("hunt")
             autoHunt = True
         else:
             autoHunt = False
@@ -407,19 +406,18 @@ class AutoPatcher(TaskController):
                     pos = self.autopatchhelper.hunt(model_input)
                     st_pos = pos[:3]
                     pi_pos = pos[3:]
-                    # pi_pos = [x * 1 for x in pos[3:]]
-                    print(type(pi_pos))
-                    
+                    self.info(f"pipette command: {pi_pos},data type {type(pi_pos)}")          
                 except: 
-                    self.error("Error in prediction, skipping movement")
-                    st_pos = [0,0,0]
-                    pi_pos = [0,0,0]
-                # self.info(f"stage command: {st_pos}")
-                self.info(f"pipette command: {pi_pos}")
-                # self.calibrated_stage.relative_move_group(st_pos)
-                # # simple debug
-                # pip_disp = [0,0,1]
-                self.calibrated_unit.relative_move(pi_pos)
+                    self.error("Error in prediction, stopping autopatch")
+                    break
+                #     st_pos = [0,0,0]
+                #     pi_pos = [0,0,0]
+                # # self.info(f"stage command: {st_pos}")
+                # self.info(f"pipette command: {pi_pos}")
+                # # self.calibrated_stage.relative_move_group(st_pos)
+                # # # simple debug
+                # # pip_disp = [0,0,1]
+                # self.calibrated_unit.relative_move(pi_pos)
 
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
