@@ -32,7 +32,9 @@ from typing import Any, Iterable, List
 # PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-12_57\attempt_2\2_find_pipette_1758819504479.pickle"
 # PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-12_57\attempt_3\3_find_pipette_1758819565569.pickle"
 # PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-13_08\attempt_8\8_find_pipette_1758820268998.pickle"
-PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-13_08\attempt_1\1_find_pipette_1758820138526.pickle"
+# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-13_08\attempt_1\1_find_pipette_1758820138526.pickle"
+# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-16_11\attempt_1\1_find_pipette_1758831090586.pickle"
+PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-16_17\attempt_1\1_find_pipette_1758831472615.pickle"
 
 
 # Add more pickle files here if you want to process several at once
@@ -108,14 +110,7 @@ def is_tabular(obj: Any) -> bool:
 
 def to_jsonable(obj: Any, *, max_items: int = 2000, _seen: set[int] | None = None) -> Any:
     """Convert arbitrary objects to a JSON-serializable preview, with size guard."""
-    if _seen is None:
-        _seen = set()
-    oid = id(obj)
-    if oid in _seen:
-        return "<recursion>"
-    _seen.add(oid)
-
-    # Simple primitives
+    # Simple primitives bypass recursion tracking
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
     if isinstance(obj, bytes):
@@ -123,6 +118,13 @@ def to_jsonable(obj: Any, *, max_items: int = 2000, _seen: set[int] | None = Non
             return obj.decode("utf-8")
         except Exception:
             return obj.hex()
+
+    if _seen is None:
+        _seen = set()
+    oid = id(obj)
+    if oid in _seen:
+        return "<recursion>"
+    _seen.add(oid)
 
     # numpy
     if np is not None:

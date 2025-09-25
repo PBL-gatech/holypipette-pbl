@@ -3,7 +3,7 @@ Light-weight state machine logger for Autopatcher attempts.
 • Creates ONE date-stamped *session* folder the first time it is used.
 • Creates one sub-folder per attempt   →   session/attempt_<n>/
 • Writes one *.pickle* per state       →   <n>_<state>_<started>.pickle
-• Uses Unix-epoch milliseconds for all timestamps (ints).
+• Uses Unix-epoch seconds for start/finish timestamps (floats).
 """
 
 import os, pickle, functools, threading, time
@@ -79,9 +79,9 @@ class StateMachineLogger:
 
         with self._lock:
             if state not in self._states:
-                epoch_ms = int(time.time() * 1_000)            # milliseconds
+                epoch_ts = time.time()                               # seconds
                 self._states[state] = {
-                    "started":     epoch_ms,
+                    "started":     epoch_ts,
                     "finished":    None,
                     "outcome":     None,
                     "system_mode": system_mode
@@ -91,7 +91,7 @@ class StateMachineLogger:
         """Stamp *finished*, set outcome, and write the pickle file."""
         with self._lock:
             rec = self._states[state]                      # must exist
-            rec["finished"] = int(time.time() * 1_000)
+            rec["finished"] = time.time()
             rec["outcome"]  = outcome
             self._save(state, rec)
 
@@ -100,17 +100,25 @@ class StateMachineLogger:
     # ------------------------------------------------------------------ #
     def _save(self, state: str, record: Dict) -> None:
         # Defensive copy and validation
-        rec = {
-            "started":     int(record["started"]) if record["started"] is not None else None,
-            "finished":    int(record["finished"]) if record["finished"] is not None else None,
-            "outcome":     int(record["outcome"])  if record["outcome"]  is not None else None,
-            "system_mode": int(record["system_mode"]) if record["system_mode"] is not None else None,
-        }
-        assert all(
-            isinstance(rec[k], (int, type(None))) for k in rec
-        ), f"Non-primitive value detected in state record: {rec}"
+        def _coerce_timestamp(value):
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            raise TypeError(f"Invalid timestamp value for {state!r}: {value!r}")
 
-        fname = f"{self.attempt_id}_{state}_{rec['started']}.pickle"
+        rec = {
+            "started":     _coerce_timestamp(record.get("started")),
+            "finished":    _coerce_timestamp(record.get("finished")),
+            "outcome":     int(record["outcome"]) if record.get("outcome") is not None else None,
+            "system_mode": int(record["system_mode"]) if record.get("system_mode") is not None else None,
+        }
+
+        fname_suffix = "unknown"
+        if rec["started"] is not None:
+            fname_suffix = str(int(rec["started"] * 1_000))
+
+        fname = f"{self.attempt_id}_{state}_{fname_suffix}.pickle"
         path  = os.path.join(self.attempt_path, fname)
         with open(path, "wb") as f:
             pickle.dump(rec, f)
