@@ -21,8 +21,8 @@ class RequestedSuccessException(Exception):
 
 
 def check_for_abort(obj, func):
-    """Decorator to make a function raise a `RequestedAbortException` if
-       ``abort_requested`` attribute is set."""
+    """Decorator to raise the appropriate request exception if
+       ``success_requested`` or ``abort_requested`` is set."""
     @functools.wraps(func)
     def decorated(*args, **kwds):
         if getattr(obj, 'success_requested', False):
@@ -40,17 +40,17 @@ class TaskController(LoggingObject):
     a patch clamp experiment. Objects will usually be instantiated from more
     specific subclasses.
 
-    The class provides several convenient ways to interact with an
-    asynchronously requested abort of the current task. A long-running task
-    can check explicitly whether an abort has been requested with
-    `abort_if_requested` which will raise a `RequestedAbortException` if the
-    ``abort_requested`` attribute has been set. This check will also be
-    performed automatically if `~TaskController.debug`,
-    `~TaskController.info`, or
-    `~TaskController.warn` is called (which otherwise simply forward their
-    message to the logging system). Finally, tasks should call `sleep`
-    (instead of `time.sleep`) which will periodically check for an abort
-    request during the sleep time.
+    The class provides several convenient ways to interact with
+    asynchronously requested aborts or manual success completions of the
+    current task. A long-running task can check explicitly whether an abort
+    has been requested with `abort_if_requested` or whether a manual success
+    has been requested with `success_if_requested`; both will raise the
+    respective request exception when the associated flag has been set. These
+    checks are also performed automatically if `~TaskController.debug`,
+    `~TaskController.info`, or `~TaskController.warn` is called (which
+    otherwise simply forward their message to the logging system). Finally,
+    tasks should call `sleep` (instead of `time.sleep`) which will
+    periodically check for abort/success requests during the sleep time.
     """
     def __init__(self):
         super(TaskController, self).__init__()
@@ -58,7 +58,7 @@ class TaskController(LoggingObject):
         self.success_requested = False
         self.saved_state = None
         self.saved_state_question = None
-        # Overwrite the logging functions so that they check for `abort_requested`
+        # Overwrite the logging functions so that they honour request flags
         self.debug = check_for_abort(self, self.debug)
         self.info = check_for_abort(self, self.info)
         self.warning = check_for_abort(self, self.warning)
@@ -92,7 +92,7 @@ class TaskController(LoggingObject):
 
     def sleep(self, seconds):
         """Convenience function that sleeps (as `time.sleep`) but remains
-        sensitive to abort requests"""
+        sensitive to abort/success requests"""
         check_every = 0.25
         start = time.time()
         self.abort_if_requested()

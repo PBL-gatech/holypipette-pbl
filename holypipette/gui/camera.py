@@ -439,6 +439,11 @@ class CameraGui(QtWidgets.QMainWindow):
         layout.addWidget(self.task_progress_text)
         layout.setContentsMargins(0, 0, 0, 0)
         self.status_bar.addWidget(self.task_progress, 1)
+        self.task_success_button = QtWidgets.QToolButton(clicked=self.complete_task)
+        self.task_success_button.setIcon(qta.icon('fa.check'))
+        self.task_success_button.setEnabled(False)
+        self.task_success_button.setVisible(False)
+        self.status_bar.addWidget(self.task_success_button)
         self.status_label = QtWidgets.QLabel()
         self.status_bar.addPermanentWidget(self.status_label)
 
@@ -803,15 +808,25 @@ class CameraGui(QtWidgets.QMainWindow):
 
     def start_task(self, task_name, interface):
         self.status_bar.clearMessage()
-        self.task_progress_text.setText(task_name + '…')
+        self.task_progress_text.setText(task_name + '...')
         self.task_progress.setVisible(True)
         self.task_abort_button.setEnabled(True)
+        self.task_success_button.setEnabled(True)
+        self.task_success_button.setVisible(True)
         self.task_abort_button.setVisible(True)
         self.running_task = task_name
         self.running_task_interface = interface
 
+    def complete_task(self):
+        """Forward a manual success request to the running task interface."""
+        if self.running_task_interface is None:
+            return
+        self.task_success_button.setEnabled(False)
+        self.running_task_interface.complete_task()
+
     def abort_task(self):
         self.task_abort_button.setEnabled(False)
+        self.task_success_button.setEnabled(False)
         self.running_task_interface.abort_task()
 
     @QtCore.pyqtSlot(int, object)
@@ -825,6 +840,8 @@ class CameraGui(QtWidgets.QMainWindow):
 
         self.task_progress.setVisible(False)
         self.task_abort_button.setVisible(False)
+        self.task_success_button.setVisible(False)
+        self.task_success_button.setEnabled(False)
         # 0: correct execution (no need to show a message)
         if exit_reason == 0:
             text = "Task '{}' finished successfully.".format(self.running_task)

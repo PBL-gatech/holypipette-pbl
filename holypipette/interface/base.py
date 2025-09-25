@@ -225,14 +225,18 @@ class TaskInterface(QtCore.QObject, LoggingObject):
         self._current_controller = controller
         controller.abort_requested = False
         controller.success_requested = False
-        manual_success = False
         try:
             if argument is not None:
                 func(argument)
             else:
                 func()
         except RequestedSuccessException:
-            manual_success = True
+            controller.success_requested = False
+            controller.delete_state()
+            self.info('Task "{}" finished manually'.format(func.__name__))
+            self.task_finished.emit(0, controller)
+            self._current_controller = None
+            return False
         # We send a reference to the "controller" with the task_finished signal,
         # this can be used to ask the user for a state reset after a failed
         # command (e.g. move back the pipette to its start position in case a
@@ -250,18 +254,9 @@ class TaskInterface(QtCore.QObject, LoggingObject):
             self._current_controller = None
             return False
 
-        if controller.success_requested:
-            manual_success = True
-
         controller.delete_state()
         controller.success_requested = False
         self._current_controller = None
-
-        if manual_success:
-            self.info('Task "{}" finished manually'.format(func.__name__))
-            self.task_finished.emit(0, controller)
-            return False
-
         return True
 
     def execute(self, task, argument=None):
@@ -322,8 +317,8 @@ class TaskInterface(QtCore.QObject, LoggingObject):
 
         """
         try:
-            # Set abort_requested to False, otherwise it will trigger another
-            # abort when it uses sleep, etc.
+            # Reset request flags to avoid triggering another abort or success
+            # when the controller next checks them (e.g. during sleep/logging).
             controller.abort_requested = False
             controller.success_requested = False
             controller.recover_state()
@@ -338,7 +333,6 @@ class TaskInterface(QtCore.QObject, LoggingObject):
         controller can react accordingly.
         """
         self._current_controller.success_requested = True
-        self._current_controller.abort_requested = False
 
     def abort_task(self):
         """

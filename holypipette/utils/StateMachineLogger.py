@@ -10,6 +10,9 @@ import os, pickle, functools, threading, time
 from typing import Dict
 
 
+from holypipette.controller import RequestedAbortException, RequestedSuccessException
+
+
 class StateMachineLogger:
     # ---------- outcome codes ---------- #
     SUCCESS = 0
@@ -96,11 +99,22 @@ class StateMachineLogger:
     # internal helper
     # ------------------------------------------------------------------ #
     def _save(self, state: str, record: Dict) -> None:
-        ts    = record["started"]                          # epoch ms int
-        fname = f"{self.attempt_id}_{state}_{ts}.pickle"
+        # Defensive copy and validation
+        rec = {
+            "started":     int(record["started"]) if record["started"] is not None else None,
+            "finished":    int(record["finished"]) if record["finished"] is not None else None,
+            "outcome":     int(record["outcome"])  if record["outcome"]  is not None else None,
+            "system_mode": int(record["system_mode"]) if record["system_mode"] is not None else None,
+        }
+        assert all(
+            isinstance(rec[k], (int, type(None))) for k in rec
+        ), f"Non-primitive value detected in state record: {rec}"
+
+        fname = f"{self.attempt_id}_{state}_{rec['started']}.pickle"
         path  = os.path.join(self.attempt_path, fname)
         with open(path, "wb") as f:
-            pickle.dump(record, f)
+            pickle.dump(rec, f)
+
 
 
 # ---------------------------------------------------------------------- #
@@ -130,16 +144,40 @@ def record_state(state_name: str):
             logger.start(state_name, mode_code)
 
             try:
+                # inside wrapper(), in the try block after fn returns
                 result   = fn(self, *args, **kwargs)
                 aborted  = bool(getattr(self, "abort_requested", False))
-                outcome  = StateMachineLogger.ABORTED if aborted else StateMachineLogger.SUCCESS
+                success  = bool(getattr(self, "success_requested", False))
+
+                if aborted:
+                    outcome = StateMachineLogger.ABORTED
+                elif success:
+                    outcome = StateMachineLogger.SUCCESS
+                else:
+                    # didn't abort and no explicit success flag -> treat as FAILURE
+                    outcome = StateMachineLogger.FAILURE
+
                 logger.finish(state_name, outcome)
                 return result
+
+            except RequestedSuccessException:
+                logger.finish(state_name, StateMachineLogger.SUCCESS)
+                raise
+
+            except RequestedAbortException:
+                logger.finish(state_name, StateMachineLogger.ABORTED)
+                raise
 
             except Exception as exc:
                 msg     = str(exc).lower()
                 aborted = "abort" in msg
-                outcome = StateMachineLogger.ABORTED if aborted else StateMachineLogger.FAILURE
+                success = "success" in msg
+                if success:
+                    outcome = StateMachineLogger.SUCCESS
+                elif aborted:
+                    outcome = StateMachineLogger.ABORTED
+                else:
+                    outcome = StateMachineLogger.FAILURE
                 logger.finish(state_name, outcome)
                 raise
 

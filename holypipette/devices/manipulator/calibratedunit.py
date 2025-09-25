@@ -474,12 +474,12 @@ class CalibratedUnit(ManipulatorUnit):
 
         self.debug(f'New offsets: {self.r0}, {self.r0_inv}')
 
-    def follow_stage(self, movement = 250):
+    def follow_stage(self, movement = 300):
         '''
         Moves the pipette to follow the stage, method used for testing/calibration.
         '''
-        #1. move stage by movement in both axes 
-        movement_vector = np.array([movement, movement, 0])
+        #1. move stage by movement in both axes randomly
+        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), 0])
         self.stage.relative_move(movement_vector)
         self.stage.wait_until_still()
         #2. rotate movement vector around z axis by pipette_z_rotation
