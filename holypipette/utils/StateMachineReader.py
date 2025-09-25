@@ -25,15 +25,6 @@ from typing import Any, Iterable, List
 
 # --- Configuration -----------------------------------------------------------
 # Main pickle to process
-# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-12_29\attempt_1\1_find_pipette_1758817752227.pickle"
-# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-12_42\attempt_2\2_find_pipette_1758818640795.pickle"
-# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_24-17_08\attempt_1\1_locate_cell_1758748095169.pickle"
-# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_24-17_08\attempt_11\11_hunt_cell_1758748738802.pickle"
-# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-12_57\attempt_2\2_find_pipette_1758819504479.pickle"
-# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-12_57\attempt_3\3_find_pipette_1758819565569.pickle"
-# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-13_08\attempt_8\8_find_pipette_1758820268998.pickle"
-# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-13_08\attempt_1\1_find_pipette_1758820138526.pickle"
-# PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-16_11\attempt_1\1_find_pipette_1758831090586.pickle"
 PICKLE_PATH: str = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\state_recorder_data\2025_09_25-16_17\attempt_1\1_find_pipette_1758831472615.pickle"
 
 

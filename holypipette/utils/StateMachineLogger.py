@@ -1,12 +1,18 @@
 """
 Light-weight state machine logger for Autopatcher attempts.
-• Creates ONE date-stamped *session* folder the first time it is used.
-• Creates one sub-folder per attempt   →   session/attempt_<n>/
-• Writes one *.pickle* per state       →   <n>_<state>_<started>.pickle
-• Uses Unix-epoch seconds for start/finish timestamps (floats).
+- Creates ONE date-stamped *session* folder the first time it is used.
+- Creates one sub-folder per attempt -> session/attempt_<n>/.
+- Writes one *.pickle* per state -> <n>_<state>_<started>.pickle.
+- Writes one *.json* per state -> <n>_<state>_<started>.json.
+- Uses Unix-epoch seconds for start/finish timestamps (floats).
 """
 
-import os, pickle, functools, threading, time
+import functools
+import json
+import os
+import pickle
+import threading
+import time
 from typing import Dict
 
 
@@ -88,7 +94,7 @@ class StateMachineLogger:
                 }
 
     def finish(self, state: str, outcome: int) -> None:
-        """Stamp *finished*, set outcome, and write the pickle file."""
+        """Stamp *finished*, set outcome, and write the pickle and JSON files."""
         with self._lock:
             rec = self._states[state]                      # must exist
             rec["finished"] = time.time()
@@ -118,10 +124,14 @@ class StateMachineLogger:
         if rec["started"] is not None:
             fname_suffix = str(int(rec["started"] * 1_000))
 
-        fname = f"{self.attempt_id}_{state}_{fname_suffix}.pickle"
-        path  = os.path.join(self.attempt_path, fname)
-        with open(path, "wb") as f:
+        fname_base = f"{self.attempt_id}_{state}_{fname_suffix}"
+        pickle_path = os.path.join(self.attempt_path, f"{fname_base}.pickle")
+        with open(pickle_path, "wb") as f:
             pickle.dump(rec, f)
+
+        json_path = os.path.join(self.attempt_path, f"{fname_base}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(rec, f, indent=2)
 
 
 
