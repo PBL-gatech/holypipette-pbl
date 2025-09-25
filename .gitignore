@@ -13,19 +13,11 @@ __pycache__/
 
 experiments/Datasets
 /experiments/Data
-/holypipette/devices/camera/FakeMicroscopeImgs/mask_images
-/holypipette/deepLearning/cellModel
+
 
 /testing/testpatchconfig
-/holypipette/deepLearning/pipetteTipModel
-/holypipette/deepLearning/cellModel
 
 
-
-/holypipette/deepLearning/patchModel
-/holypipette/deepLearning
-/holypipette/deepLearning
-/holypipette/deepLearning
 /holypipette/experiments/Data
 /experiments/Analysis/Patch_Clamp/rowanexample
 /experiments/Analysis/Patch_Clamp/testCCdata
@@ -35,3 +27,9 @@ experiments/Datasets
 /experiments/Data/state_recorder_data
 /.continue
 /testing/ComputerVision/holypipette_pipette_detection
+/holypipette/deepLearning/patchModel/oldmodels
+/holypipette/deepLearning/cellModel/example pictures
+/holypipette/deepLearning/cellModel
+/holypipette/deepLearning/patchModel/models
+/holypipette/deepLearning/patchModel/test_data
+/holypipette/deepLearning/pipetteModel
