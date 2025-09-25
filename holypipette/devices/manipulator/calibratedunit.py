@@ -493,7 +493,7 @@ class CalibratedUnit(ManipulatorUnit):
         '''
         Moves the pipette randomly in xy plane, method used for testing/calibration.
         '''
-        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5)])
+        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), 0])
         self.relative_move(movement_vector)
         self.wait_until_still()
 

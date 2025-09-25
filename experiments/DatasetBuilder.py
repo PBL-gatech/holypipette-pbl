@@ -1299,7 +1299,8 @@ class DatasetBuilder():
 
 if __name__ == '__main__':
     # dataset_name = '2025_03_20-15_19_dataset.hdf5'
-    dataset_name = 'HEK_inference_set5.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
+    # dataset_name = 'HEK_inference_set5.hdf5'  # For initial training dataset, uncomment this line to overwrite the existing dataset, Kaden
+    dataset_name = "builder2test1.hdf5"
     # rig_recorder_data_folder_set =  [
     #     "2025_03_11-16_01",
     #     "2025_03_11-16_32",
@@ -1320,8 +1321,8 @@ if __name__ == '__main__':
     #  ] # completely manual HEK data with no overlays. (4/10/2025)
 
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen
-    # rig_recorder_data_folder_set = ["2025_05_20-15_50"] # sanity check dataset (5/20/2025), used in training dataset
-    rig_recorder_data_folder_set = ["2025_04_07-15_50"] # another inference set, from data not used in v33 and above.
+    rig_recorder_data_folder_set = ["2025_05_20-15_50"] # sanity check dataset (5/20/2025), used in training dataset
+    # rig_recorder_data_folder_set = ["2025_04_07-15_50"] # another inference set, from data not used in v33 and above.
         
     # rig_recorder_data_folder_set =  [
     #     "2025_05_20-15_50",
@@ -1340,13 +1341,13 @@ if __name__ == '__main__':
     #  ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions this is version 35 as well
 
 
-    rig_recorder_data_folder_set = [
-    "2025_05_20-15_50",
-    "2025_05_20-15_16",
-    "2025_05_20-14_05",
-    "2025_04_10-11_57",
-    "2025_04_10-12_16"
-    ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions, but using only 5/20 and 4/10 data for a smaller dataset to start with.
+    # rig_recorder_data_folder_set = [
+    # "2025_05_20-15_50",
+    # "2025_05_20-15_16",
+    # "2025_05_20-14_05",
+    # "2025_04_10-11_57",
+    # "2025_04_10-12_16"
+    # ] # completely manual HEK data with no overlays. (5/20/2025) v16, including more random start positions, but using only 5/20 and 4/10 data for a smaller dataset to start with.
 
     datasetBuilder = DatasetBuilder(
         dataset_name=dataset_name,
