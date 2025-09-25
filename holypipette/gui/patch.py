@@ -478,19 +478,18 @@ class ClassicPatchButtons(ButtonTabWidget):
         # self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.rest,self.start_recording,self.patch_interface.find_pipette]
         self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
         # add a box for testing controllability of the pipette and stage
-        buttonList = [['Test Movement'],['Find Pipette']]
-        cmds = [ [self.test_movement],
-                [self.pipette_location]
+        buttonList = [['Find Pipette']]
+        cmds = [[self.pipette_location]
                 ]
         self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
 
-        # # Add a box for lamp commands
-        buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
-        # set a bunch of do nothing commands for now
-        cmds = [[self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
-                [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
-        ]
-        self.addButtonList('fluorescence', layout, buttonList, cmds, sequential=True)
+        # # # Add a box for lamp commands
+        # buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
+        # # set a bunch of do nothing commands for now
+        # cmds = [[self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
+        #         [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
+        # ]
+        # self.addButtonList('fluorescence', layout, buttonList, cmds, sequential=True)
         
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
@@ -510,10 +509,6 @@ class ClassicPatchButtons(ButtonTabWidget):
         layout.addWidget(self.record_button)
 
         self.setLayout(layout)
-
-    # def rest(self):
-    #     # do nothing for 5 seconds
-    #     time.sleep(5)
 
     def test_movement(self):
         # check if recording is enabled

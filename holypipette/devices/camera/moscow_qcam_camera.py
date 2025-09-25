@@ -6,7 +6,6 @@ import time
 
 from . import *
 import warnings
-from holypipette.deepLearning.pipetteDetector import PipetteDetector
 from holypipette.deepLearning.pipetteFocuser import PipetteFocuser
 from collections import deque
 import pymmcore
