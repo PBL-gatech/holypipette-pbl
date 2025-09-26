@@ -102,6 +102,7 @@ class _StateDatasetContext:
     dataset_path: Path
     metadata_filename: str
     split_keys: Dict[str, List[str]]
+    processed_folders: List[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +358,10 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self._base_dataset_name = self.dataset_name
         self._metadata_filename = "metadata.json"
         self._state_contexts: Dict[str, _StateDatasetContext] = {}
+        self._processed_folders: List[str] = self._load_existing_processed_folders(
+            self.dataset_dir / self._metadata_filename
+        )
+        self._active_state_context: Optional[_StateDatasetContext] = None
 
         if self.val_ratio == 0:
             self._split_keys = {"train": []}
@@ -386,6 +391,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             split_keys = {"train": [], "valid": []}
 
         metadata_filename = f"metadata_{slug}.json"
+        metadata_path = dataset_dir / metadata_filename
         context = _StateDatasetContext(
             state_name=slug,
             dataset_name=dataset_name,
@@ -393,6 +399,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             dataset_path=dataset_path,
             metadata_filename=metadata_filename,
             split_keys=split_keys,
+            processed_folders=self._load_existing_processed_folders(metadata_path),
         )
         self._state_contexts[slug] = context
         return context
@@ -407,12 +414,14 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         original_path = self.dataset_path
         original_split_keys = self._split_keys
         original_metadata = self._metadata_filename
+        original_context = self._active_state_context
 
         self.dataset_name = context.dataset_name
         self.dataset_dir = context.dataset_dir
         self.dataset_path = context.dataset_path
         self._split_keys = context.split_keys
         self._metadata_filename = context.metadata_filename
+        self._active_state_context = context
         try:
             yield
         finally:
@@ -422,6 +431,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             self.dataset_path = original_path
             self._split_keys = original_split_keys
             self._metadata_filename = original_metadata
+            self._active_state_context = original_context
 
     # ------------------------------------------------------------------
     def _transform_pipette_positions(
@@ -1228,6 +1238,30 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self._write_metadata_files()
         return demo_name
 
+    def _load_existing_processed_folders(self, metadata_path: Path) -> List[str]:
+        """Return stored processed folder names from an existing metadata file."""
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError, TypeError):
+            return []
+        folders = data.get("processed_folders")
+        if not isinstance(folders, list):
+            return []
+        return [str(item) for item in folders if isinstance(item, str)]
+
+    def _register_processed_folder(self, folder: str) -> bool:
+        """Record a processed folder for the current context and base dataset."""
+        added_to_base = False
+        if folder not in self._processed_folders:
+            self._processed_folders.append(folder)
+            added_to_base = True
+        if self._active_state_context is not None:
+            state_list = self._active_state_context.processed_folders
+            if folder not in state_list:
+                state_list.append(folder)
+        return added_to_base
+
     # --- Dataset bookkeeping --------------------------------------------
     def _collect_metadata(self) -> dict:
         """Aggregate dataset metadata for JSON/CSV export."""
@@ -1258,6 +1292,11 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                             continue
                         split_counts[split] = split_counts.get(split, 0) + 1
 
+        if self._active_state_context is not None:
+            processed_folders = list(self._active_state_context.processed_folders)
+        else:
+            processed_folders = list(self._processed_folders)
+
         metadata = {
             "dataset_name": self.dataset_name,
             "dataset_directory": str(self.dataset_dir),
@@ -1267,6 +1306,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             "split_keys": split_keys,
             "settings": settings_dict,
             "toggles": toggles,
+            "processed_folders": processed_folders,
         }
 
         json_path = self.dataset_dir / self._metadata_filename
@@ -1395,6 +1435,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             print("  no successful state attempts detected; skipping demo export")
             return
 
+        base_metadata_needs_update = False
+
         for state_name, attempt_ranges in state_attempts.items():
             if not attempt_ranges:
                 continue
@@ -1491,6 +1533,9 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                         )
                         self._split_keys[split_lbl].append(demo_key)
                         print(f"    added original {split_lbl} demo")
+                        base_updated = self._register_processed_folder(rig_recorder_data_folder)
+                        if base_updated:
+                            base_metadata_needs_update = True
 
                         self.end_filter_context()
                         self._write_metadata_files()
@@ -1574,6 +1619,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                             self.end_filter_context()
                             self._write_metadata_files()
 
+        if record_to_file and base_metadata_needs_update:
+            self._write_metadata_files()
 
 
 __all__ = [
@@ -1584,9 +1631,14 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    dataset_name = "PatcherBot_dataset_v0_001.hdf5"
-    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen
-    rig_recorder_data_folder_set = ["2025_09_25-20_43"]
+    dataset_name = "PatcherBot_test_dataset_v0_001.hdf5"
+    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
+    # rig_recorder_data_folder_set = [
+    #     "2025_09_25-20_43",
+    #     "2025_09_25-21_39"
+    #     ] # version 0.001 training data (9/25/2025)
+    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
+    
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",
     #     "2025_05_20-15_16",
