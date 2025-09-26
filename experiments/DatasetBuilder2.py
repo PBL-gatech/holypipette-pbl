@@ -43,9 +43,11 @@ import datetime
 import hashlib
 import json
 import os
+import warnings
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import albumentations as A
 import h5py
@@ -64,7 +66,7 @@ ATL_TO_UTC_TIME_DELTA = 4  # March 9 - Nov 1: 4 hours, otherwise 5 hours
 
 @dataclass(slots=True)
 class FilterSettings:
-    enable_random_filter: bool = True
+    enable_random_filter: bool = False # set to true to enable albumentations filtering
     image_filter_prob: float = 0.65
     filter_train_only: bool = False
     filter_same_per_demo: bool = False
@@ -74,27 +76,45 @@ class FilterSettings:
 class DatasetBuilderSettings:
     dataset_name: str
     calfile: Optional[str] = None
-    val_ratio: float = 1 / 6
-    omit_stage_movement: bool = True
+    val_ratio: float = 1 / 6 # fraction of demos to reserve for validation
+    omit_stage_movement: bool = True # set to true to only record demos when stage is stationary
     random_seed: int = 0
-    rotate_valid: bool = False
-    stage_y_axis_flip: bool = True
-    pipette_rotation_deg: float = -60.75
-    load_next_obs: bool = True
-    frequency_mod: int = 5
+    rotate_valid: bool = False # set to true to augment validation set with rotations
+    stage_y_axis_flip: bool = True # set to true if the stage Y axis is inverted
+    pipette_rotation_deg: float = -60.75 # angle to rotate pipette coordinates into stage frame
+    load_next_obs: bool = False # set to true for goal conditioning
+    frequency_mod: int = 1 # downsample data by this factor (minimum 1)
     filter: FilterSettings = field(default_factory=FilterSettings)
 
     # Legacy toggles preserved for parity with DatasetBuilder
-    calibrate: bool = False
-    zero_values: bool = False
-    center_crop: bool = True
-    rotate: bool = False
-    inaction: int = 1
+    calibrate: bool = False # set to true to apply calibration transform
+    zero_values: bool = False # set to true to zero out starting positions
+    center_crop: bool = True # set to true to center crop images around pipette
+    rotate: bool = False # set to true to augment training set with rotations
+    inaction: int = 1 # maximum number of consecutive zero-action steps to keep
+
+
+@dataclass(slots=True)
+class _StateDatasetContext:
+    state_name: str
+    dataset_name: str
+    dataset_dir: Path
+    dataset_path: Path
+    metadata_filename: str
+    split_keys: Dict[str, List[str]]
 
 
 # ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
+
+def _slugify_state_name(name: str) -> str:
+    """Return a filesystem friendly slug for a state name."""
+
+    cleaned = name.strip().lower().replace(" ", "_")
+    slug = ''.join(ch if (ch.isalnum() or ch == '_') else '_' for ch in cleaned)
+    slug = slug.strip('_')
+    return slug or 'state'
 
 
 def _stable_int_seed(*parts: object) -> int:
@@ -133,8 +153,8 @@ def _resolve_dataset_paths(dataset_name: str) -> Tuple[Path, Path]:
     return dataset_dir, dataset_path
 
 
-def _ensure_dataset_stub(dataset_name: str) -> Tuple[Path, Path]:
-    """Create the dataset directory/HDF5 stub and return their paths."""
+def _ensure_dataset_stub(dataset_name: str, create_file: bool = False) -> Tuple[Path, Path]:
+    """Ensure dataset directory exists and optionally prepare an empty HDF5 stub."""
 
     dataset_dir, dataset_path = _resolve_dataset_paths(dataset_name)
     dataset_dir.mkdir(parents=True, exist_ok=True)
@@ -143,7 +163,7 @@ def _ensure_dataset_stub(dataset_name: str) -> Tuple[Path, Path]:
     if legacy_path.exists() and not dataset_path.exists():
         legacy_path.replace(dataset_path)
 
-    if not dataset_path.exists():
+    if create_file and not dataset_path.exists():
         with h5py.File(dataset_path, "w") as hf:
             group = hf.create_group("data")
             group.attrs["num_demos"] = 0
@@ -333,7 +353,10 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self.load_next_obs = settings.load_next_obs
         self.frequency_mod = int(max(1, settings.frequency_mod))
 
-        self.dataset_dir, self.dataset_path = _ensure_dataset_stub(settings.dataset_name)
+        self.dataset_dir, self.dataset_path = _ensure_dataset_stub(settings.dataset_name, create_file=False)
+        self._base_dataset_name = self.dataset_name
+        self._metadata_filename = "metadata.json"
+        self._state_contexts: Dict[str, _StateDatasetContext] = {}
 
         if self.val_ratio == 0:
             self._split_keys = {"train": []}
@@ -342,8 +365,64 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
 
         self._write_metadata_files()
 
-    # ------------------------------------------------------------------
-    # Utility methods (names preserved for compatibility)
+    def _ensure_state_context(self, state_name: str) -> _StateDatasetContext:
+        """Create or return cached dataset bookkeeping for ``state_name``."""
+
+        slug = _slugify_state_name(state_name)
+        if slug in self._state_contexts:
+            return self._state_contexts[slug]
+
+        base_path = Path(self._base_dataset_name)
+        suffix = base_path.suffix or ".hdf5"
+        stem = base_path.stem if base_path.suffix else base_path.name
+        dataset_name = f"{stem}_{slug}{suffix}"
+        dataset_dir = self.dataset_dir
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        dataset_path = dataset_dir / dataset_name
+
+        if self.val_ratio == 0:
+            split_keys = {"train": []}
+        else:
+            split_keys = {"train": [], "valid": []}
+
+        metadata_filename = f"metadata_{slug}.json"
+        context = _StateDatasetContext(
+            state_name=slug,
+            dataset_name=dataset_name,
+            dataset_dir=dataset_dir,
+            dataset_path=dataset_path,
+            metadata_filename=metadata_filename,
+            split_keys=split_keys,
+        )
+        self._state_contexts[slug] = context
+        return context
+
+    @contextmanager
+    def _use_state_context(self, state_name: str):
+        """Temporarily switch builder bookkeeping to a state-specific dataset."""
+
+        context = self._ensure_state_context(state_name)
+        original_name = self.dataset_name
+        original_dir = self.dataset_dir
+        original_path = self.dataset_path
+        original_split_keys = self._split_keys
+        original_metadata = self._metadata_filename
+
+        self.dataset_name = context.dataset_name
+        self.dataset_dir = context.dataset_dir
+        self.dataset_path = context.dataset_path
+        self._split_keys = context.split_keys
+        self._metadata_filename = context.metadata_filename
+        try:
+            yield
+        finally:
+            context.split_keys = self._split_keys
+            self.dataset_name = original_name
+            self.dataset_dir = original_dir
+            self.dataset_path = original_path
+            self._split_keys = original_split_keys
+            self._metadata_filename = original_metadata
+
     # ------------------------------------------------------------------
     def _transform_pipette_positions(
         self, stage_positions: np.ndarray, pipette_positions: np.ndarray
@@ -575,6 +654,74 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                         recording_time_ranges.append((start_ts, end_ts))
         return recording_time_ranges
 
+
+    def get_timestamps_for_all_successful_state_attempts(
+        self,
+        rig_recorder_data_folder: str,
+        log_values: pd.DataFrame,
+        recording_timestamp_ranges: Iterable[Tuple[float, float]],
+    ) -> Dict[str, List[Tuple[float, float]]]:
+        """Extract successful attempt windows for each state using JSON logs."""
+
+        state_attempts: Dict[str, List[Tuple[float, float]]] = {}
+        rec_ranges = list(recording_timestamp_ranges)
+        if not rec_ranges:
+            return state_attempts
+
+        state_root = Path("experiments/Data/state_recorder_data")
+        day_token = rig_recorder_data_folder.split('-', 1)[0]
+        tolerance = 0.5
+
+        if state_root.exists():
+            for day_dir in sorted(state_root.glob(f"{day_token}*")):
+                if not day_dir.is_dir():
+                    continue
+                for attempt_dir in sorted(day_dir.glob('attempt_*')):
+                    if not attempt_dir.is_dir():
+                        continue
+                    for json_path in sorted(attempt_dir.glob('*.json')):
+                        try:
+                            with open(json_path, 'r', encoding='utf-8') as fh:
+                                payload = json.load(fh)
+                        except (OSError, json.JSONDecodeError):
+                            continue
+
+                        outcome = payload.get('outcome')
+                        started = payload.get('started')
+                        finished = payload.get('finished')
+                        if outcome != 0 or started is None or finished is None:
+                            continue
+                        if finished <= started:
+                            continue
+
+                        stem = json_path.stem
+                        parts = stem.split('_')
+                        if len(parts) >= 3:
+                            state_name = '_'.join(parts[1:-1])
+                        else:
+                            state_name = stem
+                        slug = _slugify_state_name(state_name)
+
+                        for rec_start, rec_end in rec_ranges:
+                            if (rec_start - tolerance) <= started and finished <= (rec_end + tolerance):
+                                state_attempts.setdefault(slug, []).append((started, finished))
+                                break
+
+        if 'hunt_cell' not in state_attempts:
+            try:
+                fallback = self.get_timestamps_for_all_successful_hunt_cell_attempts(
+                    log_values, rec_ranges
+                )
+            except (TypeError, pd.errors.InvalidComparison):
+                fallback = []
+            if fallback:
+                state_attempts['hunt_cell'] = fallback
+
+        for attempts in state_attempts.values():
+            attempts.sort(key=lambda window: window[0])
+
+        return state_attempts
+
     def get_timestamps_for_all_successful_hunt_cell_attempts(
         self, log_values: pd.DataFrame, recording_timestamp_ranges: Iterable[Tuple[float, float]]
     ) -> List[Tuple[float, float]]:
@@ -739,6 +886,13 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                     if valid_indices:
                         break
 
+            if not valid_indices:
+                warnings.warn(
+                    f"No camera frame matched timestamp {target_timestamp} in {rig_recorder_data_folder}; skipping attempt.",
+                    RuntimeWarning,
+                )
+                return None
+
             min_idx = valid_indices[0]
             min_diff = float("inf")
             for idx, ts in zip(valid_indices, valid_timestamps):
@@ -785,6 +939,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             camera_frames = self.get_attempt_camera_frames(
                 rig_recorder_data_folder, attempt_graph_values, rotation_angle=rotation_angle
             )
+            if camera_frames is None:
+                return None
             return (
                 pressure_values,
                 resistance_values,
@@ -1036,7 +1192,11 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                     next_camera_frames = _shift_forward(camera_frames)
 
         with h5py.File(self.dataset_path, "a") as hf:
-            data_group = hf["data"]
+            if "data" not in hf:
+                data_group = hf.create_group("data")
+                data_group.attrs["num_demos"] = 0
+            else:
+                data_group = hf["data"]
             demo_number = data_group.attrs["num_demos"]
             demo_name = f"demo_{demo_number}"
             demo = data_group.create_group(demo_name)
@@ -1109,7 +1269,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             "toggles": toggles,
         }
 
-        json_path = self.dataset_dir / "metadata.json"
+        json_path = self.dataset_dir / self._metadata_filename
         created_at = None
         if json_path.exists():
             try:
@@ -1130,32 +1290,44 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         metadata = self._collect_metadata()
         self.dataset_dir.mkdir(parents=True, exist_ok=True)
 
-        json_path = self.dataset_dir / "metadata.json"
+        json_path = self.dataset_dir / self._metadata_filename
         with open(json_path, "w", encoding="utf-8") as fh:
             json.dump(metadata, fh, indent=2, sort_keys=True)
 
-
     def write_split_masks(self) -> None:
-        """Write train/valid demo names into the dataset ``mask`` group."""
+        """Write train/valid demo names into each dataset's ``mask`` group."""
         if self.val_ratio == 0:
             print(
                 "val_ratio is 0 - dataset contains only training demos; skipping mask creation."
             )
             self._write_metadata_files()
+            for state in sorted(self._state_contexts):
+                with self._use_state_context(state):
+                    self._write_metadata_files()
             return
 
-        with h5py.File(self.dataset_path, "a") as hf:
-            if "mask" in hf:
-                del hf["mask"]
-            mask_grp = hf.create_group("mask")
-            for name in ("train", "valid"):
-                keys = np.asarray(self._split_keys[name], dtype="S")
-                mask_grp.create_dataset(name, data=keys)
-        valid_count = len(self._split_keys.get("valid", []))
-        print(
-            f"wrote split masks: {len(self._split_keys['train'])} train | {valid_count} valid"
-        )
-        self._write_metadata_files()
+        def _write_current_masks() -> None:
+            if not self.dataset_path.exists():
+                return
+            with h5py.File(self.dataset_path, "a") as hf:
+                if "data" not in hf:
+                    return
+                if "mask" in hf:
+                    del hf["mask"]
+                mask_grp = hf.create_group("mask")
+                for name in ("train", "valid"):
+                    keys = np.asarray(self._split_keys[name], dtype="S")
+                    mask_grp.create_dataset(name, data=keys)
+            valid_count_local = len(self._split_keys.get("valid", []))
+            print(
+                f"wrote split masks: {len(self._split_keys['train'])} train | {valid_count_local} valid"
+            )
+            self._write_metadata_files()
+
+        _write_current_masks()
+        for state in sorted(self._state_contexts):
+            with self._use_state_context(state):
+                _write_current_masks()
 
     # Maintain backward-compatible private name
     def _write_split_masks(self) -> None:
@@ -1196,8 +1368,9 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return self.apply_transform(stage_positions, pipette_positions, M)
 
     # --- High level orchestration ---------------------------------------
+
     def add_demo(self, rig_recorder_data_folder: str, record_to_file: bool = False) -> None:
-        """Parse a rig-recorder folder, extracting successful attempts into the dataset."""
+        """Parse a rig-recorder folder, extracting successful attempts into per-state datasets."""
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
 
         include_next_obs = self.load_next_obs
@@ -1214,171 +1387,193 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         rec_ranges = self.get_timestamps_for_all_experiment_recordings(
             log_values, experiment_first_timestamp, experiment_last_timestamp
         )
-        hunt_ranges = self.get_timestamps_for_all_successful_hunt_cell_attempts(
-            log_values, rec_ranges
+        state_attempts = self.get_timestamps_for_all_successful_state_attempts(
+            rig_recorder_data_folder, log_values, rec_ranges
         )
 
-        for attempt_first_timestamp, attempt_last_timestamp in hunt_ranges:
-            attempt_graph_values = self.truncate_graph_values(
-                graph_values, attempt_first_timestamp, attempt_last_timestamp
-            )
-            attempt_movement_values = self.associate_attempt_movement_and_graph_values(
-                attempt_graph_values, movement_values
-            )
+        if not state_attempts:
+            print("  no successful state attempts detected; skipping demo export")
+            return
 
-            dones = self.get_attempt_dones(attempt_graph_values)
-
-            split_lbl = "valid" if self.rng.random() < self.val_ratio else "train"
-
-            demo_seed = _stable_int_seed(
-                self.dataset_name,
-                rig_recorder_data_folder,
-                attempt_first_timestamp,
-                attempt_last_timestamp,
-                "orig",
-            )
-            self.begin_filter_context(split_lbl, demo_seed)
-
-            (
-                pressure_values,
-                resistance_values,
-                current_values,
-                voltage_values,
-                stage_positions,
-                pipette_positions,
-                camera_frames,
-            ) = self.get_attempt_observations(
-                attempt_graph_values,
-                attempt_movement_values,
-                rig_recorder_data_folder,
-                include_camera=include_camera,
-                rotation_angle=None,
-            )
-
-            next_obs = self.get_attempt_next_observations(
-                attempt_graph_values,
-                current_values,
-                voltage_values,
-                stage_positions,
-                pipette_positions,
-                camera_frames,
-                include_next_obs=include_next_obs,
-                include_camera=include_camera,
-            )
-
-            actions = self.get_attempt_actions(
-                attempt_movement_values,
-                attempt_graph_values,
-                log_values,
-                include_high_level_actions=include_high_level_actions,
-            )
-
-            if self.omit_stage_movement and np.any(actions[:, :3]):
-                print("  skipped - demo contains stage movement")
-                self.end_filter_context()
+        for state_name, attempt_ranges in state_attempts.items():
+            if not attempt_ranges:
                 continue
+            print(f"  processing state '{state_name}' with {len(attempt_ranges)} attempts")
+            with self._use_state_context(state_name):
+                for attempt_first_timestamp, attempt_last_timestamp in attempt_ranges:
+                    attempt_graph_values = self.truncate_graph_values(
+                        graph_values, attempt_first_timestamp, attempt_last_timestamp
+                    )
+                    attempt_movement_values = self.associate_attempt_movement_and_graph_values(
+                        attempt_graph_values, movement_values
+                    )
 
-            if record_to_file:
-                demo_key = self.add_attempt_demo_to_dataset(
-                    num_samples=attempt_graph_values.shape[0],
-                    actions=actions,
-                    dones=dones,
-                    pressure_values=pressure_values,
-                    resistance_values=resistance_values,
-                    current_values=current_values,
-                    voltage_values=voltage_values,
-                    stage_positions=stage_positions,
-                    pipette_positions=pipette_positions,
-                    camera_frames=camera_frames,
-                    next_pressure_values=next_obs[0],
-                    next_resistance_values=next_obs[1],
-                    next_current_values=next_obs[2],
-                    next_voltage_values=next_obs[3],
-                    next_stage_positions=next_obs[4],
-                    next_pipette_positions=next_obs[5],
-                    next_camera_frames=next_obs[6],
-                    include_next_obs=include_next_obs,
-                    include_camera=include_camera,
-                    split_label=split_lbl,
-                )
-                self._split_keys[split_lbl].append(demo_key)
-                print(f"  added original {split_lbl} demo")
+                    dones = self.get_attempt_dones(attempt_graph_values)
 
-                self.end_filter_context()
-                self._write_metadata_files()
-            else:
-                self.end_filter_context()
+                    split_lbl = "valid" if self.rng.random() < self.val_ratio else "train"
 
-            if self.rotate and record_to_file and (
-                split_lbl == "train" or (split_lbl == "valid" and self.rotate_valid)
-            ):
-                angles = np.linspace(0, 360, num=10, endpoint=False)[1:]
-                for angle in angles:
-                    aug_demo_seed = _stable_int_seed(
+                    demo_seed = _stable_int_seed(
                         self.dataset_name,
                         rig_recorder_data_folder,
                         attempt_first_timestamp,
                         attempt_last_timestamp,
-                        f"angle={angle}",
+                        state_name,
                     )
-                    self.begin_filter_context(split_lbl, aug_demo_seed)
+                    self.begin_filter_context(split_lbl, demo_seed)
 
-                    (
-                        aug_pressure,
-                        aug_resistance,
-                        aug_current,
-                        aug_voltage,
-                        aug_stage_pos,
-                        aug_pipette_pos,
-                        aug_cam,
-                    ) = self.get_attempt_observations(
+                    observations = self.get_attempt_observations(
                         attempt_graph_values,
                         attempt_movement_values,
                         rig_recorder_data_folder,
                         include_camera=include_camera,
-                        rotation_angle=angle,
+                        rotation_angle=None,
                     )
+                    if observations is None:
+                        print("    skipped - missing camera frames")
+                        self.end_filter_context()
+                        continue
 
-                    aug_actions = self._rotate_actions(actions, angle)
+                    (
+                        pressure_values,
+                        resistance_values,
+                        current_values,
+                        voltage_values,
+                        stage_positions,
+                        pipette_positions,
+                        camera_frames,
+                    ) = observations
 
-                    aug_next_obs = self.get_attempt_next_observations(
+                    next_obs = self.get_attempt_next_observations(
                         attempt_graph_values,
                         current_values,
                         voltage_values,
-                        aug_stage_pos,
-                        aug_pipette_pos,
-                        aug_cam,
+                        stage_positions,
+                        pipette_positions,
+                        camera_frames,
                         include_next_obs=include_next_obs,
                         include_camera=include_camera,
                     )
 
-                    aug_key = self.add_attempt_demo_to_dataset(
-                        num_samples=attempt_graph_values.shape[0],
-                        actions=aug_actions,
-                        dones=dones,
-                        pressure_values=aug_pressure,
-                        resistance_values=aug_resistance,
-                        current_values=aug_current,
-                        voltage_values=aug_voltage,
-                        stage_positions=aug_stage_pos,
-                        pipette_positions=aug_pipette_pos,
-                        camera_frames=aug_cam,
-                        next_pressure_values=aug_next_obs[0],
-                        next_resistance_values=aug_next_obs[1],
-                        next_current_values=aug_next_obs[2],
-                        next_voltage_values=aug_next_obs[3],
-                        next_stage_positions=aug_next_obs[4],
-                        next_pipette_positions=aug_next_obs[5],
-                        next_camera_frames=aug_next_obs[6],
-                        include_next_obs=include_next_obs,
-                        include_camera=include_camera,
-                        split_label=split_lbl,
+                    actions = self.get_attempt_actions(
+                        attempt_movement_values,
+                        attempt_graph_values,
+                        log_values,
+                        include_high_level_actions=include_high_level_actions,
                     )
-                    self._split_keys[split_lbl].append(aug_key)
-                    print(f"  added augmented {split_lbl} demo (angle {angle} deg)")
 
-                    self.end_filter_context()
-                    self._write_metadata_files()
+                    if self.omit_stage_movement and np.any(actions[:, :3]):
+                        print("    skipped - demo contains stage movement")
+                        self.end_filter_context()
+                        continue
+
+                    if record_to_file:
+                        demo_key = self.add_attempt_demo_to_dataset(
+                            num_samples=attempt_graph_values.shape[0],
+                            actions=actions,
+                            dones=dones,
+                            pressure_values=pressure_values,
+                            resistance_values=resistance_values,
+                            current_values=current_values,
+                            voltage_values=voltage_values,
+                            stage_positions=stage_positions,
+                            pipette_positions=pipette_positions,
+                            camera_frames=camera_frames,
+                            next_pressure_values=next_obs[0],
+                            next_resistance_values=next_obs[1],
+                            next_current_values=next_obs[2],
+                            next_voltage_values=next_obs[3],
+                            next_stage_positions=next_obs[4],
+                            next_pipette_positions=next_obs[5],
+                            next_camera_frames=next_obs[6],
+                            include_next_obs=include_next_obs,
+                            include_camera=include_camera,
+                            split_label=split_lbl,
+                        )
+                        self._split_keys[split_lbl].append(demo_key)
+                        print(f"    added original {split_lbl} demo")
+
+                        self.end_filter_context()
+                        self._write_metadata_files()
+                    else:
+                        self.end_filter_context()
+
+                    if self.rotate and record_to_file and (
+                        split_lbl == "train" or (split_lbl == "valid" and self.rotate_valid)
+                    ):
+                        angles = np.linspace(0, 360, num=10, endpoint=False)[1:]
+                        for angle in angles:
+                            aug_demo_seed = _stable_int_seed(
+                                self.dataset_name,
+                                rig_recorder_data_folder,
+                                attempt_first_timestamp,
+                                attempt_last_timestamp,
+                                f"angle={angle}",
+                            )
+                            self.begin_filter_context(split_lbl, aug_demo_seed)
+
+                            aug_observations = self.get_attempt_observations(
+                                attempt_graph_values,
+                                attempt_movement_values,
+                                rig_recorder_data_folder,
+                                include_camera=include_camera,
+                                rotation_angle=angle,
+                            )
+                            if aug_observations is None:
+                                print("    skipped augmented demo - missing camera frames")
+                                self.end_filter_context()
+                                continue
+
+                            (
+                                aug_pressure,
+                                aug_resistance,
+                                aug_current,
+                                aug_voltage,
+                                aug_stage_pos,
+                                aug_pipette_pos,
+                                aug_cam,
+                            ) = aug_observations
+
+                            aug_actions = self._rotate_actions(actions, angle)
+
+                            aug_next_obs = self.get_attempt_next_observations(
+                                attempt_graph_values,
+                                current_values,
+                                voltage_values,
+                                aug_stage_pos,
+                                aug_pipette_pos,
+                                aug_cam,
+                                include_next_obs=include_next_obs,
+                                include_camera=include_camera,
+                            )
+
+                            aug_key = self.add_attempt_demo_to_dataset(
+                                num_samples=attempt_graph_values.shape[0],
+                                actions=aug_actions,
+                                dones=dones,
+                                pressure_values=aug_pressure,
+                                resistance_values=aug_resistance,
+                                current_values=aug_current,
+                                voltage_values=aug_voltage,
+                                stage_positions=aug_stage_pos,
+                                pipette_positions=aug_pipette_pos,
+                                camera_frames=aug_cam,
+                                next_pressure_values=aug_next_obs[0],
+                                next_resistance_values=aug_next_obs[1],
+                                next_current_values=aug_next_obs[2],
+                                next_voltage_values=aug_next_obs[3],
+                                next_stage_positions=aug_next_obs[4],
+                                next_pipette_positions=aug_next_obs[5],
+                                next_camera_frames=aug_next_obs[6],
+                                include_next_obs=include_next_obs,
+                                include_camera=include_camera,
+                                split_label=split_lbl,
+                            )
+                            self._split_keys[split_lbl].append(aug_key)
+                            print(f"    added augmented {split_lbl} demo (angle {angle} deg)")
+
+                            self.end_filter_context()
+                            self._write_metadata_files()
+
 
 
 __all__ = [
@@ -1389,8 +1584,9 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    dataset_name = "builder2test1.hdf5"
-    rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen
+    dataset_name = "PatcherBot_dataset_v0_001.hdf5"
+    # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen
+    rig_recorder_data_folder_set = ["2025_09_25-20_43"]
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",
     #     "2025_05_20-15_16",
@@ -1406,7 +1602,7 @@ if __name__ == "__main__":
         val_ratio=0,
         omit_stage_movement=True,
         random_seed=0,
-        load_next_obs=True,
+        load_next_obs=False,
     )
 
     for folder in rig_recorder_data_folder_set:
