@@ -117,24 +117,17 @@ class AutoPatcher(TaskController):
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
-        # self.isrigready()
-        # if self.rig_ready == False:
-        #     raise AutopatchError("Rig not ready for pipette finding")
-        # if self.calibrated_unit is None:
-        #     raise AutopatchError("No calibrated pipette unit found")
         done = False
+        # self.calibrated_unit.center_pipette()
         while not done:
             # wait in loop until done
+            # imitation policy will go here to find pipette,and detector will check to see if it is in within 25 pixels of center of screen
             done = self.done
             if self.done:
                 self.info("Pipette found")
                 break
             self.sleep(0.04)
         self.done = False
-
-    def task_done(self):
-        self.done = True
-
 
     @record_state("run_protocols")
     def run_protocols(self):

@@ -21,6 +21,7 @@ from holypipette.interface.base import command
 from holypipette.utils.FileLogger import FileLogger
 from datetime import datetime
 import json
+import pickle
 import os
 
 class PatchGui(ManipulatorGui):
@@ -432,7 +433,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.currz_stage_pos = [0, 0, 0]
 
         self.file_selector = FileSelector()
-        self.file_selector.fileSelected.connect(self.load_movement_file)
+
 
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
@@ -456,11 +457,11 @@ class ClassicPatchButtons(ButtonTabWidget):
 
         # Add a box for calibration setup
         # buttonList = [['Calibrate Stage','Calibrate Pipette'],['set home space','set safe space'],['Store Cleaning Position'],['Clear Calibration']]
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Clear Calibration']]
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Load Calibration','Clear Calibration']]
         cmds = [[self.stage_calibration, self.pipette_calibration],
                 # [self.patch_interface.store_home_position, self.patch_interface.store_safe_position],
                 [self.pipette_cleaning_calibration],
-                [self.patch_interface.clear_positions]
+                [self.load_calibration, self.patch_interface.clear_positions]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds, sequential=True, 
                         change_color_on_complete=True, completion_color="rgba(173, 216, 230, 0.5)")
@@ -510,10 +511,22 @@ class ClassicPatchButtons(ButtonTabWidget):
 
         self.setLayout(layout)
 
+    def load_calibration(self):
+        self.file_selector.fileSelected.connect(self.load_calibration_file)  # Connect the signal to the slot
+        self.file_selector.open_file_dialog()  # Open the file dialog
+
+
+    def load_calibration_file(self, file_path):
+        # call pipette.interface.read_calibration
+            self.info(f"Loading calibration file: {file_path}")
+            self.pipette_interface.read_calibration(file_path)
+
+
     def test_movement(self):
         # check if recording is enabled
         if self.recording_state_manager.is_recording_enabled():
             # Opens the file selector dialog without blocking the main thread
+            self.file_selector.fileSelected.connect(self.load_movement_file)  # Connect the signal to the slot
             self.file_selector.open_file_dialog()
         else:
             # if not recording then start recording
