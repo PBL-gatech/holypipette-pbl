@@ -1,4 +1,4 @@
-"""DatasetBuilder2
+﻿"""DatasetBuilder2
 ====================
 
 How to use
@@ -47,7 +47,7 @@ import warnings
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import albumentations as A
 import h5py
@@ -80,14 +80,14 @@ class DatasetBuilderSettings:
     omit_stage_movement: bool = True # set to true to only record demos when stage is stationary
     random_seed: int = 0
     rotate_valid: bool = False # set to true to augment validation set with rotations
-    stage_y_axis_flip: bool = True # set to true if the stage Y axis is inverted
+    stage_y_axis_flip: bool = False # set to true if the stage Y axis is inverted
     pipette_rotation_deg: float = -60.75 # angle to rotate pipette coordinates into stage frame
     load_next_obs: bool = False # set to true for goal conditioning
     frequency_mod: int = 1 # downsample data by this factor (minimum 1)
     filter: FilterSettings = field(default_factory=FilterSettings)
 
     # Legacy toggles preserved for parity with DatasetBuilder
-    calibrate: bool = False # set to true to apply calibration transform
+    calibrate: bool = True # set to true to apply calibration transform
     zero_values: bool = False # set to true to zero out starting positions
     center_crop: bool = True # set to true to center crop images around pipette
     rotate: bool = False # set to true to augment training set with rotations
@@ -176,30 +176,148 @@ class CalibrationMixin:
     """Retains the calibration-related API, mirroring DatasetBuilder."""
 
     calfile: Optional[str]
+    calibrate: bool
 
-    def load_calfile(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """Placeholder for calibration loading (maintains original stub)."""
+    def load_calfile(
+        self,
+    ) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]:
+        """Load and cache calibration transforms for stage and pipette."""
 
-        return None, None
+        if not getattr(self, "calibrate", False) or not self.calfile:
+            return None, None
+
+        cache = getattr(self, "_calibration_cache", None)
+        if cache is not None:
+            return cache
+
+        path = Path(self.calfile)
+        if not path.exists():
+            self._emit_calibration_warning(f"no calibration matrix found in {path}!")
+            self._calibration_cache = (None, None)
+            return self._calibration_cache
+
+        payload: Optional[Dict[str, Any]] = None
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            try:
+                import pickle  # type: ignore
+
+                with open(path, "rb") as fh:
+                    payload = pickle.load(fh)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                self._emit_calibration_warning(
+                    f"failed to load calibration file {path}: {exc}"
+                )
+                self._calibration_cache = (None, None)
+                return self._calibration_cache
+
+        if not isinstance(payload, dict):
+            self._emit_calibration_warning(
+                f"unexpected calibration payload in {path}; expected a mapping."
+            )
+            self._calibration_cache = (None, None)
+            return self._calibration_cache
+
+        stage_cal = self._parse_calibration_entry(payload.get("stage"))
+        pip_cal = self._parse_calibration_entry(payload.get("manip"))
+
+        if stage_cal is None and pip_cal is None:
+            self._emit_calibration_warning(
+                f"calibration file {path} did not contain stage/manip entries."
+            )
+
+        self._calibration_cache = (stage_cal, pip_cal)
+        return self._calibration_cache
+
+    def _emit_calibration_warning(self, message: str) -> None:
+        """Print a calibration warning once per builder instance."""
+
+        if not getattr(self, "_calibration_warning_emitted", False):
+            print(message)
+            print("passing uncalibrated inputs...")
+            self._calibration_warning_emitted = True
+
+    def _parse_calibration_entry(
+        self, entry: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, np.ndarray]]:
+        """Convert a calibration dictionary into numeric matrices."""
+
+        if not entry:
+            return None
+
+        matrix_raw = entry.get("M")
+        if matrix_raw is None:
+            return None
+
+        matrix = np.asarray(matrix_raw, dtype=np.float64)
+        if matrix.ndim != 2:
+            return None
+
+        offset_raw = entry.get("r0")
+        if offset_raw is None:
+            offset = np.zeros(matrix.shape[0], dtype=np.float64)
+        else:
+            offset = np.asarray(offset_raw, dtype=np.float64)
+
+        if matrix.shape[1] == matrix.shape[0] + 1:
+            translation = matrix[:, -1]
+            matrix = matrix[:, :-1]
+            if translation.shape[0] == offset.shape[0]:
+                offset = offset + translation
+            else:
+                offset = translation
+
+        if offset.shape[0] != matrix.shape[0]:
+            aligned = np.zeros(matrix.shape[0], dtype=np.float64)
+            upto = min(offset.shape[0], matrix.shape[0])
+            if upto:
+                aligned[:upto] = offset[:upto]
+            offset = aligned
+
+        return {"matrix": matrix, "offset": offset}
 
     def apply_transform(
-        self, stage_positions: np.ndarray, pipette_positions: np.ndarray, M: np.ndarray
+        self,
+        stage_positions: np.ndarray,
+        pipette_positions: np.ndarray,
+        transforms: Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]],
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Placeholder matching the original unimplemented behaviour."""
+        """Convert stage/pipette coordinates into calibrated pixel space."""
 
-        raise NotImplementedError("Calibration transform not implemented.")
+        stage_pixels = np.asarray(stage_positions, dtype=np.float64).copy()
+        pipette_pixels = np.asarray(pipette_positions, dtype=np.float64).copy()
+
+        stage_cal, pip_cal = transforms
+
+        if stage_cal is not None:
+            matrix = stage_cal["matrix"]
+            offset = stage_cal["offset"]
+            cols = matrix.shape[1]
+            source = np.asarray(stage_positions[:, :cols], dtype=np.float64)
+            transformed = source @ matrix.T + offset
+            stage_pixels[:, :matrix.shape[0]] = transformed
+
+        if pip_cal is not None:
+            matrix = pip_cal["matrix"]
+            offset = pip_cal["offset"]
+            cols = matrix.shape[1]
+            source = np.asarray(pipette_positions[:, :cols], dtype=np.float64)
+            transformed = source @ matrix.T + offset
+            pipette_pixels[:, :matrix.shape[0]] = transformed
+
+        return stage_pixels, pipette_pixels
 
     def pixel_coordinate_transform(
         self, stage_positions: np.ndarray, pipette_positions: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Convert stage/pipette coordinates into calibrated pixel space."""
-        M, r0 = self.load_calfile()
-        if M is None:
-            print(f"no calibration matrix found in {self.calfile}!")
-            print("passing uncalibrated inputs...")
-            return stage_positions, pipette_positions
-        return self.apply_transform(stage_positions, pipette_positions, M)
 
+        transforms = self.load_calfile()
+        if transforms == (None, None):
+            return stage_positions, pipette_positions
+        return self.apply_transform(stage_positions, pipette_positions, transforms)
 
 class RandomFilterMixin:
     """Albumentations augmentation wrapper kept functionally identical."""
@@ -453,12 +571,21 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             the Z axis untouched.
         """
         stage_adj = stage_positions.copy()
-        if self.stage_y_axis_flip:
+        if self.stage_y_axis_flip and stage_adj.shape[1] >= 2:
             stage_adj[:, 1] = -stage_adj[:, 1]
 
-        pip_rot = self._rotate_positions(pipette_positions, self.pipette_rotation_deg)
-        pip_rot[:, :2] += stage_adj[:, :2]
+        pip_rot = self._rotate_positions(
+            np.asarray(pipette_positions, dtype=np.float64), self.pipette_rotation_deg
+        )
+
+        if pip_rot.shape[1] >= 2 and stage_adj.shape[1] >= 2:
+            pip_rot[:, :2] += stage_adj[:, :2]
+        else:
+            pip_rot += stage_adj
+
         return pip_rot
+
+
 
     # --- rotation helpers -------------------------------------------------
     @staticmethod
@@ -939,7 +1066,11 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
 
-        pipette_positions = self._transform_pipette_positions(stage_positions, pipette_positions)
+        stage_positions, pipette_positions = self.pixel_coordinate_transform(
+            stage_positions, pipette_positions
+        )
+
+        # pipette_positions = self._transform_pipette_positions(stage_positions, pipette_positions)
 
         if rotation_angle is not None:
             stage_positions = self._rotate_positions(stage_positions, rotation_angle)
@@ -1397,15 +1528,18 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         """Compatibility shim for :meth:`pixel_coordinate_transform`."""
         return self.pixel_coordinate_transform(stage_positions, pipette_positions)
 
-    def _load_calfile(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    def _load_calfile(self) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]:
         """Compatibility shim for :meth:`CalibrationMixin.load_calfile`."""
         return self.load_calfile()
 
     def _apply_transform(
-        self, stage_positions: np.ndarray, pipette_positions: np.ndarray, M: np.ndarray
+        self,
+        stage_positions: np.ndarray,
+        pipette_positions: np.ndarray,
+        transforms: Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]],
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Compatibility shim for :meth:`CalibrationMixin.apply_transform`."""
-        return self.apply_transform(stage_positions, pipette_positions, M)
+        return self.apply_transform(stage_positions, pipette_positions, transforms)
 
     # --- High level orchestration ---------------------------------------
 
@@ -1631,13 +1765,13 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    dataset_name = "PatcherBot_test_dataset_v0_001.hdf5"
+    dataset_name = "PatcherBot_dataset_v0_002.hdf5"
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
-    # rig_recorder_data_folder_set = [
-    #     "2025_09_25-20_43",
-    #     "2025_09_25-21_39"
-    #     ] # version 0.001 training data (9/25/2025)
-    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
+    rig_recorder_data_folder_set = [
+        "2025_09_25-20_43",
+        "2025_09_25-21_39"
+        ] # version 0.001 training data (9/25/2025)
+    # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
     
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",
@@ -1650,7 +1784,7 @@ if __name__ == "__main__":
 
     builder = DatasetBuilder2(
         dataset_name=dataset_name,
-        calfile=r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\experiments\\Datasets\\average_calibration_full.pickle",
+        calfile=r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\Calibration_data\2025_09_25-19_18\calibration.pickle",
         val_ratio=0,
         omit_stage_movement=True,
         random_seed=0,
@@ -1662,4 +1796,6 @@ if __name__ == "__main__":
         builder.add_demo(rig_recorder_data_folder=folder, record_to_file=True)
 
     builder.write_split_masks()
+
+
 
