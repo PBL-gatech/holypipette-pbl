@@ -1,7 +1,7 @@
 import time
 import cv2
 import numpy as np
-from holypipette.deepLearning.autoPatcher import CellHunter,GigaSealer,Burglar
+from holypipette.deepLearning.autoPatcher import CellHunter, GigaSealer, Burglar, PipetteFinder
 
 
 class AutoPatchHelper:
@@ -13,11 +13,14 @@ class AutoPatchHelper:
     """
     def __init__(self):
         self.hunter = CellHunter()
+        self.finder = PipetteFinder()
         self.gigasealer = GigaSealer()
         self.burglar = Burglar()
-        self.poslist =[]
+        self.poslist = []
         self.hunterh0 = None
         self.hunterc0 = None
+        self.finderh0 = None
+        self.finderc0 = None
     
 
     def hunt(self, model_input):
@@ -62,6 +65,41 @@ class AutoPatchHelper:
 
 
     
+    def find_pipette(self, model_input):
+        """
+        Preprocess + handshake for pipette localisation.
+          - Wrapper models (obs::/goal::): build {"obs": (...)} and pass raw HWC image.
+          - Legacy models: pass (pip, stage, img); PipetteFinder normalises internally.
+        """
+        if not hasattr(self, "_finder_uses_wrapper") or getattr(self.finder, "input_names", None) is None:
+            self.prepare_model("find_pipette")
+
+        pip, stage, img = model_input
+        pip = np.asarray(pip, np.float32).reshape(-1)
+        stage = np.asarray(stage, np.float32).reshape(-1)
+        if stage.shape[0] == 2:
+            stage = np.concatenate([stage, [0.0]]).astype(np.float32)
+        else:
+            stage = stage[:3].astype(np.float32)
+        img = np.asarray(img)
+        if img.ndim == 2:
+            img = np.stack([img] * 3, axis=-1)
+
+        if getattr(self, "_finder_uses_wrapper", False):
+            payload = {"obs": (pip, stage, img)}
+            goal = getattr(self, "_finder_goal", None)
+            if getattr(self, "_finder_has_goal", False) and goal:
+                payload["goal"] = goal
+            model_payload = payload
+        else:
+            model_payload = (pip, stage, img)
+        print(f"pipette finder payload prepared {type(model_payload)}")
+
+        pos, self.finderh0, self.finderc0 = self.finder.inference(model_payload, self.finderh0, self.finderc0)
+        print(f"pipette finder inference returned pos {pos}")
+        pos = np.asarray(pos).reshape(-1)
+        return self.clamp_positions(pos)
+
     def gigaseal(self,mode,type,input):
        pass
     def breakin(self,mode,type,input):
@@ -128,6 +166,9 @@ class AutoPatchHelper:
         if model == 'hunt':
             self.hunter.load_model()
             modelactor = self.hunter
+        elif model == 'find_pipette':
+             self.finder.load_model()
+             modelactor = self.finder
         elif model == 'gigaseal':
              self.gigasealer.load_model()
              modelactor=self.gigasealer
@@ -152,7 +193,10 @@ class AutoPatchHelper:
             h0list.append(h0)
             c0list.append(c0)
             print(f"observation primed {i}")
-        self.hunterh0, self.hunterc0 = h0, c0
+        if model == 'find_pipette':
+            self.finderh0, self.finderc0 = h0, c0
+        else:
+            self.hunterh0, self.hunterc0 = h0, c0
 
 
     def prepare_model(self, which="hunt", *, onnx_path=None, providers=None):
@@ -165,6 +209,10 @@ class AutoPatchHelper:
             self.hunter.load_model(onnx_path, providers=providers)
             self._hunter_uses_wrapper = any(n.startswith("obs::") for n in self.hunter.input_names)
             self._hunter_has_goal     = any(n.startswith("goal::") for n in self.hunter.input_names)
+        elif which == "find_pipette":
+            self.finder.load_model(onnx_path, providers=providers)
+            self._finder_uses_wrapper = any(n.startswith("obs::") for n in self.finder.input_names)
+            self._finder_has_goal     = any(n.startswith("goal::") for n in self.finder.input_names)
         elif which == "gigaseal":
             self.gigasealer.load_model(onnx_path, providers=providers)
         elif which == "break_in":
@@ -198,4 +246,16 @@ class AutoPatchHelper:
             g["camera_image"] = im
         self._goal = g
         return self
+
+
+
+
+
+
+
+
+
+
+
+
 

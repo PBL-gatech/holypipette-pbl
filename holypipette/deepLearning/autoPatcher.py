@@ -422,7 +422,6 @@ class GigaSealer(AutoPatcher):
             feed["c0"] = c0
         return feed
 
-
 class Burglar(AutoPatcher):
     """
     Break-in policy – provide its own mapping.
@@ -447,3 +446,271 @@ class Burglar(AutoPatcher):
         if "c0" in self.input_names:
             feed["c0"] = c0
         return feed
+
+class PipetteFinder(AutoPatcher):
+    """
+    Pipette finding policy.
+
+    Accepts a single live observation from `observe()` per call in the form:
+        [pipette(3,), stage(2 or 3,), image(H,W,[3])]
+    Internally accumulates a 16-step history and maps it to the ONNX feeds:
+        camera_image      -> (1,16,3,H,W)
+        pipette_positions -> (1,16,3)
+        stage_positions   -> (1,16,3)
+
+    Also supports new wrapper-style models that expose inputs as:
+        obs::<key> and optionally goal::<key>
+    In that case, it switches to single-step raw HWC images (normalisation inside the model)
+    and fills missing goal keys by mirroring the current observation.
+    """
+    def __init__(self, onnx_path=None, providers=None, num_layers=2, hidden_size=400,
+                 *, seq_len: int = 16, img_size: int = 85, prefill_init: bool = False,
+                 center_crop: bool = True):
+        super().__init__(onnx_path=onnx_path, providers=providers,
+                         num_layers=num_layers, hidden_size=hidden_size)
+        import collections
+        self.seq_len = seq_len
+        self.img_size = img_size
+        self.prefill_init = prefill_init
+        self.center_crop = center_crop
+        self._prefilled = False
+
+        # rolling history
+        self._img_q = collections.deque(maxlen=self.seq_len)
+        self._pip_q = collections.deque(maxlen=self.seq_len)
+        self._stage_q = collections.deque(maxlen=self.seq_len)
+
+    def _prepare_inputs(self, model_input, h0, c0):
+        """
+        Supports:
+          - Legacy sequence models (builds 16-step stacks, CHW normalized images)
+          - Wrapper models with inputs "obs::..." and optional "goal::..."
+            * Single-step, raw HWC images (normalization handled inside the model)
+            * Partial goal dict allowed (missing keys mirrored from obs)
+
+        model_input may be:
+          (pip, stage, image)
+          {"obs": (pip, stage, image), "goal": (optional)}
+          {"pipette_positions": ..., "stage_positions": ..., "camera_image": ...}
+        """
+        in_desc = {i.name: i for i in self.session.get_inputs()}
+        input_names = set(in_desc.keys())
+        uses_obs_prefix = any(n.startswith("obs::") for n in input_names)
+
+        def _resize_to_expected(name, img_hwc):
+            shape = in_desc[name].shape
+            if len(shape) >= 4:
+                H = int(shape[-3])
+                W = int(shape[-2])
+            else:
+                return img_hwc
+            arr = np.asarray(img_hwc)
+            if arr.ndim != 3 or arr.shape[-1] != 3:
+                raise ValueError(f"{name}: expected HWC image, got {arr.shape}")
+            try:
+                import cv2
+                arr = cv2.resize(arr, (W, H))
+            except Exception:
+                from PIL import Image
+                arr = np.asarray(Image.fromarray(arr).resize((W, H)))
+            if arr.dtype != np.float32:
+                arr = arr.astype(np.float32)
+            return arr
+
+        def _expand(name, arr):
+            exp_rank = len(in_desc[name].shape)
+            a = np.asarray(arr)
+            while a.ndim < exp_rank:
+                a = np.expand_dims(a, 0)
+            if a.dtype != np.float32:
+                a = a.astype(np.float32)
+            return a
+
+        def _coerce_stage(x):
+            s = np.asarray(x, np.float32).reshape(-1)
+            if s.shape[0] == 2:
+                s = np.concatenate([s, [0.0]]).astype(np.float32)
+            else:
+                s = s[:3].astype(np.float32)
+            return s
+
+        def _unpack_obs(pkg, allow_image_none=False):
+            if isinstance(pkg, dict):
+                pip = np.asarray(pkg["pipette_positions"], np.float32).reshape(-1)
+                stage = _coerce_stage(pkg["stage_positions"])
+                img = pkg.get("camera_image", None)
+            else:
+                try:
+                    pip, stage, img = pkg[:3]
+                except Exception as exc:
+                    raise ValueError("PipetteFinder expects (pip, stage, image)") from exc
+                pip = np.asarray(pip, np.float32).reshape(-1)
+                stage = _coerce_stage(stage)
+            if img is None:
+                if allow_image_none:
+                    arr = None
+                else:
+                    raise ValueError("camera_image is required for PipetteFinder observation")
+            else:
+                arr = np.asarray(img)
+                if arr.ndim == 2:
+                    arr = np.stack([arr] * 3, axis=-1)
+            return pip, stage, arr
+
+        if uses_obs_prefix:
+            if isinstance(model_input, dict):
+                obs_pkg = model_input.get("obs", None)
+                if obs_pkg is None and all(k in model_input for k in ("pipette_positions", "stage_positions", "camera_image")):
+                    obs_pkg = (model_input["pipette_positions"],
+                               model_input["stage_positions"],
+                               model_input["camera_image"])
+                goal_pkg = model_input.get("goal", None)
+            else:
+                obs_pkg = model_input
+                goal_pkg = None
+
+            pip, stage, img = _unpack_obs(obs_pkg)
+            inputs = {}
+            for nm in input_names:
+                if not nm.startswith("obs::"):
+                    continue
+                key = nm.split("obs::", 1)[1]
+                if key == "camera_image":
+                    inputs[nm] = _expand(nm, _resize_to_expected(nm, img))
+                elif key == "pipette_positions":
+                    inputs[nm] = _expand(nm, pip)
+                elif key == "stage_positions":
+                    inputs[nm] = _expand(nm, stage)
+
+            if any(nm.startswith("goal::") for nm in input_names):
+                gpip, gstage, gimg = pip, stage, img
+                if goal_pkg is not None:
+                    if isinstance(goal_pkg, dict):
+                        if "pipette_positions" in goal_pkg:
+                            gpip = np.asarray(goal_pkg["pipette_positions"], np.float32).reshape(-1)
+                        if "stage_positions" in goal_pkg:
+                            gstage = _coerce_stage(goal_pkg["stage_positions"])
+                        if "camera_image" in goal_pkg and goal_pkg["camera_image"] is not None:
+                            gimg = np.asarray(goal_pkg["camera_image"])
+                            if gimg.ndim == 2:
+                                gimg = np.stack([gimg] * 3, axis=-1)
+                    else:
+                        seq = list(goal_pkg)
+                        if len(seq) >= 1 and seq[0] is not None:
+                            gpip = np.asarray(seq[0], np.float32).reshape(-1)
+                        if len(seq) >= 2 and seq[1] is not None:
+                            gstage = _coerce_stage(seq[1])
+                        if len(seq) >= 3 and seq[2] is not None:
+                            gimg = np.asarray(seq[2])
+                            if gimg.ndim == 2:
+                                gimg = np.stack([gimg] * 3, axis=-1)
+                for nm in input_names:
+                    if not nm.startswith("goal::"):
+                        continue
+                    key = nm.split("goal::", 1)[1]
+                    if key == "camera_image":
+                        inputs[nm] = _expand(nm, _resize_to_expected(nm, gimg))
+                    elif key == "pipette_positions":
+                        inputs[nm] = _expand(nm, gpip)
+                    elif key == "stage_positions":
+                        inputs[nm] = _expand(nm, gstage)
+
+            if "h0" in input_names and (h0 is None or (isinstance(h0, (int, float)) and h0 == 0)):
+                try:
+                    hshape = tuple(int(d) for d in in_desc["h0"].shape)
+                    h0 = np.zeros(hshape, np.float32)
+                except Exception:
+                    h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
+            if "c0" in input_names and (c0 is None or (isinstance(c0, (int, float)) and c0 == 0)):
+                if h0 is not None:
+                    c0 = np.zeros_like(h0)
+                else:
+                    c0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
+            if "h0" in input_names:
+                inputs["h0"] = h0
+            if "c0" in input_names:
+                inputs["c0"] = c0
+            return inputs
+
+        if isinstance(model_input, dict):
+            if not all(k in model_input for k in ("pipette_positions", "stage_positions", "camera_image")):
+                raise ValueError("PipetteFinder expects keys pipette_positions, stage_positions, camera_image")
+            pip = np.asarray(model_input["pipette_positions"], np.float32).reshape(-1)
+            stage = _coerce_stage(model_input["stage_positions"])
+            img = np.asarray(model_input["camera_image"])
+        else:
+            if len(model_input) < 3:
+                raise ValueError("PipetteFinder expects (pip, stage, image)")
+            pip, stage, img = model_input[:3]
+            pip = np.asarray(pip, np.float32).reshape(-1)
+            stage = _coerce_stage(stage)
+            img = np.asarray(img)
+
+        img = self.prepare_image(img)
+        self._img_q.append(img)
+        self._pip_q.append(pip)
+        self._stage_q.append(stage)
+
+        if self.prefill_init and not self._prefilled and len(self._img_q) == 1:
+            for _ in range(self.seq_len - 1):
+                self._img_q.append(self._img_q[0].copy())
+                self._pip_q.append(self._pip_q[0].copy())
+                self._stage_q.append(self._stage_q[0].copy())
+            self._prefilled = True
+
+        while len(self._img_q) < self.seq_len:
+            self._img_q.append(self._img_q[-1].copy())
+            self._pip_q.append(self._pip_q[-1].copy())
+            self._stage_q.append(self._stage_q[-1].copy())
+
+        inputs = {}
+        if "camera_image" in input_names:
+            inputs["camera_image"] = np.stack(list(self._img_q), 0)[None]
+        if "pipette_positions" in input_names:
+            inputs["pipette_positions"] = np.stack(list(self._pip_q), 0)[None]
+        if "stage_positions" in input_names:
+            inputs["stage_positions"] = np.stack(list(self._stage_q), 0)[None]
+        if "pipette_position" in input_names and "pipette_position" not in inputs:
+            inputs["pipette_position"] = np.stack(list(self._pip_q), 0)[None]
+        if "stage_position" in input_names and "stage_position" not in inputs:
+            inputs["stage_position"] = np.stack(list(self._stage_q), 0)[None]
+
+        if "h0" in self.input_names and (h0 is None or (isinstance(h0, (int, float)) and h0 == 0)):
+            h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
+        if "c0" in self.input_names and (c0 is None or (isinstance(c0, (int, float)) and c0 == 0)):
+            c0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
+        if "h0" in self.input_names:
+            inputs["h0"] = h0
+        if "c0" in self.input_names:
+            inputs["c0"] = c0
+        return inputs
+
+    def _crop_center(self, arr: np.ndarray) -> np.ndarray:
+        if arr.ndim == 2:
+            arr = np.stack([arr] * 3, axis=-1)
+        h, w = arr.shape[:2]
+        new_h, new_w = h // 2, w // 2
+        top = (h - new_h) // 2
+        left = (w - new_w) // 2
+        return arr[top:top + new_h, left:left + new_w]
+
+    def prepare_image(self, image) -> np.ndarray:
+        """
+        Optional center-crop followed by resize to (img_size, img_size),
+        float32 normalisation to [0,1], and CHW layout.
+        """
+        if isinstance(image, Image.Image):
+            arr = np.asarray(image)
+        else:
+            arr = np.asarray(image)
+        if arr.ndim == 2:
+            arr = np.stack([arr] * 3, axis=-1)
+        if self.center_crop:
+            arr = self._crop_center(arr)
+        try:
+            import cv2
+            arr = cv2.resize(arr, (self.img_size, self.img_size))
+        except Exception:
+            arr = np.asarray(Image.fromarray(arr).resize((self.img_size, self.img_size)))
+        arr = arr.astype(np.float32) / 255.0
+        return np.transpose(arr, (2, 0, 1))
