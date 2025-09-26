@@ -252,8 +252,8 @@ class ScientificaSerialNoEncoder(Manipulator):
         self.comPort.write(cmd.encode())
         resp = self.comPort.read_until(b'\r') #read reply to message
         resp = resp[:-1]
-        if resp == b'A':
-            print(f"command received: {resp}")
+        # if resp == b'A':
+        #     print(f"command received: {resp}")
         # end = time.perf_counter_ns()
         # print(f"Time taken to send command: {(end - start)/1e6} ms")
         self._lock.release()
@@ -292,7 +292,7 @@ class ScientificaSerialNoEncoder(Manipulator):
     def absolute_move(self, pos, axis, speed=None):
         '''Moves the device to an absolute position in um.
         '''
-        print(f"absolute move {pos} {axis}")
+        # print(f"absolute move {pos} {axis}")
         try: 
             if axis == 1:
                 yPos = self.position(axis=2)
