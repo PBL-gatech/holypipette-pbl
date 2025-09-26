@@ -37,7 +37,7 @@ save_animation = False           # Export GIF (requires Pillow)
 animation_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\pipette_paths.gif")
 # ===========================================================================
 
-file_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_032.hdf5")
+file_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_002\PatcherBot_test_dataset_v0_002_find_pipette.hdf5")
 
 pipette_positions_data: dict[str, np.ndarray] = {}
 resistance_data: dict[str, np.ndarray] = {}

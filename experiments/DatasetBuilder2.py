@@ -1765,13 +1765,13 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    dataset_name = "PatcherBot_dataset_v0_002.hdf5"
+    dataset_name = "PatcherBot_test_dataset_v0_002.hdf5"
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
-    rig_recorder_data_folder_set = [
-        "2025_09_25-20_43",
-        "2025_09_25-21_39"
-        ] # version 0.001 training data (9/25/2025)
-    # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
+    # rig_recorder_data_folder_set = [
+    #     "2025_09_25-20_43",
+    #     "2025_09_25-21_39"
+    #     ] # version 0.001 training data (9/25/2025)
+    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
     
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",
