@@ -518,7 +518,7 @@ class ClassicPatchButtons(ButtonTabWidget):
 
     def load_calibration_file(self, file_path):
         # call pipette.interface.read_calibration
-            self.info(f"Loading calibration file: {file_path}")
+            logging.info(f"Loading calibration file: {file_path}")
             self.pipette_interface.read_calibration(file_path)
 
 
