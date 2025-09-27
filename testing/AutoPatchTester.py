@@ -296,8 +296,11 @@ class AutoPatchTester:
         self.lat_ms: list[float] = []
         self.error_frames: list[np.ndarray] = []
         self.stored_actions: list[np.ndarray] = []
+        self.reference_pip_positions: Optional[np.ndarray] = None
         self.predicted_pip_positions: Optional[np.ndarray] = None
         self.observed_pip_positions: Optional[np.ndarray] = None
+        self.predicted_pip_deltas: Optional[np.ndarray] = None
+        self.observed_pip_deltas: Optional[np.ndarray] = None
 
     def run(self) -> None:
         self._compute_latency_and_error()
@@ -346,123 +349,235 @@ class AutoPatchTester:
 
     def _integrate_pipette_predictions(self) -> None:
         if not self.stored_actions:
-            raise RuntimeError("No actions stored; run _compute_latency_and_error() first")
+            raise RuntimeError('No actions stored; run _compute_latency_and_error() first')
         pred_actions = np.asarray(self.stored_actions)
         if pred_actions.ndim == 3:
             pred_actions = pred_actions[:, 0, :]
         pred_deltas = pred_actions[:, self.action_slice]
 
-        start = getattr(self.tester, "seq_len", 1) - 1
+        start = getattr(self.tester, 'seq_len', 1) - 1
         start = max(start, 0)
         obs_positions = self.tester.pipette_positions[start : start + pred_deltas.shape[0]]
         if obs_positions.size == 0:
-            raise RuntimeError("Observed pipette positions empty after alignment")
+            raise RuntimeError('Observed pipette positions empty after alignment')
 
-        n = min(pred_deltas.shape[0], obs_positions.shape[0])
+        n = min(pred_deltas.shape[0], obs_positions.shape[0] - 1)
+        if n <= 0:
+            raise RuntimeError('Not enough observed pipette positions to compute stepwise trajectories')
+
+        base_positions = obs_positions[:n]
+        next_positions = obs_positions[1 : n + 1]
         pred_deltas = pred_deltas[:n]
-        obs_positions = obs_positions[:n]
 
-        predicted_positions = [obs_positions[0]]
-        for delta in pred_deltas:
-            predicted_positions.append(predicted_positions[-1] + delta)
-        predicted_positions = np.stack(predicted_positions[:-1])
+        predicted_positions = base_positions + pred_deltas
 
-        anchor = obs_positions[0]
+        anchor = base_positions[0]
+        self.reference_pip_positions = base_positions - anchor
         self.predicted_pip_positions = predicted_positions - anchor
-        self.observed_pip_positions = obs_positions - anchor
+        self.observed_pip_positions = next_positions - anchor
+        self.predicted_pip_deltas = pred_deltas
+        self.observed_pip_deltas = next_positions - base_positions
 
         print(
-            "[DEBUG] Predicted positions: {} | Observed positions: {}".format(
+            '[DEBUG] Predicted endpoints: {} | Observed endpoints: {}'.format(
                 self.predicted_pip_positions,
                 self.observed_pip_positions,
             )
         )
 
+
+
+
     def _plot_static_trajectory(self) -> None:
-        if self.predicted_pip_positions is None or self.observed_pip_positions is None:
-            raise RuntimeError("Trajectory data unavailable; call run() first")
+        if (
+            self.reference_pip_positions is None
+            or self.predicted_pip_positions is None
+            or self.observed_pip_positions is None
+        ):
+            raise RuntimeError('Trajectory data unavailable; call run() first')
 
         def _trunc_cmap(base_cmap, start=0.5, stop=1.0, n=256):
             new_colors = base_cmap(np.linspace(start, stop, n))
-            return colors.LinearSegmentedColormap.from_list(f"{base_cmap.name}_trunc", new_colors)
+            return colors.LinearSegmentedColormap.from_list(f'{base_cmap.name}_trunc', new_colors)
+
+        def _limits(values: np.ndarray) -> tuple[float, float]:
+            values = np.asarray(values, dtype=np.float32)
+            vmin = float(values.min())
+            vmax = float(values.max())
+            if np.isclose(vmin, vmax):
+                pad = max(abs(vmin), 1.0) * 0.5
+                vmin -= pad
+                vmax += pad
+            else:
+                pad = 0.05 * (vmax - vmin)
+                pad = max(pad, 1e-3)
+                vmin -= pad
+                vmax += pad
+            return vmin, vmax
+
+        base = self.reference_pip_positions
+        predicted = self.predicted_pip_positions
+        observed = self.observed_pip_positions
+
+        n_steps = predicted.shape[0]
+        norm = plt.Normalize(vmin=0, vmax=max(n_steps, 1))
+
+        origin = np.zeros((1, 3), dtype=predicted.dtype)
+        base_plot = np.vstack((origin, base))
+        predicted_plot = np.vstack((origin, predicted))
+        observed_plot = np.vstack((origin, observed))
+
+        x_all = np.concatenate((base_plot[:, 0], predicted_plot[:, 0], observed_plot[:, 0]))
+        y_all = np.concatenate((base_plot[:, 1], predicted_plot[:, 1], observed_plot[:, 1]))
+        z_all = np.concatenate((-base_plot[:, 2], -predicted_plot[:, 2], -observed_plot[:, 2]))
+
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_xlim(*_limits(x_all))
+        ax.set_ylim(*_limits(y_all))
+        ax.set_zlim(*_limits(z_all))
 
         cmap_pred = _trunc_cmap(plt.cm.Blues, 0.5, 1.0)
         cmap_obs = _trunc_cmap(plt.cm.Oranges, 0.5, 1.0)
+        pred_colors = cmap_pred(norm(np.arange(n_steps + 1)))
+        obs_colors = cmap_obs(norm(np.arange(n_steps + 1)))
 
-        n_steps = self.predicted_pip_positions.shape[0]
-        norm = plt.Normalize(vmin=0, vmax=max(n_steps - 1, 1))
-
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection="3d")
-        ax.set_xlim(-5, 5)
-        ax.set_ylim(-5, 5)
-        ax.set_zlim(-20, 5)
-
-        ax.scatter(
-            self.predicted_pip_positions[:, 0],
-            self.predicted_pip_positions[:, 1],
-            -self.predicted_pip_positions[:, 2],
-            c=cmap_pred(norm(np.arange(n_steps))),
-            marker="o",
-            s=20,
-            label="Predicted",
+        base_scatter = ax.scatter(
+            base_plot[:, 0],
+            base_plot[:, 1],
+            -base_plot[:, 2],
+            c='gray',
+            marker='.',
+            s=15,
+            alpha=0.4,
+            label='Observation (t)',
         )
-        ax.scatter(
-            self.observed_pip_positions[:, 0],
-            self.observed_pip_positions[:, 1],
-            -self.observed_pip_positions[:, 2],
-            c=cmap_obs(norm(np.arange(n_steps))),
-            marker="^",
-            s=20,
-            label="Observed",
+        pred_scatter = ax.scatter(
+            predicted_plot[:, 0],
+            predicted_plot[:, 1],
+            -predicted_plot[:, 2],
+            c=pred_colors,
+            marker='o',
+            s=25,
+            label='Predicted (t+1)',
+        )
+        obs_scatter = ax.scatter(
+            observed_plot[:, 0],
+            observed_plot[:, 1],
+            -observed_plot[:, 2],
+            c=obs_colors,
+            marker='^',
+            s=25,
+            label='Observed (t+1)',
         )
 
-        ax.set_title("3-D Pipette Trajectory: Predicted vs Observed")
-        ax.set_xlabel("Pipette X")
-        ax.set_ylabel("Pipette Y")
-        ax.set_zlabel("Pipette Z")
-        ax.legend()
+        for idx in range(n_steps):
+            base_pt = base[idx]
+            pred_pt = predicted[idx]
+            obs_pt = observed[idx]
+            color_idx = idx + 1
+            ax.plot(
+                [base_pt[0], pred_pt[0]],
+                [base_pt[1], pred_pt[1]],
+                [-base_pt[2], -pred_pt[2]],
+                color=pred_colors[color_idx],
+                linewidth=1.2,
+                alpha=0.7,
+            )
+            ax.plot(
+                [base_pt[0], obs_pt[0]],
+                [base_pt[1], obs_pt[1]],
+                [-base_pt[2], -obs_pt[2]],
+                color=obs_colors[color_idx],
+                linewidth=1.2,
+                alpha=0.7,
+            )
+
+        ax.set_title('3-D Pipette Trajectories (per step)')
+        ax.set_xlabel('Pipette X')
+        ax.set_ylabel('Pipette Y')
+        ax.set_zlabel('Pipette Z')
+
+        handles = [pred_scatter, obs_scatter, base_scatter]
+        ax.legend(handles=handles, loc='best')
         plt.show()
 
-    def _animate_trajectory(self, *, save_gif: bool = True) -> None:
-        if self.predicted_pip_positions is None or self.observed_pip_positions is None:
-            raise RuntimeError("Trajectory data unavailable; call run() first")
 
-        error_mag = np.linalg.norm(
-            self.predicted_pip_positions - self.observed_pip_positions, axis=1
-        )
+    def _animate_trajectory(self, *, save_gif: bool = True) -> None:
+        if (
+            self.reference_pip_positions is None
+            or self.predicted_pip_positions is None
+            or self.observed_pip_positions is None
+        ):
+            raise RuntimeError('Trajectory data unavailable; call run() first')
+
+        base = self.reference_pip_positions
+        predicted = self.predicted_pip_positions
+        observed = self.observed_pip_positions
+        error_mag = np.linalg.norm(predicted - observed, axis=1)
 
         def _trunc_cmap(base_cmap, start=0.5, stop=1.0, n=256):
             new_colors = base_cmap(np.linspace(start, stop, n))
-            return colors.LinearSegmentedColormap.from_list(f"{base_cmap.name}_trunc", new_colors)
+            return colors.LinearSegmentedColormap.from_list(f'{base_cmap.name}_trunc', new_colors)
+
+        def _limits(values: np.ndarray) -> tuple[float, float]:
+            values = np.asarray(values, dtype=np.float32)
+            vmin = float(values.min())
+            vmax = float(values.max())
+            if np.isclose(vmin, vmax):
+                pad = max(abs(vmin), 1.0) * 0.5
+                vmin -= pad
+                vmax += pad
+            else:
+                pad = 0.05 * (vmax - vmin)
+                pad = max(pad, 1e-3)
+                vmin -= pad
+                vmax += pad
+            return vmin, vmax
 
         cmap_pred = _trunc_cmap(plt.cm.Blues, 0.5, 1.0)
         cmap_obs = _trunc_cmap(plt.cm.Oranges, 0.5, 1.0)
 
-        n_steps = self.predicted_pip_positions.shape[0]
-        norm = plt.Normalize(vmin=0, vmax=max(n_steps - 1, 1))
+        n_steps = predicted.shape[0]
+        norm = plt.Normalize(vmin=0, vmax=max(n_steps, 1))
+
+        origin = np.zeros((1, 3), dtype=predicted.dtype)
+        base_plot = np.vstack((origin, base))
+        predicted_plot = np.vstack((origin, predicted))
+        observed_plot = np.vstack((origin, observed))
+        error_series = np.concatenate(([0.0], error_mag))
+        n_frames = predicted_plot.shape[0]
+
+        x_all = np.concatenate((base_plot[:, 0], predicted_plot[:, 0], observed_plot[:, 0]))
+        y_all = np.concatenate((base_plot[:, 1], predicted_plot[:, 1], observed_plot[:, 1]))
+        z_all = np.concatenate((-base_plot[:, 2], -predicted_plot[:, 2], -observed_plot[:, 2]))
 
         fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection="3d")
+        ax = fig.add_subplot(111, projection='3d')
         ax.set(
-            xlim=(-5, 5),
-            ylim=(-5, 5),
-            zlim=(-20, 5),
-            title="Animated 3-D Pipette Trajectory",
-            xlabel="Pipette X",
-            ylabel="Pipette Y",
-            zlabel="Pipette Z",
+            xlim=_limits(x_all),
+            ylim=_limits(y_all),
+            zlim=_limits(z_all),
+            title='Animated 3-D Pipette Trajectory (per step)',
+            xlabel='Pipette X',
+            ylabel='Pipette Y',
+            zlabel='Pipette Z',
         )
         ax.grid(False)
 
-        sc_pred = ax.scatter([], [], [], c=[], cmap=cmap_pred, vmin=0, vmax=max(n_steps - 1, 1), marker="o", s=20)
-        sc_obs = ax.scatter([], [], [], c=[], cmap=cmap_obs, vmin=0, vmax=max(n_steps - 1, 1), marker="^", s=20)
+        sc_base = ax.scatter([], [], [], marker='.', c='gray', s=15, alpha=0.4)
+        sc_pred = ax.scatter([], [], [], c=[], cmap=cmap_pred, vmin=0, vmax=max(n_steps, 1), marker='o', s=25)
+        sc_obs = ax.scatter([], [], [], c=[], cmap=cmap_obs, vmin=0, vmax=max(n_steps, 1), marker='^', s=25)
+        pred_line = ax.plot([], [], [], linewidth=1.6, alpha=0.8)[0]
+        obs_line = ax.plot([], [], [], linewidth=1.6, alpha=0.8)[0]
 
         from matplotlib.lines import Line2D
 
-        error_handle = Line2D([], [], linestyle="none", marker="", color="red")
+        error_handle = Line2D([], [], linestyle='none', marker='', color='red')
+        pred_conn_handle = Line2D([0], [0], color=cmap_pred(0.9), linewidth=1.6, label='Predicted delta')
+        obs_conn_handle = Line2D([0], [0], color=cmap_obs(0.9), linewidth=1.6, label='Observed delta')
 
-        for cm, pad, lbl in ((cmap_pred, 0.10, "Time steps (Predicted)"), (cmap_obs, 0.03, "Time steps (Observed)")):
+        for cm, pad, lbl in ((cmap_pred, 0.10, 'Time steps (Predicted)'), (cmap_obs, 0.03, 'Time steps (Observed)')):
             m = plt.cm.ScalarMappable(norm=norm, cmap=cm)
             m.set_array([])
             cb = plt.colorbar(m, ax=ax, pad=pad, shrink=0.6)
@@ -473,34 +588,68 @@ class AutoPatchTester:
 
         def _init():
             nonlocal error_text_handle
-            for sc in (sc_pred, sc_obs):
-                sc._offsets3d = ([], [], [])
-                sc.set_array(np.array([]))
+            sc_base._offsets3d = ([], [], [])
+            sc_pred._offsets3d = ([], [], [])
+            sc_obs._offsets3d = ([], [], [])
+            sc_pred.set_array(np.array([]))
+            sc_obs.set_array(np.array([]))
+            for line in (pred_line, obs_line):
+                line.set_data([], [])
+                line.set_3d_properties([])
 
-            legend = ax.legend([sc_pred, sc_obs, error_handle], ["Predicted", "Observed", ""], loc="best", frameon=True)
+            legend = ax.legend(
+                [sc_pred, sc_obs, sc_base, pred_conn_handle, obs_conn_handle, error_handle],
+                ['Predicted (t+1)', 'Observed (t+1)', 'Observation (t)', 'Predicted delta', 'Observed delta', ''],
+                loc='best',
+                frameon=True,
+            )
             error_text_handle = legend.get_texts()[-1]
-            error_text_handle.set_color("red")
-            error_text_handle.set_text(f"Error: {error_mag[0]:.3f}")
-            return sc_pred, sc_obs, error_text_handle
+            error_text_handle.set_color('red')
+            error_text_handle.set_text(f'Error: {error_series[0]:.3f}')
+            pred_line.set_color(cmap_pred(norm(0)))
+            obs_line.set_color(cmap_obs(norm(0)))
+            return sc_pred, sc_obs, sc_base, pred_line, obs_line, error_text_handle
 
         def _update(frame: int):
-            x_p, y_p, z_p = self.predicted_pip_positions[: frame + 1].T
-            sc_pred._offsets3d = (x_p, y_p, -z_p)
-            sc_pred.set_array(norm(np.arange(frame + 1)))
+            step_ids = np.arange(frame + 1)
 
-            x_o, y_o, z_o = self.observed_pip_positions[: frame + 1].T
-            sc_obs._offsets3d = (x_o, y_o, -z_o)
-            sc_obs.set_array(norm(np.arange(frame + 1)))
+            base_slice = base_plot[: frame + 1].T
+            sc_base._offsets3d = (base_slice[0], base_slice[1], -base_slice[2])
 
-            error_text_handle.set_text(f"Error: {error_mag[frame]:.3f}")
-            return sc_pred, sc_obs, error_text_handle
+            pred_slice = predicted_plot[: frame + 1].T
+            sc_pred._offsets3d = (pred_slice[0], pred_slice[1], -pred_slice[2])
+            sc_pred.set_array(norm(step_ids))
+
+            obs_slice = observed_plot[: frame + 1].T
+            sc_obs._offsets3d = (obs_slice[0], obs_slice[1], -obs_slice[2])
+            sc_obs.set_array(norm(step_ids))
+
+            if frame > 0:
+                base_pt = base_plot[frame]
+                pred_pt = predicted_plot[frame]
+                obs_pt = observed_plot[frame]
+                pred_line.set_data([base_pt[0], pred_pt[0]], [base_pt[1], pred_pt[1]])
+                pred_line.set_3d_properties([-base_pt[2], -pred_pt[2]])
+                pred_line.set_color(cmap_pred(norm(frame)))
+
+                obs_line.set_data([base_pt[0], obs_pt[0]], [base_pt[1], obs_pt[1]])
+                obs_line.set_3d_properties([-base_pt[2], -obs_pt[2]])
+                obs_line.set_color(cmap_obs(norm(frame)))
+            else:
+                pred_line.set_data([], [])
+                pred_line.set_3d_properties([])
+                obs_line.set_data([], [])
+                obs_line.set_3d_properties([])
+
+            error_text_handle.set_text(f'Error: {error_series[frame]:.3f}')
+            return sc_pred, sc_obs, sc_base, pred_line, obs_line, error_text_handle
 
         interval_ms = 1000 / self.animation_fps
         anim = animation.FuncAnimation(
             fig,
             _update,
             init_func=_init,
-            frames=n_steps,
+            frames=n_frames,
             interval=interval_ms,
             blit=False,
         )
@@ -509,11 +658,13 @@ class AutoPatchTester:
             out_path = self.save_dir / self.animation_fname
             try:
                 anim.save(out_path, writer=animation.PillowWriter(fps=self.animation_fps))
-                print(f"[INFO] Animation saved -> {out_path.resolve()}")
+                print(f'[INFO] Animation saved -> {out_path.resolve()}')
             except Exception as exc:
-                print(f"[WARNING] GIF not saved: {exc}")
+                print(f'[WARNING] GIF not saved: {exc}')
 
         plt.show()
+
+
 
 
 
@@ -542,6 +693,10 @@ DEFAULT_DATA_PATH = Path(__file__).resolve().parents[1] / "testing" / "data" / "
 model_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\models\\HEKHUNTERv0_201.onnx"
 data_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\test_data\\HEKHUNTER_inference_set_goal.hdf5"
 
+# model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_003.onnx"
+# data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_002\PatcherBot_test_dataset_v0_002_find_pipette.hdf5"
+
+
 def main() -> None:
     """Hard-coded replay that mirrors the original tester behaviour."""
     tester = AutoPatchTester(
@@ -549,6 +704,7 @@ def main() -> None:
         data_path=data_path if data_path else DEFAULT_DATA_PATH,
         providers=None,
         demo_id=None,
+        # tester_cls=PipetteControlTester,
         tester_cls=HuntTester,
     )
 
