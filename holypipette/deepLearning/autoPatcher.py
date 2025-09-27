@@ -6,14 +6,20 @@ from PIL import Image
 
 class AutoPatcher:
     """
-    
+    Base class for auto-patching policies.  Subclasses must implement `_prepare_inputs` to map
     """
     def __init__(self, onnx_path=None, providers=None, num_layers=2, hidden_size=400):
         self.session = None
         self.input_names = None
         self.output_names = None
+        self._input_desc = {}
         self.num_layers = num_layers
         self.hidden_size = hidden_size
+        self.seq_len = None
+        self.img_size = None
+        self.prefill_init = False
+        self.center_crop = True
+        self._prefilled = False
         if onnx_path is not None:
             self.load_model(onnx_path, providers)
 
@@ -27,9 +33,12 @@ class AutoPatcher:
             except StopIteration:
                 raise FileNotFoundError(f"No .onnx model found in {model_dir}")
         self.session = ort.InferenceSession(str(onnx_path), providers=providers)
-        self.input_names  = [i.name for i in self.session.get_inputs()]
-        self.output_names = [o.name for o in self.session.get_outputs()]
-        print(f"Loaded model {onnx_path} with inputs {self.input_names} → outputs {self.output_names}")
+        inputs = self.session.get_inputs()
+        outputs = self.session.get_outputs()
+        self.input_names = [i.name for i in inputs]
+        self.output_names = [o.name for o in outputs]
+        self._input_desc = {i.name: i for i in inputs}
+        print(f"Loaded model {onnx_path} with inputs {self.input_names} -> outputs {self.output_names}")
         return self.session, self.input_names, self.output_names
 
     def inference(self, inputs=None, h0=None, c0=None):
@@ -48,11 +57,13 @@ class AutoPatcher:
 
         # --- Optional: print expected vs provided for quick shape/dtype diff ---
         try:
-            in_desc = {i.name: i for i in self.session.get_inputs()}
+            in_desc = self._get_input_desc()
             for k, v in filtered_inputs.items():
                 arr = np.asarray(v)
-                exp_shape = tuple(in_desc[k].shape) if k in in_desc else None
-                exp_type = getattr(in_desc.get(k, None), "type", None)
+                desc = in_desc.get(k)
+                shape_attr = getattr(desc, "shape", None) if desc is not None else None
+                exp_shape = tuple(shape_attr) if shape_attr else None
+                exp_type = getattr(desc, "type", None) if desc is not None else None
                 # print(f"[ORT-FEED] {k}: provided shape={arr.shape} dtype={arr.dtype} | expected shape={exp_shape} dtype={exp_type}")
         except Exception:
             pass
@@ -90,6 +101,112 @@ class AutoPatcher:
         return action, new_h0, new_c0
 
 
+    def _get_input_desc(self):
+        return getattr(self, "_input_desc", {}) or {}
+
+    def _resize_to_expected(self, input_name, img_hwc):
+        desc = self._get_input_desc().get(input_name)
+        if desc is None:
+            return np.asarray(img_hwc)
+        shape = getattr(desc, "shape", None)
+        if not shape or len(shape) < 4:
+            return np.asarray(img_hwc)
+        try:
+            H = int(shape[-3])
+            W = int(shape[-2])
+        except Exception:
+            return np.asarray(img_hwc)
+        arr = np.asarray(img_hwc)
+        if arr.ndim != 3 or arr.shape[-1] != 3:
+            raise ValueError(f"{input_name}: expected HWC image, got {arr.shape}")
+        try:
+            import cv2
+            arr = cv2.resize(arr, (W, H))
+        except Exception:
+            arr = np.asarray(Image.fromarray(arr).resize((W, H)))
+        if arr.dtype != np.float32:
+            arr = arr.astype(np.float32)
+        return arr
+
+    def _expand_for_input(self, input_name, array):
+        desc = self._get_input_desc().get(input_name)
+        a = np.asarray(array)
+        target_rank = len(getattr(desc, "shape", ())) if desc else a.ndim
+        while a.ndim < target_rank:
+            a = np.expand_dims(a, 0)
+        if a.dtype != np.float32:
+            a = a.astype(np.float32)
+        return a
+
+    def _coerce_stage(self, stage):
+        s = np.asarray(stage, np.float32).reshape(-1)
+        if s.shape[0] == 2:
+            s = np.concatenate([s, [0.0]]).astype(np.float32)
+        else:
+            s = s[:3].astype(np.float32)
+        return s
+
+    def _needs_state_init(self, state):
+        return state is None or (isinstance(state, (int, float)) and state == 0)
+
+    def _zeros_for_state(self, name):
+        desc = self._get_input_desc().get(name)
+        if desc is not None:
+            shape = getattr(desc, "shape", None)
+            if shape:
+                dims = []
+                for dim in shape:
+                    try:
+                        dims.append(int(dim))
+                    except Exception:
+                        dims = []
+                        break
+                if dims:
+                    return np.zeros(tuple(dims), np.float32)
+        return np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
+
+    def _ensure_state_inputs(self, inputs, h0, c0, *, input_names=None):
+        names = input_names or set(self.input_names or [])
+        if "h0" in names:
+            if self._needs_state_init(h0):
+                h0 = self._zeros_for_state("h0")
+            inputs["h0"] = h0
+        if "c0" in names:
+            if self._needs_state_init(c0):
+                if "h0" in inputs and inputs["h0"] is not None:
+                    c0 = np.zeros_like(inputs["h0"])
+                else:
+                    c0 = self._zeros_for_state("c0")
+            inputs["c0"] = c0
+        return inputs, h0, c0
+
+    def _crop_center(self, arr: np.ndarray) -> np.ndarray:
+        if arr.ndim == 2:
+            arr = np.stack([arr] * 3, axis=-1)
+        h, w = arr.shape[:2]
+        new_h, new_w = h // 2, w // 2
+        top = (h - new_h) // 2
+        left = (w - new_w) // 2
+        return arr[top:top + new_h, left:left + new_w]
+
+    def prepare_image(self, image) -> np.ndarray:
+        if self.img_size is None:
+            raise AttributeError("img_size must be set before calling prepare_image")
+        if isinstance(image, Image.Image):
+            arr = np.asarray(image)
+        else:
+            arr = np.asarray(image)
+        if arr.ndim == 2:
+            arr = np.stack([arr] * 3, axis=-1)
+        if getattr(self, "center_crop", False):
+            arr = self._crop_center(arr)
+        try:
+            import cv2
+            arr = cv2.resize(arr, (self.img_size, self.img_size))
+        except Exception:
+            arr = np.asarray(Image.fromarray(arr).resize((self.img_size, self.img_size)))
+        arr = arr.astype(np.float32) / 255.0
+        return np.transpose(arr, (2, 0, 1))
     def _prepare_inputs(self, inputs, h0, c0):
         """
         Must be overridden by subclasses.  The default implementation
@@ -149,58 +266,12 @@ class CellHunter(AutoPatcher):
           {"obs": (pip, stage, image, resistance), "goal": (optional)}
           {"pipette_positions": ..., "stage_positions": ..., "camera_image": ..., "resistance": ...}
         """
-        in_desc = {i.name: i for i in self.session.get_inputs()}
+        in_desc = self._get_input_desc()
         input_names = set(in_desc.keys())
         uses_obs_prefix = any(n.startswith("obs::") for n in input_names)
         # print(f"_prepare_inputs called with model_input type: {type(model_input)}")
 
-        # Helper: resize HWC image to the exact HxW declared by ONNX for a given input name
-        def _resize_to_expected(name, img_hwc):
-            # Expected shapes: obs::camera_image → (B=1, S=1, H, W, 3), goal::camera_image → (B=1, H, W, 3)
-            shape = in_desc[name].shape
-            # Defensive: pull H,W from the last 3 spatial dims before channel
-            if len(shape) >= 4:
-                H = int(shape[-3])
-                W = int(shape[-2])
-            else:
-                return img_hwc  # unexpected; avoid altering
-            arr = np.asarray(img_hwc)
-            if arr.ndim != 3 or arr.shape[-1] != 3:
-                raise ValueError(f"{name}: expected HWC image, got {arr.shape}")
-            try:
-                import cv2
-                arr = cv2.resize(arr, (W, H))
-            except Exception:
-                from PIL import Image
-                arr = np.asarray(Image.fromarray(arr).resize((W, H)))
-            # Keep wrapper behavior: float32 with 0..255 range (no /255.0 here)
-            if arr.dtype != np.float32:
-                arr = arr.astype(np.float32)
-            return arr
-
-        def _expand(name, arr):
-            exp_rank = len(in_desc[name].shape)
-            a = np.asarray(arr)
-            while a.ndim < exp_rank:
-                a = np.expand_dims(a, 0)
-            if a.dtype != np.float32:
-                a = a.astype(np.float32)
-            return a
-        # Helper to coerce stage to 3D (pad Z=0 if needed)
-        def _coerce_stage(x):
-            s = np.asarray(x, np.float32).reshape(-1)
-            if s.shape[0] == 2:
-                s = np.concatenate([s, [0.0]]).astype(np.float32)
-            else:
-                s = s[:3].astype(np.float32)
-            return s
-
-
-        # ─────────────────────────────────────────────
-        # Wrapper branch (obs::..., goal::...) — single step, raw HWC
-        # ─────────────────────────────────────────────
         if uses_obs_prefix:
-            # Unpack observation from tuple or mapping
             if isinstance(model_input, dict):
                 obs_pkg = model_input.get("obs", None)
                 if obs_pkg is None and all(k in model_input for k in ("pipette_positions","stage_positions","camera_image","resistance")):
@@ -208,46 +279,41 @@ class CellHunter(AutoPatcher):
                                model_input["stage_positions"],
                                model_input["camera_image"],
                                model_input["resistance"])
-                goal_pkg = model_input.get("goal", None)  # may be None or partial dict/tuple
+                goal_pkg = model_input.get("goal", None)
             else:
                 obs_pkg = model_input
                 goal_pkg = None
 
-            # Resolve obs fields
             if isinstance(obs_pkg, dict):
-                pip   = np.asarray(obs_pkg["pipette_positions"], np.float32).reshape(-1)
-                stage = _coerce_stage(obs_pkg["stage_positions"])
-                img   = np.asarray(obs_pkg["camera_image"])
-                res   = np.asarray(obs_pkg["resistance"], np.float32).reshape(-1)
+                pip = np.asarray(obs_pkg["pipette_positions"], np.float32).reshape(-1)
+                stage = self._coerce_stage(obs_pkg["stage_positions"])
+                img = np.asarray(obs_pkg["camera_image"])
+                res = np.asarray(obs_pkg["resistance"], np.float32).reshape(-1)
             else:
                 pip, stage, img, res = obs_pkg
-                pip   = np.asarray(pip,   np.float32).reshape(-1)
-                stage = _coerce_stage(stage)
-                img   = np.asarray(img)
-                res   = np.asarray(res,   np.float32).reshape(-1)
-            if img.ndim == 2:  # gray → 3‑chan
-                img = np.stack([img]*3, axis=-1)
+                pip = np.asarray(pip, np.float32).reshape(-1)
+                stage = self._coerce_stage(stage)
+                img = np.asarray(img)
+                res = np.asarray(res, np.float32).reshape(-1)
+            if img.ndim == 2:
+                img = np.stack([img] * 3, axis=-1)
 
             inputs = {}
-            # Observations
             for nm in input_names:
                 if not nm.startswith("obs::"):
                     continue
                 key = nm.split("obs::", 1)[1]
                 if key == "camera_image":
-                    img_r = _resize_to_expected(nm, img)
-                    inputs[nm] = _expand(nm, img_r)
-
+                    img_r = self._resize_to_expected(nm, img)
+                    inputs[nm] = self._expand_for_input(nm, img_r)
                 elif key == "pipette_positions":
-                    inputs[nm] = _expand(nm, pip)
+                    inputs[nm] = self._expand_for_input(nm, pip)
                 elif key == "stage_positions":
-                    inputs[nm] = _expand(nm, stage)
+                    inputs[nm] = self._expand_for_input(nm, stage)
                 elif key == "resistance":
-                    inputs[nm] = _expand(nm, res)
+                    inputs[nm] = self._expand_for_input(nm, res)
 
-            # Goals (mirror obs by default; allow partial goal dict/tuple)
             if any(nm.startswith("goal::") for nm in input_names):
-                # Defaults = obs
                 gpip, gstage, gimg, gres = pip, stage, img, res
 
                 if goal_pkg is not None:
@@ -255,77 +321,53 @@ class CellHunter(AutoPatcher):
                         if "pipette_positions" in goal_pkg:
                             gpip = np.asarray(goal_pkg["pipette_positions"], np.float32).reshape(-1)
                         if "stage_positions" in goal_pkg:
-                            gstage = _coerce_stage(goal_pkg["stage_positions"])
+                            gstage = self._coerce_stage(goal_pkg["stage_positions"])
                         if "resistance" in goal_pkg:
                             gres = np.asarray(goal_pkg["resistance"], np.float32).reshape(-1)
                         if "camera_image" in goal_pkg and goal_pkg["camera_image"] is not None:
                             gimg = np.asarray(goal_pkg["camera_image"])
                             if gimg.ndim == 2:
-                                gimg = np.stack([gimg]*3, axis=-1)
+                                gimg = np.stack([gimg] * 3, axis=-1)
                     else:
-                        # 4‑tuple (gpip, gstage, gimg, gres); allow None for image
                         gpip, gstage, gimg, gres = goal_pkg
                         gpip = np.asarray(gpip, np.float32).reshape(-1)
-                        gstage = _coerce_stage(gstage)
+                        gstage = self._coerce_stage(gstage)
                         gres = np.asarray(gres, np.float32).reshape(-1)
                         if gimg is None:
                             gimg = img
                         else:
                             gimg = np.asarray(gimg)
                             if gimg.ndim == 2:
-                                gimg = np.stack([gimg]*3, axis=-1)
+                                gimg = np.stack([gimg] * 3, axis=-1)
 
                 for nm in input_names:
                     if not nm.startswith("goal::"):
                         continue
                     key = nm.split("goal::", 1)[1]
                     if key == "camera_image":
-                        gimg_r = _resize_to_expected(nm, gimg)
-                        inputs[nm] = _expand(nm, gimg_r)
-
+                        gimg_r = self._resize_to_expected(nm, gimg)
+                        inputs[nm] = self._expand_for_input(nm, gimg_r)
                     elif key == "pipette_positions":
-                        inputs[nm] = _expand(nm, gpip)
+                        inputs[nm] = self._expand_for_input(nm, gpip)
                     elif key == "stage_positions":
-                        inputs[nm] = _expand(nm, gstage)
+                        inputs[nm] = self._expand_for_input(nm, gstage)
                     elif key == "resistance":
-                        inputs[nm] = _expand(nm, gres)
+                        inputs[nm] = self._expand_for_input(nm, gres)
 
-            # RNN/GRU state if requested by the model
-            if "h0" in input_names and (h0 is None or (isinstance(h0, (int,float)) and h0 == 0)):
-                try:
-                    hshape = tuple(int(d) for d in in_desc["h0"].shape)
-                    h0 = np.zeros(hshape, np.float32)
-                except Exception:
-                    h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
-            if "c0" in input_names and (c0 is None or (isinstance(c0, (int,float)) and c0 == 0)):
-                c0 = np.zeros_like(h0) if h0 is not None else np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
-            if "h0" in input_names:
-                inputs["h0"] = h0
-            if "c0" in input_names:
-                inputs["c0"] = c0
-            # print(f"model inputs prepared with keys: {list(inputs.keys())}")
+            inputs, h0, c0 = self._ensure_state_inputs(inputs, h0, c0, input_names=input_names)
             return inputs
 
-        # ─────────────────────────────────────────────
-        # Legacy branch — 16‑step stacks, CHW normalized images
-        # ─────────────────────────────────────────────
         pip, stage, img, res = model_input
+        pip = np.asarray(pip, dtype=np.float32).reshape(3)
+        stage = self._coerce_stage(stage)
+        res = np.float32(res)
 
-        # ---- coerce types & pad stage to 3D if needed ----
-        pip   = np.asarray(pip,   dtype=np.float32).reshape(3)
-        stage = _coerce_stage(stage)
-        res   = np.float32(res)
-
-        # ---- image → CHW float32 [0,1] with center crop + resize ----
-        img = self.prepare_image(img)                   # (3, img_size, img_size)
-
-        # ---- push into history ----
+        img = self.prepare_image(img)
         self._img_q.append(img)
         self._pip_q.append(pip)
         self._stage_q.append(stage)
         self._res_q.append(res)
 
-        # ---- optional prefill on very first frame ----
         if self.prefill_init and not self._prefilled and len(self._img_q) == 1:
             for _ in range(self.seq_len - 1):
                 self._img_q.append(self._img_q[0].copy())
@@ -334,68 +376,21 @@ class CellHunter(AutoPatcher):
                 self._res_q.append(np.float32(self._res_q[0]))
             self._prefilled = True
 
-        # pad short sequences by repeating last
         while len(self._img_q) < self.seq_len:
             self._img_q.append(self._img_q[-1].copy())
             self._pip_q.append(self._pip_q[-1].copy())
             self._stage_q.append(self._stage_q[-1].copy())
             self._res_q.append(np.float32(self._res_q[-1]))
 
-        # ---- build ONNX feed dict (matches HuntTester legacy path) ----
         inputs = {
-            "camera_image":      np.stack(list(self._img_q),   0)[None],  # (1,16,3,H,W)
-            "pipette_positions": np.stack(list(self._pip_q),   0)[None],  # (1,16,3)
-            "stage_positions":   np.stack(list(self._stage_q), 0)[None],  # (1,16,3)
-            "resistance":        np.stack(list(self._res_q),   0).reshape(1, -1),  # (1,16)
+            "camera_image":      np.stack(list(self._img_q), 0)[None],
+            "pipette_positions": np.stack(list(self._pip_q), 0)[None],
+            "stage_positions":   np.stack(list(self._stage_q), 0)[None],
+            "resistance":        np.stack(list(self._res_q), 0).reshape(1, -1),
         }
 
-        # ---- LSTM state tensors (init zeros only if model expects them) ----
-        if "h0" in self.input_names and (h0 is None or (isinstance(h0, (int, float)) and h0 == 0)):
-            h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
-        if "c0" in self.input_names and (c0 is None or (isinstance(c0, (int, float)) and c0 == 0)):
-            c0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
-        if "h0" in self.input_names:
-            inputs["h0"] = h0
-        if "c0" in self.input_names:
-            inputs["c0"] = c0
-
+        inputs, h0, c0 = self._ensure_state_inputs(inputs, h0, c0, input_names=input_names)
         return inputs
-
-    # ---------------- image helpers ----------------
-    def _crop_center(self, arr: np.ndarray) -> np.ndarray:
-        if arr.ndim == 2:
-            arr = np.stack([arr]*3, axis=-1)
-        h, w = arr.shape[:2]
-        new_h, new_w = h // 2, w // 2
-        top  = (h - new_h) // 2
-        left = (w - new_w) // 2
-        return arr[top:top+new_h, left:left+new_w]
-
-    def prepare_image(self, image) -> np.ndarray:
-        """
-        → center‑crop (optional) → resize to (img_size,img_size)
-        → float32 normalise to [0,1] → CHW
-        """
-        if isinstance(image, Image.Image):
-            arr = np.asarray(image)
-        else:
-            arr = np.asarray(image)
-
-        if arr.ndim == 2:
-            arr = np.stack([arr]*3, axis=-1)
-
-        if self.center_crop:
-            arr = self._crop_center(arr)
-
-        try:
-            import cv2
-            arr = cv2.resize(arr, (self.img_size, self.img_size))
-        except Exception:
-            arr = np.asarray(Image.fromarray(arr).resize((self.img_size, self.img_size)))
-
-        arr = arr.astype(np.float32) / 255.0
-        return np.transpose(arr, (2, 0, 1))            # HWC → CHW
-
 class GigaSealer(AutoPatcher):
     """
     Gigasealing policy – override to provide the mapping this model expects.
@@ -493,51 +488,14 @@ class PipetteFinder(AutoPatcher):
           {"obs": (pip, stage, image), "goal": (optional)}
           {"pipette_positions": ..., "stage_positions": ..., "camera_image": ...}
         """
-        in_desc = {i.name: i for i in self.session.get_inputs()}
+        in_desc = self._get_input_desc()
         input_names = set(in_desc.keys())
         uses_obs_prefix = any(n.startswith("obs::") for n in input_names)
-
-        def _resize_to_expected(name, img_hwc):
-            shape = in_desc[name].shape
-            if len(shape) >= 4:
-                H = int(shape[-3])
-                W = int(shape[-2])
-            else:
-                return img_hwc
-            arr = np.asarray(img_hwc)
-            if arr.ndim != 3 or arr.shape[-1] != 3:
-                raise ValueError(f"{name}: expected HWC image, got {arr.shape}")
-            try:
-                import cv2
-                arr = cv2.resize(arr, (W, H))
-            except Exception:
-                from PIL import Image
-                arr = np.asarray(Image.fromarray(arr).resize((W, H)))
-            if arr.dtype != np.float32:
-                arr = arr.astype(np.float32)
-            return arr
-
-        def _expand(name, arr):
-            exp_rank = len(in_desc[name].shape)
-            a = np.asarray(arr)
-            while a.ndim < exp_rank:
-                a = np.expand_dims(a, 0)
-            if a.dtype != np.float32:
-                a = a.astype(np.float32)
-            return a
-
-        def _coerce_stage(x):
-            s = np.asarray(x, np.float32).reshape(-1)
-            if s.shape[0] == 2:
-                s = np.concatenate([s, [0.0]]).astype(np.float32)
-            else:
-                s = s[:3].astype(np.float32)
-            return s
 
         def _unpack_obs(pkg, allow_image_none=False):
             if isinstance(pkg, dict):
                 pip = np.asarray(pkg["pipette_positions"], np.float32).reshape(-1)
-                stage = _coerce_stage(pkg["stage_positions"])
+                stage = self._coerce_stage(pkg["stage_positions"])
                 img = pkg.get("camera_image", None)
             else:
                 try:
@@ -545,7 +503,7 @@ class PipetteFinder(AutoPatcher):
                 except Exception as exc:
                     raise ValueError("PipetteFinder expects (pip, stage, image)") from exc
                 pip = np.asarray(pip, np.float32).reshape(-1)
-                stage = _coerce_stage(stage)
+                stage = self._coerce_stage(stage)
             if img is None:
                 if allow_image_none:
                     arr = None
@@ -576,11 +534,11 @@ class PipetteFinder(AutoPatcher):
                     continue
                 key = nm.split("obs::", 1)[1]
                 if key == "camera_image":
-                    inputs[nm] = _expand(nm, _resize_to_expected(nm, img))
+                    inputs[nm] = self._expand_for_input(nm, self._resize_to_expected(nm, img))
                 elif key == "pipette_positions":
-                    inputs[nm] = _expand(nm, pip)
+                    inputs[nm] = self._expand_for_input(nm, pip)
                 elif key == "stage_positions":
-                    inputs[nm] = _expand(nm, stage)
+                    inputs[nm] = self._expand_for_input(nm, stage)
 
             if any(nm.startswith("goal::") for nm in input_names):
                 gpip, gstage, gimg = pip, stage, img
@@ -589,7 +547,7 @@ class PipetteFinder(AutoPatcher):
                         if "pipette_positions" in goal_pkg:
                             gpip = np.asarray(goal_pkg["pipette_positions"], np.float32).reshape(-1)
                         if "stage_positions" in goal_pkg:
-                            gstage = _coerce_stage(goal_pkg["stage_positions"])
+                            gstage = self._coerce_stage(goal_pkg["stage_positions"])
                         if "camera_image" in goal_pkg and goal_pkg["camera_image"] is not None:
                             gimg = np.asarray(goal_pkg["camera_image"])
                             if gimg.ndim == 2:
@@ -599,7 +557,7 @@ class PipetteFinder(AutoPatcher):
                         if len(seq) >= 1 and seq[0] is not None:
                             gpip = np.asarray(seq[0], np.float32).reshape(-1)
                         if len(seq) >= 2 and seq[1] is not None:
-                            gstage = _coerce_stage(seq[1])
+                            gstage = self._coerce_stage(seq[1])
                         if len(seq) >= 3 and seq[2] is not None:
                             gimg = np.asarray(seq[2])
                             if gimg.ndim == 2:
@@ -609,41 +567,27 @@ class PipetteFinder(AutoPatcher):
                         continue
                     key = nm.split("goal::", 1)[1]
                     if key == "camera_image":
-                        inputs[nm] = _expand(nm, _resize_to_expected(nm, gimg))
+                        inputs[nm] = self._expand_for_input(nm, self._resize_to_expected(nm, gimg))
                     elif key == "pipette_positions":
-                        inputs[nm] = _expand(nm, gpip)
+                        inputs[nm] = self._expand_for_input(nm, gpip)
                     elif key == "stage_positions":
-                        inputs[nm] = _expand(nm, gstage)
+                        inputs[nm] = self._expand_for_input(nm, gstage)
 
-            if "h0" in input_names and (h0 is None or (isinstance(h0, (int, float)) and h0 == 0)):
-                try:
-                    hshape = tuple(int(d) for d in in_desc["h0"].shape)
-                    h0 = np.zeros(hshape, np.float32)
-                except Exception:
-                    h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
-            if "c0" in input_names and (c0 is None or (isinstance(c0, (int, float)) and c0 == 0)):
-                if h0 is not None:
-                    c0 = np.zeros_like(h0)
-                else:
-                    c0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
-            if "h0" in input_names:
-                inputs["h0"] = h0
-            if "c0" in input_names:
-                inputs["c0"] = c0
+            inputs, h0, c0 = self._ensure_state_inputs(inputs, h0, c0, input_names=input_names)
             return inputs
 
         if isinstance(model_input, dict):
             if not all(k in model_input for k in ("pipette_positions", "stage_positions", "camera_image")):
                 raise ValueError("PipetteFinder expects keys pipette_positions, stage_positions, camera_image")
             pip = np.asarray(model_input["pipette_positions"], np.float32).reshape(-1)
-            stage = _coerce_stage(model_input["stage_positions"])
+            stage = self._coerce_stage(model_input["stage_positions"])
             img = np.asarray(model_input["camera_image"])
         else:
             if len(model_input) < 3:
                 raise ValueError("PipetteFinder expects (pip, stage, image)")
             pip, stage, img = model_input[:3]
             pip = np.asarray(pip, np.float32).reshape(-1)
-            stage = _coerce_stage(stage)
+            stage = self._coerce_stage(stage)
             img = np.asarray(img)
 
         img = self.prepare_image(img)
@@ -675,42 +619,5 @@ class PipetteFinder(AutoPatcher):
         if "stage_position" in input_names and "stage_position" not in inputs:
             inputs["stage_position"] = np.stack(list(self._stage_q), 0)[None]
 
-        if "h0" in self.input_names and (h0 is None or (isinstance(h0, (int, float)) and h0 == 0)):
-            h0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
-        if "c0" in self.input_names and (c0 is None or (isinstance(c0, (int, float)) and c0 == 0)):
-            c0 = np.zeros((self.num_layers, 1, self.hidden_size), np.float32)
-        if "h0" in self.input_names:
-            inputs["h0"] = h0
-        if "c0" in self.input_names:
-            inputs["c0"] = c0
+        inputs, h0, c0 = self._ensure_state_inputs(inputs, h0, c0, input_names=input_names)
         return inputs
-
-    def _crop_center(self, arr: np.ndarray) -> np.ndarray:
-        if arr.ndim == 2:
-            arr = np.stack([arr] * 3, axis=-1)
-        h, w = arr.shape[:2]
-        new_h, new_w = h // 2, w // 2
-        top = (h - new_h) // 2
-        left = (w - new_w) // 2
-        return arr[top:top + new_h, left:left + new_w]
-
-    def prepare_image(self, image) -> np.ndarray:
-        """
-        Optional center-crop followed by resize to (img_size, img_size),
-        float32 normalisation to [0,1], and CHW layout.
-        """
-        if isinstance(image, Image.Image):
-            arr = np.asarray(image)
-        else:
-            arr = np.asarray(image)
-        if arr.ndim == 2:
-            arr = np.stack([arr] * 3, axis=-1)
-        if self.center_crop:
-            arr = self._crop_center(arr)
-        try:
-            import cv2
-            arr = cv2.resize(arr, (self.img_size, self.img_size))
-        except Exception:
-            arr = np.asarray(Image.fromarray(arr).resize((self.img_size, self.img_size)))
-        arr = arr.astype(np.float32) / 255.0
-        return np.transpose(arr, (2, 0, 1))
