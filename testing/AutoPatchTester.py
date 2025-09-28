@@ -66,7 +66,6 @@ def _load_hdf5_sequence(
         "actions": np.asarray(actions, dtype=np.float32),
     }
 
-
 class HuntTester(CellHunter):
     """Dataset-driven tester built on ``CellHunter`` auto-patching policy."""
 
@@ -162,8 +161,6 @@ class HuntTester(CellHunter):
         pred_arr = np.asarray(pred).reshape(-1)
         gt_arr = np.asarray(gt).reshape(-1)
         return pred_arr - gt_arr
-
-
 
 class PipetteControlTester(PipetteFinder):
     """Dataset-driven tester built on ``PipetteFinder`` auto-patching policy."""
@@ -313,6 +310,13 @@ class AutoPatchTester:
         self.error_frames.clear()
         self.stored_actions.clear()
 
+        if hasattr(self.tester, "reset_state"):
+            self.tester.reset_state()
+            if hasattr(self.tester, "h0"):
+                self.tester.h0 = None
+            if hasattr(self.tester, "c0"):
+                self.tester.c0 = None
+
         for idx in range(self.tester.num_frames):
             t0 = time.perf_counter()
             out = self.tester.run_inference(idx)
@@ -384,9 +388,6 @@ class AutoPatchTester:
                 self.observed_pip_positions,
             )
         )
-
-
-
 
     def _plot_static_trajectory(self) -> None:
         if (
@@ -501,7 +502,6 @@ class AutoPatchTester:
         handles = [pred_scatter, obs_scatter, base_scatter]
         ax.legend(handles=handles, loc='best')
         plt.show()
-
 
     def _animate_trajectory(self, *, save_gif: bool = True) -> None:
         if (
@@ -665,16 +665,6 @@ class AutoPatchTester:
         plt.show()
 
 
-
-
-
-
-
-
-
-
-
-
 # ------------------------------------------------------------------
 # Quick manual driver
 # ------------------------------------------------------------------
@@ -694,6 +684,7 @@ DEFAULT_DATA_PATH = Path(__file__).resolve().parents[1] / "testing" / "data" / "
 # data_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\test_data\\HEKHUNTER_inference_set_goal.hdf5"
 
 model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_003.onnx"
+# model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\df_PipetteFinder_v0_004.onnx"
 data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_002\PatcherBot_test_dataset_v0_002_find_pipette.hdf5"
 
 
@@ -703,9 +694,9 @@ def main() -> None:
         model_path=model_path if model_path else DEFAULT_MODEL_PATH,
         data_path=data_path if data_path else DEFAULT_DATA_PATH,
         providers=None,
-        demo_id="demo_1",
-        tester_cls=PipetteControlTester,
-        # tester_cls=HuntTester,
+        demo_id="demo_3",
+        # tester_cls=PipetteControlTester,
+        tester_cls=HuntTester,
     )
 
     tester._compute_latency_and_error()

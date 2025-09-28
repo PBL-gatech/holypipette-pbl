@@ -21,6 +21,8 @@ class AutoPatchHelper:
         self.hunterc0 = None
         self.finderh0 = None
         self.finderc0 = None
+        self._hunter_state_snapshot = None
+        self._finder_state_snapshot = None
     
 
     def hunt(self, model_input):
@@ -56,8 +58,17 @@ class AutoPatchHelper:
         else:
             # Legacy model — give tuple; CellHunter does CHW+resize+[0,1] and stacking
             model_payload = (pip, stage, img, res)
+        if self._hunter_state_snapshot is not None:
+            self.hunter.set_state_snapshot(self._hunter_state_snapshot)
         print(f"model payload prepared {type(model_payload)}")
-        pos, self.hunterh0, self.hunterc0 = self.hunter.inference(model_payload, self.hunterh0, self.hunterc0)
+        pos, h0_out, c0_out = self.hunter.inference(model_payload, self.hunterh0, self.hunterc0)
+        snapshot = self.hunter.get_state_snapshot()
+        self._hunter_state_snapshot = snapshot
+        if snapshot:
+            self.hunterh0 = snapshot.get("h0")
+            self.hunterc0 = snapshot.get("c0")
+        else:
+            self.hunterh0, self.hunterc0 = h0_out, c0_out
         print(f"model inference returned pos {pos}")
         pos = np.asarray(pos).reshape(-1)     # (6,)
         pos = self.clamp_positions(pos)
@@ -93,9 +104,18 @@ class AutoPatchHelper:
             model_payload = payload
         else:
             model_payload = (pip, stage, img)
+        if self._finder_state_snapshot is not None:
+            self.finder.set_state_snapshot(self._finder_state_snapshot)
         print(f"pipette finder payload prepared {type(model_payload)}")
 
-        pos, self.finderh0, self.finderc0 = self.finder.inference(model_payload, self.finderh0, self.finderc0)
+        pos, h0_out, c0_out = self.finder.inference(model_payload, self.finderh0, self.finderc0)
+        snapshot = self.finder.get_state_snapshot()
+        self._finder_state_snapshot = snapshot
+        if snapshot:
+            self.finderh0 = snapshot.get("h0")
+            self.finderc0 = snapshot.get("c0")
+        else:
+            self.finderh0, self.finderc0 = h0_out, c0_out
         print(f"pipette finder inference returned pos {pos}")
         pos = np.asarray(pos).reshape(-1)
         return self.clamp_positions(pos)
@@ -176,6 +196,8 @@ class AutoPatchHelper:
              self.burglar.load_model()
              modelactor = self.burglar
 
+        modelactor.reset_state()
+
         predlist = []
         h0list = []
         c0list = []
@@ -193,10 +215,15 @@ class AutoPatchHelper:
             h0list.append(h0)
             c0list.append(c0)
             print(f"observation primed {i}")
+        snapshot = modelactor.get_state_snapshot()
         if model == 'find_pipette':
-            self.finderh0, self.finderc0 = h0, c0
-        else:
-            self.hunterh0, self.hunterc0 = h0, c0
+            self._finder_state_snapshot = snapshot
+            self.finderh0 = snapshot.get("h0") if snapshot else h0
+            self.finderc0 = snapshot.get("c0") if snapshot else c0
+        elif model == 'hunt':
+            self._hunter_state_snapshot = snapshot
+            self.hunterh0 = snapshot.get("h0") if snapshot else h0
+            self.hunterc0 = snapshot.get("c0") if snapshot else c0
 
 
     def prepare_model(self, which="hunt", *, onnx_path=None, providers=None):
@@ -207,16 +234,26 @@ class AutoPatchHelper:
         """
         if which == "hunt":
             self.hunter.load_model(onnx_path, providers=providers)
+            self.hunter.reset_state()
+            self._hunter_state_snapshot = self.hunter.get_state_snapshot()
+            self.hunterh0 = self._hunter_state_snapshot.get("h0") if self._hunter_state_snapshot else None
+            self.hunterc0 = self._hunter_state_snapshot.get("c0") if self._hunter_state_snapshot else None
             self._hunter_uses_wrapper = any(n.startswith("obs::") for n in self.hunter.input_names)
             self._hunter_has_goal     = any(n.startswith("goal::") for n in self.hunter.input_names)
         elif which == "find_pipette":
             self.finder.load_model(onnx_path, providers=providers)
+            self.finder.reset_state()
+            self._finder_state_snapshot = self.finder.get_state_snapshot()
+            self.finderh0 = self._finder_state_snapshot.get("h0") if self._finder_state_snapshot else None
+            self.finderc0 = self._finder_state_snapshot.get("c0") if self._finder_state_snapshot else None
             self._finder_uses_wrapper = any(n.startswith("obs::") for n in self.finder.input_names)
             self._finder_has_goal     = any(n.startswith("goal::") for n in self.finder.input_names)
         elif which == "gigaseal":
             self.gigasealer.load_model(onnx_path, providers=providers)
+            self.gigasealer.reset_state()
         elif which == "break_in":
             self.burglar.load_model(onnx_path, providers=providers)
+            self.burglar.reset_state()
         else:
             raise ValueError(f"Unknown model '{which}'")
         return self
