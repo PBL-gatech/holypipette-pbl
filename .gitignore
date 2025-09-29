@@ -38,3 +38,7 @@ experiments/Datasets
 /holypipette/deepLearning/patchModel/PipetteFinder/models
 holypipette/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
 holypipette/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
+/holypipette/deepLearning/patchModel/NeuronHunter/models
+/holypipette/deepLearning/patchModel/NeuronHunter/oldmodels
+/holypipette/deepLearning/patchModel/NeuronHunter/test_data
+/holypipette/deepLearning/patchModel/test_data

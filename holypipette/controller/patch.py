@@ -118,16 +118,29 @@ class AutoPatcher(TaskController):
     def find_pipette(self):
         self.info("Finding pipette")
         done = False
+        count = 0
+        self.autopatchhelper.prepare_model("find_pipette")
         # self.calibrated_unit.center_pipette()
         while not done:
             # wait in loop until done
             # imitation policy will go here to find pipette,and detector will check to see if it is in within 25 pixels of center of screen
-            done = self.done
-            if self.done:
+            action = self.autopatchhelper.find_pipette(self.observe())
+            # split action into 2 parts 
+            stage_action = action[:3]
+            pipette_action = action[3:]
+            # inverse pipette action with calibration
+            pipette_action_um = self.calibrated_unit.pixels_to_um(pipette_action)
+            self.calibrated_unit.absolute_move_group(pipette_action_um)
+
+            # if model prediction value is less than 0.1 in all dimensions 5 times in a row, we are done
+            if np.linalg.norm(pipette_action) < 0.1:
+                count +=1
+                if count >=5:
+                    done = True
+            if done:
                 self.info("Pipette found")
                 break
             self.sleep(0.04)
-        self.done = False
 
     @record_state("run_protocols")
     def run_protocols(self):

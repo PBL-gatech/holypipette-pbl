@@ -85,7 +85,7 @@ class AutoPatchHelper:
         if not hasattr(self, "_finder_uses_wrapper") or getattr(self.finder, "input_names", None) is None:
             self.prepare_model("find_pipette")
 
-        pip, stage, img = model_input
+        pip, stage, img,res = model_input
         pip = np.asarray(pip, np.float32).reshape(-1)
         stage = np.asarray(stage, np.float32).reshape(-1)
         if stage.shape[0] == 2:

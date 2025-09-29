@@ -42,6 +42,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import io
 import os
 import warnings
 from contextlib import contextmanager
@@ -84,6 +85,7 @@ class DatasetBuilderSettings:
     pipette_rotation_deg: float = -60.75 # angle to rotate pipette coordinates into stage frame
     load_next_obs: bool = False # set to true for goal conditioning
     frequency_mod: int = 1 # downsample data by this factor (minimum 1)
+    displacement: float = 0.5 # minimum stage/pipette displacement in microns
     filter: FilterSettings = field(default_factory=FilterSettings)
 
     # Legacy toggles preserved for parity with DatasetBuilder
@@ -131,6 +133,30 @@ def _shift_forward(arr: np.ndarray) -> np.ndarray:
     out[:-1] = arr[1:]
     out[-1] = arr[-1]
     return out
+
+def _read_csv_with_fallback(
+    path: Path,
+    *,
+    encodings: Sequence[str] = ("utf-8", "utf-8-sig", "cp1252", "latin-1"),
+    **kwargs,
+) -> pd.DataFrame:
+    """Load a CSV trying multiple encodings before replacing undecodable bytes."""
+
+    last_error: Optional[Exception] = None
+    for encoding in encodings:
+        try:
+            return pd.read_csv(path, encoding=encoding, **kwargs)
+        except (UnicodeDecodeError, LookupError) as exc:
+            last_error = exc
+            continue
+    with path.open("rb") as fh:
+        buffer = fh.read().decode("utf-8", errors="replace")
+    if last_error is not None:
+        warnings.warn(
+            f"Decoding issues detected while reading {path}; characters outside the fallback encoding were replaced.",
+            RuntimeWarning,
+        )
+    return pd.read_csv(io.StringIO(buffer), **kwargs)
 
 
 def _parse_waveform_column(column: Sequence[str]) -> np.ndarray:
@@ -471,6 +497,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self.pipette_rotation_deg = settings.pipette_rotation_deg
         self.load_next_obs = settings.load_next_obs
         self.frequency_mod = int(max(1, settings.frequency_mod))
+        self.displacement = float(abs(settings.displacement))
 
         self.dataset_dir, self.dataset_path = _ensure_dataset_stub(settings.dataset_name, create_file=False)
         self._base_dataset_name = self.dataset_name
@@ -676,6 +703,60 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             out[k] = actions[a : b + 1].sum(axis=0)
         return out
 
+
+    def _select_displacement_indices(
+        self,
+        stage_positions: np.ndarray,
+        pipette_positions: np.ndarray,
+        displacement: float,
+    ) -> Optional[np.ndarray]:
+        """Return indices ensuring each retained step exceeds the displacement threshold."""
+        if displacement <= 0 or stage_positions.shape[0] <= 1:
+            return None
+
+        keep: List[int] = [0]
+        last_stage = stage_positions[0].astype(np.float64, copy=True)
+        last_pipette = pipette_positions[0].astype(np.float64, copy=True)
+
+        for idx in range(1, stage_positions.shape[0]):
+            stage_delta = stage_positions[idx] - last_stage
+            pipette_delta = pipette_positions[idx] - last_pipette
+            if (
+                np.linalg.norm(stage_delta) >= displacement
+                or np.linalg.norm(pipette_delta) >= displacement
+            ):
+                keep.append(idx)
+                last_stage = stage_positions[idx].astype(np.float64, copy=True)
+                last_pipette = pipette_positions[idx].astype(np.float64, copy=True)
+
+        final_idx = stage_positions.shape[0] - 1
+        if keep[-1] != final_idx:
+            keep.append(final_idx)
+
+        if len(keep) == stage_positions.shape[0]:
+            return None
+
+        return np.array(keep, dtype=np.int64)
+
+    def _apply_displacement_filter(
+        self,
+        attempt_graph_values: np.ndarray,
+        attempt_movement_values: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Downsample attempt arrays according to the minimum displacement rule."""
+        displacement = abs(getattr(self, "displacement", 0.0))
+        if displacement <= 0 or attempt_movement_values.shape[0] <= 1:
+            return attempt_graph_values, attempt_movement_values
+
+        stage_positions = attempt_movement_values[:, 1:4].astype(np.float64, copy=False)
+        pipette_positions = attempt_movement_values[:, 4:].astype(np.float64, copy=False)
+
+        indices = self._select_displacement_indices(stage_positions, pipette_positions, displacement)
+        if indices is None:
+            return attempt_graph_values, attempt_movement_values
+
+        return attempt_graph_values[indices], attempt_movement_values[indices]
+
     # --- CSV conversion utilities ----------------------------------------
     def convert_graph_recording_csv_to_new_format(self, demo_file_path: str) -> None:
         """Rewrite ``graph_recording.csv`` with semicolon-separated fields.
@@ -736,7 +817,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         graph_values = pd.read_csv(base / "graph_recording.csv", delimiter=";").to_numpy()
         movement_values = pd.read_csv(base / "movement_recording.csv", delimiter=";").to_numpy()
         log_file = Path("experiments/Data/log_data") / f"logs_{rig_recorder_data_folder[:10]}.csv"
-        log_values = pd.read_csv(log_file, on_bad_lines="skip")
+        log_values = _read_csv_with_fallback(log_file, on_bad_lines="skip")
         return graph_values, movement_values, log_values
 
     # --- Log parsing -----------------------------------------------------
@@ -1157,23 +1238,28 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         include_high_level_actions: bool = False,
     ) -> np.ndarray:
         """Return low-level deltas (and optional command hashes) per timestep."""
-        movement_actions = np.diff(attempt_movement_values[:, 1:], axis=0)
-        movement_actions = np.vstack([
-            np.zeros(attempt_movement_values.shape[1] - 1),
-            movement_actions,
-        ])
+        stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
+        pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
 
-        stage_delta = movement_actions[:, :3].copy()
-        pip_raw_delta = movement_actions[:, 3:6].copy()
+        stage_delta = np.vstack([
+            np.zeros((1, stage_positions.shape[1]), dtype=np.float64),
+            np.diff(stage_positions, axis=0),
+        ])
+        pip_raw_delta = np.vstack([
+            np.zeros((1, pipette_positions.shape[1]), dtype=np.float64),
+            np.diff(pipette_positions, axis=0),
+        ])
 
         if self.stage_y_axis_flip:
             stage_delta[:, 1] = -stage_delta[:, 1]
 
         pip_rot_delta = self._rotate_positions(pip_raw_delta, self.pipette_rotation_deg)
 
-        movement_actions[:, :3] = stage_delta
-        movement_actions[:, 3:5] = stage_delta[:, :2] + pip_rot_delta[:, :2]
-        movement_actions[:, 5] = pip_rot_delta[:, 2]
+        movement_actions = np.hstack([stage_delta, pip_raw_delta])
+        stage_dim = stage_delta.shape[1]
+        movement_actions[:, :stage_dim] = stage_delta
+        movement_actions[:, stage_dim : stage_dim + 2] = stage_delta[:, :2] + pip_rot_delta[:, :2]
+        movement_actions[:, stage_dim + 2] = pip_rot_delta[:, 2]
 
         if include_high_level_actions:
             action_logs = log_values[
@@ -1583,6 +1669,10 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                     attempt_movement_values = self.associate_attempt_movement_and_graph_values(
                         attempt_graph_values, movement_values
                     )
+                    attempt_graph_values, attempt_movement_values = self._apply_displacement_filter(
+                        attempt_graph_values,
+                        attempt_movement_values,
+                    )
 
                     dones = self.get_attempt_dones(attempt_graph_values)
 
@@ -1765,13 +1855,13 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    dataset_name = "PatcherBot_test_dataset_v0_002.hdf5"
+    dataset_name = "PatcherBot_test_dataset_v0_006.hdf5"
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
     # rig_recorder_data_folder_set = [
     #     "2025_09_25-20_43",
     #     "2025_09_25-21_39"
     #     ] # version 0.001 training data (9/25/2025)
-    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
+    # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
     
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",
@@ -1779,7 +1869,9 @@ if __name__ == "__main__":
     #     "2025_05_20-14_05",
     #     "2025_04_10-11_57",
     #     "2025_04_10-12_16",
-    # ]
+    # ] # HEK training data (5/20/2025, 4/10/2025)
+
+    rig_recorder_data_folder_set = ["2025_04_07-15_50"] # HEK testing data
 
 
     builder = DatasetBuilder2(
@@ -1796,6 +1888,14 @@ if __name__ == "__main__":
         builder.add_demo(rig_recorder_data_folder=folder, record_to_file=True)
 
     builder.write_split_masks()
+
+
+
+
+
+
+
+
 
 
 
