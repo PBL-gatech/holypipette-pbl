@@ -273,7 +273,7 @@ class AutoPatchHelper:
             model_payload = (pip, stage, img)
         if self._finder_state_snapshot is not None:
             self.finder.set_state_snapshot(self._finder_state_snapshot)
-        print(f"pipette finder payload prepared {type(model_payload)}")
+        # print(f"pipette finder payload prepared {type(model_payload)}")
 
         pos, h0_out, c0_out = self.finder.inference(model_payload, self.finderh0, self.finderc0)
         snapshot = self.finder.get_state_snapshot()
@@ -283,9 +283,13 @@ class AutoPatchHelper:
             self.finderc0 = snapshot.get("c0")
         else:
             self.finderh0, self.finderc0 = h0_out, c0_out
-        print(f"pipette finder inference returned pos {pos}")
+        print(f"pipette finder inference returned pos in pixels {pos}")
         pos = np.asarray(pos).reshape(-1)
         pos = self.pixels_to_microns(pos)
+        print(f"pipette finder inference returned pos in microns {pos}")
+        pip_disp = pos[3:] - pip
+        print(f"pipette finder inference displacement pos in microns {pip_disp}")
+
         return self.clamp_positions(pos)
 
     def gigaseal(self,mode,type,input):

@@ -89,7 +89,7 @@ class DatasetBuilderSettings:
     filter: FilterSettings = field(default_factory=FilterSettings)
 
     # Legacy toggles preserved for parity with DatasetBuilder
-    calibrate: bool = True # set to true to apply calibration transform
+    calibrate: bool = False # set to true to apply calibration transform
     zero_values: bool = False # set to true to zero out starting positions
     center_crop: bool = True # set to true to center crop images around pipette
     rotate: bool = False # set to true to augment training set with rotations
@@ -1855,12 +1855,12 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    dataset_name = "PatcherBot_test_dataset_v0_006.hdf5"
+    dataset_name = "PatcherBot_dataset_v0_007.hdf5"
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
-    # rig_recorder_data_folder_set = [
-    #     "2025_09_25-20_43",
-    #     "2025_09_25-21_39"
-    #     ] # version 0.001 training data (9/25/2025)
+    rig_recorder_data_folder_set = [
+        "2025_09_25-20_43",
+        "2025_09_25-21_39"
+        ] # version 0.001 training data (9/25/2025)
     # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
     
     # rig_recorder_data_folder_set = [
@@ -1871,13 +1871,13 @@ if __name__ == "__main__":
     #     "2025_04_10-12_16",
     # ] # HEK training data (5/20/2025, 4/10/2025)
 
-    rig_recorder_data_folder_set = ["2025_04_07-15_50"] # HEK testing data
+    # rig_recorder_data_folder_set = ["2025_04_07-15_50"] # HEK testing data
 
 
     builder = DatasetBuilder2(
         dataset_name=dataset_name,
         calfile=r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\Calibration_data\2025_09_25-19_18\calibration.pickle",
-        val_ratio=0,
+        val_ratio=1/10,
         omit_stage_movement=True,
         random_seed=0,
         load_next_obs=False,
