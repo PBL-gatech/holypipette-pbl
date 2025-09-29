@@ -56,14 +56,17 @@ class CalibrationConfig(Config):
                                      bounds=(50, 10000))
     stage_x_axis_flip = Boolean(False, 
                                 doc='Flip the x axis of the stage')
-    stage_y_axis_flip = Boolean(True, 
+    stage_y_axis_flip = Boolean(False, 
                                 doc='Flip the y axis of the stage')
-    pipette_z_rotation = NumberWithUnit(-60.75, unit = 'degrees',
+    pipette_z_rotation = NumberWithUnit(-17.1, unit = 'degrees',
                                 doc='Rotation of the pipette in the xy plane (degrees)',
                                 bounds=(-360, 360))
     pipette_y_rotation = NumberWithUnit(25, unit = 'degrees',
                                 doc='Rotation of the pipette in the xz plane (degrees)',
                                 bounds=(-90, 90))
+    pipette_k_scale = Number(-0.79,
+                                doc='Scaling factor for pipette movement',
+                                bounds=(-10.0, 10.0))
     
 
     categories = [('Stage Calibration', ['autofocus_dist', 'stage_diag_move', 'frame_lag']),
@@ -72,6 +75,7 @@ class CalibrationConfig(Config):
                   ('Stage y-axis flip?', ['stage_y_axis_flip']),
                   ('Pipette z-axis rotation', ['pipette_z_rotation']),
                   ('Pipette y-axis rotation', ['pipette_y_rotation']),
+                  ('Pipette k scale', ['pipette_k_scale']),
                   ('Display', ['position_update'])]
 
 
@@ -290,19 +294,19 @@ class CalibratedUnit(ManipulatorUnit):
             coordinates[1] = -coordinates[1]
         if axis == 0:
             # Rotation matrix around the X-axis.
-            R = np.array([[1, 0, 0],
+            R = self.config.pipette_k_scale*np.array([[1, 0, 0],
                           [0, np.cos(theta), -np.sin(theta)],
                           [0, np.sin(theta),  np.cos(theta)]])
         elif axis == 1:
             # Rotation matrix around the Y-axis.
             theta = self.config.pipette_y_rotation * np.pi / 180
-            R = np.array([[np.cos(theta), 0, np.sin(theta)],
+            R = self.config.pipette_k_scale*np.array([[np.cos(theta), 0, np.sin(theta)],
                           [0, 1, 0],
                           [-np.sin(theta), 0, np.cos(theta)]])
         elif axis == 2:
             theta = self.config.pipette_z_rotation * np.pi / 180
             # Rotation matrix around the Z-axis.
-            R = np.array([[np.cos(theta), -np.sin(theta), 0],
+            R = self.config.pipette_k_scale*np.array([[np.cos(theta), -np.sin(theta), 0],
                           [np.sin(theta),  np.cos(theta), 0],
                           [0, 0, 1]])
         else:
@@ -467,12 +471,14 @@ class CalibratedUnit(ManipulatorUnit):
 
         self.debug(f'New offsets: {self.r0}, {self.r0_inv}')
 
-    def follow_stage(self, movement = 250):
+    def follow_stage(self, movement = 200):
         '''
         Moves the pipette to follow the stage, method used for testing/calibration.
         '''
+        # make movement random in both axes
+        movement_vector = np.array([movement-np.random.rand()*2*movement, movement-np.random.rand()*2*movement, 0])
         #1. move stage by movement in both axes 
-        movement_vector = np.array([movement, movement, 0])
+        # movement_vector = np.array([movement, -movement, 0])
         self.stage.relative_move(movement_vector)
         self.stage.wait_until_still()
         #2. rotate movement vector around z axis by pipette_z_rotation
