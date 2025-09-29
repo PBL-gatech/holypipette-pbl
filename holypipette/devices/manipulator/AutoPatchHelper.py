@@ -20,7 +20,7 @@ class AutoPatchHelper:
     Gigasealing
     Break in
     """
-    def __init__(self):
+    def __init__(self, *, calibration_enabled: bool = False):
         self.hunter = CellHunter()
         self.finder = PipetteFinder()
         self.gigasealer = GigaSealer()
@@ -41,7 +41,16 @@ class AutoPatchHelper:
         self.stage_Minv: Optional[np.ndarray] = None
         self.stage_r0: Optional[np.ndarray] = None
         self.stage_r0_inv: Optional[np.ndarray] = None
+        self.calibration_enabled = calibration_enabled
 
+
+    @property
+    def calibration_enabled(self) -> bool:
+        return getattr(self, "_calibration_enabled", False)
+
+    @calibration_enabled.setter
+    def calibration_enabled(self, enabled: bool):
+        self._calibration_enabled = bool(enabled)
 
 
     def load_calibration(self, path: Optional[Union[str, Path]] = None):
@@ -122,11 +131,14 @@ class AutoPatchHelper:
         self.stage_r0_inv = None
 
     def _ensure_calibration(self):
+        if not self.calibration_enabled:
+            return False
         if self.pipette_M is None:
             try:
                 self.load_calibration()
             except FileNotFoundError:
                 self._set_identity_calibration()
+                return False
         return True
 
     def _split_vectors(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]]):
@@ -156,8 +168,9 @@ class AutoPatchHelper:
 
     def microns_to_pixels(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]], *, split: bool = False):
         """Convert microns to pixels using cached calibration matrices."""
-        self._ensure_calibration()
         stage_vec, pip_vec, combined, paired = self._split_vectors(values)
+        if not self._ensure_calibration():
+            return self._combine_results(stage_vec, pip_vec, combined, split or paired)
 
         stage_result = stage_vec.copy()
         if self.stage_M is not None:
@@ -174,8 +187,9 @@ class AutoPatchHelper:
 
     def pixels_to_microns(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]], *, split: bool = False):
         """Convert pixels to microns using cached calibration matrices."""
-        self._ensure_calibration()
         stage_vec, pip_vec, combined, paired = self._split_vectors(values)
+        if not self._ensure_calibration():
+            return self._combine_results(stage_vec, pip_vec, combined, split or paired)
 
         stage_result = stage_vec.copy()
         if self.stage_Minv is not None:

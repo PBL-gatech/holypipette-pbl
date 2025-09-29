@@ -1855,13 +1855,13 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    dataset_name = "PatcherBot_dataset_v0_007.hdf5"
+    dataset_name = "PatcherBot_test_dataset_v0_007.hdf5"
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
-    rig_recorder_data_folder_set = [
-        "2025_09_25-20_43",
-        "2025_09_25-21_39"
-        ] # version 0.001 training data (9/25/2025)
-    # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
+    # rig_recorder_data_folder_set = [
+    #     "2025_09_25-20_43",
+    #     "2025_09_25-21_39"
+    #     ] # version 0.001 training data (9/25/2025)
+    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
     
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",
@@ -1877,7 +1877,7 @@ if __name__ == "__main__":
     builder = DatasetBuilder2(
         dataset_name=dataset_name,
         calfile=r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\Calibration_data\2025_09_25-19_18\calibration.pickle",
-        val_ratio=1/10,
+        val_ratio=0,
         omit_stage_movement=True,
         random_seed=0,
         load_next_obs=False,

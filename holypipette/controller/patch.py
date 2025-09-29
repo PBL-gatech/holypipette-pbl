@@ -131,7 +131,7 @@ class AutoPatcher(TaskController):
                 pipette_action = action[3:]
                 self.info(f"pipette predicition: {pipette_action} um")
                 # inverse pipette action with calibration
-                # self.calibrated_unit.absolute_move(pipette_action)
+                # self.calibrated_unit.relative_move(pipette_action)
                 # if model prediction value is less than 0.1 in all dimensions 5 times in a row, we are done
                 if np.linalg.norm(pipette_action) < 0.1:
                     count +=1
