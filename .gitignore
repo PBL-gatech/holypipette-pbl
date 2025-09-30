@@ -43,3 +43,5 @@ holypipette/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
 /holypipette/deepLearning/patchModel/NeuronHunter/test_data
 /holypipette/deepLearning/patchModel/test_data
 /holypipette/temp
+/.codex_tmp/_yaml
+/.codex_tmp

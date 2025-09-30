@@ -176,7 +176,7 @@ class PipetteControlTester(PipetteFinder):
         num_layers: int = 2,
         hidden_size: int = 400,
         prefill_init: bool = False,
-        center_crop: bool = True,
+        center_crop: bool = False,
     ) -> None:
         self.model_path = Path(model_path)
         self.data_path = Path(data_path)
@@ -269,6 +269,7 @@ class AutoPatchTester:
         save_dir: Optional[Path | str] = None,
         animation_fname: str = "pipette_trajectory.gif",
         animation_fps: int = 60,
+        position_round_decimals: Optional[int] = 2,
         tester_kwargs: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.model_path = Path(model_path)
@@ -278,6 +279,7 @@ class AutoPatchTester:
         self.save_dir = Path(save_dir) if save_dir is not None else self.model_path.parent
         self.animation_fname = animation_fname
         self.animation_fps = animation_fps
+        self.position_round_decimals = position_round_decimals
 
         tester_kwargs = dict(tester_kwargs or {})
         if "demo_id" not in tester_kwargs:
@@ -299,9 +301,19 @@ class AutoPatchTester:
         self.predicted_pip_deltas: Optional[np.ndarray] = None
         self.observed_pip_deltas: Optional[np.ndarray] = None
 
+    def _rounded_positions(self, array: np.ndarray) -> np.ndarray:
+        if array is None:
+            return None
+        if self.position_round_decimals is None:
+            return np.asarray(array)
+        return np.round(np.asarray(array), self.position_round_decimals)
+
+
     def run(self) -> None:
         self._compute_latency_and_error()
         self._plot_static_trajectory()
+        self._plot_raw_predictions()
+        self._plot_predicted_xy_trajectory()
         self._animate_trajectory(save_gif=True)
 
     def _compute_latency_and_error(self) -> None:
@@ -382,10 +394,12 @@ class AutoPatchTester:
         self.predicted_pip_deltas = pred_deltas
         self.observed_pip_deltas = next_positions - base_positions
 
+        debug_pred = self._rounded_positions(self.predicted_pip_positions)
+        debug_obs = self._rounded_positions(self.observed_pip_positions)
         print(
             '[DEBUG] Predicted endpoints: {} | Observed endpoints: {}'.format(
-                self.predicted_pip_positions,
-                self.observed_pip_positions,
+                debug_pred,
+                debug_obs,
             )
         )
 
@@ -416,9 +430,9 @@ class AutoPatchTester:
                 vmax += pad
             return vmin, vmax
 
-        base = self.reference_pip_positions
-        predicted = self.predicted_pip_positions
-        observed = self.observed_pip_positions
+        base = self._rounded_positions(self.reference_pip_positions)
+        predicted = self._rounded_positions(self.predicted_pip_positions)
+        observed = self._rounded_positions(self.observed_pip_positions)
 
         n_steps = predicted.shape[0]
         norm = plt.Normalize(vmin=0, vmax=max(n_steps, 1))
@@ -503,6 +517,62 @@ class AutoPatchTester:
         ax.legend(handles=handles, loc='best')
         plt.show()
 
+
+
+
+    def _plot_raw_predictions(self) -> None:
+        if self.predicted_pip_deltas is None:
+            raise RuntimeError('Predicted deltas unavailable; call run() first')
+
+        predicted = self._rounded_positions(self.predicted_pip_deltas)
+        if predicted is None or predicted.size == 0:
+            raise RuntimeError('Predicted delta array is empty')
+
+        steps = np.arange(1, predicted.shape[0] + 1, dtype=np.int32)
+
+        fig, axes = plt.subplots(2, 1, sharex=True, figsize=(10, 8))
+        labels = ('Predicted dX', 'Predicted dY')
+        colors = ('tab:blue', 'tab:orange')
+        component_ids = (0, 1)
+
+        for ax, comp, label, color in zip(axes, component_ids, labels, colors):
+            ax.plot(steps, predicted[:, comp], color=color, linewidth=1.2)
+            ax.set_ylabel(label)
+            ax.grid(True, alpha=0.3)
+
+        axes[0].set_title('Raw Model Predictions (dX and dY)')
+        axes[-1].set_xlabel('Step (t)')
+        plt.tight_layout()
+        plt.show()
+
+    def _plot_predicted_xy_trajectory(self) -> None:
+        if self.predicted_pip_positions is None:
+            raise RuntimeError('Predicted trajectory unavailable; call run() first')
+
+        predicted = self._rounded_positions(self.predicted_pip_positions)
+        if predicted is None or predicted.size == 0:
+            raise RuntimeError('Predicted trajectory array is empty')
+
+        steps = np.arange(1, predicted.shape[0] + 1, dtype=np.int32)
+        xs = predicted[:, 0]
+        ys = predicted[:, 1]
+
+        fig = plt.figure(figsize=(10, 6))
+        ax = fig.add_subplot(111, projection='3d')
+        color_vals = np.linspace(0.4, 1.0, steps.size)
+        scatter_colors = plt.cm.Blues(color_vals)
+
+        ax.plot(steps, xs, ys, color='tab:blue', linewidth=1.1, alpha=0.6)
+        ax.scatter(steps, xs, ys, c=scatter_colors, s=35, marker='o', label='Predicted (t+1)')
+
+        ax.set_title('Predicted XY Trajectory Across Steps')
+        ax.set_xlabel('Step (t)')
+        ax.set_ylabel('Predicted X')
+        ax.set_zlabel('Predicted Y')
+        ax.legend(loc='best')
+        plt.tight_layout()
+        plt.show()
+
     def _animate_trajectory(self, *, save_gif: bool = True) -> None:
         if (
             self.reference_pip_positions is None
@@ -511,9 +581,9 @@ class AutoPatchTester:
         ):
             raise RuntimeError('Trajectory data unavailable; call run() first')
 
-        base = self.reference_pip_positions
-        predicted = self.predicted_pip_positions
-        observed = self.observed_pip_positions
+        base = self._rounded_positions(self.reference_pip_positions)
+        predicted = self._rounded_positions(self.predicted_pip_positions)
+        observed = self._rounded_positions(self.observed_pip_positions)
         error_mag = np.linalg.norm(predicted - observed, axis=1)
 
         def _trunc_cmap(base_cmap, start=0.5, stop=1.0, n=256):
@@ -686,10 +756,10 @@ DEFAULT_DATA_PATH = Path(__file__).resolve().parents[1] / "testing" / "data" / "
 # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_006\PatcherBot_test_dataset_v0_006_hunt_cell.hdf5"
 
 
-model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_007.onnx"
-# # model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\df_PipetteFinder_v0_004.onnx"
+# model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_007.onnx"
+model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\df_PipetteFinder_v0_004.onnx"
 # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_005\PatcherBot_test_dataset_v0_005_find_pipette.hdf5"
-data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_007\PatcherBot_test_dataset_v0_007_find_pipette.hdf5"
+data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_002\PatcherBot_test_dataset_v0_002_find_pipette.hdf5"
 
 
 def main() -> None:
@@ -705,6 +775,8 @@ def main() -> None:
 
     tester._compute_latency_and_error()
     tester._plot_static_trajectory()
+    tester._plot_raw_predictions()
+    tester._plot_predicted_xy_trajectory()
     tester._animate_trajectory(save_gif=True)
 
 

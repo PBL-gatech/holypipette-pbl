@@ -20,6 +20,7 @@ class AutoPatchHelper:
     Gigasealing
     Break in
     """
+
     def __init__(self, *, calibration_enabled: bool = False):
         self.hunter = CellHunter()
         self.finder = PipetteFinder()
@@ -33,31 +34,14 @@ class AutoPatchHelper:
         self._hunter_state_snapshot = None
         self._finder_state_snapshot = None
         self.calibration_path: Optional[Path] = None
-        self.pipette_M: Optional[np.ndarray] = None
-        self.pipette_Minv: Optional[np.ndarray] = None
-        self.pipette_r0: Optional[np.ndarray] = None
-        self.pipette_r0_inv: Optional[np.ndarray] = None
-        self.stage_M: Optional[np.ndarray] = None
-        self.stage_Minv: Optional[np.ndarray] = None
-        self.stage_r0: Optional[np.ndarray] = None
-        self.stage_r0_inv: Optional[np.ndarray] = None
-        self.calibration_enabled = calibration_enabled
-
-
-    @property
-    def calibration_enabled(self) -> bool:
-        return getattr(self, "_calibration_enabled", False)
-
-    @calibration_enabled.setter
-    def calibration_enabled(self, enabled: bool):
-        self._calibration_enabled = bool(enabled)
-
+        self._calibration = {"pipette": None, "stage": None}
+        self.cal_enabled = bool(calibration_enabled)
+        self._model_meta = {}
 
     def load_calibration(self, path: Optional[Union[str, Path]] = None):
         """Load calibration data and cache the affine transforms."""
         candidate = path or self.calibration_path or DEFAULT_CALIBRATION_PATH
-        candidate = Path(candidate)
-        candidate = candidate.expanduser()
+        candidate = Path(candidate).expanduser()
         if not candidate.exists():
             raise FileNotFoundError(f"Calibration file not found: {candidate}")
 
@@ -71,138 +55,98 @@ class AutoPatchHelper:
         if not isinstance(payload, dict):
             raise ValueError(f"Unsupported calibration format in {candidate}")
 
+        def _coerce(entry):
+            if entry is None or "M" not in entry:
+                return None
+            matrix = np.asarray(entry["M"], dtype=np.float64)
+            if matrix.ndim != 2 or matrix.size == 0:
+                raise ValueError("Calibration matrix must be a non-empty 2-D array")
+            offset = np.asarray(entry.get("r0", np.zeros(matrix.shape[0])), dtype=np.float64).reshape(-1)
+            if offset.size < matrix.shape[0]:
+                offset = np.pad(offset, (0, matrix.shape[0] - offset.size), constant_values=0.0)
+            elif offset.size > matrix.shape[0]:
+                offset = offset[:matrix.shape[0]]
+            matrix_inv = np.linalg.pinv(matrix)
+            offset_inv = -matrix_inv @ offset
+            return {"M": matrix, "Minv": matrix_inv, "r0": offset, "r0_inv": offset_inv}
+
         manip_entry = payload.get("manip") or payload.get("pipette") or payload
         stage_entry = payload.get("stage")
 
-        self._set_transform_from_entry("pipette", manip_entry)
-        if stage_entry is not None:
-            self._set_transform_from_entry("stage", stage_entry)
-        else:
-            self.stage_M = self.stage_Minv = self.stage_r0 = self.stage_r0_inv = None
-
+        self._calibration["pipette"] = _coerce(manip_entry)
+        self._calibration["stage"] = _coerce(stage_entry) if stage_entry is not None else None
         self.calibration_path = candidate
+
         return {
-            "pipette": {"M": self.pipette_M, "r0": self.pipette_r0},
-            "stage": {"M": self.stage_M, "r0": self.stage_r0} if self.stage_M is not None else None,
+            "pipette": {"M": self._calibration["pipette"]["M"], "r0": self._calibration["pipette"]["r0"]} if self._calibration["pipette"] else None,
+            "stage": {"M": self._calibration["stage"]["M"], "r0": self._calibration["stage"]["r0"]} if self._calibration["stage"] else None,
             "path": candidate,
         }
 
-    def _set_transform_from_entry(self, which: str, entry: dict):
-        if entry is None or "M" not in entry:
-            raise ValueError(f"Calibration entry for {which} is missing an 'M' matrix.")
-        matrix = np.asarray(entry.get("M"), dtype=np.float64)
-        if matrix.size == 0:
-            raise ValueError(f"Calibration matrix for {which} is empty.")
-
-        offset = entry.get("r0")
-        if offset is None:
-            offset_vec = np.zeros(matrix.shape[0], dtype=np.float64)
+    def apply_calibration(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]], *, direction: str = "to_pixels", split: bool = False):
+        """Convert coordinates between microns and pixels using cached calibration matrices."""
+        mode = direction.lower()
+        if mode in {"to_pixels", "microns_to_pixels", "um_to_pixels", "forward"}:
+            forward = True
+        elif mode in {"to_microns", "pixels_to_microns", "pixel_to_um", "pixels_to_um", "inverse"}:
+            forward = False
         else:
-            offset_vec = np.asarray(offset, dtype=np.float64).reshape(-1)
-            if offset_vec.size < matrix.shape[0]:
-                offset_vec = np.pad(offset_vec, (0, matrix.shape[0] - offset_vec.size), constant_values=0.0)
-            elif offset_vec.size > matrix.shape[0]:
-                offset_vec = offset_vec[:matrix.shape[0]]
+            raise ValueError(f"Unsupported direction '{direction}'. Expected 'to_pixels' or 'to_microns'.")
 
-        matrix_inv = np.linalg.pinv(matrix)
-        offset_inv = -matrix_inv @ offset_vec
+        def _split(vals):
+            if isinstance(vals, (tuple, list)) and len(vals) == 2:
+                stage_vec = np.asarray(vals[0], dtype=np.float64).reshape(-1)
+                pip_vec = np.asarray(vals[1], dtype=np.float64).reshape(-1)
+                return stage_vec, pip_vec, None, True
+            arr = np.asarray(vals, dtype=np.float64).reshape(-1)
+            if arr.size < 6:
+                raise ValueError("Expected at least six values combining stage and pipette coordinates.")
+            return arr[:3], arr[3:6], arr, False
 
-        if which == "pipette":
-            self.pipette_M = matrix
-            self.pipette_Minv = matrix_inv
-            self.pipette_r0 = offset_vec
-            self.pipette_r0_inv = offset_inv
-        else:
-            self.stage_M = matrix
-            self.stage_Minv = matrix_inv
-            self.stage_r0 = offset_vec
-            self.stage_r0_inv = offset_inv
+        def _merge(stage_vec, pip_vec, combined, want_split):
+            if combined is None:
+                if want_split:
+                    return stage_vec.astype(np.float32), pip_vec.astype(np.float32)
+                return np.concatenate([stage_vec, pip_vec]).astype(np.float32)
+            merged = combined.copy()
+            merged[:stage_vec.shape[0]] = stage_vec
+            merged[3:3 + pip_vec.shape[0]] = pip_vec
+            if want_split:
+                return merged[:stage_vec.shape[0]].astype(np.float32), merged[3:3 + pip_vec.shape[0]].astype(np.float32)
+            return merged.astype(np.float32)
 
-    def _set_identity_calibration(self):
-        identity = np.eye(3, dtype=np.float64)
-        zeros = np.zeros(3, dtype=np.float64)
-        self.pipette_M = identity
-        self.pipette_Minv = identity
-        self.pipette_r0 = zeros
-        self.pipette_r0_inv = zeros
-        self.stage_M = None
-        self.stage_Minv = None
-        self.stage_r0 = None
-        self.stage_r0_inv = None
-
-    def _ensure_calibration(self):
-        if not self.calibration_enabled:
-            return False
-        if self.pipette_M is None:
+        stage_vec, pip_vec, combined, paired = _split(values)
+        if not self.cal_enabled:
+            return _merge(stage_vec, pip_vec, combined, split or paired)
+        if self._calibration["pipette"] is None:
             try:
                 self.load_calibration()
             except FileNotFoundError:
-                self._set_identity_calibration()
-                return False
-        return True
+                return _merge(stage_vec, pip_vec, combined, split or paired)
+        pip_entry = self._calibration.get("pipette")
+        stage_entry = self._calibration.get("stage")
 
-    def _split_vectors(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]]):
-        if isinstance(values, (tuple, list)) and len(values) == 2:
-            stage = np.asarray(values[0], dtype=np.float64).reshape(-1)
-            pipette = np.asarray(values[1], dtype=np.float64).reshape(-1)
-            return stage, pipette, None, True
+        def _apply(entry, vec):
+            if entry is None:
+                return vec.astype(np.float32)
+            out = vec.astype(np.float64, copy=True)
+            if forward:
+                matrix = entry["M"]
+                offset = entry["r0"]
+                out_dim = matrix.shape[0]
+                in_dim = min(matrix.shape[1], vec.size)
+                out[:out_dim] = matrix @ vec[:in_dim] + offset[:out_dim]
+            else:
+                matrix = entry["Minv"]
+                offset = entry["r0_inv"]
+                rows = min(entry["M"].shape[0], vec.size)
+                out_dim = matrix.shape[0]
+                out[:out_dim] = matrix @ vec[:rows] + offset[:out_dim]
+            return out.astype(np.float32)
 
-        arr = np.asarray(values, dtype=np.float64).reshape(-1)
-        if arr.size < 6:
-            raise ValueError("Expected at least six values combining stage and pipette coordinates.")
-        return arr[:3], arr[3:6], arr, False
-
-    @staticmethod
-    def _combine_results(stage, pipette, combined, return_split):
-        if combined is None:
-            if return_split:
-                return stage.astype(np.float32), pipette.astype(np.float32)
-            return np.concatenate([stage, pipette]).astype(np.float32)
-
-        merged = combined.copy()
-        merged[:stage.shape[0]] = stage
-        merged[3:3 + pipette.shape[0]] = pipette
-        if return_split:
-            return merged[:stage.shape[0]].astype(np.float32), merged[3:3 + pipette.shape[0]].astype(np.float32)
-        return merged.astype(np.float32)
-
-    def microns_to_pixels(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]], *, split: bool = False):
-        """Convert microns to pixels using cached calibration matrices."""
-        stage_vec, pip_vec, combined, paired = self._split_vectors(values)
-        if not self._ensure_calibration():
-            return self._combine_results(stage_vec, pip_vec, combined, split or paired)
-
-        stage_result = stage_vec.copy()
-        if self.stage_M is not None:
-            out_dim = self.stage_M.shape[0]
-            in_dim = min(self.stage_M.shape[1], stage_vec.size)
-            stage_result[:out_dim] = self.stage_M @ stage_vec[:in_dim] + self.stage_r0
-
-        pip_result = pip_vec.copy()
-        out_dim = self.pipette_M.shape[0]
-        in_dim = min(self.pipette_M.shape[1], pip_vec.size)
-        pip_result[:out_dim] = self.pipette_M @ pip_vec[:in_dim] + self.pipette_r0
-
-        return self._combine_results(stage_result, pip_result, combined, split or paired)
-
-    def pixels_to_microns(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]], *, split: bool = False):
-        """Convert pixels to microns using cached calibration matrices."""
-        stage_vec, pip_vec, combined, paired = self._split_vectors(values)
-        if not self._ensure_calibration():
-            return self._combine_results(stage_vec, pip_vec, combined, split or paired)
-
-        stage_result = stage_vec.copy()
-        if self.stage_Minv is not None:
-            rows = self.stage_M.shape[0]
-            out_dim = self.stage_Minv.shape[0]
-            stage_result[:out_dim] = self.stage_Minv @ stage_vec[:rows] + self.stage_r0_inv
-
-        pip_result = pip_vec.copy()
-        rows = self.pipette_M.shape[0]
-        out_dim = self.pipette_Minv.shape[0]
-        pip_result[:out_dim] = self.pipette_Minv @ pip_vec[:rows] + self.pipette_r0_inv
-
-        return self._combine_results(stage_result, pip_result, combined, split or paired)
+        stage_result = _apply(stage_entry, stage_vec)
+        pip_result = _apply(pip_entry, pip_vec)
+        return _merge(stage_result, pip_result, combined, split or paired)
 
     def hunt(self, model_input):
         """
@@ -212,8 +156,15 @@ class AutoPatchHelper:
           • Legacy models: pass (pip, stage, img, res); CellHunter will normalize/crop/stack.
         """
         # Ensure model is loaded and wrapper flags are known
-        if not hasattr(self, "_hunter_uses_wrapper") or getattr(self.hunter, "input_names", None) is None:
+        if self.hunter.session is None:
             self.prepare_model("hunt")
+
+        info = self._model_meta.get("hunt")
+        if info is None:
+            info = self.hunter.identify_model()
+            self._model_meta["hunt"] = info
+        uses_wrapper = info.get("uses_wrapper", False)
+        has_goal = info.get("has_goal", False)
 
         # Coerce observation (mild normalization of types/shapes only)
         pip, stage, img, res = model_input
@@ -223,15 +174,15 @@ class AutoPatchHelper:
             stage = np.concatenate([stage, [0.0]]).astype(np.float32)
         else:
             stage = stage[:3].astype(np.float32)
-        stage, pip = self.microns_to_pixels((stage, pip), split=True)
+        stage, pip = self.apply_calibration((stage, pip), direction="to_pixels", split=True)
         res = np.asarray(res, np.float32).reshape(-1)
         img = np.asarray(img)
         if img.ndim == 2:  # gray → 3‑chan
             img = np.stack([img]*3, axis=-1)
 
-        if getattr(self, "_hunter_uses_wrapper", False):
+        if uses_wrapper:
             payload = {"obs": (pip, stage, img, res)}
-            if getattr(self, "_hunter_has_goal", False) and hasattr(self, "_goal") and len(self._goal) > 0:
+            if has_goal and hasattr(self, "_goal") and len(self._goal) > 0:
                 # Partial goal OK (e.g., no image) — CellHunter fills missing keys from obs
                 payload["goal"] = self._goal
             model_payload = payload
@@ -251,7 +202,7 @@ class AutoPatchHelper:
             self.hunterh0, self.hunterc0 = h0_out, c0_out
         print(f"model inference returned pos {pos}")
         pos = np.asarray(pos).reshape(-1)     # (6,)
-        pos = self.pixels_to_microns(pos)
+        pos = self.apply_calibration(pos, direction="to_microns")
         pos = self.clamp_positions(pos)
         return pos
 
@@ -262,8 +213,15 @@ class AutoPatchHelper:
           - Wrapper models (obs::/goal::): build {"obs": (...)} and pass raw HWC image.
           - Legacy models: pass (pip, stage, img); PipetteFinder normalises internally.
         """
-        if not hasattr(self, "_finder_uses_wrapper") or getattr(self.finder, "input_names", None) is None:
+        if self.finder.session is None:
             self.prepare_model("find_pipette")
+
+        info = self._model_meta.get("find_pipette")
+        if info is None:
+            info = self.finder.identify_model()
+            self._model_meta["find_pipette"] = info
+        uses_wrapper = info.get("uses_wrapper", False)
+        has_goal = info.get("has_goal", False)
 
         pip, stage, img, res = model_input
         pip = np.asarray(pip, np.float32).reshape(-1)
@@ -272,15 +230,15 @@ class AutoPatchHelper:
             stage = np.concatenate([stage, [0.0]]).astype(np.float32)
         else:
             stage = stage[:3].astype(np.float32)
-        stage, pip = self.microns_to_pixels((stage, pip), split=True)
+        stage, pip = self.apply_calibration((stage, pip), direction="to_pixels", split=True)
         img = np.asarray(img)
         if img.ndim == 2:
             img = np.stack([img] * 3, axis=-1)
 
-        if getattr(self, "_finder_uses_wrapper", False):
+        if uses_wrapper:
             payload = {"obs": (pip, stage, img)}
             goal = getattr(self, "_finder_goal", None)
-            if getattr(self, "_finder_has_goal", False) and goal:
+            if has_goal and goal:
                 payload["goal"] = goal
             model_payload = payload
         else:
@@ -299,7 +257,7 @@ class AutoPatchHelper:
             self.finderh0, self.finderc0 = h0_out, c0_out
         print(f"pipette finder inference returned pos in pixels {pos}")
         pos = np.asarray(pos).reshape(-1)
-        pos = self.pixels_to_microns(pos)
+        pos = self.apply_calibration(pos, direction="to_microns")
         print(f"pipette finder inference returned pos in microns {pos}")
         pip_disp = pos[3:] - pip
         print(f"pipette finder inference displacement pos in microns {pip_disp}")
@@ -357,7 +315,7 @@ class AutoPatchHelper:
 
         return vel_flat
 
-    def clamp_positions(self, positions, max_distance=20.0):
+    def clamp_positions(self, positions, max_distance=2000.0):
         # ensure 1-D float array
         arr = np.asarray(positions, dtype=float).ravel()
         # clamp both positive and negative to ±max_distance
@@ -425,22 +383,26 @@ class AutoPatchHelper:
             self._hunter_state_snapshot = self.hunter.get_state_snapshot()
             self.hunterh0 = self._hunter_state_snapshot.get("h0") if self._hunter_state_snapshot else None
             self.hunterc0 = self._hunter_state_snapshot.get("c0") if self._hunter_state_snapshot else None
-            self._hunter_uses_wrapper = any(n.startswith("obs::") for n in self.hunter.input_names)
-            self._hunter_has_goal     = any(n.startswith("goal::") for n in self.hunter.input_names)
+            info = self.hunter.identify_model()
+            self._model_meta["hunt"] = info
         elif which == "find_pipette":
             self.finder.load_model(onnx_path, providers=providers)
             self.finder.reset_state()
             self._finder_state_snapshot = self.finder.get_state_snapshot()
             self.finderh0 = self._finder_state_snapshot.get("h0") if self._finder_state_snapshot else None
             self.finderc0 = self._finder_state_snapshot.get("c0") if self._finder_state_snapshot else None
-            self._finder_uses_wrapper = any(n.startswith("obs::") for n in self.finder.input_names)
-            self._finder_has_goal     = any(n.startswith("goal::") for n in self.finder.input_names)
+            info = self.finder.identify_model()
+            self._model_meta["find_pipette"] = info
         elif which == "gigaseal":
             self.gigasealer.load_model(onnx_path, providers=providers)
             self.gigasealer.reset_state()
+            info = self.gigasealer.identify_model()
+            self._model_meta["gigaseal"] = info
         elif which == "break_in":
             self.burglar.load_model(onnx_path, providers=providers)
             self.burglar.reset_state()
+            info = self.burglar.identify_model()
+            self._model_meta["break_in"] = info
         else:
             raise ValueError(f"Unknown model '{which}'")
         return self
