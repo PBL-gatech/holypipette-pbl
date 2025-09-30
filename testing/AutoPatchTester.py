@@ -300,6 +300,8 @@ class AutoPatchTester:
         self.observed_pip_positions: Optional[np.ndarray] = None
         self.predicted_pip_deltas: Optional[np.ndarray] = None
         self.observed_pip_deltas: Optional[np.ndarray] = None
+        self.roundit: bool = False
+
 
     def _rounded_positions(self, array: np.ndarray) -> np.ndarray:
         if array is None:
@@ -329,6 +331,8 @@ class AutoPatchTester:
             if hasattr(self.tester, "c0"):
                 self.tester.c0 = None
 
+        warmup_start = max(getattr(self.tester, 'seq_len', 1) - 1, 0)
+
         for idx in range(self.tester.num_frames):
             t0 = time.perf_counter()
             out = self.tester.run_inference(idx)
@@ -336,7 +340,8 @@ class AutoPatchTester:
             if out is None:
                 continue
             self.error_frames.append(self.tester.calculate_error(out, self.tester.actions[idx]))
-            self.stored_actions.append(np.asarray(out))
+            if idx >= warmup_start:
+                self.stored_actions.append(np.asarray(out))
 
         if self.stored_actions:
             actions_flat = np.asarray(self.stored_actions).reshape(len(self.stored_actions), -1)
@@ -394,8 +399,12 @@ class AutoPatchTester:
         self.predicted_pip_deltas = pred_deltas
         self.observed_pip_deltas = next_positions - base_positions
 
-        debug_pred = self._rounded_positions(self.predicted_pip_positions)
-        debug_obs = self._rounded_positions(self.observed_pip_positions)
+        if self.roundit:
+            debug_pred = self._rounded_positions(self.predicted_pip_positions)
+            debug_obs = self._rounded_positions(self.observed_pip_positions)
+        else:
+            debug_pred = self.predicted_pip_positions
+            debug_obs = self.observed_pip_positions
         print(
             '[DEBUG] Predicted endpoints: {} | Observed endpoints: {}'.format(
                 debug_pred,
@@ -429,10 +438,15 @@ class AutoPatchTester:
                 vmin -= pad
                 vmax += pad
             return vmin, vmax
-
-        base = self._rounded_positions(self.reference_pip_positions)
-        predicted = self._rounded_positions(self.predicted_pip_positions)
-        observed = self._rounded_positions(self.observed_pip_positions)
+        
+        if self.roundit:
+            base = self._rounded_positions(self.reference_pip_positions)
+            predicted = self._rounded_positions(self.predicted_pip_positions)
+            observed = self._rounded_positions(self.observed_pip_positions)
+        else: 
+            base = self.reference_pip_positions
+            predicted = self.predicted_pip_positions
+            observed = self.observed_pip_positions
 
         n_steps = predicted.shape[0]
         norm = plt.Normalize(vmin=0, vmax=max(n_steps, 1))
@@ -523,33 +537,53 @@ class AutoPatchTester:
     def _plot_raw_predictions(self) -> None:
         if self.predicted_pip_deltas is None:
             raise RuntimeError('Predicted deltas unavailable; call run() first')
+        if self.observed_pip_deltas is None:
+            raise RuntimeError('Observed deltas unavailable; call run() first')
 
-        predicted = self._rounded_positions(self.predicted_pip_deltas)
+        if self.roundit:
+            predicted = self._rounded_positions(self.predicted_pip_deltas)
+            observed = self._rounded_positions(self.observed_pip_deltas)
+        else:
+            predicted = self.predicted_pip_deltas
+            observed = self.observed_pip_deltas
         if predicted is None or predicted.size == 0:
             raise RuntimeError('Predicted delta array is empty')
+        if observed is None or observed.size == 0:
+            raise RuntimeError('Observed delta array is empty')
 
-        steps = np.arange(1, predicted.shape[0] + 1, dtype=np.int32)
+        n_steps = min(predicted.shape[0], observed.shape[0])
+        if n_steps <= 0:
+            raise RuntimeError('No delta steps available to plot')
+        predicted = predicted[:n_steps]
+        observed = observed[:n_steps]
+        steps = np.arange(1, n_steps + 1, dtype=np.int32)
 
         fig, axes = plt.subplots(2, 1, sharex=True, figsize=(10, 8))
-        labels = ('Predicted dX', 'Predicted dY')
-        colors = ('tab:blue', 'tab:orange')
         component_ids = (0, 1)
+        axis_labels = ('dX', 'dY')
+        pred_color = 'tab:blue'
+        true_color = 'tab:green'
 
-        for ax, comp, label, color in zip(axes, component_ids, labels, colors):
-            ax.plot(steps, predicted[:, comp], color=color, linewidth=1.2)
+        for ax, comp, label in zip(axes, component_ids, axis_labels):
+            ax.plot(steps, predicted[:, comp], color=pred_color, linewidth=1.3, label='Predicted')
+            ax.plot(steps, observed[:, comp], color=true_color, linewidth=1.1, linestyle='--', label='True')
             ax.set_ylabel(label)
             ax.grid(True, alpha=0.3)
+            ax.legend(loc='best')
 
-        axes[0].set_title('Raw Model Predictions (dX and dY)')
+        axes[0].set_title('Raw Predictions vs True Action Deltas (dX, dY)')
         axes[-1].set_xlabel('Step (t)')
         plt.tight_layout()
         plt.show()
-
     def _plot_predicted_xy_trajectory(self) -> None:
         if self.predicted_pip_positions is None:
             raise RuntimeError('Predicted trajectory unavailable; call run() first')
+        
 
-        predicted = self._rounded_positions(self.predicted_pip_positions)
+        if self.roundit:
+            predicted = self._rounded_positions(self.predicted_pip_positions)
+        else:
+            predicted = self.predicted_pip_positions
         if predicted is None or predicted.size == 0:
             raise RuntimeError('Predicted trajectory array is empty')
 
@@ -580,10 +614,16 @@ class AutoPatchTester:
             or self.observed_pip_positions is None
         ):
             raise RuntimeError('Trajectory data unavailable; call run() first')
+        
+        if self.roundit:
+            base = self._rounded_positions(self.reference_pip_positions)
+            predicted = self._rounded_positions(self.predicted_pip_positions)
+            observed = self._rounded_positions(self.observed_pip_positions)
+        else:
+            base = self.reference_pip_positions
+            predicted = self.predicted_pip_positions
+            observed = self.observed_pip_positions
 
-        base = self._rounded_positions(self.reference_pip_positions)
-        predicted = self._rounded_positions(self.predicted_pip_positions)
-        observed = self._rounded_positions(self.observed_pip_positions)
         error_mag = np.linalg.norm(predicted - observed, axis=1)
 
         def _trunc_cmap(base_cmap, start=0.5, stop=1.0, n=256):
@@ -756,10 +796,10 @@ DEFAULT_DATA_PATH = Path(__file__).resolve().parents[1] / "testing" / "data" / "
 # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_006\PatcherBot_test_dataset_v0_006_hunt_cell.hdf5"
 
 
-# model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_007.onnx"
-model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\df_PipetteFinder_v0_004.onnx"
+model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_009.onnx"
+# model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\df_PipetteFinder_v0_004.onnx"
 # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_005\PatcherBot_test_dataset_v0_005_find_pipette.hdf5"
-data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_002\PatcherBot_test_dataset_v0_002_find_pipette.hdf5"
+data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_007\PatcherBot_test_dataset_v0_007_find_pipette.hdf5"
 
 
 def main() -> None:
@@ -768,7 +808,7 @@ def main() -> None:
         model_path=model_path if model_path else DEFAULT_MODEL_PATH,
         data_path=data_path if data_path else DEFAULT_DATA_PATH,
         providers=None,
-        demo_id="demo_1",
+        demo_id="demo_0",
         tester_cls=PipetteControlTester,
         # tester_cls=HuntTester,
     )
@@ -782,12 +822,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
 
