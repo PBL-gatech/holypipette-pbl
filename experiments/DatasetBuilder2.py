@@ -74,6 +74,47 @@ class FilterSettings:
 
 
 @dataclass(slots=True)
+class AxisToggle:
+    x: bool = True
+    y: bool = True
+    z: bool = True
+
+    def as_tuple(self) -> Tuple[bool, bool, bool]:
+        return (self.x, self.y, self.z)
+
+
+@dataclass(slots=True)
+class ObservationSelector:
+    pressure: bool = False
+    resistance: bool = False
+    current: bool = True
+    voltage: bool = False
+    stage_axes: AxisToggle = field(default_factory=AxisToggle)
+    pipette_axes: AxisToggle = field(default_factory=AxisToggle)
+    camera: bool = True
+
+    def stage_tuple(self) -> Tuple[bool, bool, bool]:
+        return self.stage_axes.as_tuple()
+
+    def pipette_tuple(self) -> Tuple[bool, bool, bool]:
+        return self.pipette_axes.as_tuple()
+
+
+@dataclass(slots=True)
+class ActionSelector:
+    stage_axes: AxisToggle = field(default_factory=AxisToggle)
+    pipette_axes: AxisToggle = field(default_factory=AxisToggle)
+    pressure: bool = False
+    include_high_level: bool = False
+
+    def stage_tuple(self) -> Tuple[bool, bool, bool]:
+        return self.stage_axes.as_tuple()
+
+    def pipette_tuple(self) -> Tuple[bool, bool, bool]:
+        return self.pipette_axes.as_tuple()
+
+
+@dataclass(slots=True)
 class DatasetBuilderSettings:
     dataset_name: str
     calfile: Optional[str] = None
@@ -87,6 +128,8 @@ class DatasetBuilderSettings:
     frequency_mod: int = 1 # downsample data by this factor (minimum 1)
     displacement: float = 0.5 # minimum stage/pipette displacement in microns
     filter: FilterSettings = field(default_factory=FilterSettings)
+    observation_selector: ObservationSelector = field(default_factory=ObservationSelector)
+    action_selector: ActionSelector = field(default_factory=ActionSelector)
 
     # Legacy toggles preserved for parity with DatasetBuilder
     calibrate: bool = False # set to true to apply calibration transform
