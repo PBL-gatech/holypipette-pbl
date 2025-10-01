@@ -159,7 +159,7 @@ class DatasetBuilderSettings:
     pipette_rotation_deg: float = -60.75 # angle to rotate pipette coordinates into stage frame
     load_next_obs: bool = False # set to true for goal conditioning
     frequency_mod: int = 1 # downsample data by this factor (minimum 1)
-    displacement: float = 1.0 # minimum stage/pipette displacement in microns
+    displacement: float = 0.001 # minimum stage/pipette displacement in microns
     filter: FilterSettings = field(default_factory=FilterSettings)
 
     observation_selector: ObservationSelector = field(default_factory=ObservationSelector)
@@ -2166,13 +2166,15 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    dataset_name = "PatcherBot_test_dataset_v0_100.hdf5"
+    dataset_name = "PatcherBot_dataset_v0_110.hdf5"
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
-    # rig_recorder_data_folder_set = [
-    #     "2025_09_25-20_43",
-    #     "2025_09_25-21_39"
-    #     ] # version 0.001 training data (9/25/2025)
-    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
+    rig_recorder_data_folder_set = [
+        "2025_09_25-20_43",
+        "2025_09_25-21_39",
+        "2025_10_01-13_15",# ~ 20 more demos
+        "2025_10_01-13_30" # ~ 30 more demos
+        ] # version 0.001 training data (9/25/2025)
+    # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
     
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",

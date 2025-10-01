@@ -538,6 +538,38 @@ class AutoPatcher:
 
     def _prepare_wrapper_sequence(self, input_name, array):
         return self.state.sequence(input_name, array)
+
+    def _axis_dims(self):
+        action_dim = None
+        if self.session and self.state.action_key:
+            for out in self.session.get_outputs():
+                if _ModelIO.matches(out.name, self.state.action_key):
+                    shape = _ModelIO.shape_from_desc(out)
+                    action_dim = shape[-1] if shape and isinstance(shape[-1], int) else None
+                    break
+        pip_dim = stage_dim = None
+        for name, desc in self._input_desc.items():
+            shape = _ModelIO.shape_from_desc(desc)
+            if shape and isinstance(shape[-1], int):
+                if "pipette_position" in name:
+                    pip_dim = shape[-1] if pip_dim is None else min(pip_dim, shape[-1])
+                if "stage_position" in name:
+                    stage_dim = shape[-1] if stage_dim is None else min(stage_dim, shape[-1])
+        pip_dim = pip_dim or (2 if action_dim == 2 else 3)
+        stage_dim = stage_dim if stage_dim is not None else {2: 0, 3: 0, 4: 1, 6: 3}.get(action_dim, 0)
+        return pip_dim, stage_dim, action_dim
+
+    def _trim_axes(self, pip, stage):
+        pip_dim, stage_dim, _ = self._axis_dims()
+        pip_arr = np.asarray(pip, np.float32).reshape(-1)[:pip_dim]
+        stage_arr = np.asarray(stage, np.float32).reshape(-1)
+        if stage_dim <= 0:
+            stage_arr = stage_arr[:0]
+        elif stage_dim == 1:
+            stage_arr = np.asarray(stage_arr[2] if stage_arr.size >= 3 else stage_arr[:1], np.float32).reshape(1)
+        else:
+            stage_arr = stage_arr[:stage_dim]
+        return pip_arr, stage_arr
 class CellHunter(AutoPatcher):
     """
     Cell-hunting policy.
@@ -601,6 +633,7 @@ class CellHunter(AutoPatcher):
                 stage = self._coerce_stage(stage)
                 img = np.asarray(img)
                 res = np.asarray(res, np.float32).reshape(-1)
+            pip, stage = self._trim_axes(pip, stage)
             if img.ndim == 2:
                 img = np.stack([img] * 3, axis=-1)
 
@@ -641,6 +674,7 @@ class CellHunter(AutoPatcher):
                             gimg = img
                         else:
                             gimg = _ModelIO.ensure_three_channel(np.asarray(gimg))
+                gpip, gstage = self._trim_axes(gpip, gstage)
 
                 for nm in input_names:
                     if not nm.startswith("goal::"):
@@ -661,8 +695,9 @@ class CellHunter(AutoPatcher):
             return inputs
 
         pip, stage, img, res = model_input
-        pip = np.asarray(pip, dtype=np.float32).reshape(3)
+        pip = np.asarray(pip, dtype=np.float32).reshape(-1)
         stage = self._coerce_stage(stage)
+        pip, stage = self._trim_axes(pip, stage)
         res = np.float32(res)
 
         img = self.prepare_image(img)
@@ -770,7 +805,8 @@ class PipetteFinder(AutoPatcher):
                     raise ValueError("camera_image is required for PipetteFinder observation")
             else:
                 arr = _ModelIO.ensure_three_channel(np.asarray(img))
-            return pip, stage, arr
+            pip_trim, stage_trim = self._trim_axes(pip, stage)
+            return pip_trim, stage_trim, arr
 
         if uses_obs_prefix:
             if isinstance(model_input, dict):
@@ -821,6 +857,7 @@ class PipetteFinder(AutoPatcher):
                             gstage = self._coerce_stage(seq[1])
                         if len(seq) >= 3 and seq[2] is not None:
                             gimg = _ModelIO.ensure_three_channel(np.asarray(seq[2]))
+                gpip, gstage = self._trim_axes(gpip, gstage)
                 for nm in input_names:
                     if not nm.startswith("goal::"):
                         continue
@@ -850,6 +887,7 @@ class PipetteFinder(AutoPatcher):
             pip = np.asarray(pip, np.float32).reshape(-1)
             stage = self._coerce_stage(stage)
             img = np.asarray(img)
+        pip, stage = self._trim_axes(pip, stage)
 
         img = self.prepare_image(img)
         self._img_q.append(img)

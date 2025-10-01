@@ -26,13 +26,13 @@ daq = NiDAQ('cDAQ1Mod1', 'ai0', 'cDaq1Mod4', 'ao0', 'cDaq1Mod1', 'ai3')
 
 # set up movement controllers
 print("Setting up stage controllers...")
-controllerSerial = serial.Serial('COM6')
+controllerSerial = serial.Serial('COM6',baudrate=9600)
 controller = ScientificaSerialNoEncoder(controllerSerial)
 microscope = Microscope(controller, 3)
 microscope.up_direction = 1.0
 
 print("Setting up pipette controllers...")
-pipetteSerial = serial.Serial('COM3')
+pipetteSerial = serial.Serial('COM3',baudrate=9600)
 pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
 stage = ManipulatorUnit(controller, [1, 2])
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])

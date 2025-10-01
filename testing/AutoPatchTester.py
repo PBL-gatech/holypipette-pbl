@@ -42,10 +42,24 @@ def _load_hdf5_sequence(
         obs_root = f"data/{demo_key}/obs"
         act_root = f"data/{demo_key}"
 
-        images = h5[f"{obs_root}/camera_image"][:]
-        resistance = h5[f"{obs_root}/resistance"][:]
-        pipette_positions = h5[f"{obs_root}/pipette_positions"][:]
-        stage_positions = h5[f"{obs_root}/stage_positions"][:]
+        obs_group = h5[f"{obs_root}"]
+        images = obs_group["camera_image"][:]
+        num_frames = images.shape[0]
+
+        if "resistance" in obs_group:
+            resistance = obs_group["resistance"][:]
+        else:
+            resistance = np.zeros((num_frames, 1), dtype=np.float32)
+
+        if "pipette_positions" in obs_group:
+            pipette_positions = obs_group["pipette_positions"][:]
+        else:
+            pipette_positions = np.zeros((num_frames, 3), dtype=np.float32)
+
+        if "stage_positions" in obs_group:
+            stage_positions = obs_group["stage_positions"][:]
+        else:
+            stage_positions = np.zeros((num_frames, 3), dtype=np.float32)
         actions = h5[f"{act_root}/actions"][:]
 
     stage_positions = np.asarray(stage_positions, dtype=np.float32)
@@ -292,6 +306,23 @@ class AutoPatchTester:
             **tester_kwargs,
         )
 
+        pip_dim, stage_dim, action_dim = self.tester._axis_dims()
+        actions = getattr(self.tester, "actions", None)
+        if action_dim and actions is not None and actions.shape[-1] != action_dim:
+            raise ValueError(
+                f"Dataset action dimension {actions.shape[-1]} does not match model output {action_dim}"
+            )
+        if self.tester.pipette_positions.shape[-1] < pip_dim:
+            raise ValueError(
+                f"Dataset pipette dimension {self.tester.pipette_positions.shape[-1]} is smaller than required {pip_dim}"
+            )
+        if stage_dim and self.tester.stage_positions.shape[-1] < stage_dim:
+            raise ValueError(
+                f"Dataset stage dimension {self.tester.stage_positions.shape[-1]} is smaller than required {stage_dim}"
+            )
+        if action_dim and stage_dim + pip_dim <= action_dim:
+            self.action_slice = slice(stage_dim, stage_dim + pip_dim)
+
         self.lat_ms: list[float] = []
         self.error_frames: list[np.ndarray] = []
         self.stored_actions: list[np.ndarray] = []
@@ -375,12 +406,18 @@ class AutoPatchTester:
         if pred_actions.ndim == 3:
             pred_actions = pred_actions[:, 0, :]
         pred_deltas = pred_actions[:, self.action_slice]
+        pip_dim = self.tester._axis_dims()[0]
+        pred_deltas = pred_deltas[:, :pip_dim]
 
         start = getattr(self.tester, 'seq_len', 1) - 1
         start = max(start, 0)
-        obs_positions = self.tester.pipette_positions[start : start + pred_deltas.shape[0]]
+        obs_positions = np.asarray(
+            self.tester.pipette_positions[start : start + pred_deltas.shape[0]],
+            dtype=np.float32,
+        )
         if obs_positions.size == 0:
             raise RuntimeError('Observed pipette positions empty after alignment')
+        obs_positions = obs_positions.reshape(obs_positions.shape[0], -1)[:, :pip_dim]
 
         n = min(pred_deltas.shape[0], obs_positions.shape[0] - 1)
         if n <= 0:
@@ -392,10 +429,15 @@ class AutoPatchTester:
 
         predicted_positions = base_positions + pred_deltas
 
-        anchor = base_positions[0]
-        self.reference_pip_positions = base_positions - anchor
-        self.predicted_pip_positions = predicted_positions - anchor
-        self.observed_pip_positions = next_positions - anchor
+        pad3 = lambda a: a[:, :3] if a.shape[1] >= 3 else np.pad(a, ((0, 0), (0, 3 - a.shape[1])), mode='constant')
+        base_pad = pad3(base_positions)
+        next_pad = pad3(next_positions)
+        pred_pad = pad3(predicted_positions)
+
+        anchor = base_pad[0]
+        self.reference_pip_positions = base_pad - anchor
+        self.predicted_pip_positions = pred_pad - anchor
+        self.observed_pip_positions = next_pad - anchor
         self.predicted_pip_deltas = pred_deltas
         self.observed_pip_deltas = next_positions - base_positions
 
@@ -796,10 +838,10 @@ DEFAULT_DATA_PATH = Path(__file__).resolve().parents[1] / "testing" / "data" / "
 # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_006\PatcherBot_test_dataset_v0_006_hunt_cell.hdf5"
 
 
-model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_009.onnx"
+model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_101.onnx"
 # model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\df_PipetteFinder_v0_004.onnx"
 # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_005\PatcherBot_test_dataset_v0_005_find_pipette.hdf5"
-data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_007\PatcherBot_test_dataset_v0_007_find_pipette.hdf5"
+data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_101\PatcherBot_test_dataset_v0_101_find_pipette.hdf5"
 
 
 def main() -> None:
@@ -822,4 +864,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

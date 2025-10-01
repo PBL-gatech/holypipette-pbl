@@ -103,22 +103,26 @@ class DemoPlayer(QWidget):
         demo_path = f'data/{demo_key}/obs'
         print(f"Loading demo: {demo_key}")  # Debug message
 
+        self.actions = np.zeros((0, 6))
+
+        for name, attr in (('camera_image', 'images'), ('resistance', 'resistance')):
+            try:
+                setattr(self, attr, self.hdf5_file[f'{demo_path}/{name}'][:])
+            except KeyError as e:
+                print(f"Warning: missing '{name}' in {demo_path}: {e}")
+                setattr(self, attr, np.array([]))
+
         try:
-            self.images = self.hdf5_file[f'{demo_path}/camera_image'][:]
-            self.resistance = self.hdf5_file[f'{demo_path}/resistance'][:]
-        except KeyError as e:
-            QMessageBox.critical(self, "Data Error", f"Missing dataset in {demo_path}:\n{e}")
-            self.images = np.array([])
-            self.resistance = np.array([])
-            return
-        
-                # --- NEW: pull the actions matrix (shape: [N, 6]) -----------
-        try:
-            self.actions = self.hdf5_file[f'data/{demo_key}/actions'][:]
+            data = self.hdf5_file[f'data/{demo_key}/actions'][:]
+            if data.ndim == 2:
+                cols = min(data.shape[1], 6)
+                self.actions = np.zeros((data.shape[0], 6))
+                self.actions[:, :cols] = data[:, :cols]
+            else:
+                print(f"Warning: unexpected 'actions' shape {data.shape} in data/{demo_key}")
         except KeyError:
-            QMessageBox.critical(self, "Data Error",
-                                 f"Missing 'actions' dataset in {demo_path}")
-            self.actions = np.empty((0, 6))
+            print(f"Warning: missing 'actions' dataset in data/{demo_key}")
+
 
 
         # Resize the label *once* to the first frame’s native size
@@ -139,11 +143,7 @@ class DemoPlayer(QWidget):
             if self.resistance.ndim == 2 and 1 in self.resistance.shape:
                 self.resistance = self.resistance.flatten()
             else:
-                QMessageBox.critical(
-                    self,
-                    "Data Error",
-                    f"Expected 'resistance' to be 1D, got shape {self.resistance.shape}"
-                )
+                print(f"Warning: expected 1D resistance, got {self.resistance.shape}")
                 self.resistance = np.array([])
 
         self.plot_resistance()
@@ -194,11 +194,12 @@ class DemoPlayer(QWidget):
     def plot_actions(self):
         """Draw a 6-column bar chart of non-zero action counts."""
         self.action_scene.clear()
-        if self.actions.size == 0:
-            self.action_scene.addText("No actions data available")
-            return
 
-        counts  = np.count_nonzero(self.actions, axis=0)       # [6]
+        counts = np.zeros(6, dtype=int)
+        if self.actions.size:
+            raw = np.count_nonzero(self.actions, axis=0)
+            counts[:min(raw.size, 6)] = raw[:6]
+
         plot_w, plot_h = 400, 200
         bar_w   = plot_w / 6
         max_ct  = counts.max() or 1
@@ -306,7 +307,8 @@ if __name__ == '__main__':
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_027.hdf5"
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_040.hdf5"
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\builder2test1\builder2test1.hdf5"
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_006\PatcherBot_dataset_v0_006_hunt_cell.hdf5"
+    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_006\PatcherBot_dataset_v0_006_hunt_cell.hdf5"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_110\PatcherBot_dataset_v0_110_find_pipette.hdf5"
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_coordinate_transform.hdf5"
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\ HEK_dataset_v0_022.hdf5"
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset.hdf5"

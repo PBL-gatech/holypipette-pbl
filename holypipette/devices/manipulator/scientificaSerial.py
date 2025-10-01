@@ -27,6 +27,9 @@ class SerialCommands():
 
     SET_X_Y_Z_VEL = 'VJ {} {} {}\r'
 
+    GET_BAUD = 'BAUD\r'
+    SET_BAUD = 'BAUD {}\r'
+
     STOP = 'STOP\r'
 
 class ScientificaSerialEncoder(Manipulator):
@@ -41,13 +44,31 @@ class ScientificaSerialEncoder(Manipulator):
         self._lock = threading.Lock()
         self.current_pos = [0, 0, 0]
 
+        # self.info(f"Baud Rate: {self.get_baud_rate()}")
+
         self.set_max_accel(100)
         self.set_max_speed(10000)
+        
 
         #start constantly polling position in a new thread
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
         self._polling_thread.start()
         self._polling_thread.deamon = True
+
+    def get_baud_rate(self):
+        '''
+        gets the baud rate of the serial port
+
+        '''
+        resp = self._sendCmd(SerialCommands.GET_BAUD)
+        return (resp)
+
+    def set_baud_rate(self, baud_rate : int):
+        '''Sets the baud rate of the serial port.  
+        '''
+        self._sendCmd(SerialCommands.SET_BAUD.format(int(baud_rate)))
+
+
 
     def get_max_speed(self):
         '''Gets the max speed for the Scientifica Stage.  
@@ -227,7 +248,25 @@ class ScientificaSerialNoEncoder(Manipulator):
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
         self._polling_thread.start()
         self._polling_thread.deamon = True
+
+        self.info(f"Baud Rate: {self.get_baud_rate()}")
+
     
+
+    def get_baud_rate(self):
+        '''
+        gets the baud rate of the serial port
+
+        '''
+        resp = self._sendCmd(SerialCommands.GET_BAUD)
+        return (resp)
+
+    def set_baud_rate(self, baud_rate : int):
+        '''Sets the baud rate of the serial port.  
+        '''
+        self._sendCmd(SerialCommands.SET_BAUD.format(int(baud_rate)))
+
+
     def set_max_speed(self, speed):
         '''Sets the max speed for the Scientifica Stage.  
            It seems like the range for this is around (1000, 100000)

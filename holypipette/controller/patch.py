@@ -126,14 +126,14 @@ class AutoPatcher(TaskController):
             # imitation policy will go here to find pipette,and detector will check to see if it is in within 25 pixels of center of screen
             if self.config.mode == 'Agent':
                 action = self.autopatchhelper.find_pipette(self.observe())
-                # split action into 2 parts 
-                stage_action = action[:3]
-                pipette_action = action[3:]
-                self.info(f"pipette predicition: {pipette_action} um")
+
+                self.info(f"pipette predicition: {action} um")
+                # get first 3 outputs from action 
+                pipette_action = action[0:3]
                 # inverse pipette action with calibration
-                # self.calibrated_unit.relative_move(pipette_action)
+                self.calibrated_unit.relative_move(pipette_action)
                 # if model prediction value is less than 0.1 in all dimensions 5 times in a row, we are done
-                if np.linalg.norm(pipette_action) < 0.1:
+                if np.linalg.norm(action) < 0.1:
                     count +=1
                     if count >=5:
                         done = True
@@ -1171,7 +1171,11 @@ class AutoPatcher(TaskController):
 
     def observe(self):
         """ collects all inputs required for the models"""
+
+
         _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
+        
+
         pi = self.calibrated_unit.position()
         self.info(f"pipette position: '{pi}' ")
         st = self.calibrated_stage.position()[:2]

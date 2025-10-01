@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, Sequence, Tuple, Union
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 from holypipette.deepLearning.autoPatcher import CellHunter, GigaSealer, Burglar, PipetteFinder
 
@@ -37,6 +38,50 @@ class AutoPatchHelper:
         self._calibration = {"pipette": None, "stage": None}
         self.cal_enabled = bool(calibration_enabled)
         self._model_meta = {}
+        self._axis_meta = {}
+
+    def _actor_for(self, which: str):
+        return {
+            "hunt": self.hunter,
+            "find_pipette": self.finder,
+            "gigaseal": self.gigasealer,
+            "break_in": self.burglar,
+        }.get(which)
+
+    def _model_dims(self, which: str) -> Tuple[int, int, Optional[int]]:
+        cached = self._axis_meta.get(which)
+        if cached is not None:
+            return cached
+        actor = self._actor_for(which)
+        if actor is None:
+            return (3, 3, None)
+        dims = actor._axis_dims()
+        self._axis_meta[which] = dims
+        return dims
+
+    def _trim_axes_for(self, pip, stage, which: str):
+        pip_dim, stage_dim, _ = self._model_dims(which)
+        pip_arr = np.asarray(pip, np.float32).reshape(-1)
+        stage_arr = np.asarray(stage, np.float32).reshape(-1)
+        if pip_dim:
+            if pip_arr.size < pip_dim:
+                pip_arr = np.pad(pip_arr, (0, pip_dim - pip_arr.size))
+            pip_arr = pip_arr[:pip_dim]
+        else:
+            pip_arr = np.zeros((0,), dtype=np.float32)
+        if stage_dim:
+            if stage_arr.size < stage_dim:
+                stage_arr = np.pad(stage_arr, (0, stage_dim - stage_arr.size))
+            stage_arr = stage_arr[:stage_dim]
+        else:
+            stage_arr = np.zeros((0,), dtype=np.float32)
+        return pip_arr.astype(np.float32), stage_arr.astype(np.float32)
+
+    def _pad_output(self, stage_vec: np.ndarray, pip_vec: np.ndarray) -> np.ndarray:
+        combined = np.concatenate([stage_vec, pip_vec])
+        if combined.size < 6:
+            combined = np.pad(combined, (0, 6 - combined.size), constant_values=0.0)
+        return combined
 
     def load_calibration(self, path: Optional[Union[str, Path]] = None):
         """Load calibration data and cache the affine transforms."""
@@ -167,28 +212,23 @@ class AutoPatchHelper:
         has_goal = info.get("has_goal", False)
 
         # Coerce observation (mild normalization of types/shapes only)
-        pip, stage, img, res = model_input
-        pip = np.asarray(pip, np.float32).reshape(-1)
-        stage = np.asarray(stage, np.float32).reshape(-1)
-        if stage.shape[0] == 2:
-            stage = np.concatenate([stage, [0.0]]).astype(np.float32)
-        else:
-            stage = stage[:3].astype(np.float32)
-        stage, pip = self.apply_calibration((stage, pip), direction="to_pixels", split=True)
+        pip_raw, stage_raw, img, res = model_input
+        pip_vec, stage_vec = self._trim_axes_for(pip_raw, stage_raw, "hunt")
+        stage_px, pip_px = self.apply_calibration((stage_vec, pip_vec), direction="to_pixels", split=True)
         res = np.asarray(res, np.float32).reshape(-1)
         img = np.asarray(img)
         if img.ndim == 2:  # gray → 3‑chan
             img = np.stack([img]*3, axis=-1)
 
         if uses_wrapper:
-            payload = {"obs": (pip, stage, img, res)}
+            payload = {"obs": (pip_px, stage_px, img, res)}
             if has_goal and hasattr(self, "_goal") and len(self._goal) > 0:
                 # Partial goal OK (e.g., no image) — CellHunter fills missing keys from obs
                 payload["goal"] = self._goal
             model_payload = payload
         else:
             # Legacy model — give tuple; CellHunter does CHW+resize+[0,1] and stacking
-            model_payload = (pip, stage, img, res)
+            model_payload = (pip_px, stage_px, img, res)
         if self._hunter_state_snapshot is not None:
             self.hunter.set_state_snapshot(self._hunter_state_snapshot)
         print(f"model payload prepared {type(model_payload)}")
@@ -201,10 +241,13 @@ class AutoPatchHelper:
         else:
             self.hunterh0, self.hunterc0 = h0_out, c0_out
         print(f"model inference returned pos {pos}")
-        pos = np.asarray(pos).reshape(-1)     # (6,)
-        pos = self.apply_calibration(pos, direction="to_microns")
-        pos = self.clamp_positions(pos)
-        return pos
+        pos = np.asarray(pos, np.float32).reshape(-1)
+        pip_dim, stage_dim, _ = self._model_dims("hunt")
+        stage_part = pos[:stage_dim] if stage_dim else np.zeros((0,), dtype=np.float32)
+        pip_part = pos[stage_dim:stage_dim + pip_dim]
+        stage_um, pip_um = self.apply_calibration((stage_part, pip_part), direction="to_microns", split=True)
+        pos_um = self._pad_output(stage_um, pip_um)
+        return self.clamp_positions(pos_um)
 
 
     def find_pipette(self, model_input):
@@ -223,30 +266,34 @@ class AutoPatchHelper:
         uses_wrapper = info.get("uses_wrapper", False)
         has_goal = info.get("has_goal", False)
 
-        pip, stage, img, res = model_input
-        pip = np.asarray(pip, np.float32).reshape(-1)
-        stage = np.asarray(stage, np.float32).reshape(-1)
-        if stage.shape[0] == 2:
-            stage = np.concatenate([stage, [0.0]]).astype(np.float32)
-        else:
-            stage = stage[:3].astype(np.float32)
-        stage, pip = self.apply_calibration((stage, pip), direction="to_pixels", split=True)
+        pip_raw, stage_raw, img, res = model_input
+        pip_vec, stage_vec = self._trim_axes_for(pip_raw, stage_raw, "find_pipette")
+        stage_px, pip_px = self.apply_calibration((stage_vec, pip_vec), direction="to_pixels", split=True)
+        
         img = np.asarray(img)
         if img.ndim == 2:
             img = np.stack([img] * 3, axis=-1)
 
         if uses_wrapper:
-            payload = {"obs": (pip, stage, img)}
+            payload = {"obs": (pip_px, stage_px, img)}
             goal = getattr(self, "_finder_goal", None)
             if has_goal and goal:
                 payload["goal"] = goal
             model_payload = payload
         else:
-            model_payload = (pip, stage, img)
+            model_payload = (pip_px, stage_px, img)
+
+            # print(f"model st payload:{stage_px}")
         if self._finder_state_snapshot is not None:
             self.finder.set_state_snapshot(self._finder_state_snapshot)
         # print(f"pipette finder payload prepared {type(model_payload)}")
-
+        print(f"model pip payload:{pip_px}")
+        print(f"model stage payload:{stage_px}")
+        save_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\temp\test_image"
+        # plot and save image
+        plt.imshow(img)
+        plt.savefig(save_path)
+        # cv2.imwrite(save_path, img)
         pos, h0_out, c0_out = self.finder.inference(model_payload, self.finderh0, self.finderc0)
         snapshot = self.finder.get_state_snapshot()
         self._finder_state_snapshot = snapshot
@@ -256,13 +303,16 @@ class AutoPatchHelper:
         else:
             self.finderh0, self.finderc0 = h0_out, c0_out
         print(f"pipette finder inference returned pos in pixels {pos}")
-        pos = np.asarray(pos).reshape(-1)
-        pos = self.apply_calibration(pos, direction="to_microns")
-        print(f"pipette finder inference returned pos in microns {pos}")
-        pip_disp = pos[3:] - pip
+        pos = np.asarray(pos, np.float32).reshape(-1)
+        pip_dim, stage_dim, _ = self._model_dims("find_pipette")
+        stage_part = pos[:stage_dim] if stage_dim else np.zeros((0,), dtype=np.float32)
+        pip_part = pos[stage_dim:stage_dim + pip_dim]
+        stage_um, pip_um = self.apply_calibration((stage_part, pip_part), direction="to_microns", split=True)
+        pos_um = self._pad_output(stage_um, pip_um)
+        print(f"pipette finder inference returned pos in microns {pos_um}")
+        pip_disp = pip_um - pip_vec[:pip_dim]
         print(f"pipette finder inference displacement pos in microns {pip_disp}")
-
-        return self.clamp_positions(pos)
+        return self.clamp_positions(pos_um)
 
     def gigaseal(self,mode,type,input):
        pass
@@ -385,6 +435,7 @@ class AutoPatchHelper:
             self.hunterc0 = self._hunter_state_snapshot.get("c0") if self._hunter_state_snapshot else None
             info = self.hunter.identify_model()
             self._model_meta["hunt"] = info
+            self._axis_meta["hunt"] = self.hunter._axis_dims()
         elif which == "find_pipette":
             self.finder.load_model(onnx_path, providers=providers)
             self.finder.reset_state()
@@ -393,16 +444,19 @@ class AutoPatchHelper:
             self.finderc0 = self._finder_state_snapshot.get("c0") if self._finder_state_snapshot else None
             info = self.finder.identify_model()
             self._model_meta["find_pipette"] = info
+            self._axis_meta["find_pipette"] = self.finder._axis_dims()
         elif which == "gigaseal":
             self.gigasealer.load_model(onnx_path, providers=providers)
             self.gigasealer.reset_state()
             info = self.gigasealer.identify_model()
             self._model_meta["gigaseal"] = info
+            self._axis_meta["gigaseal"] = self.gigasealer._axis_dims()
         elif which == "break_in":
             self.burglar.load_model(onnx_path, providers=providers)
             self.burglar.reset_state()
             info = self.burglar.identify_model()
             self._model_meta["break_in"] = info
+            self._axis_meta["break_in"] = self.burglar._axis_dims()
         else:
             raise ValueError(f"Unknown model '{which}'")
         return self
