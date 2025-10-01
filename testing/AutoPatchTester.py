@@ -838,10 +838,10 @@ DEFAULT_DATA_PATH = Path(__file__).resolve().parents[1] / "testing" / "data" / "
 # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_006\PatcherBot_test_dataset_v0_006_hunt_cell.hdf5"
 
 
-model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_101.onnx"
+model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_120.onnx"
 # model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\df_PipetteFinder_v0_004.onnx"
 # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_005\PatcherBot_test_dataset_v0_005_find_pipette.hdf5"
-data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_101\PatcherBot_test_dataset_v0_101_find_pipette.hdf5"
+data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_120\PatcherBot_test_dataset_v0_120_find_pipette.hdf5"
 
 
 def main() -> None:
@@ -850,7 +850,7 @@ def main() -> None:
         model_path=model_path if model_path else DEFAULT_MODEL_PATH,
         data_path=data_path if data_path else DEFAULT_DATA_PATH,
         providers=None,
-        demo_id="demo_0",
+        demo_id="demo_1",
         tester_cls=PipetteControlTester,
         # tester_cls=HuntTester,
     )

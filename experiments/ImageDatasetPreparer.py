@@ -191,12 +191,15 @@ if __name__ == "__main__":
     
 
     rig_data_root = default_root
+    # rig_recorder_data_folder_set = [
+    #     "2025_09_25-20_43",
+    #     "2025_09_25-21_39",
+    #     "2025_10_01-13_15",
+    #     "2025_10_01-13_30",
+    # ]# training/valid for PipetteFinder 
     rig_recorder_data_folder_set = [
-        "2025_09_25-20_43",
-        "2025_09_25-21_39",
-        "2025_10_01-13_15",
-        "2025_10_01-13_30",
-    ]
+    "2025_09_25-22_13"]
+     # test dataset for PipetteFinder
     output_name = "cv_movement_recording.csv"
     use_detector1 = False
     verbose = True

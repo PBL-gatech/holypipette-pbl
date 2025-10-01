@@ -37,6 +37,7 @@ class AutoPatchHelper:
         self.calibration_path: Optional[Path] = None
         self._calibration = {"pipette": None, "stage": None}
         self.cal_enabled = bool(calibration_enabled)
+        self._calibration_usage = {"inputs": self.cal_enabled, "outputs": self.cal_enabled}
         self._model_meta = {}
         self._axis_meta = {}
 
@@ -128,7 +129,15 @@ class AutoPatchHelper:
             "path": candidate,
         }
 
-    def apply_calibration(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]], *, direction: str = "to_pixels", split: bool = False):
+    def set_calibration_usage(self, *, inputs: Optional[bool] = None, outputs: Optional[bool] = None) -> None:
+        """Toggle calibration independently for model inputs and outputs."""
+        if inputs is not None:
+            self._calibration_usage["inputs"] = bool(inputs)
+        if outputs is not None:
+            self._calibration_usage["outputs"] = bool(outputs)
+        self.cal_enabled = self._calibration_usage["inputs"] or self._calibration_usage["outputs"]
+
+    def apply_calibration(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]], *, direction: str = "to_pixels", split: bool = False, ignore_offsets: Optional[dict] = None):
         """Convert coordinates between microns and pixels using cached calibration matrices."""
         mode = direction.lower()
         if mode in {"to_pixels", "microns_to_pixels", "um_to_pixels", "forward"}:
@@ -161,6 +170,8 @@ class AutoPatchHelper:
             return merged.astype(np.float32)
 
         stage_vec, pip_vec, combined, paired = _split(values)
+        stage_ignore = bool(ignore_offsets.get("stage")) if ignore_offsets else False
+        pip_ignore = bool(ignore_offsets.get("pipette")) if ignore_offsets else False
         if not self.cal_enabled:
             return _merge(stage_vec, pip_vec, combined, split or paired)
         if self._calibration["pipette"] is None:
@@ -171,26 +182,29 @@ class AutoPatchHelper:
         pip_entry = self._calibration.get("pipette")
         stage_entry = self._calibration.get("stage")
 
-        def _apply(entry, vec):
+        def _apply(entry, vec, ignore_offset):
             if entry is None:
                 return vec.astype(np.float32)
-            out = vec.astype(np.float64, copy=True)
+            vec64 = np.asarray(vec, dtype=np.float64).reshape(-1)
+            if vec64.size == 0:
+                return vec64.astype(np.float32)
+            out = vec64.copy()
             if forward:
                 matrix = entry["M"]
-                offset = entry["r0"]
+                offset = np.zeros(matrix.shape[0], dtype=np.float64) if ignore_offset else entry["r0"]
                 out_dim = matrix.shape[0]
-                in_dim = min(matrix.shape[1], vec.size)
-                out[:out_dim] = matrix @ vec[:in_dim] + offset[:out_dim]
+                in_dim = min(matrix.shape[1], vec64.size)
+                out[:out_dim] = matrix @ vec64[:in_dim] + offset[:out_dim]
             else:
                 matrix = entry["Minv"]
-                offset = entry["r0_inv"]
-                rows = min(entry["M"].shape[0], vec.size)
+                offset = np.zeros(matrix.shape[0], dtype=np.float64) if ignore_offset else entry["r0_inv"]
+                rows = min(entry["M"].shape[0], vec64.size)
                 out_dim = matrix.shape[0]
-                out[:out_dim] = matrix @ vec[:rows] + offset[:out_dim]
+                out[:out_dim] = matrix @ vec64[:rows] + offset[:out_dim]
             return out.astype(np.float32)
 
-        stage_result = _apply(stage_entry, stage_vec)
-        pip_result = _apply(pip_entry, pip_vec)
+        stage_result = _apply(stage_entry, stage_vec, stage_ignore)
+        pip_result = _apply(pip_entry, pip_vec, pip_ignore)
         return _merge(stage_result, pip_result, combined, split or paired)
 
     def hunt(self, model_input):
@@ -214,7 +228,11 @@ class AutoPatchHelper:
         # Coerce observation (mild normalization of types/shapes only)
         pip_raw, stage_raw, img, res = model_input
         pip_vec, stage_vec = self._trim_axes_for(pip_raw, stage_raw, "hunt")
-        stage_px, pip_px = self.apply_calibration((stage_vec, pip_vec), direction="to_pixels", split=True)
+        if self._calibration_usage.get("inputs", False):
+            stage_px, pip_px = self.apply_calibration((stage_vec, pip_vec), direction="to_pixels", split=True)
+        else:
+            stage_px = np.asarray(stage_vec, dtype=np.float32)
+            pip_px = np.asarray(pip_vec, dtype=np.float32)
         res = np.asarray(res, np.float32).reshape(-1)
         img = np.asarray(img)
         if img.ndim == 2:  # gray → 3‑chan
@@ -245,7 +263,16 @@ class AutoPatchHelper:
         pip_dim, stage_dim, _ = self._model_dims("hunt")
         stage_part = pos[:stage_dim] if stage_dim else np.zeros((0,), dtype=np.float32)
         pip_part = pos[stage_dim:stage_dim + pip_dim]
-        stage_um, pip_um = self.apply_calibration((stage_part, pip_part), direction="to_microns", split=True)
+        if self._calibration_usage.get("outputs", False):
+            stage_um, pip_um = self.apply_calibration(
+                (stage_part, pip_part),
+                direction="to_microns",
+                split=True,
+                ignore_offsets={"pipette": True},
+            )
+        else:
+            stage_um = np.asarray(stage_part, dtype=np.float32)
+            pip_um = np.asarray(pip_part, dtype=np.float32)
         pos_um = self._pad_output(stage_um, pip_um)
         return self.clamp_positions(pos_um)
 
@@ -268,7 +295,11 @@ class AutoPatchHelper:
 
         pip_raw, stage_raw, img, res = model_input
         pip_vec, stage_vec = self._trim_axes_for(pip_raw, stage_raw, "find_pipette")
-        stage_px, pip_px = self.apply_calibration((stage_vec, pip_vec), direction="to_pixels", split=True)
+        if self._calibration_usage.get("inputs", False):
+            stage_px, pip_px = self.apply_calibration((stage_vec, pip_vec), direction="to_pixels", split=True)
+        else:
+            stage_px = np.asarray(stage_vec, dtype=np.float32)
+            pip_px = np.asarray(pip_vec, dtype=np.float32)
         
         img = np.asarray(img)
         if img.ndim == 2:
@@ -307,7 +338,16 @@ class AutoPatchHelper:
         pip_dim, stage_dim, _ = self._model_dims("find_pipette")
         stage_part = pos[:stage_dim] if stage_dim else np.zeros((0,), dtype=np.float32)
         pip_part = pos[stage_dim:stage_dim + pip_dim]
-        stage_um, pip_um = self.apply_calibration((stage_part, pip_part), direction="to_microns", split=True)
+        if self._calibration_usage.get("outputs", False):
+            stage_um, pip_um = self.apply_calibration(
+                (stage_part, pip_part),
+                direction="to_microns",
+                split=True,
+                ignore_offsets={"pipette": True},
+            )
+        else:
+            stage_um = np.asarray(stage_part, dtype=np.float32)
+            pip_um = np.asarray(pip_part, dtype=np.float32)
         pos_um = self._pad_output(stage_um, pip_um)
         print(f"pipette finder inference returned pos in microns {pos_um}")
         pip_disp = pip_um - pip_vec[:pip_dim]

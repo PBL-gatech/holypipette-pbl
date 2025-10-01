@@ -1175,7 +1175,8 @@ class AutoPatcher(TaskController):
 
         _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
         
-
+        cvpi = self.calibrated_unit.pipetteCalHelper.pipetteDetector.detect_pipette(img)
+        self.info(f"detected pipette position: {cvpi}")
         pi = self.calibrated_unit.position()
         self.info(f"pipette position: '{pi}' ")
         st = self.calibrated_stage.position()[:2]
@@ -1186,5 +1187,5 @@ class AutoPatcher(TaskController):
         # self.info(f"resistance: {res}")
         
         # Return a list instead of trying to create heterogeneous numpy array
-        return [pi, st, img, res]
+        return [cvpi, st, img, res]
         
