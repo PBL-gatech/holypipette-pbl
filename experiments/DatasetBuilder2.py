@@ -48,7 +48,7 @@ import warnings
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import albumentations as A
 import h5py
@@ -79,39 +79,72 @@ class AxisToggle:
     y: bool = True
     z: bool = True
 
-    def as_tuple(self) -> Tuple[bool, bool, bool]:
-        return (self.x, self.y, self.z)
+    AXIS_NAMES: ClassVar[Tuple[str, str, str]] = ("x", "y", "z")
+
+    def enabled_indices(self) -> List[int]:
+        return [idx for idx, enabled in enumerate((self.x, self.y, self.z)) if enabled]
+
+    def enabled_labels(self) -> List[str]:
+        return [label for label, enabled in zip(self.AXIS_NAMES, (self.x, self.y, self.z)) if enabled]
 
 
 @dataclass(slots=True)
 class ObservationSelector:
-    pressure: bool = False
-    resistance: bool = False
-    current: bool = True
-    voltage: bool = False
+    include_pressure: bool = False
+    include_resistance: bool = False
+    include_current: bool = False
+    include_voltage: bool = False
+    include_stage: bool = True
+    include_pipette: bool = True
+    include_camera: bool = True
     stage_axes: AxisToggle = field(default_factory=AxisToggle)
     pipette_axes: AxisToggle = field(default_factory=AxisToggle)
-    camera: bool = True
 
-    def stage_tuple(self) -> Tuple[bool, bool, bool]:
-        return self.stage_axes.as_tuple()
+    def stage_indices(self, available: int) -> List[int]:
+        if not self.include_stage:
+            return []
+        return [idx for idx in self.stage_axes.enabled_indices() if idx < available]
 
-    def pipette_tuple(self) -> Tuple[bool, bool, bool]:
-        return self.pipette_axes.as_tuple()
+    def pipette_indices(self, available: int) -> List[int]:
+        if not self.include_pipette:
+            return []
+        return [idx for idx in self.pipette_axes.enabled_indices() if idx < available]
+
+    def stage_axis_labels(self) -> List[str]:
+        return self.stage_axes.enabled_labels() if self.include_stage else []
+
+    def pipette_axis_labels(self) -> List[str]:
+        return self.pipette_axes.enabled_labels() if self.include_pipette else []
 
 
 @dataclass(slots=True)
 class ActionSelector:
+    include_stage: bool = True
+    include_pipette: bool = True
+    include_pressure: bool = False
+    include_high_level: bool = False
     stage_axes: AxisToggle = field(default_factory=AxisToggle)
     pipette_axes: AxisToggle = field(default_factory=AxisToggle)
-    pressure: bool = False
-    include_high_level: bool = False
 
-    def stage_tuple(self) -> Tuple[bool, bool, bool]:
-        return self.stage_axes.as_tuple()
+    def stage_indices(self, available: int) -> List[int]:
+        if not self.include_stage:
+            return []
+        return [idx for idx in self.stage_axes.enabled_indices() if idx < available]
 
-    def pipette_tuple(self) -> Tuple[bool, bool, bool]:
-        return self.pipette_axes.as_tuple()
+    def pipette_indices(self, available: int) -> List[int]:
+        if not self.include_pipette:
+            return []
+        return [idx for idx in self.pipette_axes.enabled_indices() if idx < available]
+
+    def stage_axis_labels(self) -> List[str]:
+        if not self.include_stage:
+            return []
+        return [f"stage_{axis}" for axis in self.stage_axes.enabled_labels()]
+
+    def pipette_axis_labels(self) -> List[str]:
+        if not self.include_pipette:
+            return []
+        return [f"pipette_{axis}" for axis in self.pipette_axes.enabled_labels()]
 
 
 @dataclass(slots=True)
@@ -126,10 +159,17 @@ class DatasetBuilderSettings:
     pipette_rotation_deg: float = -60.75 # angle to rotate pipette coordinates into stage frame
     load_next_obs: bool = False # set to true for goal conditioning
     frequency_mod: int = 1 # downsample data by this factor (minimum 1)
-    displacement: float = 0.5 # minimum stage/pipette displacement in microns
+    displacement: float = 1.0 # minimum stage/pipette displacement in microns
     filter: FilterSettings = field(default_factory=FilterSettings)
+
     observation_selector: ObservationSelector = field(default_factory=ObservationSelector)
-    action_selector: ActionSelector = field(default_factory=ActionSelector)
+    action_selector: ActionSelector = field(
+        default_factory=lambda: ActionSelector(
+            include_stage=False,
+            stage_axes=AxisToggle(x=False, y=False, z=False),
+            pipette_axes=AxisToggle(x=True, y=True, z=False),
+        )
+    )
 
     # Legacy toggles preserved for parity with DatasetBuilder
     calibrate: bool = False # set to true to apply calibration transform
@@ -541,6 +581,12 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self.load_next_obs = settings.load_next_obs
         self.frequency_mod = int(max(1, settings.frequency_mod))
         self.displacement = float(abs(settings.displacement))
+        self.observation_selector = settings.observation_selector
+        self.action_selector = settings.action_selector
+        self._synchronize_selectors()
+        self._last_action_labels: List[str] = []
+        self._last_action_stage_cols: int = 0
+        self._last_stage_motion_detected: bool = False
 
         self.dataset_dir, self.dataset_path = _ensure_dataset_stub(settings.dataset_name, create_file=False)
         self._base_dataset_name = self.dataset_name
@@ -557,6 +603,33 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             self._split_keys = {"train": [], "valid": []}
 
         self._write_metadata_files()
+
+    def _synchronize_selectors(self) -> None:
+        """Ensure observation axes are not broader than the chosen action axes."""
+
+        obs = self.observation_selector
+        act = self.action_selector
+
+        def _clamp_axes(obs_toggle: AxisToggle, act_toggle: AxisToggle) -> None:
+            for axis in AxisToggle.AXIS_NAMES:
+                if not getattr(act_toggle, axis) and getattr(obs_toggle, axis):
+                    setattr(obs_toggle, axis, False)
+
+        if not act.include_stage:
+            obs.include_stage = False
+            obs.stage_axes = AxisToggle(False, False, False)
+        elif obs.include_stage:
+            _clamp_axes(obs.stage_axes, act.stage_axes)
+            if not obs.stage_axes.enabled_indices():
+                obs.include_stage = False
+
+        if not act.include_pipette:
+            obs.include_pipette = False
+            obs.pipette_axes = AxisToggle(False, False, False)
+        elif obs.include_pipette:
+            _clamp_axes(obs.pipette_axes, act.pipette_axes)
+            if not obs.pipette_axes.enabled_indices():
+                obs.include_pipette = False
 
     def _ensure_state_context(self, state_name: str) -> _StateDatasetContext:
         """Create or return cached dataset bookkeeping for ``state_name``."""
@@ -1183,38 +1256,71 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         rotation_angle: Optional[float] = None,
     ):
         """Return pressure, resistance, waveform, position, and optional image arrays."""
-        pressure_values = self.get_attempt_pressure_values(attempt_graph_values)
-        resistance_values = self.get_attempt_resistance_values(attempt_graph_values)
-        current_values = self.get_attempt_current_values(attempt_graph_values)
-        voltage_values = self.get_attempt_voltage_values(attempt_graph_values)
-        stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
-        pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
+        selector = self.observation_selector
 
-        stage_positions, pipette_positions = self.pixel_coordinate_transform(
-            stage_positions, pipette_positions
+        pressure_values: Optional[np.ndarray]
+        if selector.include_pressure:
+            pressure_values = self.get_attempt_pressure_values(attempt_graph_values)
+        else:
+            pressure_values = None
+
+        resistance_values: Optional[np.ndarray]
+        if selector.include_resistance:
+            resistance_values = self.get_attempt_resistance_values(attempt_graph_values)
+        else:
+            resistance_values = None
+
+        current_values: Optional[np.ndarray]
+        if selector.include_current:
+            current_values = self.get_attempt_current_values(attempt_graph_values)
+        else:
+            current_values = None
+
+        voltage_values: Optional[np.ndarray]
+        if selector.include_voltage:
+            voltage_values = self.get_attempt_voltage_values(attempt_graph_values)
+        else:
+            voltage_values = None
+
+        stage_positions_full = self.get_attempt_stage_positions(attempt_movement_values)
+        pipette_positions_full = self.get_attempt_pipette_positions(attempt_movement_values)
+
+        stage_positions_full, pipette_positions_full = self.pixel_coordinate_transform(
+            stage_positions_full, pipette_positions_full
         )
 
-        # pipette_positions = self._transform_pipette_positions(stage_positions, pipette_positions)
-
         if rotation_angle is not None:
-            stage_positions = self._rotate_positions(stage_positions, rotation_angle)
-            pipette_positions = self._rotate_positions(pipette_positions, rotation_angle)
+            stage_positions_full = self._rotate_positions(stage_positions_full, rotation_angle)
+            pipette_positions_full = self._rotate_positions(pipette_positions_full, rotation_angle)
 
-        if include_camera:
+        stage_positions: Optional[np.ndarray]
+        if selector.include_stage:
+            stage_idx = selector.stage_indices(stage_positions_full.shape[1])
+            if stage_idx:
+                stage_positions = stage_positions_full[:, stage_idx]
+            else:
+                stage_positions = None
+        else:
+            stage_positions = None
+
+        pipette_positions: Optional[np.ndarray]
+        if selector.include_pipette:
+            pipette_idx = selector.pipette_indices(pipette_positions_full.shape[1])
+            if pipette_idx:
+                pipette_positions = pipette_positions_full[:, pipette_idx]
+            else:
+                pipette_positions = None
+        else:
+            pipette_positions = None
+
+        camera_required = include_camera and selector.include_camera
+        camera_frames: Optional[np.ndarray] = None
+        if camera_required:
             camera_frames = self.get_attempt_camera_frames(
                 rig_recorder_data_folder, attempt_graph_values, rotation_angle=rotation_angle
             )
             if camera_frames is None:
                 return None
-            return (
-                pressure_values,
-                resistance_values,
-                current_values,
-                voltage_values,
-                stage_positions,
-                pipette_positions,
-                camera_frames,
-            )
 
         return (
             pressure_values,
@@ -1223,15 +1329,16 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             voltage_values,
             stage_positions,
             pipette_positions,
+            camera_frames if camera_required else None,
         )
 
     def get_attempt_next_observations(
         self,
         attempt_graph_values: np.ndarray,
-        current_values: np.ndarray,
-        voltage_values: np.ndarray,
-        stage_positions: np.ndarray,
-        pipette_positions: np.ndarray,
+        current_values: Optional[np.ndarray],
+        voltage_values: Optional[np.ndarray],
+        stage_positions: Optional[np.ndarray],
+        pipette_positions: Optional[np.ndarray],
         camera_frames: Optional[np.ndarray],
         include_next_obs: bool = False,
         include_camera: bool = True,
@@ -1240,27 +1347,45 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         if not include_next_obs:
             return (None,) * 7
 
-        pressure = attempt_graph_values[:, 1].astype(np.float64)
-        resistance = attempt_graph_values[:, 2].astype(np.float64)
+        selector = self.observation_selector
 
-        next_pressure_values = _shift_forward(pressure)
-        next_resistance_values = _shift_forward(resistance)
-        next_current_values = _shift_forward(current_values)
-        next_voltage_values = _shift_forward(voltage_values)
-        next_stage_positions = _shift_forward(stage_positions)
-        next_pipette_positions = _shift_forward(pipette_positions)
+        if selector.include_pressure:
+            pressure = attempt_graph_values[:, 1].astype(np.float64)
+            next_pressure_values: Optional[np.ndarray] = _shift_forward(pressure)
+        else:
+            next_pressure_values = None
 
-        if include_camera and camera_frames is not None:
-            next_camera_frames = _shift_forward(camera_frames)
-            return (
-                next_pressure_values,
-                next_resistance_values,
-                next_current_values,
-                next_voltage_values,
-                next_stage_positions,
-                next_pipette_positions,
-                next_camera_frames,
-            )
+        if selector.include_resistance:
+            resistance = attempt_graph_values[:, 2].astype(np.float64)
+            next_resistance_values: Optional[np.ndarray] = _shift_forward(resistance)
+        else:
+            next_resistance_values = None
+
+        if selector.include_current and current_values is not None:
+            next_current_values: Optional[np.ndarray] = _shift_forward(current_values)
+        else:
+            next_current_values = None
+
+        if selector.include_voltage and voltage_values is not None:
+            next_voltage_values: Optional[np.ndarray] = _shift_forward(voltage_values)
+        else:
+            next_voltage_values = None
+
+        if selector.include_stage and stage_positions is not None:
+            next_stage_positions: Optional[np.ndarray] = _shift_forward(stage_positions)
+        else:
+            next_stage_positions = None
+
+        if selector.include_pipette and pipette_positions is not None:
+            next_pipette_positions: Optional[np.ndarray] = _shift_forward(pipette_positions)
+        else:
+            next_pipette_positions = None
+
+        camera_required = include_camera and selector.include_camera
+        if camera_required and camera_frames is not None:
+            next_camera_frames: Optional[np.ndarray] = _shift_forward(camera_frames)
+        else:
+            next_camera_frames = None
 
         return (
             next_pressure_values,
@@ -1269,7 +1394,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             next_voltage_values,
             next_stage_positions,
             next_pipette_positions,
-            None,
+            next_camera_frames,
         )
 
     # --- Action computation ----------------------------------------------
@@ -1304,7 +1429,36 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         movement_actions[:, stage_dim : stage_dim + 2] = stage_delta[:, :2] + pip_rot_delta[:, :2]
         movement_actions[:, stage_dim + 2] = pip_rot_delta[:, 2]
 
-        if include_high_level_actions:
+        selector = self.action_selector
+
+        # Track whether the raw stage deltas contain any motion so omit_stage_movement
+        # decisions do not depend on the current selector configuration.
+        self._last_stage_motion_detected = bool(np.any(stage_delta != 0.0))
+
+        stage_indices = selector.stage_indices(stage_dim)
+        pip_indices = selector.pipette_indices(pip_raw_delta.shape[1])
+
+        selected_components: List[np.ndarray] = []
+        action_labels: List[str] = []
+
+        if stage_indices:
+            selected_components.append(movement_actions[:, stage_indices])
+            axis_labels = [f"stage_{AxisToggle.AXIS_NAMES[idx]}" for idx in stage_indices]
+            action_labels.extend(axis_labels)
+
+        if pip_indices:
+            pip_cols = [stage_dim + idx for idx in pip_indices]
+            selected_components.append(movement_actions[:, pip_cols])
+            axis_labels = [f"pipette_{AxisToggle.AXIS_NAMES[idx]}" for idx in pip_indices]
+            action_labels.extend(axis_labels)
+
+        if selected_components:
+            actions = np.hstack(selected_components)
+        else:
+            actions = np.zeros((movement_actions.shape[0], 0), dtype=movement_actions.dtype)
+
+        include_high_level = include_high_level_actions and selector.include_high_level
+        if include_high_level:
             action_logs = log_values[
                 log_values["Message"].str.contains("Executing command", na=False)
             ].copy()
@@ -1325,9 +1479,12 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             for ts, msg in zip(action_logs["Full Time"], action_logs["Message"]):
                 idx = np.argmin(np.abs(attempt_graph_values[:, 0] - ts))
                 hi_lvl[idx, 0] = hash(msg[19:])
-            movement_actions = np.hstack([movement_actions, hi_lvl])
+            actions = np.hstack([actions, hi_lvl])
+            action_labels.append("high_level")
 
-        return movement_actions
+        self._last_action_labels = action_labels
+        self._last_action_stage_cols = len(stage_indices)
+        return actions
 
     # --- Dataset writing -------------------------------------------------
     def add_attempt_demo_to_dataset(
@@ -1335,12 +1492,12 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         num_samples: int,
         actions: np.ndarray,
         dones: np.ndarray,
-        pressure_values: np.ndarray,
-        resistance_values: np.ndarray,
-        current_values: np.ndarray,
-        voltage_values: np.ndarray,
-        stage_positions: np.ndarray,
-        pipette_positions: np.ndarray,
+        pressure_values: Optional[np.ndarray],
+        resistance_values: Optional[np.ndarray],
+        current_values: Optional[np.ndarray],
+        voltage_values: Optional[np.ndarray],
+        stage_positions: Optional[np.ndarray],
+        pipette_positions: Optional[np.ndarray],
         camera_frames: Optional[np.ndarray],
         next_pressure_values: Optional[np.ndarray],
         next_resistance_values: Optional[np.ndarray],
@@ -1354,112 +1511,159 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         split_label: str = "train",
     ) -> str:
         """Persist a demo to disk and return the HDF5 key used for the group."""
-        payload: List[Optional[np.ndarray]] = [
-            actions,
-            dones,
-            pressure_values,
-            resistance_values,
-            current_values,
-            voltage_values,
-            stage_positions,
-            pipette_positions,
+        selector = self.observation_selector
+        effective_include_camera = include_camera and selector.include_camera
+
+        obs_entries = [
+            ("pressure", pressure_values),
+            ("resistance", resistance_values),
+            ("current", current_values),
+            ("voltage", voltage_values),
+            ("stage_positions", stage_positions),
+            ("pipette_positions", pipette_positions),
         ]
-        if include_camera:
-            payload.append(camera_frames)
-        if include_next_obs:
-            payload.extend(
-                [
-                    next_pressure_values,
-                    next_resistance_values,
-                    next_current_values,
-                    next_voltage_values,
-                    next_stage_positions,
-                    next_pipette_positions,
-                ]
-            )
-            if include_camera:
-                payload.append(next_camera_frames)
+        obs_entries = [(name, arr) for name, arr in obs_entries if arr is not None]
 
-        filtered = self.filter_inactive_actions(*payload)
-        cursor = 0
-        actions = filtered[cursor]; cursor += 1
-        dones = filtered[cursor]; cursor += 1
-        pressure_values = filtered[cursor]; cursor += 1
-        resistance_values = filtered[cursor]; cursor += 1
-        current_values = filtered[cursor]; cursor += 1
-        voltage_values = filtered[cursor]; cursor += 1
-        stage_positions = filtered[cursor]; cursor += 1
-        pipette_positions = filtered[cursor]; cursor += 1
-        if include_camera:
-            camera_frames = filtered[cursor]; cursor += 1
+        camera_entry: Optional[Tuple[str, np.ndarray]]
+        if effective_include_camera and camera_frames is not None:
+            camera_entry = ("camera_image", camera_frames)
+        else:
+            camera_entry = None
+
+        next_entries: List[Tuple[str, np.ndarray]] = []
+        if include_next_obs:
+            raw_next = [
+                ("next_pressure", next_pressure_values),
+                ("next_resistance", next_resistance_values),
+                ("next_current", next_current_values),
+                ("next_voltage", next_voltage_values),
+                ("next_stage_positions", next_stage_positions),
+                ("next_pipette_positions", next_pipette_positions),
+            ]
+            next_entries = [(name, arr) for name, arr in raw_next if arr is not None]
+            if effective_include_camera and next_camera_frames is not None:
+                next_entries.append(("next_camera_image", next_camera_frames))
+
+        payload_names: List[str] = ["actions", "dones"]
+        payload_arrays: List[np.ndarray] = [actions, dones]
+
+        for name, arr in obs_entries:
+            payload_names.append(name)
+            payload_arrays.append(arr)
+
+        if camera_entry is not None:
+            payload_names.append(camera_entry[0])
+            payload_arrays.append(camera_entry[1])
+
+        for name, arr in next_entries:
+            payload_names.append(name)
+            payload_arrays.append(arr)
+
+        filtered = self.filter_inactive_actions(*payload_arrays)
+        filtered_map = {name: value for name, value in zip(payload_names, filtered)}
+
+        actions = filtered_map["actions"]
+        dones = filtered_map["dones"]
+        pressure_values = filtered_map.get("pressure")
+        resistance_values = filtered_map.get("resistance")
+        current_values = filtered_map.get("current")
+        voltage_values = filtered_map.get("voltage")
+        stage_positions = filtered_map.get("stage_positions")
+        pipette_positions = filtered_map.get("pipette_positions")
+        camera_frames = filtered_map.get("camera_image")
 
         if include_next_obs:
-            next_pressure_values = filtered[cursor]; cursor += 1
-            next_resistance_values = filtered[cursor]; cursor += 1
-            next_current_values = filtered[cursor]; cursor += 1
-            next_voltage_values = filtered[cursor]; cursor += 1
-            next_stage_positions = filtered[cursor]; cursor += 1
-            next_pipette_positions = filtered[cursor]; cursor += 1
-            if include_camera:
-                next_camera_frames = filtered[cursor]
+            next_pressure_values = filtered_map.get("next_pressure")
+            next_resistance_values = filtered_map.get("next_resistance")
+            next_current_values = filtered_map.get("next_current")
+            next_voltage_values = filtered_map.get("next_voltage")
+            next_stage_positions = filtered_map.get("next_stage_positions")
+            next_pipette_positions = filtered_map.get("next_pipette_positions")
+            next_camera_frames = filtered_map.get("next_camera_image")
 
         num_samples = actions.shape[0]
 
-        if self.frequency_mod > 1:
-            if include_camera:
-                (
-                    _,
-                    dones,
-                    pressure_values,
-                    resistance_values,
-                    current_values,
-                    voltage_values,
-                    stage_positions,
-                    pipette_positions,
-                    camera_frames,
-                ), idx = self._decimate_by_step(
-                    None,
-                    dones,
-                    pressure_values,
-                    resistance_values,
-                    current_values,
-                    voltage_values,
-                    stage_positions,
-                    pipette_positions,
-                    camera_frames,
-                )
-            else:
-                (
-                    _,
-                    dones,
-                    pressure_values,
-                    resistance_values,
-                    current_values,
-                    voltage_values,
-                    stage_positions,
-                    pipette_positions,
-                    _,
-                ), idx = self._decimate_by_step(
-                    None,
-                    dones,
-                    pressure_values,
-                    resistance_values,
-                    current_values,
-                    voltage_values,
-                    stage_positions,
-                    pipette_positions,
-                    None,
-                )
+        obs_dict = {
+            "pressure": pressure_values,
+            "resistance": resistance_values,
+            "current": current_values,
+            "voltage": voltage_values,
+            "stage_positions": stage_positions,
+            "pipette_positions": pipette_positions,
+        }
+
+        if self.frequency_mod > 1 and num_samples > 0:
+            decimation_entries: List[Tuple[str, np.ndarray]] = [("dones", dones)]
+            for key in ("pressure", "resistance", "current", "voltage", "stage_positions", "pipette_positions"):
+                value = obs_dict.get(key)
+                if value is not None:
+                    decimation_entries.append((key, value))
+            if effective_include_camera and camera_frames is not None:
+                decimation_entries.append(("camera_image", camera_frames))
+
+            arrays_to_decimate = [None] + [arr for _, arr in decimation_entries]
+            decimated, idx = self._decimate_by_step(*arrays_to_decimate)
+            dec_map = {
+                name: value
+                for (name, _), value in zip(decimation_entries, decimated[1:])
+            }
+
+            dones = dec_map.get("dones", dones)
+            for key in ("pressure", "resistance", "current", "voltage", "stage_positions", "pipette_positions"):
+                if key in dec_map:
+                    obs_dict[key] = dec_map[key]
+            if "camera_image" in dec_map:
+                camera_frames = dec_map["camera_image"]
 
             actions = self._aggregate_actions_over_windows(actions, idx, mode="sum")
             num_samples = actions.shape[0]
 
-            if include_next_obs and num_samples > 0:
-                next_resistance_values = _shift_forward(resistance_values)
-                next_stage_positions = _shift_forward(stage_positions)
-                next_pipette_positions = _shift_forward(pipette_positions)
-                if include_camera and camera_frames is not None:
+            if include_next_obs:
+                next_pressure_values = (
+                    _shift_forward(obs_dict["pressure"])
+                    if obs_dict["pressure"] is not None
+                    else None
+                )
+                next_resistance_values = (
+                    _shift_forward(obs_dict["resistance"])
+                    if obs_dict["resistance"] is not None
+                    else None
+                )
+                next_current_values = (
+                    _shift_forward(obs_dict["current"])
+                    if obs_dict["current"] is not None
+                    else None
+                )
+                next_voltage_values = (
+                    _shift_forward(obs_dict["voltage"])
+                    if obs_dict["voltage"] is not None
+                    else None
+                )
+                next_stage_positions = (
+                    _shift_forward(obs_dict["stage_positions"])
+                    if obs_dict["stage_positions"] is not None
+                    else None
+                )
+                next_pipette_positions = (
+                    _shift_forward(obs_dict["pipette_positions"])
+                    if obs_dict["pipette_positions"] is not None
+                    else None
+                )
+                if effective_include_camera and camera_frames is not None:
                     next_camera_frames = _shift_forward(camera_frames)
+                else:
+                    next_camera_frames = None
+
+        pressure_values = obs_dict["pressure"]
+        resistance_values = obs_dict["resistance"]
+        current_values = obs_dict["current"]
+        voltage_values = obs_dict["voltage"]
+        stage_positions = obs_dict["stage_positions"]
+        pipette_positions = obs_dict["pipette_positions"]
+        effective_include_camera = effective_include_camera and camera_frames is not None
+
+        def _as_column(arr: np.ndarray) -> np.ndarray:
+            return arr.reshape(-1, 1) if arr.ndim == 1 else arr
 
         with h5py.File(self.dataset_path, "a") as hf:
             if "data" not in hf:
@@ -1473,22 +1677,54 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             demo.attrs["num_samples"] = num_samples
             demo.attrs["split"] = split_label
 
-            demo.create_dataset("actions", data=actions)
+            action_ds = demo.create_dataset("actions", data=actions)
+            if self._last_action_labels:
+                action_ds.attrs["axes"] = np.asarray(self._last_action_labels, dtype="S")
             demo.create_dataset("dones", data=dones)
 
             observations = demo.create_group("obs")
-            observations.create_dataset("resistance", data=resistance_values.reshape(-1, 1))
-            observations.create_dataset("stage_positions", data=stage_positions)
-            observations.create_dataset("pipette_positions", data=pipette_positions)
-            if include_camera and camera_frames is not None:
+            if pressure_values is not None:
+                observations.create_dataset("pressure", data=_as_column(pressure_values))
+            if resistance_values is not None:
+                observations.create_dataset("resistance", data=_as_column(resistance_values))
+            if current_values is not None:
+                observations.create_dataset("current", data=current_values)
+            if voltage_values is not None:
+                observations.create_dataset("voltage", data=voltage_values)
+            if stage_positions is not None:
+                stage_ds = observations.create_dataset("stage_positions", data=stage_positions)
+                stage_axes = self.observation_selector.stage_axis_labels()
+                if stage_axes:
+                    stage_ds.attrs["axes"] = np.asarray(stage_axes, dtype="S")
+            if pipette_positions is not None:
+                pip_ds = observations.create_dataset("pipette_positions", data=pipette_positions)
+                pip_axes = self.observation_selector.pipette_axis_labels()
+                if pip_axes:
+                    pip_ds.attrs["axes"] = np.asarray(pip_axes, dtype="S")
+            if effective_include_camera and camera_frames is not None:
                 observations.create_dataset("camera_image", data=camera_frames)
 
             if include_next_obs:
                 next_obs = demo.create_group("next_obs")
-                next_obs.create_dataset("resistance", data=next_resistance_values.reshape(-1, 1))
-                next_obs.create_dataset("stage_positions", data=next_stage_positions)
-                next_obs.create_dataset("pipette_positions", data=next_pipette_positions)
-                if include_camera and next_camera_frames is not None:
+                if next_pressure_values is not None:
+                    next_obs.create_dataset("pressure", data=_as_column(next_pressure_values))
+                if next_resistance_values is not None:
+                    next_obs.create_dataset("resistance", data=_as_column(next_resistance_values))
+                if next_current_values is not None:
+                    next_obs.create_dataset("current", data=next_current_values)
+                if next_voltage_values is not None:
+                    next_obs.create_dataset("voltage", data=next_voltage_values)
+                if next_stage_positions is not None:
+                    next_stage_ds = next_obs.create_dataset("stage_positions", data=next_stage_positions)
+                    stage_axes = self.observation_selector.stage_axis_labels()
+                    if stage_axes:
+                        next_stage_ds.attrs["axes"] = np.asarray(stage_axes, dtype="S")
+                if next_pipette_positions is not None:
+                    next_pip_ds = next_obs.create_dataset("pipette_positions", data=next_pipette_positions)
+                    pip_axes = self.observation_selector.pipette_axis_labels()
+                    if pip_axes:
+                        next_pip_ds.attrs["axes"] = np.asarray(pip_axes, dtype="S")
+                if effective_include_camera and next_camera_frames is not None:
                     next_obs.create_dataset("camera_image", data=next_camera_frames)
 
             data_group.attrs["num_demos"] = demo_number + 1
@@ -1521,6 +1757,33 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             if folder not in state_list:
                 state_list.append(folder)
         return added_to_base
+
+    def _selector_overview(self) -> Dict[str, Any]:
+        """Return a JSON-friendly summary of active observation/action selectors."""
+
+        obs = self.observation_selector
+        act = self.action_selector
+        return {
+            "observations": {
+                "include_pressure": obs.include_pressure,
+                "include_resistance": obs.include_resistance,
+                "include_current": obs.include_current,
+                "include_voltage": obs.include_voltage,
+                "include_stage": obs.include_stage,
+                "include_pipette": obs.include_pipette,
+                "include_camera": obs.include_camera,
+                "stage_axes": obs.stage_axis_labels(),
+                "pipette_axes": obs.pipette_axis_labels(),
+            },
+            "actions": {
+                "include_stage": act.include_stage,
+                "include_pipette": act.include_pipette,
+                "include_pressure": act.include_pressure,
+                "include_high_level": act.include_high_level,
+                "stage_axes": act.stage_axis_labels(),
+                "pipette_axes": act.pipette_axis_labels(),
+            },
+        }
 
     # --- Dataset bookkeeping --------------------------------------------
     def _collect_metadata(self) -> dict:
@@ -1567,6 +1830,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             "settings": settings_dict,
             "toggles": toggles,
             "processed_folders": processed_folders,
+            "selectors": self._selector_overview(),
         }
 
         json_path = self.dataset_dir / self._metadata_filename
@@ -1677,8 +1941,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
 
         include_next_obs = self.load_next_obs
-        include_camera = True
-        include_high_level_actions = False
+        include_camera = self.observation_selector.include_camera
+        include_high_level_actions = self.action_selector.include_high_level
 
         graph_values, movement_values, log_values = self.load_experiment_data(
             rig_recorder_data_folder
@@ -1770,7 +2034,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                         include_high_level_actions=include_high_level_actions,
                     )
 
-                    if self.omit_stage_movement and np.any(actions[:, :3]):
+                    stage_moved = getattr(self, "_last_stage_motion_detected", False)
+                    if self.omit_stage_movement and stage_moved:
                         print("    skipped - demo contains stage movement")
                         self.end_filter_context()
                         continue
@@ -1894,11 +2159,14 @@ __all__ = [
     "DatasetBuilder2",
     "DatasetBuilderSettings",
     "FilterSettings",
+    "ObservationSelector",
+    "ActionSelector",
+    "AxisToggle",
 ]
 
 
 if __name__ == "__main__":
-    dataset_name = "PatcherBot_test_dataset_v0_007.hdf5"
+    dataset_name = "PatcherBot_test_dataset_v0_100.hdf5"
     # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
     # rig_recorder_data_folder_set = [
     #     "2025_09_25-20_43",
@@ -1920,7 +2188,7 @@ if __name__ == "__main__":
     builder = DatasetBuilder2(
         dataset_name=dataset_name,
         calfile=r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\Calibration_data\2025_09_25-19_18\calibration.pickle",
-        val_ratio=0,
+        val_ratio=0.1,
         omit_stage_movement=True,
         random_seed=0,
         load_next_obs=False,
