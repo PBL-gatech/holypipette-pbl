@@ -96,10 +96,8 @@ class PipetteCalHelper():
         if pos_pix is not None:
             # Optionally, display the detected pipette on the frame.
             frame = cv2.circle(frame, pos_pix, 10, 0, 2)
-            # add the stage's reference position (assumed to be in pixels).
-            stage_pos_pix = self.calibrated_stage.reference_position()
-            image_x = pos_pix[0] - stage_pos_pix[0]
-            image_y = pos_pix[1] - stage_pos_pix[1]
+            image_x = pos_pix[0]
+            image_y = pos_pix[1]
             # Retrieve the pipette's encoder (x, y) positions; ignore z.
             encoder_pos = self.pipette.position()  # assumed format: [x, y, z]
             encoder_x = encoder_pos[0]

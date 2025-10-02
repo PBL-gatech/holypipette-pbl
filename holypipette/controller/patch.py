@@ -57,7 +57,7 @@ class AutoPatcher(TaskController):
         self.attempt_counter = 0
         self._state_recorder = None
         self._in_patch       = False
-        self.autopatchhelper = AutoPatchHelper()
+        self.autopatchhelper = AutoPatchHelper(calibrate_inputs=False,calibrate_outputs=False)
         self.current_protocol_graph = None
         self.ninput = None
         self.done = False
@@ -129,11 +129,13 @@ class AutoPatcher(TaskController):
 
                 self.info(f"pipette predicition: {action} um")
                 # get first 3 outputs from action 
-                pipette_action = action[0:3]
-                # inverse pipette action with calibration
+                pipette_action = action[0:3] # for gits and shiggles.
+                
+                pipette_action_micron = self.calibrated_unit.pixels_to_um_relative(pipette_action)
+                self.info(f"pipette prediction in microns:{pipette_action_micron}")
                 self.calibrated_unit.relative_move(pipette_action)
                 # if model prediction value is less than 0.1 in all dimensions 5 times in a row, we are done
-                if np.linalg.norm(action) < 0.1:
+                if np.linalg.norm(pipette_action) < 0.1:
                     count +=1
                     if count >=5:
                         done = True
@@ -1178,7 +1180,7 @@ class AutoPatcher(TaskController):
         cvpi = self.calibrated_unit.pipetteCalHelper.pipetteDetector.detect_pipette(img)
         self.info(f"detected pipette position: {cvpi}")
         pi = self.calibrated_unit.position()
-        self.info(f"pipette position: '{pi}' ")
+        # self.info(f"pipette position: '{pi}' ")
         st = self.calibrated_stage.position()[:2]
         stz = self.calibrated_unit.microscope.position() / 5
         st= np.append(st, stz)

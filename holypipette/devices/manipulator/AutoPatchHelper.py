@@ -22,7 +22,13 @@ class AutoPatchHelper:
     Break in
     """
 
-    def __init__(self, *, calibration_enabled: bool = False):
+    def __init__(
+        self,
+        *,
+        calibration_enabled: bool = False,
+        calibrate_inputs: Optional[bool] = None,
+        calibrate_outputs: Optional[bool] = None,
+    ):
         self.hunter = CellHunter()
         self.finder = PipetteFinder()
         self.gigasealer = GigaSealer()
@@ -36,8 +42,11 @@ class AutoPatchHelper:
         self._finder_state_snapshot = None
         self.calibration_path: Optional[Path] = None
         self._calibration = {"pipette": None, "stage": None}
-        self.cal_enabled = bool(calibration_enabled)
-        self._calibration_usage = {"inputs": self.cal_enabled, "outputs": self.cal_enabled}
+        default_cal = bool(calibration_enabled)
+        inputs_flag = default_cal if calibrate_inputs is None else bool(calibrate_inputs)
+        outputs_flag = default_cal if calibrate_outputs is None else bool(calibrate_outputs)
+        self._calibration_usage = {"inputs": inputs_flag, "outputs": outputs_flag}
+        self.cal_enabled = inputs_flag or outputs_flag
         self._model_meta = {}
         self._axis_meta = {}
 
@@ -136,6 +145,22 @@ class AutoPatchHelper:
         if outputs is not None:
             self._calibration_usage["outputs"] = bool(outputs)
         self.cal_enabled = self._calibration_usage["inputs"] or self._calibration_usage["outputs"]
+
+    @property
+    def use_calibrated_inputs(self) -> bool:
+        return self._calibration_usage["inputs"]
+
+    @use_calibrated_inputs.setter
+    def use_calibrated_inputs(self, enabled: bool) -> None:
+        self.set_calibration_usage(inputs=enabled)
+
+    @property
+    def use_calibrated_outputs(self) -> bool:
+        return self._calibration_usage["outputs"]
+
+    @use_calibrated_outputs.setter
+    def use_calibrated_outputs(self, enabled: bool) -> None:
+        self.set_calibration_usage(outputs=enabled)
 
     def apply_calibration(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]], *, direction: str = "to_pixels", split: bool = False, ignore_offsets: Optional[dict] = None):
         """Convert coordinates between microns and pixels using cached calibration matrices."""
@@ -249,7 +274,7 @@ class AutoPatchHelper:
             model_payload = (pip_px, stage_px, img, res)
         if self._hunter_state_snapshot is not None:
             self.hunter.set_state_snapshot(self._hunter_state_snapshot)
-        print(f"model payload prepared {type(model_payload)}")
+        # print(f"model payload prepared {type(model_payload)}")
         pos, h0_out, c0_out = self.hunter.inference(model_payload, self.hunterh0, self.hunterc0)
         snapshot = self.hunter.get_state_snapshot()
         self._hunter_state_snapshot = snapshot
@@ -258,7 +283,7 @@ class AutoPatchHelper:
             self.hunterc0 = snapshot.get("c0")
         else:
             self.hunterh0, self.hunterc0 = h0_out, c0_out
-        print(f"model inference returned pos {pos}")
+        # print(f"model inference returned pos {pos}")
         pos = np.asarray(pos, np.float32).reshape(-1)
         pip_dim, stage_dim, _ = self._model_dims("hunt")
         stage_part = pos[:stage_dim] if stage_dim else np.zeros((0,), dtype=np.float32)
@@ -318,12 +343,12 @@ class AutoPatchHelper:
         if self._finder_state_snapshot is not None:
             self.finder.set_state_snapshot(self._finder_state_snapshot)
         # print(f"pipette finder payload prepared {type(model_payload)}")
-        print(f"model pip payload:{pip_px}")
-        print(f"model stage payload:{stage_px}")
-        save_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\temp\test_image"
+        # print(f"model pip payload:{pip_px}")
+        # print(f"model stage payload:{stage_px}")
+        # save_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\temp\test_image"
         # plot and save image
-        plt.imshow(img)
-        plt.savefig(save_path)
+        # plt.imshow(img)
+        # plt.savefig(save_path)
         # cv2.imwrite(save_path, img)
         pos, h0_out, c0_out = self.finder.inference(model_payload, self.finderh0, self.finderc0)
         snapshot = self.finder.get_state_snapshot()
@@ -333,7 +358,7 @@ class AutoPatchHelper:
             self.finderc0 = snapshot.get("c0")
         else:
             self.finderh0, self.finderc0 = h0_out, c0_out
-        print(f"pipette finder inference returned pos in pixels {pos}")
+        # print(f"pipette finder inference returned pos in pixels {pos}")
         pos = np.asarray(pos, np.float32).reshape(-1)
         pip_dim, stage_dim, _ = self._model_dims("find_pipette")
         stage_part = pos[:stage_dim] if stage_dim else np.zeros((0,), dtype=np.float32)
@@ -349,9 +374,9 @@ class AutoPatchHelper:
             stage_um = np.asarray(stage_part, dtype=np.float32)
             pip_um = np.asarray(pip_part, dtype=np.float32)
         pos_um = self._pad_output(stage_um, pip_um)
-        print(f"pipette finder inference returned pos in microns {pos_um}")
+        # print(f"pipette finder inference returned pos in microns {pos_um}")
         pip_disp = pip_um - pip_vec[:pip_dim]
-        print(f"pipette finder inference displacement pos in microns {pip_disp}")
+        # print(f"pipette finder inference displacement pos in microns {pip_disp}")
         return self.clamp_positions(pos_um)
 
     def gigaseal(self,mode,type,input):
@@ -449,7 +474,7 @@ class AutoPatchHelper:
             predlist.append(pred)
             h0list.append(h0)
             c0list.append(c0)
-            print(f"observation primed {i}")
+            # print(f"observation primed {i}")
         snapshot = modelactor.get_state_snapshot()
         if model == 'find_pipette':
             self._finder_state_snapshot = snapshot
@@ -526,6 +551,7 @@ class AutoPatchHelper:
             g["camera_image"] = im
         self._goal = g
         return self
+
 
 
 
