@@ -5,6 +5,7 @@ import serial
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
 from holypipette.devices.amplifier.DAQ import  NiDAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
+from holypipette.devices.camera.PipetteCamera import PipetteCamera
 from holypipette.devices.pressurecontroller import MoscowPressureController
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
@@ -13,6 +14,8 @@ from holypipette.devices.lamp import OlympusLamp, FakeLamp
 
 # set up Camera
 camera = PcoCamera()
+# camera = PipetteCamera()
+# auxiliary_camera = PipetteCamera()
 
 # set up Pressure Controller
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
