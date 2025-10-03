@@ -1,5 +1,6 @@
 import sys
 import time
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Tuple
@@ -8,6 +9,9 @@ import cv2
 import numpy as np
 import torch
 import importlib.util
+
+
+logger = logging.getLogger(__name__)
 
 
 def _import_module_from_path(module_name: str, module_path: Path):
@@ -56,7 +60,7 @@ class PipetteDetector1(PipetteDetector):
     def __init__(self, model_path: Optional[str] = None) -> None:
         super().__init__()
         cur_file = Path(__file__).parent.absolute()
-        default_model = cur_file / "pipetteModel" / "pipetteDetectorNetnano2.onnx"
+        default_model = cur_file / "pipetteModel" / "pipetteDetectorNet4.onnx"
         self.model_path = Path(model_path) if model_path is not None else default_model
         self.yolo_net = cv2.dnn.readNetFromONNX(str(self.model_path))
         layer_names = self.yolo_net.getLayerNames()
@@ -67,8 +71,123 @@ class PipetteDetector1(PipetteDetector):
         """Return the (x, y) position of the pipette tip or None if not detected."""
         img = self._ensure_color(img)
         blob = cv2.dnn.blobFromImage(img, 1 / 255.0, (640, 640), swapRB=True, crop=False)
+        outs = self._forward(blob)
+
+        confidences = []
+        boxes = []
+        for out in outs:
+            for detection in out:
+                idx = np.argmax(detection[4, :])
+                detection = detection[:, idx]
+                x, y, width, height, objectness = tuple(detection)
+                if objectness < 0.20:
+                    continue
+
+                boxes.append([x, y])
+                confidences.append(float(objectness))
+
+        if len(boxes) == 0:
+            return None
+
+        confidences = np.array(confidences)
+        best_x, best_y = boxes[confidences.argmax()]
+        if np.isnan(best_x) or np.isnan(best_y):
+            return None
+
+        best_x = (best_x / 640) * img.shape[1]
+        best_y = (best_y / 640) * img.shape[0]
+
+        return int(best_x), int(best_y)
+
+    def _forward(self, blob: np.ndarray):
         self.yolo_net.setInput(blob)
-        outs = self.yolo_net.forward(self.output_layers)
+        return self.yolo_net.forward(self.output_layers)
+
+
+class PipetteDetectorCuda1(PipetteDetector):
+    """Pipette detector that uses onnxruntime-gpu and falls back to OpenCV DNN."""
+
+    _GPU_PROVIDERS = (
+        "CUDAExecutionProvider",
+        "ROCMExecutionProvider",
+        "DirectMLExecutionProvider",
+        "DmlExecutionProvider",
+    )
+
+    def __init__(self, model_path: Optional[str] = None) -> None:
+        super().__init__()
+        cur_file = Path(__file__).parent.absolute()
+        default_model = cur_file / "pipetteModel" / "pipetteDetectorNet4.onnx"
+        self.model_path = Path(model_path) if model_path is not None else default_model
+
+        self.pipette_class = 0
+        self._ort_session = None
+        self._ort_input_name: Optional[str] = None
+        self._ort_output_names: Tuple[str, ...] = ()
+        self._fallback: Optional[PipetteDetector1] = None
+        self.compute_device = "unknown"
+
+        if not self._init_onnxruntime():
+            self._ensure_fallback()
+
+    def _init_onnxruntime(self) -> bool:
+        try:
+            import onnxruntime as ort
+        except ImportError:
+            logger.info("onnxruntime is not installed; using OpenCV fallback")
+            return False
+
+        available = ort.get_available_providers()
+        providers = [provider for provider in self._GPU_PROVIDERS if provider in available]
+        if not providers:
+            logger.info("No onnxruntime GPU providers detected; using OpenCV fallback")
+            return False
+        if "CPUExecutionProvider" in available:
+            providers.append("CPUExecutionProvider")
+
+        try:
+            session = ort.InferenceSession(str(self.model_path), providers=providers)
+        except Exception as exc:
+            logger.warning("Failed to create onnxruntime session with providers %s: %s", providers, exc)
+            return False
+
+        inputs = session.get_inputs()
+        outputs = session.get_outputs()
+        if not inputs:
+            logger.warning("onnxruntime session has no inputs; using OpenCV fallback")
+            return False
+
+        self._ort_session = session
+        self._ort_input_name = inputs[0].name
+        self._ort_output_names = tuple(out.name for out in outputs if out.name)
+        active_provider = session.get_providers()[0] if session.get_providers() else "onnxruntime"
+        self.compute_device = active_provider
+        logger.info("PipetteDetectorCuda1 using onnxruntime provider %s", active_provider)
+        return True
+
+    def _ensure_fallback(self) -> None:
+        if self._fallback is None:
+            logger.info("Initializing OpenCV fallback for PipetteDetectorCuda1")
+            self._fallback = PipetteDetector1(model_path=str(self.model_path))
+            self.compute_device = "opencv"
+
+    def detect_pipette(self, img: np.ndarray) -> Optional[Tuple[int, int]]:
+        if self._ort_session is None:
+            self._ensure_fallback()
+            return self._fallback.detect_pipette(img) if self._fallback else None
+
+        img = self._ensure_color(img)
+        blob = cv2.dnn.blobFromImage(img, 1 / 255.0, (640, 640), swapRB=True, crop=False)
+
+        try:
+            outs = self._ort_session.run(self._ort_output_names or None, {self._ort_input_name: blob})
+        except Exception as exc:
+            logger.warning("onnxruntime inference failed; switching to OpenCV fallback: %s", exc)
+            self._ort_session = None
+            self._ort_input_name = None
+            self._ort_output_names = ()
+            self._ensure_fallback()
+            return self._fallback.detect_pipette(img) if self._fallback else None
 
         confidences = []
         boxes = []
@@ -164,7 +283,7 @@ class PipetteDetector2(PipetteDetector):
 
 
 if __name__ == '__main__':
-    detector = PipetteDetector2()
+    detector = PipetteDetector1()
     path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
     img = cv2.imread(path)
 

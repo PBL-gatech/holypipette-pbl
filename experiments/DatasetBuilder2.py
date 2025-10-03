@@ -91,7 +91,7 @@ class AxisToggle:
 @dataclass(slots=True)
 class ObservationSelector:
     include_pressure: bool = False
-    include_resistance: bool = False
+    include_resistance: bool = True
     include_current: bool = False
     include_voltage: bool = False
     include_stage: bool = True
@@ -161,7 +161,7 @@ class DatasetBuilderSettings:
     frequency_mod: int = 1 # downsample data by this factor (minimum 1)
     displacement: float = 0.001 # minimum stage/pipette displacement in microns
     filter: FilterSettings = field(default_factory=FilterSettings)
-    image_resize: int = 1024
+    image_resize: int = 85
 
     observation_selector: ObservationSelector = field(default_factory=ObservationSelector)
     action_selector: ActionSelector = field(
@@ -904,8 +904,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         print(pd.read_csv(file_path, delimiter=";"))
 
     def convert_movement_recording_csv_to_new_format(self, demo_file_path: str) -> None:
-        """Rewrite ``movement_recording.csv`` into the new semicolon format."""
-        file_path = Path("experiments/Data/rig_recorder_data") / demo_file_path / "movement_recording.csv"
+        """Rewrite ``cv_movement_recording.csv`` into the new semicolon format."""
+        file_path = Path("experiments/Data/rig_recorder_data") / demo_file_path / "cv_movement_recording.csv"
         movement_values = pd.read_csv(file_path, delimiter=":")
 
         converted_file_strings = ["timestamp;st_x;st_y;st_z;pi_x;pi_y;pi_z\n"]
@@ -933,7 +933,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         """Load graph, movement, and log tables for a given experiment folder."""
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder
         graph_values = pd.read_csv(base / "graph_recording.csv", delimiter=";").to_numpy()
-        movement_values = pd.read_csv(base / "movement_recording.csv", delimiter=";").to_numpy()
+        movement_values = pd.read_csv(base / "cv_movement_recording.csv", delimiter=";").to_numpy()
         log_file = Path("experiments/Data/log_data") / f"logs_{rig_recorder_data_folder[:10]}.csv"
         log_values = _read_csv_with_fallback(log_file, on_bad_lines="skip")
         return graph_values, movement_values, log_values
@@ -2169,7 +2169,10 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    # dataset_name = "PatcherBot_test_dataset_v0_120.hdf5"
+
+    dataset_name = "PatcherBot_test_dataset_v0_140.hdf5"
+
+
     # # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
     # # rig_recorder_data_folder_set = [
     # #     "2025_09_25-20_43",
@@ -2187,21 +2190,21 @@ if __name__ == "__main__":
     #     "2025_04_10-12_16",
     # ] # HEK training data (5/20/2025, 4/10/2025)
 
-    # rig_recorder_data_folder_set = ["2025_04_07-15_50"] # HEK testing data
+    rig_recorder_data_folder_set = ["2025_04_07-14_50"] # HEK testing data
 
-    dataset_name =  "PatcherBot_Dino_dataset_v0_002.hdf5"
+    # dataset_name =  "PatcherBot_Dino_dataset_v0_002.hdf5"
 
-    rig_recorder_data_folder_set = [
-        "2025_09_25-20_43",
-        "2025_09_25-21_39",
-        "2025_10_01-13_15",# ~ 20 more demos
-        "2025_10_01-13_30", # ~ 30 more demos
-        "2025_05_20-15_50",
-        "2025_05_20-15_16",
-        "2025_05_20-14_05",
-        "2025_04_10-11_57",
-        "2025_04_10-12_16",
-    ]
+    # rig_recorder_data_folder_set = [
+    #     "2025_09_25-20_43",
+    #     "2025_09_25-21_39",
+    #     "2025_10_01-13_15",# ~ 20 more demos
+    #     "2025_10_01-13_30", # ~ 30 more demos
+    #     "2025_05_20-15_50",
+    #     "2025_05_20-15_16",
+    #     "2025_05_20-14_05",
+    #     "2025_04_10-11_57",
+    #     "2025_04_10-12_16",
+    # ]
 
 
     builder = DatasetBuilder2(
