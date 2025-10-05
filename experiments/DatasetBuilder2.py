@@ -157,9 +157,9 @@ class DatasetBuilderSettings:
     rotate_valid: bool = False # set to true to augment validation set with rotations
     stage_y_axis_flip: bool = False # set to true if the stage Y axis is inverted
     pipette_rotation_deg: float = -60.75 # angle to rotate pipette coordinates into stage frame
-    load_next_obs: bool = False # set to true for goal conditioning
+    load_next_obs: bool = True # set to true for goal conditioning
     frequency_mod: int = 1 # downsample data by this factor (minimum 1)
-    displacement: float = 0.001 # minimum stage/pipette displacement in microns
+    displacement: float = 1 # minimum stage/pipette displacement in microns or pixels
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
 
@@ -168,14 +168,14 @@ class DatasetBuilderSettings:
         default_factory=lambda: ActionSelector(
             include_stage=False,
             stage_axes=AxisToggle(x=False, y=False, z=False),
-            pipette_axes=AxisToggle(x=True, y=True, z=True),
+            pipette_axes=AxisToggle(x=True, y=True, z=False),
         )
     )
 
     # Legacy toggles preserved for parity with DatasetBuilder
     calibrate: bool = False # set to true to apply calibration transform
     zero_values: bool = False # set to true to zero out starting positions
-    center_crop: bool = False # set to true to center crop images around pipette
+    center_crop: bool = True # set to true to center crop images around pipette
     rotate: bool = False # set to true to augment training set with rotations
     inaction: int = 1 # maximum number of consecutive zero-action steps to keep
 
@@ -2174,13 +2174,13 @@ if __name__ == "__main__":
 
 
     # # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
-    # # rig_recorder_data_folder_set = [
-    # #     "2025_09_25-20_43",
-    # #     "2025_09_25-21_39",
-    # #     "2025_10_01-13_15",# ~ 20 more demos
-    # #     "2025_10_01-13_30" # ~ 30 more demos
-    # #     ] # version 0.001 training data (9/25/2025)
-    # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
+    # rig_recorder_data_folder_set = [
+    #     "2025_09_25-20_43",
+    #     "2025_09_25-21_39",
+    #     "2025_10_01-13_15",# ~ 20 more demos
+    #     "2025_10_01-13_30" # ~ 30 more demos
+    #     ] # version 0.001 training data (9/25/2025)
+    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
     
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",
@@ -2190,7 +2190,7 @@ if __name__ == "__main__":
     #     "2025_04_10-12_16",
     # ] # HEK training data (5/20/2025, 4/10/2025)
 
-    rig_recorder_data_folder_set = ["2025_04_07-14_50"] # HEK testing data
+    # rig_recorder_data_folder_set = ["2025_04_07-14_50"] # HEK testing data
 
     # dataset_name =  "PatcherBot_Dino_dataset_v0_002.hdf5"
 
@@ -2213,7 +2213,7 @@ if __name__ == "__main__":
         val_ratio=0.1,
         omit_stage_movement=True,
         random_seed=0,
-        load_next_obs=False,
+        load_next_obs=True,
     )
 
     for folder in rig_recorder_data_folder_set:

@@ -13,7 +13,7 @@ import threading
 import imageio
 import logging
 from holypipette.deepLearning.cellSegmentor import CellSegmentor2
-from holypipette.deepLearning.pipetteDetector import PipetteDetector2
+from holypipette.deepLearning.pipetteDetector import PipetteDetector1
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -187,7 +187,7 @@ class Camera(object):
         self.fps = 0
 
         self.Cellseg = CellSegmentor2()
-        self.pipdetector = PipetteDetector2()
+        self.pipdetector = PipetteDetector1()
         # testing flag
         
 
@@ -204,21 +204,21 @@ class Camera(object):
     def stop_acquisition(self):
         self._acquisition_thread.running = False
 
-    def start_recording(self, directory='', file_prefix='', skip_frames=0, queue_size=1000):
-        if len(self._acquisition_thread.queues) > 1:
-            del self._acquisition_thread.queues[1]
-        self._file_queue = collections.deque(maxlen=queue_size)
-        self._acquisition_thread.queues.append(self._file_queue)
-        self._file_thread = FileWriteThread(queue=self._file_queue,
-                                            directory=directory,
-                                            file_prefix=file_prefix,
-                                            skip_frames=skip_frames,
-                                            debug_write_delay=self._debug_write_delay)
-        self._file_thread.start()
+    # def start_recording(self, directory='', file_prefix='', skip_frames=0, queue_size=1000):
+    #     if len(self._acquisition_thread.queues) > 1:
+    #         del self._acquisition_thread.queues[1]
+    #     self._file_queue = collections.deque(maxlen=queue_size)
+    #     self._acquisition_thread.queues.append(self._file_queue)
+    #     self._file_thread = FileWriteThread(queue=self._file_queue,
+    #                                         directory=directory,
+    #                                         file_prefix=file_prefix,
+    #                                         skip_frames=skip_frames,
+    #                                         debug_write_delay=self._debug_write_delay)
+    #     self._file_thread.start()
 
-    def stop_recording(self):
-        if self._file_thread:
-            self._file_thread.running = False
+    # def stop_recording(self):
+    #     if self._file_thread:
+    #         self._file_thread.running = False
 
     def flip(self):
         self.flipped = not self.flipped

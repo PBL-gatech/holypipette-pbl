@@ -117,38 +117,125 @@ class AutoPatcher(TaskController):
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
+        self.autopatchhelper.prepare_model("find_pipette")
+
         done = False
         count = 0
-        self.autopatchhelper.prepare_model("find_pipette")
-        # self.calibrated_unit.center_pipette()
+        err = None
+        action = None
+        target_point = None
+
         while not done:
-            # wait in loop until done
-            # imitation policy will go here to find pipette,and detector will check to see if it is in within 25 pixels of center of screen
-            if self.config.mode == 'Agent':
-                action = self.autopatchhelper.find_pipette(self.observe())
-
-                self.info(f"pipette predicition: {action} um")
-                # get first 3 outputs from action 
-                pipette_action = action[0:3] # for gits and shiggles.
-                
-                pipette_action_micron = self.calibrated_unit.pixels_to_um_relative(pipette_action)
-                self.info(f"pipette prediction in microns:{pipette_action_micron}")
-                self.calibrated_unit.relative_move(pipette_action)
-                # if model prediction value is less than 0.1 in all dimensions 5 times in a row, we are done
-                if np.linalg.norm(pipette_action) < 0.1:
-                    count +=1
-                    if count >=5:
-                        done = True
-                if done:
-                    self.info("Pipette found")
-                    break
+            if self.config.mode != 'Agent':
                 self.sleep(0.04)
+                continue
+
+            observation = self.observe()
+            curr_point = observation[0]
+
+            if curr_point is None:
+                self.warning("Pipette detector did not return a location; waiting for next frame")
+                self.sleep(0.04)
+                continue
+
+            if isinstance(curr_point, np.ndarray):
+                curr_point = curr_point.tolist()
+            if len(curr_point) < 2 or any(value is None for value in curr_point[:2]):
+                self.warning("Pipette detector returned incomplete coordinates; waiting for next frame")
+                self.sleep(0.04)
+                continue
+
+            curr_array = np.asarray(curr_point[:2], dtype=float)
+            if np.isnan(curr_array).any():
+                self.warning("Pipette detector returned NaN coordinates; waiting for next frame")
+                self.sleep(0.04)
+                continue
+
+            curr_point = tuple(int(round(coord)) for coord in curr_array)
+            camera = self.calibrated_stage.camera
+
+            if action is None:
+                action = self.autopatchhelper.find_pipette(observation)
+                self.info(f"pipette prediction: {action} um")
+
+                if action is None:
+                    self.warning("Model did not return an action; retrying inference")
+                    err = None
+                    self.sleep(0.04)
+                    continue
+
+                pred_offset = np.asarray(action[:2], dtype=float)
+                if pred_offset.size < 2:
+                    self.warning("Predicted offset missing coordinates; retrying inference")
+                    action = None
+                    target_point = None
+                    err = None
+                    self.sleep(0.04)
+                    continue
+
+                if np.isnan(pred_offset).any():
+                    self.warning("Predicted offset contains NaNs; retrying inference")
+                    action = None
+                    target_point = None
+                    err = None
+                    self.sleep(0.04)
+                    continue
+
+                target_point_float = np.asarray(curr_point, dtype=float) + pred_offset
+                target_point_pixels = (
+                    int(round(target_point_float[0])),
+                    int(round(target_point_float[1]))
+                )
+                target_point_microns = (
+                    int(round(pred_offset[0])),
+                    int(round(pred_offset[1])),
+                    0
+                )
+                target_point_microns = self.calibrated_unit.pixels_to_um_relative(target_point_microns) + self.calibrated_unit.position()
+
+                self.info(f" target converted distance relative in um: {target_point_microns} um")
+                width = getattr(camera, "width", None)
+                height = getattr(camera, "height", None)
+                if width is not None and height is not None:
+                    if not (0 <= target_point_pixels[0] < width and 0 <= target_point_pixels[1] < height):
+                        self.warning(f"predicted point not on screen: {target_point_pixels}")
+                        action = None
+                        target_point = None
+                        err = None
+                        self.sleep(0.04)
+                        continue
+
+                target_point = target_point_pixels
+
+            pipette_action = np.asarray(action[:3], dtype=float)
+            if pipette_action.size < 3:
+                pipette_action = np.pad(pipette_action, (0, 3 - pipette_action.size), constant_values=0.0)
+            if np.linalg.norm(pipette_action) < 0.1:
+                count += 1
+                if count >= 5:
+                    done = True
+
+            if done:
+                self.info("Pipette found")
+                break
+
+            if target_point is not None:
+                camera.show_point(point=target_point, color=(255, 0, 0))
+                xerr = curr_point[0] - target_point[0]
+                yerr = curr_point[1] - target_point[1]
+                err = float(np.sqrt((xerr ** 2 + yerr ** 2) / 2.0))
+                self.info(f"total pixel error: {err}")
+
+                if err <= 25:
+                    action = None
+                    target_point = None
+                    err = None
+                    self.sleep(0.04)
+                    continue
             else:
-                self.sleep(0.04)
+                camera.show_point(point=curr_point, color=(255, 255, 255))
 
-
-                # self.info("Classic/Manual mode not implemented for finding pipette")
-   
+            self.sleep(0.04)
 
     @record_state("run_protocols")
     def run_protocols(self):
@@ -1191,3 +1278,10 @@ class AutoPatcher(TaskController):
         # Return a list instead of trying to create heterogeneous numpy array
         return [cvpi, st, img, res]
         
+
+    def act(self):
+        '''
+         takes in 
+        '''
+
+
