@@ -45,3 +45,8 @@ holypipette/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
 /holypipette/temp
 /.codex_tmp/_yaml
 /.codex_tmp
+/holypipette/deepLearning/patchModel/Agents
+/holypipette/deepLearning/patchModel/deprecated
+/holypipette/deepLearning/patchModel/legacy
+holypipette/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
+holypipette/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
