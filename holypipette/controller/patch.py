@@ -7,7 +7,7 @@ from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, Calib
 from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.pressurecontroller import PressureController
 from holypipette.devices.lamp import Lamp
-from holypipette.devices.manipulator.AutoPatchHelper import AutoPatchHelper
+from holypipette.devices.manipulator.AgentHelper import AgentHelper
 from holypipette.utils.StateMachineLogger import StateMachineLogger, record_state
 import collections
 import logging
@@ -57,7 +57,7 @@ class AutoPatcher(TaskController):
         self.attempt_counter = 0
         self._state_recorder = None
         self._in_patch       = False
-        self.autopatchhelper = AutoPatchHelper(calibrate_inputs=False,calibrate_outputs=False)
+        self.agenthelper =   AgentHelper()
         self.current_protocol_graph = None
         self.ninput = None
         self.done = False
@@ -117,17 +117,18 @@ class AutoPatcher(TaskController):
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
-        self.autopatchhelper.prepare_model("find_pipette")
+        self.agenthelper.prepare_model("find_pipette")
 
         done = False
         count = 0
         err = None
         action = None
         target_point = None
+        
 
         while not done:
             if self.config.mode != 'Agent':
-                self.sleep(0.04)
+                self.sleep(0.02)
                 continue
 
             observation = self.observe()
@@ -135,33 +136,35 @@ class AutoPatcher(TaskController):
 
             if curr_point is None:
                 self.warning("Pipette detector did not return a location; waiting for next frame")
-                self.sleep(0.04)
+                self.sleep(0.02)
                 continue
 
             if isinstance(curr_point, np.ndarray):
                 curr_point = curr_point.tolist()
             if len(curr_point) < 2 or any(value is None for value in curr_point[:2]):
                 self.warning("Pipette detector returned incomplete coordinates; waiting for next frame")
-                self.sleep(0.04)
+                self.sleep(0.02)
                 continue
 
             curr_array = np.asarray(curr_point[:2], dtype=float)
             if np.isnan(curr_array).any():
                 self.warning("Pipette detector returned NaN coordinates; waiting for next frame")
-                self.sleep(0.04)
+                self.sleep(0.02)
                 continue
 
             curr_point = tuple(int(round(coord)) for coord in curr_array)
             camera = self.calibrated_stage.camera
+            # goal = np.array([640,640])
+            goal = None
 
             if action is None:
-                action = self.autopatchhelper.find_pipette(observation)
+                action = self.agenthelper.run_inference(observation=observation,goal=goal,is_demo=False)
                 self.info(f"pipette prediction: {action} um")
 
                 if action is None:
                     self.warning("Model did not return an action; retrying inference")
                     err = None
-                    self.sleep(0.04)
+                    self.sleep(0.02)
                     continue
 
                 pred_offset = np.asarray(action[:2], dtype=float)
@@ -170,7 +173,7 @@ class AutoPatcher(TaskController):
                     action = None
                     target_point = None
                     err = None
-                    self.sleep(0.04)
+                    self.sleep(0.02)
                     continue
 
                 if np.isnan(pred_offset).any():
@@ -178,7 +181,7 @@ class AutoPatcher(TaskController):
                     action = None
                     target_point = None
                     err = None
-                    self.sleep(0.04)
+                    self.sleep(0.02)
                     continue
 
                 target_point_float = np.asarray(curr_point, dtype=float) + pred_offset
@@ -194,8 +197,14 @@ class AutoPatcher(TaskController):
                 target_point_microns = self.calibrated_unit.pixels_to_um_relative(target_point_microns) + self.calibrated_unit.position()
 
                 self.info(f" target converted distance relative in um: {target_point_microns} um")
+
+                self.info(f"acting...")
+
+                self.calibrated_unit.absolute_move(target_point_microns)
+
                 width = getattr(camera, "width", None)
                 height = getattr(camera, "height", None)
+            
                 if width is not None and height is not None:
                     if not (0 <= target_point_pixels[0] < width and 0 <= target_point_pixels[1] < height):
                         self.warning(f"predicted point not on screen: {target_point_pixels}")
@@ -207,13 +216,29 @@ class AutoPatcher(TaskController):
 
                 target_point = target_point_pixels
 
-            pipette_action = np.asarray(action[:3], dtype=float)
-            if pipette_action.size < 3:
-                pipette_action = np.pad(pipette_action, (0, 3 - pipette_action.size), constant_values=0.0)
-            if np.linalg.norm(pipette_action) < 0.1:
-                count += 1
-                if count >= 5:
-                    done = True
+            # pipette_action = np.asarray(action[:3], dtype=float)
+            # # if pipette_action.size < 3:
+            # #     pipette_action = np.pad(pipette_action, (0, 3 - pipette_action.size), constant_values=0.0)
+            # # if np.linalg.norm(pipette_action) < 0.1:
+            # #     count += 1
+            # #     if count >= 5:
+            # #         done = True
+
+            if goal == None:
+                goal_target = np.array([640,640])
+            else: 
+                goal_target = goal
+
+
+            curr_point = np.array(curr_point)
+            xgerr = goal_target[0] - curr_point[0] # switch 
+            ygerr = goal_target[1] - curr_point[1]
+            gerr = float(np.sqrt((xgerr ** 2 + ygerr ** 2) / 2.0))
+            self.info(f" Goal error:{gerr}")
+
+            if gerr <= 25:
+                done = True
+
 
             if done:
                 self.info("Pipette found")
@@ -226,16 +251,16 @@ class AutoPatcher(TaskController):
                 err = float(np.sqrt((xerr ** 2 + yerr ** 2) / 2.0))
                 self.info(f"total pixel error: {err}")
 
-                if err <= 25:
+                if err <= 10:
                     action = None
                     target_point = None
                     err = None
-                    self.sleep(0.04)
+                    self.sleep(0.02)
                     continue
             else:
                 camera.show_point(point=curr_point, color=(255, 255, 255))
 
-            self.sleep(0.04)
+            self.sleep(0.02)
 
     @record_state("run_protocols")
     def run_protocols(self):
@@ -513,7 +538,7 @@ class AutoPatcher(TaskController):
             #prepare model
             # cell_pos, cell_img,goal_pos = cell
             # goal_res  = self.first_res + self.config.cell_R_increase*1e6
-            self.autopatchhelper.prepare_model("hunt")
+            self.agenthelper.prepare_model("hunt")
             autoHunt = True
         else:
             autoHunt = False
@@ -528,7 +553,7 @@ class AutoPatcher(TaskController):
             if autoHunt:
                 try: 
                     model_input = self.observe()
-                    pos = self.autopatchhelper.hunt(model_input)
+                    pos = self.agenthelper.run_inference(model_input)
                     st_pos = pos[:3]
                     pi_pos = pos[3:]
                     self.info(f"pipette command: {pi_pos},data type {type(pi_pos)}")          

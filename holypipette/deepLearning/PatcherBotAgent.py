@@ -1,8 +1,9 @@
 # necessary imports
 import onnxruntime as ort
 from pathlib import Path
+from datetime import datetime
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from collections import deque
 from pathlib import Path
 from typing import Optional, Tuple, Union, Dict, Any, List
@@ -93,6 +94,8 @@ class ModelInferencer:
         self.goal_required = False
         self.goal = None
         self.internal_states = [0, 0]
+        self._last_frame_params: Optional[Dict[str, float]] = None
+        self._pipette_action_dim: Optional[int] = None
 
         self.importer = model_importer.load()
         self.session = self.importer.session
@@ -114,6 +117,27 @@ class ModelInferencer:
         camera_shape = self.importer.input_shapes.get("obs::camera_image")
         if camera_shape and 3 in camera_shape and camera_shape.index(3) == len(camera_shape) - 1:
             self.image_layout = "HWC"
+        if camera_shape:
+            target_height = None
+            target_width = None
+            if self.image_layout == "CHW" and len(camera_shape) >= 4:
+                target_height = camera_shape[-2]
+                target_width = camera_shape[-1]
+            elif self.image_layout == "HWC":
+                if len(camera_shape) >= 4:
+                    target_height = camera_shape[-3]
+                    target_width = camera_shape[-2]
+                elif len(camera_shape) == 3:
+                    target_height = camera_shape[0]
+                    target_width = camera_shape[1]
+            if (
+                isinstance(target_width, (int, float))
+                and isinstance(target_height, (int, float))
+                and target_width > 0
+                and target_height > 0
+            ):
+                self.image_resize = (int(target_width), int(target_height))
+        self.image_resize = (int(self.image_resize[0]), int(self.image_resize[1]))
         self.state_names = [name for name in self.input_names if not name.startswith("obs::") and not name.startswith("goal::")]
         self.state_buffers = {}
         self.default_inputs = {}
@@ -125,17 +149,113 @@ class ModelInferencer:
                 self.state_buffers[name] = zeros.copy()
         self.action_dim = None
 
-    def _prepare_image(self, image: np.ndarray) -> np.ndarray:
+    def _prepare_image(
+        self,
+        image: np.ndarray,
+        frame_params: Optional[Dict[str, float]] = None,
+    ) -> np.ndarray:
         """Center-crop and resize an RGB frame from the microscope."""
         frame = np.asarray(image, dtype=np.uint8)
         h, w = frame.shape[:2]
-        crop_h, crop_w = int(h * self.crop_size), int(w * self.crop_size)
-        y0, x0 = max((h - crop_h) // 2, 0), max((w - crop_w) // 2, 0)
+        params = frame_params or self._compute_frame_params((h, w))
+        if params is None:
+            return frame
+        crop_h = int(params["crop_h"])
+        crop_w = int(params["crop_w"])
+        y0 = int(params["offset_y"])
+        x0 = int(params["offset_x"])
         cropped = frame[y0:y0 + crop_h, x0:x0 + crop_w]
         return np.array(
             Image.fromarray(cropped).resize(self.image_resize, Image.BILINEAR),
             dtype=np.uint8,
         )
+
+    def _ensure_rgb_channels(self, frame: np.ndarray) -> np.ndarray:
+        """Ensure inference sees RGB frames even when the camera is mono."""
+        if frame.ndim == 2:
+            return np.repeat(frame[..., None], 3, axis=-1)
+        if frame.ndim == 3:
+            if frame.shape[-1] == 1:
+                return np.repeat(frame, 3, axis=-1)
+            if frame.shape[-1] > 3:
+                return frame[..., :3]
+            if frame.shape[0] == 1 and frame.shape[-1] != 3:
+                base = frame[0]
+                return np.repeat(base[..., None], 3, axis=-1)
+        return frame
+
+    def _compute_frame_params(self, frame_shape: Tuple[int, int]) -> Optional[Dict[str, float]]:
+        """Return crop offsets and scale factors that mirror DatasetBuilder2."""
+        if not frame_shape or len(frame_shape) < 2:
+            return None
+        h, w = int(frame_shape[0]), int(frame_shape[1])
+        if h <= 0 or w <= 0:
+            return None
+        if self.crop_size >= 1.0:
+            crop_h = h
+            crop_w = w
+        else:
+            crop_h = max(int(h * self.crop_size), 1)
+            crop_w = max(int(w * self.crop_size), 1)
+        crop_h = min(crop_h, h)
+        crop_w = min(crop_w, w)
+        offset_y = max((h - crop_h) // 2, 0)
+        offset_x = max((w - crop_w) // 2, 0)
+        resize_w, resize_h = self.image_resize
+        scale_x = resize_w / crop_w if crop_w else 1.0
+        scale_y = resize_h / crop_h if crop_h else 1.0
+        return {
+            "crop_h": float(crop_h),
+            "crop_w": float(crop_w),
+            "offset_x": float(offset_x),
+            "offset_y": float(offset_y),
+            "scale_x": float(scale_x),
+            "scale_y": float(scale_y),
+        }
+
+    def _scale_pipette_for_model(
+        self,
+        pipette_positions: Optional[np.ndarray],
+        frame_params: Optional[Dict[str, float]],
+    ) -> Optional[np.ndarray]:
+        """Apply crop/resize scaling to planar pipette coordinates."""
+        if pipette_positions is None:
+            return None
+        scaled = np.asarray(pipette_positions, dtype=np.float32).copy()
+        if frame_params is None or scaled.size == 0:
+            return scaled
+        if scaled.ndim == 0:
+            scaled = scaled.reshape(1)
+        if scaled.shape[-1] >= 2:
+            scale_x = frame_params.get("scale_x", 1.0)
+            scale_y = frame_params.get("scale_y", 1.0)
+            offset_x = frame_params.get("offset_x", 0.0)
+            offset_y = frame_params.get("offset_y", 0.0)
+            scaled[..., 0] = (scaled[..., 0] - offset_x) * scale_x
+            scaled[..., 1] = (scaled[..., 1] - offset_y) * scale_y
+        return scaled
+
+    def _restore_pipette_from_model(
+        self,
+        pipette_components: np.ndarray,
+        frame_params: Optional[Dict[str, float]],
+    ) -> np.ndarray:
+        """Undo crop/resize scaling on planar pipette coordinates."""
+        restored = np.asarray(pipette_components, dtype=np.float32).copy()
+        if frame_params is None or restored.size == 0:
+            return restored
+        if restored.ndim == 0:
+            restored = restored.reshape(1)
+        if restored.shape[-1] >= 2:
+            scale_x = frame_params.get("scale_x", 1.0)
+            scale_y = frame_params.get("scale_y", 1.0)
+            offset_x = frame_params.get("offset_x", 0.0)
+            offset_y = frame_params.get("offset_y", 0.0)
+            if scale_x != 0:
+                restored[..., 0] = restored[..., 0] / scale_x + offset_x
+            if scale_y != 0:
+                restored[..., 1] = restored[..., 1] / scale_y + offset_y
+        return restored
 
     def _get_obs_stats(self, key: str):
         stats = self.obs_norm_object.get(key) if self.obs_norm_object else None
@@ -149,87 +269,116 @@ class ModelInferencer:
 
     def _normalize_low_dim(self, key: str, value: np.ndarray) -> np.ndarray:
         arr = np.asarray(value, dtype=np.float32)
-        offset, scale = self._get_obs_stats(key)
-        if offset is None or scale is None:
-            return arr
-        while arr.ndim < offset.ndim:
-            arr = np.expand_dims(arr, axis=0)
-        return (arr - offset) / (scale + 1e-6)
+        return arr
 
     def _prepare_camera_payload(self, frame: np.ndarray) -> np.ndarray:
         frame_f = np.asarray(frame, dtype=np.float32)
         if frame_f.ndim < 3:
             raise ValueError("camera image must be at least 3D")
-        if frame_f.max() > 1.01:
-            frame_f = frame_f / 255.0
         if self.image_layout == "CHW" and frame_f.ndim == 3:
             frame_f = frame_f.transpose(2, 0, 1)
-        offset, scale = self._get_obs_stats("camera_image")
-        if offset is not None and scale is not None:
-            arr = frame_f
-            while arr.ndim < offset.ndim:
-                arr = np.expand_dims(arr, axis=0)
-            arr = (arr - offset) / (scale + 1e-6)
-            frame_f = arr
         return frame_f.astype(np.float32, copy=False)
 
     def _apply_obs_normalization(self, observation: dict) -> dict:
-        """Normalize per-key observations using saved statistics when available."""
-        if not observation or not self.obs_norm_object:
+        """Cast per-key observations to float32 without applying normalization."""
+        if not observation:
             return observation
         normalized = {}
         for key, value in observation.items():
-            stats = self.obs_norm_object.get(key)
-            arr = np.asarray(value, dtype=np.float32)
-            if stats and "offset" in stats and "scale" in stats:
-                offset = stats["offset"]
-                scale = stats["scale"]
-                while arr.ndim < offset.ndim:
-                    arr = np.expand_dims(arr, axis=0)
-                normalized[key] = (arr - offset) / (scale + 1e-6)
-            else:
-                normalized[key] = arr
+            normalized[key] = np.asarray(value, dtype=np.float32)
         return normalized
 
     def action_unnorm(self, action: np.ndarray) -> np.ndarray:
-        """Undo action normalization before sending commands downstream."""
+        """Return the model action as float32 without undoing normalization."""
         arr = np.asarray(action, dtype=np.float32)
-        if not self.requires_postprocessing or not self.action_unnorm_object:
-            return arr
-        offset = self.action_unnorm_object.get("offset")
-        scale = self.action_unnorm_object.get("scale")
-        if offset is not None and scale is not None:
-            while arr.ndim < offset.ndim:
-                arr = np.expand_dims(arr, axis=0)
-            arr = arr * scale + offset
-            arr = np.squeeze(arr, axis=0)
         return arr.astype(np.float32)
 
     def process_obs(self, observation, is_demo: bool = False):
         """Package a single observation for the model inputs."""
         cvpi, stage, image, resistance = observation
         obs_values: Dict[str, np.ndarray] = {}
+
+        debug_save_dir = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing")
+        debug_timestamp: Optional[str] = None
+
+        frame_params: Optional[Dict[str, float]] = None
+        prepared_image: Optional[np.ndarray]
+        image_arr = None if image is None else np.asarray(image)
+        if not is_demo and image_arr is not None:
+            frame_params = self._compute_frame_params(image_arr.shape[:2])
+            prepared_image = self._prepare_image(image_arr, frame_params) if frame_params else image_arr
+            self._last_frame_params = frame_params
+        else:
+            prepared_image = image_arr
+            self._last_frame_params = None
+
+        pipette_array: Optional[np.ndarray] = None
+        if cvpi is not None:
+            pipette_array = np.asarray(cvpi, dtype=np.float32)
+            if not is_demo and frame_params is not None:
+                pipette_array = self._scale_pipette_for_model(pipette_array, frame_params)
+        if pipette_array is not None and pipette_array.ndim >= 1 and pipette_array.shape[-1] > 0:
+            self._pipette_action_dim = int(pipette_array.shape[-1])
+
         if "camera_image" in self.obs_keys:
-            frame = image if is_demo else self._prepare_image(image)
-            frame_arr = np.asarray(frame, dtype=np.float32)
+            if prepared_image is None:
+                raise ValueError("camera image is required but missing from observation")
+            frame_arr = np.asarray(prepared_image, dtype=np.float32)
+            frame_arr = self._ensure_rgb_channels(frame_arr)
+            save_frame = np.clip(frame_arr, 0, 255).astype(np.uint8)
+            # Save processed camera frame for debugging.
+            try:
+                debug_save_dir.mkdir(parents=True, exist_ok=True)
+                if debug_timestamp is None:
+                    debug_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                debug_image = Image.fromarray(save_frame)
+                overlay_points = []
+                if pipette_array is not None:
+                    pipette_debug = np.asarray(pipette_array, dtype=np.float32)
+                    if pipette_debug.size > 0:
+                        if pipette_debug.ndim == 1:
+                            pipette_debug = pipette_debug.reshape(1, -1)
+                        elif pipette_debug.ndim > 2:
+                            pipette_debug = pipette_debug.reshape(-1, pipette_debug.shape[-1])
+                        if pipette_debug.ndim >= 2 and pipette_debug.shape[-1] >= 2:
+                            height, width = save_frame.shape[:2]
+                            max_x = max(width - 1.0, 0.0)
+                            max_y = max(height - 1.0, 0.0)
+                            for point in pipette_debug:
+                                if point.shape[0] < 2 or not np.all(np.isfinite(point[:2])):
+                                    continue
+                                x = float(np.clip(point[0], 0.0, max_x))
+                                y = float(np.clip(point[1], 0.0, max_y))
+                                overlay_points.append((x, y))
+                if overlay_points:
+                    draw = ImageDraw.Draw(debug_image)
+                    radius = max(2, int(min(debug_image.size) * 0.02))
+                    for x, y in overlay_points:
+                        bbox = (x - radius, y - radius, x + radius, y + radius)
+                        draw.ellipse(bbox, fill=(255, 0, 0), outline=(255, 255, 255))
+                debug_image.save(debug_save_dir / f"camera_image_{debug_timestamp}.png")
+            except Exception:
+                pass
             if self.requires_preprocessing:
-                if frame_arr.ndim >= 3 and frame_arr.max() > 1.01:
-                    frame_arr = frame_arr / 255.0
                 if self.image_layout == "CHW" and frame_arr.ndim == 3:
                     frame_arr = frame_arr.transpose(2, 0, 1)
             obs_values["camera_image"] = frame_arr
         if "pipette_positions" in self.obs_keys:
-            obs_values["pipette_positions"] = np.asarray(cvpi, dtype=np.float32)
+            if pipette_array is None:
+                raise ValueError("pipette positions are required but missing from observation")
+            pipette_values = np.asarray(pipette_array, dtype=np.float32)
+            obs_values["pipette_positions"] = pipette_values
+
         if "stage_positions" in self.obs_keys:
             obs_values["stage_positions"] = np.asarray(stage, dtype=np.float32)
+
         if "resistance" in self.obs_keys:
             obs_values["resistance"] = np.asarray(resistance, dtype=np.float32)
-        if self.requires_preprocessing:
-            obs_values = self._apply_obs_normalization(obs_values)
 
         goal_values: Dict[str, np.ndarray] = {}
         if self.goal_required and self.goal_keys:
-            goal_source = self.get_goal() if self.get_goal() is not None else cvpi
+            fallback_goal = pipette_array if pipette_array is not None else cvpi
+            goal_source = self.get_goal() if self.get_goal() is not None else fallback_goal
             for key in self.goal_keys:
                 raw_value = goal_source
                 if isinstance(goal_source, dict):
@@ -239,14 +388,9 @@ class ModelInferencer:
                     if value_arr.ndim < 3:
                         raise ValueError("Goal for camera_image requires image data")
                     if self.requires_preprocessing:
-                        if value_arr.max() > 1.01:
-                            value_arr = value_arr / 255.0
                         if self.image_layout == "CHW" and value_arr.ndim == 3:
                             value_arr = value_arr.transpose(2, 0, 1)
                 goal_values[key] = value_arr
-            if self.requires_preprocessing:
-                goal_values = self._apply_obs_normalization(goal_values)
-
         payload = {}
         for name in self.input_names:
             shape = self.importer.input_shapes.get(name)
@@ -269,9 +413,18 @@ class ModelInferencer:
 
     def process_action(self, action: np.ndarray) -> np.ndarray:
         """Denormalize and pad the model action."""
-        arr = self.action_unnorm(action).reshape(-1)
+        arr = self.action_unnorm(action).reshape(-1).astype(np.float32, copy=False)
         if self.action_dim and arr.shape[0] < self.action_dim:
-            arr = np.pad(arr, (0, self.action_dim - arr.shape[0]))
+            padding = self.action_dim - arr.shape[0]
+            if padding > 0:
+                arr = np.pad(arr, (0, padding)).astype(np.float32, copy=False)
+        if self._last_frame_params and self._pipette_action_dim:
+            pip_dim = min(int(self._pipette_action_dim), arr.shape[0])
+            if pip_dim > 0:
+                pip_slice = slice(arr.shape[0] - pip_dim, arr.shape[0])
+                pipette_components = np.asarray(arr[pip_slice], dtype=np.float32)
+                restored = self._restore_pipette_from_model(pipette_components, self._last_frame_params)
+                arr[pip_slice] = restored.reshape(pip_dim)
         return arr.astype(np.float32)
 
     def set_goal(self, goal: float) -> None:

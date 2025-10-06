@@ -210,9 +210,8 @@ class AgentTester:
 
         frame_height = frames.shape[1]
         frame_width = frames.shape[2] if frames.ndim >= 3 else frames.shape[1]
-        scale_xy = np.array([frame_width / 1280.0, frame_height / 1280.0], dtype=np.float32)
 
-        pipette_positions_scaled: Optional[np.ndarray] = None
+        pipette_positions: Optional[np.ndarray] = None
         pipette_positions_src = self.last_dataset.get("pipette_positions")
         if pipette_positions_src is not None:
             pipette_positions_arr = np.asarray(pipette_positions_src, dtype=np.float32)
@@ -222,9 +221,7 @@ class AgentTester:
                 pipette_positions_arr.shape[1] >= 2
                 and pipette_positions_arr.shape[0] >= num_frames
             ):
-                pipette_positions_scaled = (
-                    pipette_positions_arr[:num_frames, :2] * scale_xy
-                )
+                pipette_positions = pipette_positions_arr[:num_frames, :2]
 
         overlay_frames = []
         for idx in range(num_frames):
@@ -233,8 +230,8 @@ class AgentTester:
             pred_vec = _vector_xy(predictions[idx])
             height, width = frame_rgb.shape[:2]
 
-            if pipette_positions_scaled is not None and pipette_positions_scaled.shape[0] > idx:
-                current_coords = pipette_positions_scaled[idx]
+            if pipette_positions is not None and pipette_positions.shape[0] > idx:
+                current_coords = pipette_positions[idx]
             else:
                 current_coords = np.array([width / 2.0, height / 2.0], dtype=np.float32)
             if np.any(np.isnan(current_coords)):
@@ -252,7 +249,6 @@ class AgentTester:
             ax.axis("off")
 
             def _future_positions(vecs: np.ndarray) -> List[np.ndarray]:
-                pos = np.array([current_x, current_y], dtype=np.float32)
                 points: List[np.ndarray] = []
                 for step_idx in range(1, future_steps + 1):
                     action_idx = idx + step_idx
@@ -261,12 +257,30 @@ class AgentTester:
                     delta = _vector_xy(vecs[action_idx])
                     if np.any(np.isnan(delta)):
                         continue
+                    prev_idx = action_idx - 1
+                    if (
+                        pipette_positions is not None
+                        and prev_idx < pipette_positions.shape[0]
+                    ):
+                        base = np.array(
+                            [
+                                float(np.clip(pipette_positions[prev_idx, 0], 0.0, max(width - 1.0, 0.0))),
+                                float(np.clip(pipette_positions[prev_idx, 1], 0.0, max(height - 1.0, 0.0))),
+                            ],
+                            dtype=np.float32,
+                        )
+                    elif points:
+                        base = points[-1].copy()
+                    else:
+                        base = np.array([current_x, current_y], dtype=np.float32)
                     offset = np.array(
-                        [float(delta[0]) * scale_xy[0], -float(delta[1]) * scale_xy[1]],
+                        [float(delta[0]), -float(delta[1])],
                         dtype=np.float32,
                     )
-                    pos = pos + offset
-                    points.append(pos.copy())
+                    point = base + offset
+                    point[0] = float(np.clip(point[0], 0.0, max(width - 1.0, 0.0)))
+                    point[1] = float(np.clip(point[1], 0.0, max(height - 1.0, 0.0)))
+                    points.append(point)
                 return points
 
             def _draw_trail(points: List[np.ndarray], color: str) -> None:
@@ -476,7 +490,8 @@ if __name__ == "__main__":
     agenttester = AgentTester()
 
     model_type = "find_pipette"
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_120\PatcherBot_test_dataset_v0_120_find_pipette.hdf5"
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_120\PatcherBot_dataset_v0_120_find_pipette.hdf5"
-    demo_id = "demo_0"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_170\PatcherBot_test_dataset_v0_170_find_pipette.hdf5"
+    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_160\PatcherBot_dataset_v0_160_find_pipette.hdf5"
+    demo_id = "demo_1"
     agenttester.main(model_type=model_type, data_path=data_path, demo_id=demo_id)
+

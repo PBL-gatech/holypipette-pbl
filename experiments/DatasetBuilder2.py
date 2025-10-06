@@ -1,4 +1,4 @@
-﻿"""DatasetBuilder2
+"""DatasetBuilder2
 ====================
 
 How to use
@@ -91,7 +91,7 @@ class AxisToggle:
 @dataclass(slots=True)
 class ObservationSelector:
     include_pressure: bool = False
-    include_resistance: bool = True
+    include_resistance: bool = False
     include_current: bool = False
     include_voltage: bool = False
     include_stage: bool = True
@@ -119,7 +119,7 @@ class ObservationSelector:
 
 @dataclass(slots=True)
 class ActionSelector:
-    include_stage: bool = True
+    include_stage: bool = False
     include_pipette: bool = True
     include_pressure: bool = False
     include_high_level: bool = False
@@ -589,6 +589,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self._last_action_labels: List[str] = []
         self._last_action_stage_cols: int = 0
         self._last_stage_motion_detected: bool = False
+        self._camera_frame_shape_cache: Dict[str, Tuple[int, int]] = {}
+        self._using_cv_movement_file = True
 
         self.dataset_dir, self.dataset_path = _ensure_dataset_stub(settings.dataset_name, create_file=False)
         self._base_dataset_name = self.dataset_name
@@ -933,7 +935,16 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         """Load graph, movement, and log tables for a given experiment folder."""
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder
         graph_values = pd.read_csv(base / "graph_recording.csv", delimiter=";").to_numpy()
-        movement_values = pd.read_csv(base / "cv_movement_recording.csv", delimiter=";").to_numpy()
+        movement_path = None
+        for name in ("cv_movement_recording.csv", "movement_recording.csv"):
+            candidate = base / name
+            if candidate.exists():
+                movement_path = candidate
+                break
+        if movement_path is None:
+            raise FileNotFoundError(f"Missing movement recording for {rig_recorder_data_folder}.")
+        self._using_cv_movement_file = movement_path.name.lower().startswith("cv")
+        movement_values = pd.read_csv(movement_path, delimiter=";").to_numpy()
         log_file = Path("experiments/Data/log_data") / f"logs_{rig_recorder_data_folder[:10]}.csv"
         log_values = _read_csv_with_fallback(log_file, on_bad_lines="skip")
         return graph_values, movement_values, log_values
@@ -1189,6 +1200,45 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         bottom = top + new_height
         return pil_image.crop((left, top, right, bottom))
 
+    def _get_camera_frame_shape(self, rig_recorder_data_folder: str) -> Optional[Tuple[int, int]]:
+        cache = self._camera_frame_shape_cache
+        if rig_recorder_data_folder in cache:
+            return cache[rig_recorder_data_folder]
+        camera_dir = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder / "camera_frames"
+        if not camera_dir.exists():
+            return None
+        for frame_file in sorted(camera_dir.iterdir()):
+            if not frame_file.is_file():
+                continue
+            try:
+                with Image.open(frame_file) as frame:
+                    cache[rig_recorder_data_folder] = frame.size
+                    return frame.size
+            except (OSError, ValueError):
+                continue
+        return None
+
+    def _apply_camera_crop_and_resize(
+        self, pipette_positions: np.ndarray, frame_shape: Tuple[int, int]
+    ) -> np.ndarray:
+        if pipette_positions.ndim < 2 or pipette_positions.shape[1] < 2:
+            return pipette_positions
+        width, height = frame_shape
+        if width <= 0 or height <= 0:
+            return pipette_positions
+        crop_w = width // 2 if self.center_crop else width
+        crop_h = height // 2 if self.center_crop else height
+        if crop_w <= 0 or crop_h <= 0:
+            return pipette_positions
+        offset_x = (width - crop_w) // 2 if self.center_crop else 0
+        offset_y = (height - crop_h) // 2 if self.center_crop else 0
+        scaled = pipette_positions.astype(np.float64, copy=True)
+        scale_x = self.image_resize / crop_w
+        scale_y = self.image_resize / crop_h
+        scaled[:, 0] = (scaled[:, 0] - offset_x) * scale_x
+        scaled[:, 1] = (scaled[:, 1] - offset_y) * scale_y
+        return scaled
+
     def get_attempt_camera_frames(
         self,
         rig_recorder_data_folder: str,
@@ -1290,6 +1340,11 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         stage_positions_full, pipette_positions_full = self.pixel_coordinate_transform(
             stage_positions_full, pipette_positions_full
         )
+
+        if self._using_cv_movement_file:
+            frame_shape = self._get_camera_frame_shape(rig_recorder_data_folder)
+            if frame_shape is not None:
+                pipette_positions_full = self._apply_camera_crop_and_resize(pipette_positions_full, frame_shape)
 
         if rotation_angle is not None:
             stage_positions_full = self._rotate_positions(stage_positions_full, rotation_angle)
@@ -2170,17 +2225,17 @@ __all__ = [
 
 if __name__ == "__main__":
 
-    dataset_name = "PatcherBot_test_dataset_v0_140.hdf5"
+    dataset_name = "PatcherBot_dataset_v0_180.hdf5"
 
 
     # # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
-    # rig_recorder_data_folder_set = [
-    #     "2025_09_25-20_43",
-    #     "2025_09_25-21_39",
-    #     "2025_10_01-13_15",# ~ 20 more demos
-    #     "2025_10_01-13_30" # ~ 30 more demos
-    #     ] # version 0.001 training data (9/25/2025)
-    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
+    rig_recorder_data_folder_set = [
+        "2025_09_25-20_43",
+        "2025_09_25-21_39",
+        "2025_10_01-13_15",# ~ 20 more demos
+        "2025_10_01-13_30" # ~ 30 more demos
+        ] # version 0.001 training data (9/25/2025)
+    # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
     
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",

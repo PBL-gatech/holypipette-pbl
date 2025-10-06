@@ -5,8 +5,8 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QGraphicsScene, QGraphicsView, QPushButton, QMessageBox
 )
-from PyQt5.QtGui import QImage, QPixmap, QPen
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QImage, QPixmap, QPen, QPainter, QBrush
+from PyQt5.QtCore import Qt, QTimer, QPointF
 
 
 class DemoPlayer(QWidget):
@@ -14,6 +14,9 @@ class DemoPlayer(QWidget):
         super().__init__()
         self.hdf5_path = hdf5_path
         self.playing = True  # video plays by default
+        self.pipette_positions = np.empty((0, 2), dtype=np.float32)
+        self._pipette_frame_count = 0
+        self.pipette_tail_length = 25
 
         # Try opening the HDF5 file.
         try:
@@ -104,6 +107,8 @@ class DemoPlayer(QWidget):
         print(f"Loading demo: {demo_key}")  # Debug message
 
         self.actions = np.zeros((0, 6))
+        self.pipette_positions = np.empty((0, 2), dtype=np.float32)
+        self._pipette_frame_count = 0
 
         for name, attr in (('camera_image', 'images'), ('resistance', 'resistance')):
             try:
@@ -146,8 +151,86 @@ class DemoPlayer(QWidget):
                 print(f"Warning: expected 1D resistance, got {self.resistance.shape}")
                 self.resistance = np.array([])
 
+        self._load_pipette_positions(demo_path)
         self.plot_resistance()
         self.plot_actions()
+
+    def _load_pipette_positions(self, demo_path):
+        """Load pipette positions for the current demo if available."""
+        self.pipette_positions = np.empty((0, 2), dtype=np.float32)
+        self._pipette_frame_count = 0
+
+        try:
+            dataset = self.hdf5_file[f'{demo_path}/pipette_positions']
+        except KeyError:
+            return
+
+        data = np.asarray(dataset[:], dtype=np.float32)
+
+        if data.ndim == 1:
+            if data.size % 3 == 0:
+                cols = 3
+            elif data.size % 2 == 0:
+                cols = 2
+            else:
+                cols = 1
+            data = data.reshape(-1, cols)
+
+        if data.size == 0:
+            return
+
+        if data.ndim != 2 or data.shape[1] < 2:
+            print(f"Warning: '{demo_path}/pipette_positions' has shape {data.shape}, expected >= (N, 2)")
+            return
+
+        positions = np.asarray(data[:, :2], dtype=np.float32)
+
+        frame_dims = None
+        if self.images.size:
+            frame_count = min(len(self.images), positions.shape[0])
+            if frame_count != positions.shape[0]:
+                print(f"Warning: trimming pipette positions from {positions.shape[0]} to {frame_count} to match frames")
+            positions = positions[:frame_count]
+            h_img, w_img = self.images[0].shape[:2]
+            frame_dims = np.array([w_img, h_img], dtype=np.float32)
+        else:
+            frame_count = positions.shape[0]
+
+        if frame_count == 0:
+            return
+
+        def _in_frame(arr: np.ndarray, dims: np.ndarray, margin: float = 0.5) -> bool:
+            if arr.size == 0 or dims is None:
+                return True
+            x_ok = np.logical_and(arr[:, 0] >= -margin, arr[:, 0] <= dims[0] - 1.0 + margin)
+            y_ok = np.logical_and(arr[:, 1] >= -margin, arr[:, 1] <= dims[1] - 1.0 + margin)
+            return bool(np.all(x_ok) and np.all(y_ok))
+
+        if frame_dims is not None and not _in_frame(positions, frame_dims):
+            base_scale = np.where(frame_dims > 0.0, frame_dims / 1280.0, 0.0)
+            scaled = positions * base_scale
+            if _in_frame(scaled, frame_dims):
+                positions = scaled
+                print(f"Info: scaled pipette positions to match {int(frame_dims[0])}x{int(frame_dims[1])} frames")
+            else:
+                upper = np.maximum(frame_dims - 1.0, 0.0)
+                outside_mask = np.logical_or(np.any(scaled < 0.0, axis=1), np.any(scaled > upper, axis=1))
+                if np.any(outside_mask):
+                    count = int(outside_mask.sum())
+                    print(f"Warning: clipped {count} pipette position rows to image bounds ({int(frame_dims[0])}x{int(frame_dims[1])})")
+                positions = np.clip(scaled, [0.0, 0.0], upper)
+
+        finite_mask = np.all(np.isfinite(positions), axis=1)
+        if not np.all(finite_mask):
+            dropped = int(finite_mask.size - finite_mask.sum())
+            print(f"Warning: dropping {dropped} pipette position rows with non-finite values")
+            positions = positions[finite_mask]
+
+        self.pipette_positions = positions
+        self._pipette_frame_count = self.pipette_positions.shape[0]
+
+        if self._pipette_frame_count and frame_dims is not None and not _in_frame(self.pipette_positions, frame_dims):
+            print(f"Warning: pipette positions fall outside image bounds ({int(frame_dims[0])}x{int(frame_dims[1])}); overlay may not be visible")
 
     # ------------------------------------------------------------------
     # Resistance-plotting code (unchanged)
@@ -224,6 +307,41 @@ class DemoPlayer(QWidget):
                        plot_h + 5)
 
 
+    def _draw_pipette_overlay(self, pixmap, frame_idx):
+        if self._pipette_frame_count == 0:
+            return
+
+        if frame_idx >= self._pipette_frame_count:
+            frame_idx = self._pipette_frame_count - 1
+        if frame_idx < 0:
+            return
+
+        point = self.pipette_positions[frame_idx]
+        if not np.all(np.isfinite(point)):
+            return
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        pen = QPen(Qt.red)
+        pen_width = max(2, max(pixmap.width(), pixmap.height()) // 180)
+        pen.setWidth(int(pen_width))
+        painter.setPen(pen)
+        painter.setBrush(QBrush(Qt.red))
+
+        radius = max(3, min(pixmap.width(), pixmap.height()) // 50)
+        painter.drawEllipse(QPointF(float(point[0]), float(point[1])), radius, radius)
+
+        if frame_idx > 0 and self.pipette_tail_length > 0:
+            start_idx = max(0, frame_idx - self.pipette_tail_length)
+            tail = self.pipette_positions[start_idx:frame_idx + 1]
+            finite_tail = tail[np.all(np.isfinite(tail), axis=1)]
+            if finite_tail.shape[0] > 1:
+                q_points = [QPointF(float(p[0]), float(p[1])) for p in finite_tail]
+                for p0, p1 in zip(q_points[:-1], q_points[1:]):
+                    painter.drawLine(p0, p1)
+
+        painter.end()
     # ------------------------------------------------------------------
     # 3. update_frame() — shrink oversized frames, never upscale
     # ------------------------------------------------------------------
@@ -234,8 +352,10 @@ class DemoPlayer(QWidget):
         if self.current_frame >= len(self.images):
             self.current_frame = 0
 
+        frame_idx = self.current_frame
+
         try:
-            img_array = self.images[self.current_frame]
+            img_array = self.images[frame_idx]
         except IndexError:
             self.current_frame = 0
             return
@@ -254,6 +374,7 @@ class DemoPlayer(QWidget):
             return  # unexpected format
 
         pixmap = QPixmap.fromImage(q_img)
+        self._draw_pipette_overlay(pixmap, frame_idx)
 
         # Only shrink if the frame exceeds the label dimensions
         if (pixmap.width() > self.video_label.width() or
@@ -265,7 +386,7 @@ class DemoPlayer(QWidget):
             )
 
         self.video_label.setPixmap(pixmap)
-        self.current_frame += 1
+        self.current_frame = frame_idx + 1
 
     # ------------------------------------------------------------------
     # Control / navigation handlers (unchanged)
@@ -304,14 +425,8 @@ class DemoPlayer(QWidget):
 # ----------------------------------------------------------------------
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_027.hdf5"
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_040.hdf5"
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\builder2test1\builder2test1.hdf5"
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_006\PatcherBot_dataset_v0_006_hunt_cell.hdf5"
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_110\PatcherBot_dataset_v0_110_find_pipette.hdf5"
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_coordinate_transform.hdf5"
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\ HEK_dataset_v0_022.hdf5"
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset.hdf5"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_160\PatcherBot_test_dataset_v0_160_find_pipette.hdf5"
+
     viewer = DemoPlayer(data_path)
     viewer.show()
     sys.exit(app.exec_())

@@ -50,3 +50,6 @@ holypipette/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
 /holypipette/deepLearning/patchModel/legacy
 holypipette/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
 holypipette/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
+/testing/AgentPath
+/testing/AgentPath2
+/testing/AgentPath3
