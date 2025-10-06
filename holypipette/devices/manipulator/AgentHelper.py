@@ -163,6 +163,7 @@ class AgentTester:
             from matplotlib import animation
             from matplotlib.backends.backend_agg import FigureCanvasAgg
             from matplotlib.figure import Figure
+            from matplotlib.patches import Circle
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise RuntimeError("matplotlib is required for visualization but is not installed.") from exc
 
@@ -232,14 +233,17 @@ class AgentTester:
             pred_vec = _vector_xy(predictions[idx])
             height, width = frame_rgb.shape[:2]
 
-            if pipette_positions_scaled is not None:
-                # Anchor vectors at the previous observed pipette location (projected into frame space).
-                prev_idx = max(idx - 1, 0)
-                origin_coords = pipette_positions_scaled[prev_idx]
+            if pipette_positions_scaled is not None and pipette_positions_scaled.shape[0] > idx:
+                current_coords = pipette_positions_scaled[idx]
             else:
-                origin_coords = np.array([width / 2.0, height / 2.0], dtype=np.float32)
-            origin_x = float(np.clip(origin_coords[0], 0.0, max(width - 1.0, 0.0)))
-            origin_y = float(np.clip(origin_coords[1], 0.0, max(height - 1.0, 0.0)))
+                current_coords = np.array([width / 2.0, height / 2.0], dtype=np.float32)
+            if np.any(np.isnan(current_coords)):
+                current_coords = np.array([width / 2.0, height / 2.0], dtype=np.float32)
+            current_x = float(np.clip(current_coords[0], 0.0, max(width - 1.0, 0.0)))
+            current_y = float(np.clip(current_coords[1], 0.0, max(height - 1.0, 0.0)))
+            circle_radius = max(3.0, min(width, height) * 0.03)
+            trail_radius = max(2.0, circle_radius * 0.7)
+            future_steps = max(0, min(5, num_frames - idx - 1))
 
             fig = Figure(figsize=(width / 100.0, height / 100.0), dpi=100)
             canvas = FigureCanvasAgg(fig)
@@ -247,22 +251,51 @@ class AgentTester:
             ax.imshow(frame_rgb)
             ax.axis("off")
 
-            def _draw(vec: np.ndarray, color: str) -> None:
-                dx = float(vec[0]) * scale_xy[0]
-                dy = float(vec[1]) * scale_xy[1]
-                ax.arrow(
-                    origin_x,
-                    origin_y,
-                    dx,
-                    -dy,
-                    color=color,
-                    linewidth=2.0,
-                    head_width=max(4.0, min(width, height) * 0.03),
-                    length_includes_head=True,
-                )
+            def _future_positions(vecs: np.ndarray) -> List[np.ndarray]:
+                pos = np.array([current_x, current_y], dtype=np.float32)
+                points: List[np.ndarray] = []
+                for step_idx in range(1, future_steps + 1):
+                    action_idx = idx + step_idx
+                    if action_idx >= vecs.shape[0]:
+                        break
+                    delta = _vector_xy(vecs[action_idx])
+                    if np.any(np.isnan(delta)):
+                        continue
+                    offset = np.array(
+                        [float(delta[0]) * scale_xy[0], -float(delta[1]) * scale_xy[1]],
+                        dtype=np.float32,
+                    )
+                    pos = pos + offset
+                    points.append(pos.copy())
+                return points
 
-            _draw(gt_vec, "tab:blue")
-            _draw(pred_vec, "tab:orange")
+            def _draw_trail(points: List[np.ndarray], color: str) -> None:
+                for step_idx, point in enumerate(points):
+                    alpha = max(0.3, 1.0 - step_idx * 0.15)
+                    ax.add_patch(
+                        Circle(
+                            (float(point[0]), float(point[1])),
+                            radius=trail_radius,
+                            facecolor=color,
+                            edgecolor="none",
+                            alpha=alpha,
+                        )
+                    )
+
+            if future_steps:
+                _draw_trail(_future_positions(ground_truth), "tab:blue")
+                _draw_trail(_future_positions(predictions), "tab:orange")
+
+            ax.add_patch(
+                Circle(
+                    (current_x, current_y),
+                    radius=circle_radius,
+                    facecolor="white",
+                    edgecolor="black",
+                    linewidth=0.6,
+                    alpha=0.95,
+                )
+            )
 
             canvas.draw()
             buf = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
@@ -443,7 +476,7 @@ if __name__ == "__main__":
     agenttester = AgentTester()
 
     model_type = "find_pipette"
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_140\PatcherBot_test_dataset_v0_140_find_pipette.hdf5"
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_120\PatcherBot_dataset_v0_120_find_pipette.hdf5"
-    demo_id = "demo_1"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_120\PatcherBot_test_dataset_v0_120_find_pipette.hdf5"
+    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_120\PatcherBot_dataset_v0_120_find_pipette.hdf5"
+    demo_id = "demo_0"
     agenttester.main(model_type=model_type, data_path=data_path, demo_id=demo_id)

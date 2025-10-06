@@ -4,6 +4,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from collections import deque
+from pathlib import Path
+from typing import Optional, Tuple, Union, Dict, Any, List
 
 
 class ModelImporter:
@@ -100,6 +102,12 @@ class ModelInferencer:
         self.obs_keys = list(self.metadata.get("observation_keys", []))
         self.goal_keys = list(self.metadata.get("goal_keys", []))
         self.goal_required = bool(self.goal_keys)
+        self.requires_preprocessing = bool(self.metadata.get("requires_preprocessing", True))
+        default_post = bool(self.action_unnorm_object)
+        meta_post = self.metadata.get("requires_postprocessing")
+        self.requires_postprocessing = default_post if meta_post is None else bool(meta_post)
+        if not self.requires_postprocessing:
+            self.action_unnorm_object = {}
         self.input_names = list(self.importer.input_names)
         self.output_names = list(self.importer.output_names)
         self.image_layout = "CHW"
@@ -124,13 +132,52 @@ class ModelInferencer:
         crop_h, crop_w = int(h * self.crop_size), int(w * self.crop_size)
         y0, x0 = max((h - crop_h) // 2, 0), max((w - crop_w) // 2, 0)
         cropped = frame[y0:y0 + crop_h, x0:x0 + crop_w]
-        return np.array(Image.fromarray(cropped).resize(self.image_resize, Image.BILINEAR))
+        return np.array(
+            Image.fromarray(cropped).resize(self.image_resize, Image.BILINEAR),
+            dtype=np.uint8,
+        )
 
-    def obs_norm(self, observation: dict) -> dict:
-        """Apply saved observation statistics to a per-key dictionary."""
+    def _get_obs_stats(self, key: str):
+        stats = self.obs_norm_object.get(key) if self.obs_norm_object else None
+        if not stats:
+            return None, None
+        offset = stats.get("offset")
+        scale = stats.get("scale")
+        if offset is None or scale is None:
+            return None, None
+        return offset.astype(np.float32), scale.astype(np.float32)
+
+    def _normalize_low_dim(self, key: str, value: np.ndarray) -> np.ndarray:
+        arr = np.asarray(value, dtype=np.float32)
+        offset, scale = self._get_obs_stats(key)
+        if offset is None or scale is None:
+            return arr
+        while arr.ndim < offset.ndim:
+            arr = np.expand_dims(arr, axis=0)
+        return (arr - offset) / (scale + 1e-6)
+
+    def _prepare_camera_payload(self, frame: np.ndarray) -> np.ndarray:
+        frame_f = np.asarray(frame, dtype=np.float32)
+        if frame_f.ndim < 3:
+            raise ValueError("camera image must be at least 3D")
+        if frame_f.max() > 1.01:
+            frame_f = frame_f / 255.0
+        if self.image_layout == "CHW" and frame_f.ndim == 3:
+            frame_f = frame_f.transpose(2, 0, 1)
+        offset, scale = self._get_obs_stats("camera_image")
+        if offset is not None and scale is not None:
+            arr = frame_f
+            while arr.ndim < offset.ndim:
+                arr = np.expand_dims(arr, axis=0)
+            arr = (arr - offset) / (scale + 1e-6)
+            frame_f = arr
+        return frame_f.astype(np.float32, copy=False)
+
+    def _apply_obs_normalization(self, observation: dict) -> dict:
+        """Normalize per-key observations using saved statistics when available."""
         if not observation or not self.obs_norm_object:
             return observation
-        normed = {}
+        normalized = {}
         for key, value in observation.items():
             stats = self.obs_norm_object.get(key)
             arr = np.asarray(value, dtype=np.float32)
@@ -139,15 +186,15 @@ class ModelInferencer:
                 scale = stats["scale"]
                 while arr.ndim < offset.ndim:
                     arr = np.expand_dims(arr, axis=0)
-                normed[key] = (arr - offset) / (scale + 1e-6)
+                normalized[key] = (arr - offset) / (scale + 1e-6)
             else:
-                normed[key] = arr
-        return normed
+                normalized[key] = arr
+        return normalized
 
     def action_unnorm(self, action: np.ndarray) -> np.ndarray:
         """Undo action normalization before sending commands downstream."""
         arr = np.asarray(action, dtype=np.float32)
-        if not self.action_unnorm_object:
+        if not self.requires_postprocessing or not self.action_unnorm_object:
             return arr
         offset = self.action_unnorm_object.get("offset")
         scale = self.action_unnorm_object.get("scale")
@@ -161,35 +208,55 @@ class ModelInferencer:
     def process_obs(self, observation, is_demo: bool = False):
         """Package a single observation for the model inputs."""
         cvpi, stage, image, resistance = observation
-        obs_map = {}
+        obs_values: Dict[str, np.ndarray] = {}
         if "camera_image" in self.obs_keys:
             frame = image if is_demo else self._prepare_image(image)
-            frame = frame.astype(np.float32)
-            if self.image_layout == "CHW" and frame.ndim == 3:
-                frame = frame.transpose(2, 0, 1)
-            obs_map["camera_image"] = frame
+            frame_arr = np.asarray(frame, dtype=np.float32)
+            if self.requires_preprocessing:
+                if frame_arr.ndim >= 3 and frame_arr.max() > 1.01:
+                    frame_arr = frame_arr / 255.0
+                if self.image_layout == "CHW" and frame_arr.ndim == 3:
+                    frame_arr = frame_arr.transpose(2, 0, 1)
+            obs_values["camera_image"] = frame_arr
         if "pipette_positions" in self.obs_keys:
-            obs_map["pipette_positions"] = np.asarray(cvpi, dtype=np.float32)
+            obs_values["pipette_positions"] = np.asarray(cvpi, dtype=np.float32)
         if "stage_positions" in self.obs_keys:
-            obs_map["stage_positions"] = np.asarray(stage, dtype=np.float32)
+            obs_values["stage_positions"] = np.asarray(stage, dtype=np.float32)
         if "resistance" in self.obs_keys:
-            obs_map["resistance"] = np.asarray(resistance, dtype=np.float32)
-        obs_map = self.obs_norm(obs_map)
-        goal_map = {}
+            obs_values["resistance"] = np.asarray(resistance, dtype=np.float32)
+        if self.requires_preprocessing:
+            obs_values = self._apply_obs_normalization(obs_values)
+
+        goal_values: Dict[str, np.ndarray] = {}
         if self.goal_required and self.goal_keys:
-            target = self.goal if self.goal is not None else cvpi
-            goal_map[self.goal_keys[0]] = np.asarray(target, dtype=np.float32)
-            goal_map = self.obs_norm(goal_map)
+            goal_source = self.get_goal() if self.get_goal() is not None else cvpi
+            for key in self.goal_keys:
+                raw_value = goal_source
+                if isinstance(goal_source, dict):
+                    raw_value = goal_source.get(key, goal_source)
+                value_arr = np.asarray(raw_value, dtype=np.float32)
+                if key == "camera_image":
+                    if value_arr.ndim < 3:
+                        raise ValueError("Goal for camera_image requires image data")
+                    if self.requires_preprocessing:
+                        if value_arr.max() > 1.01:
+                            value_arr = value_arr / 255.0
+                        if self.image_layout == "CHW" and value_arr.ndim == 3:
+                            value_arr = value_arr.transpose(2, 0, 1)
+                goal_values[key] = value_arr
+            if self.requires_preprocessing:
+                goal_values = self._apply_obs_normalization(goal_values)
+
         payload = {}
         for name in self.input_names:
             shape = self.importer.input_shapes.get(name)
             value = None
             if name.startswith("obs::"):
                 key = name.split("::", 1)[1]
-                value = obs_map.get(key)
+                value = obs_values.get(key)
             elif name.startswith("goal::"):
                 key = name.split("::", 1)[1]
-                value = goal_map.get(key)
+                value = goal_values.get(key)
             else:
                 value = self.state_buffers.get(name)
             fallback = self.default_inputs.get(name, np.zeros((1,), dtype=np.float32))
@@ -197,7 +264,7 @@ class ModelInferencer:
             if shape:
                 while tensor.ndim < len(shape):
                     tensor = np.expand_dims(tensor, axis=0)
-            payload[name] = tensor.astype(np.float32)
+            payload[name] = tensor.astype(np.float32, copy=False)
         return payload
 
     def process_action(self, action: np.ndarray) -> np.ndarray:
