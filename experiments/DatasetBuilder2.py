@@ -1200,6 +1200,16 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         bottom = top + new_height
         return pil_image.crop((left, top, right, bottom))
 
+    @staticmethod
+    def _camera_order_key(name: str) -> str:
+        underscore_index = name.find('_')
+        dot_index = name.rfind('.')
+        if underscore_index == -1: return name
+        segment = name[underscore_index + 1 : dot_index if dot_index != -1 else None]
+        if segment and segment.replace('.', '', 1).isdigit(): segment = segment.zfill(3)
+        suffix = name[dot_index:] if dot_index != -1 else ''
+        return f"{name[:underscore_index + 1]}{segment}{suffix}"
+
     def _get_camera_frame_shape(self, rig_recorder_data_folder: str) -> Optional[Tuple[int, int]]:
         cache = self._camera_frame_shape_cache
         if rig_recorder_data_folder in cache:
@@ -1207,7 +1217,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         camera_dir = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder / "camera_frames"
         if not camera_dir.exists():
             return None
-        for frame_file in sorted(camera_dir.iterdir()):
+        for frame_file in sorted(camera_dir.iterdir(), key=lambda p: self._camera_order_key(p.name)):
             if not frame_file.is_file():
                 continue
             try:
@@ -1247,7 +1257,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     ) -> np.ndarray:
         """Load rig camera frames aligned to ``attempt_graph_values`` timestamps."""
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder / "camera_frames"
-        camera_files = sorted(os.listdir(base))
+        camera_files = sorted(os.listdir(base), key=self._camera_order_key)
         frames_list: List[np.ndarray] = []
         last_index = 0
 

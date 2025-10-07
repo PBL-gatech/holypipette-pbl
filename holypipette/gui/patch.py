@@ -555,6 +555,7 @@ class ClassicPatchButtons(ButtonTabWidget):
 
     def stop_recording(self):
         self.recording_state_manager.set_recording(False)
+        self.recorder.handle_recording_stopped()
         self.record_button.setText("Start Recording")
         self.record_button.setStyleSheet("")
         logging.info("Recording stopped")
@@ -642,4 +643,5 @@ class ClassicPatchButtons(ButtonTabWidget):
             else:
                 # Note: divide by 5 here to account for z-axis gear ratio
                 label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}')
+
 

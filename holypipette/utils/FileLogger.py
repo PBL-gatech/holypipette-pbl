@@ -34,8 +34,11 @@ class FileLogger(threading.Thread):
         self.batch_mode_graph = False
 
         self.write_event = threading.Event()
+        self.write_event.set()
         self.is_video = isVideo
         self.write_frame = threading.Event() if isVideo else None
+        if self.write_frame:
+            self.write_frame.set()
 
         self.batch_frames = deque(maxlen=frame_batch_size)
         # self.graph_contents = deque(maxlen=frame_batch_size)
@@ -168,6 +171,34 @@ class FileLogger(threading.Thread):
     def setBatchMoves(self, value=True):
         self.batch_mode_movements = value
 
+    def flush_movement_data(self):
+        if not self.write_event.is_set():
+            self.write_event.wait()
+        if not self.movement_contents:
+            return
+
+        try:
+            os.makedirs(self.folder_path, exist_ok=True)
+        except OSError as exc:
+            logging.error("Error ensuring movement folder exists: %s", exc)
+
+        if self.file is None:
+            self.open()
+
+        contents = list(self.movement_contents)
+        self.movement_contents.clear()
+
+        self.write_event.clear()
+        self.file.writelines(contents)
+        self.file.flush()
+        self.write_event.set()
+
+    def handle_recording_stopped(self):
+        if self.is_video and self.write_frame:
+            self._save_image_sleep()
+            self.write_frame.wait()
+        self.flush_movement_data()
+
     def close(self):
         if self.file is not None:
             logging.info("Closing file: %s", self.filename)
@@ -186,3 +217,4 @@ class FileLogger(threading.Thread):
             self._write_batch_to_disk()
         if self.is_video:
             logging.info("Closing frame saving thread")
+

@@ -59,6 +59,8 @@ class AutoPatcher(TaskController):
         self._in_patch       = False
         self.agenthelper =   AgentHelper()
         self.current_protocol_graph = None
+        self.goal_needed = False
+        self.goal_random = False
         self.ninput = None
         self.done = False
 
@@ -114,15 +116,13 @@ class AutoPatcher(TaskController):
                 return holding_current
 
 
-    
-
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
         self.agenthelper.prepare_model("find_pipette")
 
-        goal_needed = bool(getattr(self, "goal_needed", False))
-        random = bool(getattr(self, "goal_random", False))
+        goal_needed = bool(self.goal_needed)
+        random = bool(self.goal_random)
 
         camera = self.calibrated_stage.camera
         width = getattr(camera, "width", None)

@@ -425,7 +425,7 @@ class DemoPlayer(QWidget):
 # ----------------------------------------------------------------------
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_160\PatcherBot_test_dataset_v0_160_find_pipette.hdf5"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_180\PatcherBot_test_dataset_v0_180_find_pipette.hdf5"
 
     viewer = DemoPlayer(data_path)
     viewer.show()

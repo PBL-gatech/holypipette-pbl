@@ -325,18 +325,21 @@ class DataManager:
         if not os.path.exists(directory):
             raise FileNotFoundError(f"{directory} does not exist.")
 
-        self.image_paths = sorted([os.path.join(directory, f) for f in os.listdir(directory) if f.endswith('.webp')])
-        if not self.image_paths:
+        image_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith('.webp')]
+        if not image_files:
             raise FileNotFoundError("No .webp images found in the camera_frames directory.")
 
-        # Extract indices and timestamps
-        self.image_index = []
-        self.timestamps = []
-        for img_path in self.image_paths:
+        # Order frames by their timestamp (fallback to index) to avoid lexicographic mix-ups
+        parsed_images = []
+        for img_path in image_files:
             idx, ts = self.extract_image_data(img_path)
-            self.image_index.append(idx)
-            self.timestamps.append(ts)
-        self.init_image_time = self.timestamps[0]
+            parsed_images.append((ts, idx, img_path))
+        parsed_images.sort(key=lambda item: (item[0], item[1]))
+
+        self.image_paths = [item[2] for item in parsed_images]
+        self.image_index = [item[1] for item in parsed_images]
+        self.timestamps = [item[0] for item in parsed_images]
+        self.init_image_time = self.timestamps[0] if self.timestamps else 0.0
 
     def load_movement_data(self, file_path):
         self.movement_data.clear()
@@ -756,9 +759,15 @@ class IntegratedTimeline(QMainWindow):
 
                 # Initialize timeline
                 self.current_index = 0
-                self.slider.setMinimum(0)
-                self.slider.setMaximum(len(self.data_manager.image_paths) - 1)
-                self.slider.setValue(self.current_index)
+
+                # Prevent valueChanged feedback while reconfiguring the slider
+                self.slider.blockSignals(True)
+                try:
+                    self.slider.setMinimum(0)
+                    self.slider.setMaximum(len(self.data_manager.image_paths) - 1)
+                    self.slider.setValue(self.current_index)
+                finally:
+                    self.slider.blockSignals(False)
 
                 # Display first image
                 self.display_image(self.data_manager.image_paths[self.current_index])
