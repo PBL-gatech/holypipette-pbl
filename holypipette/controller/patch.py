@@ -114,17 +114,48 @@ class AutoPatcher(TaskController):
                 return holding_current
 
 
+    
+
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
         self.agenthelper.prepare_model("find_pipette")
 
+        goal_needed = bool(getattr(self, "goal_needed", False))
+        random = bool(getattr(self, "goal_random", False))
+
+        camera = self.calibrated_stage.camera
+        width = getattr(camera, "width", None)
+        height = getattr(camera, "height", None)
+
+        center_x = int(round(width / 2)) if isinstance(width, (int, float)) else 640
+        center_y = int(round(height / 2)) if isinstance(height, (int, float)) else 640
+        goal_center = np.array([center_x, center_y], dtype=int)
+
+        goal = None
+        if goal_needed:
+            goal = goal_center.astype(np.float32)
+            if random:
+                offsets = np.random.randint(-300, 301, size=2)
+                goal = goal + offsets.astype(np.float32)
+                if isinstance(width, (int, float)) and width > 0:
+                    max_x = max(int(width) - 1, 0)
+                    goal[0] = float(np.clip(goal[0], 0, max_x))
+                if isinstance(height, (int, float)) and height > 0:
+                    max_y = max(int(height) - 1, 0)
+                    goal[1] = float(np.clip(goal[1], 0, max_y))
+
+        goal_display = goal_center if goal is None else np.array(
+            [int(round(goal[0])), int(round(goal[1]))],
+            dtype=int,
+        )
+        goal_display_tuple = (int(goal_display[0]), int(goal_display[1]))
+        goal_error_target = goal.astype(float) if goal is not None else goal_center.astype(float)
+
         done = False
-        count = 0
         err = None
         action = None
         target_point = None
-        
 
         while not done:
             if self.config.mode != 'Agent':
@@ -154,11 +185,9 @@ class AutoPatcher(TaskController):
 
             curr_point = tuple(int(round(coord)) for coord in curr_array)
             camera = self.calibrated_stage.camera
-            # goal = np.array([640,640])
-            goal = None
 
             if action is None:
-                action = self.agenthelper.run_inference(observation=observation,goal=goal,is_demo=False)
+                action = self.agenthelper.run_inference(observation=observation, goal=goal, is_demo=False)
                 self.info(f"pipette prediction: {action} um")
 
                 if action is None:
@@ -204,7 +233,7 @@ class AutoPatcher(TaskController):
 
                 width = getattr(camera, "width", None)
                 height = getattr(camera, "height", None)
-            
+
                 if width is not None and height is not None:
                     if not (0 <= target_point_pixels[0] < width and 0 <= target_point_pixels[1] < height):
                         self.warning(f"predicted point not on screen: {target_point_pixels}")
@@ -224,21 +253,14 @@ class AutoPatcher(TaskController):
             # #     if count >= 5:
             # #         done = True
 
-            if goal == None:
-                goal_target = np.array([640,640])
-            else: 
-                goal_target = goal
-
-
             curr_point = np.array(curr_point)
-            xgerr = goal_target[0] - curr_point[0] # switch 
-            ygerr = goal_target[1] - curr_point[1]
+            xgerr = goal_error_target[0] - curr_point[0]  # switch
+            ygerr = goal_error_target[1] - curr_point[1]
             gerr = float(np.sqrt((xgerr ** 2 + ygerr ** 2) / 2.0))
             self.info(f" Goal error:{gerr}")
 
             if gerr <= 25:
                 done = True
-
 
             if done:
                 self.info("Pipette found")
@@ -258,7 +280,7 @@ class AutoPatcher(TaskController):
                     self.sleep(0.02)
                     continue
             else:
-                camera.show_point(point=curr_point, color=(255, 255, 255))
+                camera.show_point(point=goal_display_tuple, color=(255, 255, 255), show_center=True)
 
             self.sleep(0.02)
 
