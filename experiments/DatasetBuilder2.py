@@ -159,9 +159,10 @@ class DatasetBuilderSettings:
     pipette_rotation_deg: float = -60.75 # angle to rotate pipette coordinates into stage frame
     load_next_obs: bool = False # set to true for goal conditioning
     frequency_mod: int = 1 # downsample data by this factor (minimum 1)
-    displacement: float = 5 # minimum stage/pipette displacement in microns or pixels
+    displacement: float = 1 # minimum stage/pipette displacement in microns or pixels
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
+    pipette_final_pos_red_dot: bool = True # set to true if want to add a red dot to image at final pipette position (for pipette finder only)
 
     observation_selector: ObservationSelector = field(default_factory=ObservationSelector)
     action_selector: ActionSelector = field(
@@ -572,6 +573,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self.zero_values = settings.zero_values
         self.center_crop = settings.center_crop
         self.image_resize = settings.image_resize
+        self.pipette_final_pos_red_dot = settings.pipette_final_pos_red_dot
         self.rotate = settings.rotate
         self.rotate_valid = settings.rotate_valid
         self.inaction = settings.inaction
@@ -1199,6 +1201,20 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         right = left + new_width
         bottom = top + new_height
         return pil_image.crop((left, top, right, bottom))
+    
+    @staticmethod
+    def add_image_red_dot(numpy_image: Image.Image, red_dot: Tuple[int, int]) -> Image.Image:
+        """Add a red dot to ``pil_image`` at the given coordinates."""
+        width, height, _ = numpy_image.shape
+        red_dot_left = red_dot[0] - 1 if (red_dot[0] - 1 >= 0) else 0
+        red_dot_right = red_dot[0] + 1 if (red_dot[0] + 1 < width) else red_dot[0]
+        red_dot_top = red_dot[1] - 1 if (red_dot[1] - 1 >= 0) else 0
+        red_dot_bottom = red_dot[1] + 1 if (red_dot[1] + 1 < height) else red_dot[1]
+
+        numpy_image[red_dot_left:red_dot_right, red_dot_top:red_dot_bottom] = [255, 0, 0]
+        return numpy_image
+
+
 
     @staticmethod
     def _camera_order_key(name: str) -> str:
@@ -1254,6 +1270,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         rig_recorder_data_folder: str,
         attempt_graph_values: np.ndarray,
         rotation_angle: Optional[float] = None,
+        pipette_final_pos: Optional[tuple[int, int]] = None
     ) -> np.ndarray:
         """Load rig camera frames aligned to ``attempt_graph_values`` timestamps."""
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder / "camera_frames"
@@ -1299,11 +1316,18 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
 
             pil_image = Image.open(base / camera_files[min_idx])
             pil_image = self.apply_albu_filter_to_pil(pil_image)
+            
             if rotation_angle is not None:
                 pil_image = pil_image.rotate(rotation_angle, resample=Image.BILINEAR, expand=True)
             if self.center_crop:
                 pil_image = self.crop_image_center(pil_image)
-            frames_list.append(np.array(pil_image.resize((self.image_resize, self.image_resize))))
+            
+            resized_image = np.array(pil_image.resize((self.image_resize, self.image_resize)))
+            
+            if self.pipette_final_pos_red_dot:
+                resized_image = self.add_image_red_dot(resized_image, pipette_final_pos)
+
+            frames_list.append(resized_image)
             last_index = max(0, min_idx - 1)
 
         return np.array(frames_list)
@@ -1384,7 +1408,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         camera_frames: Optional[np.ndarray] = None
         if camera_required:
             camera_frames = self.get_attempt_camera_frames(
-                rig_recorder_data_folder, attempt_graph_values, rotation_angle=rotation_angle
+                rig_recorder_data_folder, attempt_graph_values, rotation_angle=rotation_angle, pipette_final_pos=(int(pipette_positions_full[-1][0]), int(pipette_positions_full[-1][1]))
             )
             if camera_frames is None:
                 return None
@@ -2235,29 +2259,30 @@ __all__ = [
 
 if __name__ == "__main__":
 
-    dataset_name = "PatcherBot_test_dataset_v0_180.hdf5"
+# ----------------------------------------------------------------------------------------------------------------------------------------
+    dataset_name = "PatcherBot_test_dataset_v0_190.hdf5"
 
 
-    # # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training
     # rig_recorder_data_folder_set = [
     #     "2025_09_25-20_43",
     #     "2025_09_25-21_39",
     #     "2025_10_01-13_15",# ~ 20 more demos
     #     "2025_10_01-13_30" # ~ 30 more demos
-    #     ] # version 0.001 training data (9/25/2025)
-    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025)
-    
+    #     ] # version 0.001 training data (9/25/2025) # find pipette data
+    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025) find_pipette test set
+
+    # ------------------------------------------------------------------------------------------------------------------------------
     # rig_recorder_data_folder_set = [
     #     "2025_05_20-15_50",
     #     "2025_05_20-15_16",
     #     "2025_05_20-14_05",
     #     "2025_04_10-11_57",
     #     "2025_04_10-12_16",
-    # ] # HEK training data (5/20/2025, 4/10/2025)
+    # ] # HEK training data (5/20/2025, 4/10/2025) ignore
 
-    # rig_recorder_data_folder_set = ["2025_04_07-14_50"] # HEK testing data
+    # rig_recorder_data_folder_set = ["2025_04_07-14_50"] # HEK testing data ignore
 
-    # dataset_name =  "PatcherBot_Dino_dataset_v0_002.hdf5"
+    # dataset_name =  "PatcherBot_Dino_dataset_v0_002.hdf5" ignore
 
     # rig_recorder_data_folder_set = [
     #     "2025_09_25-20_43",
@@ -2269,8 +2294,9 @@ if __name__ == "__main__":
     #     "2025_05_20-14_05",
     #     "2025_04_10-11_57",
     #     "2025_04_10-12_16",
-    # ]
+    # ] ignore
 
+    # # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training ignore
 
     builder = DatasetBuilder2(
         dataset_name=dataset_name,
