@@ -227,18 +227,22 @@ class CalibratedUnit(ManipulatorUnit):
             raise RuntimeError("can not move to nan location.")
         
         if isinstance(self, CalibratedStage) or isinstance(self, FixedStage):
-            self.debug(f'desired position: {pos_pixels}')
-            self.debug(f'Stage reference position: {self.stage.reference_position()}')
+            self.info(f'desired position: {pos_pixels}')
+            self.info(f'Stage reference position: {self.stage.reference_position()}')
             pos_micron = self.pixels_to_um(pos_pixels - self.stage.reference_position()) # position vector (um) in manipulator unit system
-            self.debug(f'Position in um: {pos_micron}')
+            # FOR BO'S RIG - may need to change if a different rig is calibrated with different negatives applied to the axes
+            pos_micron[1] = -pos_micron[1] # Invert y axis
+            self.info(f'Position in um: {pos_micron}')
             self.absolute_move(pos_micron)
             self.wait_until_still()
             return
         else:
-            self.debug(f'desired position: {pos_pixels}')
-            self.debug(f'Stage reference position (used for pipette calibration): {self.stage.reference_position()}')
+            self.info(f'desired position: {pos_pixels}')
+            self.info(f'Stage reference position (used for pipette calibration): {self.stage.reference_position()}')
             pos_micron = self.pixels_to_um(pos_pixels - self.stage.reference_position())
-            self.debug(f'Position in um: {pos_micron}')
+            # FOR BO'S RIG - may need to change if a different rig is calibrated with different negatives applied to the axes
+            pos_micron[1] = -pos_micron[1] # Invert y axis
+            self.info(f'Position in um: {pos_micron}')
             self.absolute_move(pos_micron)
             self.wait_until_still()
             return
@@ -266,7 +270,7 @@ class CalibratedUnit(ManipulatorUnit):
             raise CalibrationError
         if self.must_be_recalibrated:
             raise CalibrationError('Pipette offsets must be recalibrated')
-        self.abort_if_requested()
+        self.abort_if_requested() 
         self.reference_move(r) # Or relative move in manipulator coordinates, first axis (faster)
 
     def pixel_per_um(self, M=None):
@@ -541,22 +545,26 @@ class CalibratedStage(CalibratedUnit):
         # It should be an XY stage, ie, two axes
         if len(self.axes) != 2:
             raise CalibrationError('The unit should have exactly two axes for horizontal calibration.')
+    
 
     def reference_position(self):
         '''Returns the offset (in pixels) of the stage compared to where it was when calibrated
         '''
         #get delta in um
         posDelta = self.unit.position()
+        # print(posDelta)
 
         #convert to pixels
         posDelta = dot(self.M, posDelta) + self.r0
+        # print(self.r0)
+        # print(dot(self.M, posDelta))
 
         #just get x and y (only concerned with pixels)
         posDelta = posDelta[:2]
 
         #append 0 for z
         posDelta = np.append(posDelta, 0)
-        # self.debug(f'DEBUG: stage reference position: {posDelta}')
+        self.debug(f'DEBUG: stage reference position: {posDelta}')
 
         return posDelta
 
@@ -576,6 +584,7 @@ class CalibratedStage(CalibratedUnit):
             raise CalibrationError('Pipette offsets must be recalibrated')
 
         # r from pyQt has origin at the center of the image, move origin to the top left corner (as expected by calibration)
+        print("safe move called")
         r = np.array(r)
         r = r + np.array([self.camera.width // 2, self.camera.height // 2, 0])
         self.abort_if_requested()

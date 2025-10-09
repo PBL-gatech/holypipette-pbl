@@ -202,6 +202,7 @@ class AutoPatcher(TaskController):
 
         self.info(f" Moving to Cell position: {cell_pos}") 
         # moving stage to xy position of cell
+        # print(cell_pos)
         # home position
         cell_pos_planar = np.array([cell_pos[0], cell_pos[1], 0])
         self.calibrated_stage.safe_move(np.array(cell_pos_planar))
@@ -210,11 +211,16 @@ class AutoPatcher(TaskController):
         # move pipette to xy position of cell
         stage_pos = self.calibrated_stage.pixels_to_um(self.calibrated_stage.reference_position())
         # print(f"Stage position: {stage_pos}")
+
+        # FOR BO'S RIG - may need to change if a different rig is calibrated with different negatives applied to the axes
+        stage_pos[1]=-stage_pos[1] #invert y axis
+
+
         disp = np.zeros(3)
         disp[0] = stage_pos[0] - self.home_stage_position[0]
         disp[1] = stage_pos[1] - self.home_stage_position[1]
         disp[2] = 0
-        # print(f"Disp: {disp}")
+        print(f"Disp: {disp}")
         pipette_disp = self.calibrated_unit.rotate(disp,2)
         self.calibrated_unit.relative_move(pipette_disp)
         self.calibrated_unit.wait_until_still() 

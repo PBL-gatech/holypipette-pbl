@@ -92,6 +92,8 @@ class AutoPatchInterface(TaskInterface):
         print(f'adding cell... {self.is_selecting_cells}')
         if self.is_selecting_cells:
             print('Adding cell at', position, 'to list of cells to patch in pixels')
+            
+            
             stage_pos_pixels = self.current_autopatcher.calibrated_stage.reference_position()
             stage_pos_pixels[0:2] -= position
             # display stage position
@@ -101,7 +103,7 @@ class AutoPatchInterface(TaskInterface):
 
 
             print(f'Stage position dimensions: {np.size(stage_pos_pixels)}')
-            print(f'Stage um position: {stage_pos_pixels}')
+            print(f'Stage pixel position: {stage_pos_pixels}')
             #take a 256x256 image centered on the cell
             img = self.current_autopatcher.calibrated_unit.camera.get_16bit_image()
             img = img[int(position[1]-128):int(position[1]+128), int(position[0]-128):int(position[0]+128)]
