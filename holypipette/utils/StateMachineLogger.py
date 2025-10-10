@@ -1,13 +1,22 @@
 """
 Light-weight state machine logger for Autopatcher attempts.
-• Creates ONE date-stamped *session* folder the first time it is used.
-• Creates one sub-folder per attempt   →   session/attempt_<n>/
-• Writes one *.pickle* per state       →   <n>_<state>_<started>.pickle
-• Uses Unix-epoch milliseconds for all timestamps (ints).
+- Creates ONE date-stamped *session* folder the first time it is used.
+- Creates one sub-folder per attempt -> session/attempt_<n>/.
+- Writes one *.pickle* per state -> <n>_<state>_<started>.pickle.
+- Writes one *.json* per state -> <n>_<state>_<started>.json.
+- Uses Unix-epoch seconds for start/finish timestamps (floats).
 """
 
-import os, pickle, functools, threading, time
+import functools
+import json
+import os
+import pickle
+import threading
+import time
 from typing import Dict
+
+
+from holypipette.controller import RequestedAbortException, RequestedSuccessException
 
 
 class StateMachineLogger:
@@ -76,19 +85,19 @@ class StateMachineLogger:
 
         with self._lock:
             if state not in self._states:
-                epoch_ms = int(time.time() * 1_000)            # milliseconds
+                epoch_ts = time.time()                               # seconds
                 self._states[state] = {
-                    "started":     epoch_ms,
+                    "started":     epoch_ts,
                     "finished":    None,
                     "outcome":     None,
                     "system_mode": system_mode
                 }
 
     def finish(self, state: str, outcome: int) -> None:
-        """Stamp *finished*, set outcome, and write the pickle file."""
+        """Stamp *finished*, set outcome, and write the pickle and JSON files."""
         with self._lock:
             rec = self._states[state]                      # must exist
-            rec["finished"] = int(time.time() * 1_000)
+            rec["finished"] = time.time()
             rec["outcome"]  = outcome
             self._save(state, rec)
 
@@ -96,11 +105,34 @@ class StateMachineLogger:
     # internal helper
     # ------------------------------------------------------------------ #
     def _save(self, state: str, record: Dict) -> None:
-        ts    = record["started"]                          # epoch ms int
-        fname = f"{self.attempt_id}_{state}_{ts}.pickle"
-        path  = os.path.join(self.attempt_path, fname)
-        with open(path, "wb") as f:
-            pickle.dump(record, f)
+        # Defensive copy and validation
+        def _coerce_timestamp(value):
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            raise TypeError(f"Invalid timestamp value for {state!r}: {value!r}")
+
+        rec = {
+            "started":     _coerce_timestamp(record.get("started")),
+            "finished":    _coerce_timestamp(record.get("finished")),
+            "outcome":     int(record["outcome"]) if record.get("outcome") is not None else None,
+            "system_mode": int(record["system_mode"]) if record.get("system_mode") is not None else None,
+        }
+
+        fname_suffix = "unknown"
+        if rec["started"] is not None:
+            fname_suffix = str(int(rec["started"] * 1_000))
+
+        fname_base = f"{self.attempt_id}_{state}_{fname_suffix}"
+        pickle_path = os.path.join(self.attempt_path, f"{fname_base}.pickle")
+        with open(pickle_path, "wb") as f:
+            pickle.dump(rec, f)
+
+        json_path = os.path.join(self.attempt_path, f"{fname_base}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(rec, f, indent=2)
+
 
 
 # ---------------------------------------------------------------------- #
@@ -130,16 +162,40 @@ def record_state(state_name: str):
             logger.start(state_name, mode_code)
 
             try:
+                # inside wrapper(), in the try block after fn returns
                 result   = fn(self, *args, **kwargs)
                 aborted  = bool(getattr(self, "abort_requested", False))
-                outcome  = StateMachineLogger.ABORTED if aborted else StateMachineLogger.SUCCESS
+                success  = bool(getattr(self, "success_requested", False))
+
+                if aborted:
+                    outcome = StateMachineLogger.ABORTED
+                elif success:
+                    outcome = StateMachineLogger.SUCCESS
+                else:
+                    # didn't abort and no explicit success flag -> treat as FAILURE
+                    outcome = StateMachineLogger.FAILURE
+
                 logger.finish(state_name, outcome)
                 return result
+
+            except RequestedSuccessException:
+                logger.finish(state_name, StateMachineLogger.SUCCESS)
+                raise
+
+            except RequestedAbortException:
+                logger.finish(state_name, StateMachineLogger.ABORTED)
+                raise
 
             except Exception as exc:
                 msg     = str(exc).lower()
                 aborted = "abort" in msg
-                outcome = StateMachineLogger.ABORTED if aborted else StateMachineLogger.FAILURE
+                success = "success" in msg
+                if success:
+                    outcome = StateMachineLogger.SUCCESS
+                elif aborted:
+                    outcome = StateMachineLogger.ABORTED
+                else:
+                    outcome = StateMachineLogger.FAILURE
                 logger.finish(state_name, outcome)
                 raise
 

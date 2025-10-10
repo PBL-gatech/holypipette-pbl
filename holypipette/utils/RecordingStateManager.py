@@ -6,7 +6,7 @@ class RecordingStateManager:
         self._recording_enabled = False
         self._lock = threading.Lock()
         self.sample_number = 0
-        self.testMode = True
+        self.testMode = False
     
     def increment_sample_number(self):
         with self._lock:

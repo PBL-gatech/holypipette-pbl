@@ -6,7 +6,8 @@ from holypipette.devices.amplifier.amplifier import FakeAmplifier
 from holypipette.devices.amplifier.multiclamp import MultiClampChannel
 from holypipette.devices.amplifier.DAQ import FakeDAQ, NiDAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
-from holypipette.devices.pressurecontroller import MoscowPressureController, FakePressureController
+from holypipette.devices.camera.PipetteCamera import PipetteCamera
+from holypipette.devices.pressurecontroller import MoscowPressureController
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 from holypipette.devices.lamp import OlympusLamp, FakeLamp
@@ -14,11 +15,13 @@ from holypipette.devices.lamp import OlympusLamp, FakeLamp
 
 # set up Camera
 camera = PcoCamera()
+# camera = PipetteCamera()
+# auxiliary_camera = PipetteCamera()
 
 # set up Pressure Controller
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
-pressureReaderSerial = serial.Serial(port='COM22', baudrate=9600, timeout=0)
-pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
+pressureReaderSerial = serial.Serial(port='COM9', baudrate=9600, timeout=0)
+pressure = MoscowPressureController(channel=4, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
 
 
 # set up Ephys
@@ -28,13 +31,14 @@ daq = FakeDAQ()
 amplifier = FakeAmplifier()
 
 # set up movement controllers
-
-controllerSerial = serial.Serial('COM9')
+print("Setting up stage controllers...")
+controllerSerial = serial.Serial('COM6',baudrate=9600)
 controller = ScientificaSerialNoEncoder(controllerSerial)
 microscope = Microscope(controller, 3)
 microscope.up_direction = 1.0
 
-pipetteSerial = serial.Serial('COM12')
+print("Setting up pipette controllers...")
+pipetteSerial = serial.Serial('COM3',baudrate=9600)
 pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
 stage = ManipulatorUnit(controller, [1, 2])
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])

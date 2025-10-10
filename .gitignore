@@ -13,42 +13,11 @@ __pycache__/
 
 experiments/Datasets
 /experiments/Data
-/holypipette/devices/camera/FakeMicroscopeImgs/mask_images
-/holypipette/deepLearning/cellModel
+
 
 /testing/testpatchconfig
-/holypipette/deepLearning/pipetteTipModel
-patch_analyzer.log
-/holypipette/deepLearning/pipetteModelTrainer/focus_dataset
-/holypipette/deepLearning/pipetteModelTrainer/finder_training_set
-/holypipette/deepLearning/pipetteModelTrainer/focus_set-2
-pressure/recordings/~$pressure.xlsx
-/holypipette/deepLearning/cellModel/sam2
-/holypipette/deepLearning/cellModel/MobileSAM
-/robomimic_datasets
-/robomimic_datasets
-/robomimic_datasets
-C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\log_data\logs_2025_02_13.csv
-/holypipette/devices/camera/FakeMicroscopeImgs/mask_images
-/holypipette/devices/camera/FakeMicroscopeImgs/mask_images
-/holypipette/devices/camera/FakeMicroscopeImgs/mask_images
-/src/mobile-sam
-/src/sam-2
-experiments/Datasets/initial_train_dataset.hdf5
-experiments/Datasets/temp_dataset.hdf5
-experiments/Datasets/temp_dataset.hdf5
-/experiments/Datasets
-/experiments/Datasets
-/testmasks
-/holypipette/deepLearning/pipetteModel
-/holypipette/deepLearning/cellModel
 
 
-
-/holypipette/deepLearning/patchModel
-/holypipette/deepLearning
-/holypipette/deepLearning
-/holypipette/deepLearning
 /holypipette/experiments/Data
 /experiments/Analysis/Patch_Clamp/rowanexample
 /experiments/Analysis/Patch_Clamp/testCCdata
@@ -56,5 +25,31 @@ experiments/Datasets/temp_dataset.hdf5
 /experiments/reference
 /experiments/Data/Calibration_data
 /experiments/Data/state_recorder_data
-/experiments
 /.continue
+/testing/ComputerVision/holypipette_pipette_detection
+/holypipette/deepLearning/patchModel/oldmodels
+/holypipette/deepLearning/cellModel/example pictures
+/holypipette/deepLearning/cellModel
+/holypipette/deepLearning/patchModel/models
+/holypipette/deepLearning/patchModel/test_data
+/holypipette/deepLearning/pipetteModel
+/experiments/Analysis/Results
+/holypipette/deepLearning/patchModel/PipetteFinder/models
+/holypipette/deepLearning/patchModel/PipetteFinder/models
+holypipette/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
+holypipette/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
+/holypipette/deepLearning/patchModel/NeuronHunter/models
+/holypipette/deepLearning/patchModel/NeuronHunter/oldmodels
+/holypipette/deepLearning/patchModel/NeuronHunter/test_data
+/holypipette/deepLearning/patchModel/test_data
+/holypipette/temp
+/.codex_tmp/_yaml
+/.codex_tmp
+/holypipette/deepLearning/patchModel/Agents
+/holypipette/deepLearning/patchModel/deprecated
+/holypipette/deepLearning/patchModel/legacy
+holypipette/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
+holypipette/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
+/testing/AgentPath
+/testing/AgentPath2
+/testing/AgentPath3

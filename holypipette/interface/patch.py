@@ -199,6 +199,19 @@ class AutoPatchInterface(TaskInterface):
         time.sleep(2)
         self.cells_to_patch = self.cells_to_patch[1:]
 
+    @blocking_command(category='Patch',
+                        description='find the pipette',
+                        task_description='locating pipette')
+    def find_pipette(self):
+        self.execute(self.current_autopatcher.find_pipette)
+        time.sleep(2)
+
+    @blocking_command(category='Patch',
+                        description='task done',
+                        task_description='assesing completion state')
+    def task_done(self):
+        self.execute(self.current_autopatcher.task_done)
+        time.sleep(2)
 
     @command(category='Patch',
              description='Store the position of the washing bath',
@@ -264,14 +277,20 @@ class AutoPatchInterface(TaskInterface):
         self.pipette_controller.cleaning_bath_position = self.current_autopatcher.cleaning_bath_position
         self.pipette_controller.write_calibration()
     
-    # @command(category='Recording',
-    #          description='Check to see if one of the patch methods is complete, whether failed or successful',
-    #          success_message='Patch method complete')
-    # def check_done(self) -> bool:
-    #     self.done = self.current_autopatcher.done
-    #     if self.done:
-    #         self.current_autopatcher.done = False
-    #     return self.done
+
+    @command(category='Patch',
+             description='read the calibratoin values from file',
+                success_message='Calibration values read from file')
+    def read_calibration(self) -> None:
+        self.pipette_controller.read_calibration()
+        self.current_autopatcher.home_position = self.pipette_controller.home_position
+        self.current_autopatcher.safe_position = self.pipette_controller.safe_position
+        self.current_autopatcher.home_stage_position = self.pipette_controller.home_stage_position
+        self.current_autopatcher.safe_stage_position = self.pipette_controller.safe_stage_position
+        self.current_autopatcher.cleaning_bath_position = self.pipette_controller.cleaning_bath_position
+        self.current_autopatcher.rinsing_bath_position = self.pipette_controller.rinsing_bath_position
+        self.info(f'Calibration values read from file: {self.current_autopatcher.home_position}, {self.current_autopatcher.safe_position}, {self.current_autopatcher.home_stage_position}, {self.current_autopatcher.safe_stage_position}, {self.current_autopatcher.cleaning_bath_position}, {self.current_autopatcher.rinsing_bath_position}')
+
 
     @command(category='Patch',
              description='Store the position of the rinsing bath',

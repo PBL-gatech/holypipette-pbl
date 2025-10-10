@@ -53,7 +53,10 @@ class FakeLamp(Lamp):
         self.filter = None
         self.shutter_status = "closed"
         self.info("FakeLamp initialized.")
-  
+
+    def _initialize(self):
+        """Skip hardware initialization for the fake lamp."""
+        self.debug("FakeLamp: _initialize called (no hardware).")
 
     def open_shutter(self):
         """Fake implementation of opening the lamp shutter."""

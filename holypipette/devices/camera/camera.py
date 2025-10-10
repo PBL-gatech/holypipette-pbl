@@ -12,10 +12,8 @@ import time
 import threading
 import imageio
 import logging
-# from holypipette.deepLearning.cellSegmentor import CellSegmentor2
-from holypipette.deepLearning.pipetteDetector import PipetteDetector
-# from holypipette.deepLearning.cellSegmentor import CellSegmentor2
-# from holypipette.deepLearning.pipetteDetector import PipetteDetector
+from holypipette.deepLearning.cellSegmentor import CellSegmentor2
+from holypipette.deepLearning.pipetteDetector import PipetteDetector1
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -141,11 +139,18 @@ class AcquisitionThread(threading.Thread):
                 traceback.print_exception(type(ex), ex, ex.__traceback__)
                 time.sleep(.1)
                 continue
+            frame_time = datetime.datetime.now()
+            elapsed = snap_time - start_time
+            processed_image = processed.copy() if hasattr(processed, "copy") else processed
+            raw_image = raw.copy() if hasattr(raw, "copy") else raw
+            processed_entry = (last_frame, frame_time, elapsed, processed_image)
+            raw_entry = (last_frame, frame_time, elapsed, raw_image)
+            self.camera._update_frame_pair(processed_entry, raw_entry)
             # Put image into queues for disk storage and display
             for queue in self.queues:
-                queue.append((last_frame, datetime.datetime.now(), snap_time - start_time, processed))
+                queue.append(processed_entry)
             for queue in self.raw_queues:
-                queue.append((last_frame, datetime.datetime.now(), snap_time - start_time, raw))
+                queue.append(raw_entry)
 
             # logging.debug(f"FPS in Acquisition Thread: {self.get_frame_rate():.2f}")
 
@@ -184,14 +189,14 @@ class Camera(object):
         self.stop_show_time = 0
         self.point_to_show = None
         self.cell_list = []
+        self._frame_pair_lock = threading.Lock()
+        self._last_frame_pair = None
         
         self.last_frame_time = None
         self.fps = 0
 
         # self.Cellseg = CellSegmentor2()
-        self.pipdetector = PipetteDetector()
-        # self.Cellseg = CellSegmentor2()
-        # self.pipdetector = PipetteDetector()
+        self.pipdetector = PipetteDetector1()
         # testing flag
         
 
@@ -208,21 +213,21 @@ class Camera(object):
     def stop_acquisition(self):
         self._acquisition_thread.running = False
 
-    def start_recording(self, directory='', file_prefix='', skip_frames=0, queue_size=1000):
-        if len(self._acquisition_thread.queues) > 1:
-            del self._acquisition_thread.queues[1]
-        self._file_queue = collections.deque(maxlen=queue_size)
-        self._acquisition_thread.queues.append(self._file_queue)
-        self._file_thread = FileWriteThread(queue=self._file_queue,
-                                            directory=directory,
-                                            file_prefix=file_prefix,
-                                            skip_frames=skip_frames,
-                                            debug_write_delay=self._debug_write_delay)
-        self._file_thread.start()
+    # def start_recording(self, directory='', file_prefix='', skip_frames=0, queue_size=1000):
+    #     if len(self._acquisition_thread.queues) > 1:
+    #         del self._acquisition_thread.queues[1]
+    #     self._file_queue = collections.deque(maxlen=queue_size)
+    #     self._acquisition_thread.queues.append(self._file_queue)
+    #     self._file_thread = FileWriteThread(queue=self._file_queue,
+    #                                         directory=directory,
+    #                                         file_prefix=file_prefix,
+    #                                         skip_frames=skip_frames,
+    #                                         debug_write_delay=self._debug_write_delay)
+    #     self._file_thread.start()
 
-    def stop_recording(self):
-        if self._file_thread:
-            self._file_thread.running = False
+    # def stop_recording(self):
+    #     if self._file_thread:
+    #         self._file_thread.running = False
 
     def flip(self):
         self.flipped = not self.flipped
@@ -316,6 +321,10 @@ class Camera(object):
         raw = self.raw_snap()
         return raw, self.preprocess(raw)
 
+    def _update_frame_pair(self, processed_entry, raw_entry) -> None:
+        with self._frame_pair_lock:
+            self._last_frame_pair = (processed_entry, raw_entry)
+
     def raw_snap(self):
         return None
 
@@ -356,6 +365,30 @@ class Camera(object):
             return last_entry[0], last_entry[1], last_entry[-1]
         except IndexError:  # no frame (yet)
             return None
+
+    def last_raw_frame_data(self) -> None | tuple[int, datetime.datetime, np.ndarray]:
+        '''
+        Get the last raw frame and its number
+
+        Returns
+        -------
+        (frame_number, date, raw_frame)
+        '''
+        with self._frame_pair_lock:
+            if self._last_frame_pair is None:
+                return None
+            _, raw_entry = self._last_frame_pair
+        return raw_entry[0], raw_entry[1], raw_entry[-1]
+
+    def last_frame_pair(self) -> None | tuple[int, datetime.datetime, np.ndarray, np.ndarray]:
+        '''
+        Return the latest processed/raw frame pair
+        '''
+        with self._frame_pair_lock:
+            if self._last_frame_pair is None:
+                return None
+            processed_entry, raw_entry = self._last_frame_pair
+        return processed_entry[0], processed_entry[1], processed_entry[-1], raw_entry[-1]
 
     def close(self):
         """Shut down the camera device, free resources, etc."""

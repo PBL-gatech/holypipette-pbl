@@ -233,6 +233,8 @@ class PipetteInterface(TaskInterface):
              description='Move stage vertically by {:.0f}μm',
              default_arg=-50)
     def move_stage_vertical(self, distance):
+        if distance < 0:
+            print(f"distance is negative: {distance}")
         self.calibrated_stage.relative_move(distance, axis=1)
 
     @command(category='Stage',
@@ -268,6 +270,15 @@ class PipetteInterface(TaskInterface):
                         task_description='Following the stage')
     def follow_stage(self):
         self.execute([self.calibrated_unit.follow_stage])
+
+
+    @blocking_command(category='Manipulators and Stage',
+                      description='Move pipette randomly in xyz',
+                        task_description='displacing pipette randomly in xyz...')
+    def move_pipette_random(self):
+        self.execute([self.calibrated_unit.move_pipette_random])
+
+
 
     @blocking_command(category='Stage',
                         description='focus the stage',

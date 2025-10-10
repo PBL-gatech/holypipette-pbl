@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-file_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\experiments\\Datasets\\HEK_dataset.hdf5"
+file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_037.hdf5"
 # file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\HEK_dataset_v0_014.hdf5"
 
 # ------------------------------------------------------------------

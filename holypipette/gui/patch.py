@@ -21,6 +21,7 @@ from holypipette.interface.base import command
 from holypipette.utils.FileLogger import FileLogger
 from datetime import datetime
 import json
+import pickle
 import os
 
 class PatchGui(ManipulatorGui):
@@ -432,7 +433,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.currz_stage_pos = [0, 0, 0]
 
         self.file_selector = FileSelector()
-        self.file_selector.fileSelected.connect(self.load_movement_file)
+
 
         self.recorder = FileLogger(self.recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", recorder_filename="movement_recording")
 
@@ -456,11 +457,11 @@ class ClassicPatchButtons(ButtonTabWidget):
 
         # Add a box for calibration setup
         # buttonList = [['Calibrate Stage','Calibrate Pipette'],['set home space','set safe space'],['Store Cleaning Position'],['Clear Calibration']]
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Clear Calibration']]
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Load Calibration','Clear Calibration']]
         cmds = [[self.stage_calibration, self.pipette_calibration],
                 # [self.patch_interface.store_home_position, self.patch_interface.store_safe_position],
                 [self.pipette_cleaning_calibration],
-                [self.patch_interface.clear_positions]
+                [self.load_calibration, self.patch_interface.clear_positions]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds, sequential=True, 
                         change_color_on_complete=True, completion_color="rgba(173, 216, 230, 0.5)")
@@ -476,19 +477,22 @@ class ClassicPatchButtons(ButtonTabWidget):
         ]
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
+        # self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.rest,self.start_recording,self.patch_interface.find_pipette]
+        # self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
+        self.pipette_location = [self.patch_interface.find_pipette]
+        # add a box for testing controllability of the pipette and stage
+        buttonList = [['Find Pipette']]
+        cmds = [[self.pipette_location]
+                ]
+        self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
 
-        # # add a box for testing controllability of the pipette and stage
-        # buttonList = [['Test Movement']]
-        # cmds = [ [self.test_movement]]
-        # self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
-
-        # # Add a box for lamp commands
-        buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
-        # set a bunch of do nothing commands for now
-        cmds = [[self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
-                [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
-        ]
-        self.addButtonList('fluorescence', layout, buttonList, cmds, sequential=True)
+        # # # Add a box for lamp commands
+        # buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
+        # # set a bunch of do nothing commands for now
+        # cmds = [[self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
+        #         [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
+        # ]
+        # self.addButtonList('fluorescence', layout, buttonList, cmds, sequential=True)
         
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
@@ -509,10 +513,22 @@ class ClassicPatchButtons(ButtonTabWidget):
 
         self.setLayout(layout)
 
+    def load_calibration(self):
+        self.file_selector.fileSelected.connect(self.load_calibration_file)  # Connect the signal to the slot
+        self.file_selector.open_file_dialog()  # Open the file dialog
+
+
+    def load_calibration_file(self, file_path):
+        # call pipette.interface.read_calibration
+            logging.info(f"Loading calibration file: {file_path}")
+            self.pipette_interface.read_calibration(file_path)
+
+
     def test_movement(self):
         # check if recording is enabled
         if self.recording_state_manager.is_recording_enabled():
             # Opens the file selector dialog without blocking the main thread
+            self.file_selector.fileSelected.connect(self.load_movement_file)  # Connect the signal to the slot
             self.file_selector.open_file_dialog()
         else:
             # if not recording then start recording
@@ -532,7 +548,6 @@ class ClassicPatchButtons(ButtonTabWidget):
         else:
             self.start_recording()
 
-
     def start_recording(self):
         self.recording_state_manager.set_recording(True)
         self.record_button.setText("Stop Recording")
@@ -541,9 +556,12 @@ class ClassicPatchButtons(ButtonTabWidget):
 
     def stop_recording(self):
         self.recording_state_manager.set_recording(False)
+        self.recorder.handle_recording_stopped()
         self.record_button.setText("Start Recording")
         self.record_button.setStyleSheet("")
         logging.info("Recording stopped")
+
+
 
     def close(self):
         self.recorder.close()
@@ -626,4 +644,5 @@ class ClassicPatchButtons(ButtonTabWidget):
             else:
                 # Note: divide by 5 here to account for z-axis gear ratio
                 label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}')
+
 

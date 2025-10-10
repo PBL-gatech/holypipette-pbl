@@ -17,7 +17,7 @@ __all__ = ['LiveFeedQt']
 
 
 class LiveFeedQt(QtWidgets.QLabel):
-    def __init__(self, camera: Camera, recording_state_manager: RecordingStateManager, image_edit=None, display_edit=None, mouse_handler=None, parent=None):
+    def __init__(self, camera: Camera, recording_state_manager: RecordingStateManager, image_edit=None, display_edit=None, mouse_handler=None, parent=None, log_processed_frames=False):
 
         super(LiveFeedQt, self).__init__(parent=parent)
         # The image_edit function (does nothing by default) gets the raw
@@ -42,6 +42,7 @@ class LiveFeedQt(QtWidgets.QLabel):
 
         self.recording_state_manager = recording_state_manager
         self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", isVideo=True, filetype="csv", recorder_filename="camera_frames")
+        self.log_processed_frames = bool(log_processed_frames)
 
         # Remember the last frame that we displayed, to not unnecessarily
         # process/show the same frame for slow input sources
@@ -80,27 +81,33 @@ class LiveFeedQt(QtWidgets.QLabel):
             logging.info(f"FPS in LIVEFEED: {self.fps:.2f}")
         self.last_frame_time = current_time
 
+    def set_log_processed_frames(self, value: bool) -> None:
+        self.log_processed_frames = bool(value)
+
     @QtCore.pyqtSlot()
     def update_image(self):
         try:
             # get last frame from camera
-            frameno, frame_time, frame = self.camera.last_frame_data()
+            frame_info = self.camera.last_frame_pair()
+            if frame_info is None:
+                return
+            frameno, frame_time, processed_frame, raw_frame = frame_info
+            if processed_frame is None:
+                return
 
-            if frame is None:
-                return  # Frame acquisition thread has stopped
-            
             if self._last_frameno is None or self._last_frameno != frameno:
-                frame = self.image_edit(frame)
-            
+                frame = self.image_edit(processed_frame)
                 self._last_edited_frame = frame
                 self._last_frameno = frameno
             else:
-                # No need to preprocess a frame again if it has not changed
                 frame = self._last_edited_frame
 
-            # * Where you place tihs function is important, relative to repeated frames and such. Either you check in this file 
+            frame_to_log = frame
+            if not self.log_processed_frames and raw_frame is not None:
+                frame_to_log = raw_frame.copy() if hasattr(raw_frame, "copy") else raw_frame
+            # * Where you place this function is important, relative to repeated frames and such. Either you check in this file
             # * or in the FileLogger file
-            self.recorder.write_camera_frames(frame_time.timestamp(), frame, frameno)
+            self.recorder.write_camera_frames(frame_time.timestamp(), frame_to_log, frameno)
             # self.log_frame_rate()
             # print(f"FRAME SHAPE: {frame.shape}")
 

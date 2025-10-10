@@ -113,7 +113,7 @@ class ManipulatorGui(CameraGui):
             # Note that we do not use the automatic documentation mechanism here,
             # as we one entry for every possible keypress
             modifiers = [Qt.NoModifier, Qt.AltModifier, Qt.ShiftModifier]
-            distances = [10., 2.5, 50.]
+            distances = [0.4, 0.1, 1.0]
             self.help_window.register_custom_action('Stage',  'Arrows',
                                                     'Move stage')
             self.help_window.register_custom_action('Stage',

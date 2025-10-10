@@ -27,6 +27,9 @@ class SerialCommands():
 
     SET_X_Y_Z_VEL = 'VJ {} {} {}\r'
 
+    GET_BAUD = 'BAUD\r'
+    SET_BAUD = 'BAUD {}\r'
+
     STOP = 'STOP\r'
 
 class ScientificaSerialEncoder(Manipulator):
@@ -41,13 +44,31 @@ class ScientificaSerialEncoder(Manipulator):
         self._lock = threading.Lock()
         self.current_pos = [0, 0, 0]
 
+        # self.info(f"Baud Rate: {self.get_baud_rate()}")
+
         self.set_max_accel(100)
         self.set_max_speed(10000)
+        
 
         #start constantly polling position in a new thread
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
         self._polling_thread.start()
         self._polling_thread.deamon = True
+
+    def get_baud_rate(self):
+        '''
+        gets the baud rate of the serial port
+
+        '''
+        resp = self._sendCmd(SerialCommands.GET_BAUD)
+        return (resp)
+
+    def set_baud_rate(self, baud_rate : int):
+        '''Sets the baud rate of the serial port.  
+        '''
+        self._sendCmd(SerialCommands.SET_BAUD.format(int(baud_rate)))
+
+
 
     def get_max_speed(self):
         '''Gets the max speed for the Scientifica Stage.  
@@ -126,6 +147,7 @@ class ScientificaSerialEncoder(Manipulator):
                 time.sleep(sleepTime)
 
     def absolute_move(self, pos, axis):
+
         if axis == 1:
             yPos = self.position(axis=2)
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos * 10) , int(yPos * 10)))
@@ -183,6 +205,7 @@ class ScientificaSerialEncoder(Manipulator):
             cmd[axis  - 1] = pos
         
         if cmd[0] != 0 or cmd[1] != 0:
+            print("sent cmd", cmd[0], cmd[1])
             self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] * 10), int(cmd[1] * 10)))
 
         if cmd[2] != 0:
@@ -190,6 +213,7 @@ class ScientificaSerialEncoder(Manipulator):
 
     def absolute_move_group_velocity(self,vel,axes):   
         try: 
+         self.info(f"Setting velocity to {vel} on axes {axes}")
          vel = list(vel)
          axes = list(axes)
          xvel = vel[axes.index(1)]
@@ -224,7 +248,25 @@ class ScientificaSerialNoEncoder(Manipulator):
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
         self._polling_thread.start()
         self._polling_thread.deamon = True
+
+        self.info(f"Baud Rate: {self.get_baud_rate()}")
+
     
+
+    def get_baud_rate(self):
+        '''
+        gets the baud rate of the serial port
+
+        '''
+        resp = self._sendCmd(SerialCommands.GET_BAUD)
+        return (resp)
+
+    def set_baud_rate(self, baud_rate : int):
+        '''Sets the baud rate of the serial port.  
+        '''
+        self._sendCmd(SerialCommands.SET_BAUD.format(int(baud_rate)))
+
+
     def set_max_speed(self, speed):
         '''Sets the max speed for the Scientifica Stage.  
            It seems like the range for this is around (1000, 100000)
@@ -249,8 +291,8 @@ class ScientificaSerialNoEncoder(Manipulator):
         self.comPort.write(cmd.encode())
         resp = self.comPort.read_until(b'\r') #read reply to message
         resp = resp[:-1]
-        if resp == b'A':
-            print(f"command received: {resp}")
+        # if resp == b'A':
+        #     print(f"command received: {resp}")
         # end = time.perf_counter_ns()
         # print(f"Time taken to send command: {(end - start)/1e6} ms")
         self._lock.release()
@@ -289,16 +331,16 @@ class ScientificaSerialNoEncoder(Manipulator):
     def absolute_move(self, pos, axis, speed=None):
         '''Moves the device to an absolute position in um.
         '''
-        # self.abort_if_requested()
+        # print(f"absolute move {pos} {axis}")
         try: 
             if axis == 1:
                 yPos = self.position(axis=2)
-                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(pos * 10) , int(yPos * 10)))
+                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(round(pos * 10) , round(yPos * 10)))
             if axis == 2:
                 xPos = self.position(axis=1)
-                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(pos * 10)))
+                self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(round(xPos * 10), round(pos * 10)))
             if axis == 3:
-                self._sendCmd(SerialCommands.SET_Z_POS.format(int(pos * 10)))
+                self._sendCmd(SerialCommands.SET_Z_POS.format(round(pos * 10)))
         except Exception as e:
             self.error(f"Error in absolute_move: {e}")
     

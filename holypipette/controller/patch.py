@@ -7,7 +7,7 @@ from holypipette.devices.manipulator.calibratedunit import CalibratedUnit, Calib
 from holypipette.devices.manipulator.microscope import Microscope
 from holypipette.devices.pressurecontroller import PressureController
 from holypipette.devices.lamp import Lamp
-from holypipette.devices.manipulator.AutoPatchHelper import AutoPatchHelper
+from holypipette.devices.manipulator.AgentHelper import AgentHelper
 from holypipette.utils.StateMachineLogger import StateMachineLogger, record_state
 import collections
 import logging
@@ -57,9 +57,12 @@ class AutoPatcher(TaskController):
         self.attempt_counter = 0
         self._state_recorder = None
         self._in_patch       = False
-        self.autopatchhelper = AutoPatchHelper()
+        self.agenthelper =   AgentHelper()
         self.current_protocol_graph = None
+        self.goal_needed = False
+        self.goal_random = False
         self.ninput = None
+        self.done = False
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -111,6 +114,175 @@ class AutoPatcher(TaskController):
                     self.info("Holding current is too high, setting to default value of -50 pA")
                     holding_current = -50
                 return holding_current
+
+
+    @record_state("find_pipette")
+    def find_pipette(self):
+        self.info("Finding pipette")
+        self.agenthelper.prepare_model("find_pipette")
+
+        goal_needed = bool(self.goal_needed)
+        random = bool(self.goal_random)
+
+        camera = self.calibrated_stage.camera
+        width = getattr(camera, "width", None)
+        height = getattr(camera, "height", None)
+
+        center_x = int(round(width / 2)) if isinstance(width, (int, float)) else 640
+        center_y = int(round(height / 2)) if isinstance(height, (int, float)) else 640
+        goal_center = np.array([center_x, center_y], dtype=int)
+
+        goal = None
+        if goal_needed:
+            goal = goal_center.astype(np.float32)
+            if random:
+                offsets = np.random.randint(-300, 301, size=2)
+                goal = goal + offsets.astype(np.float32)
+                if isinstance(width, (int, float)) and width > 0:
+                    max_x = max(int(width) - 1, 0)
+                    goal[0] = float(np.clip(goal[0], 0, max_x))
+                if isinstance(height, (int, float)) and height > 0:
+                    max_y = max(int(height) - 1, 0)
+                    goal[1] = float(np.clip(goal[1], 0, max_y))
+
+        goal_display = goal_center if goal is None else np.array(
+            [int(round(goal[0])), int(round(goal[1]))],
+            dtype=int,
+        )
+        goal_display_tuple = (int(goal_display[0]), int(goal_display[1]))
+        goal_error_target = goal.astype(float) if goal is not None else goal_center.astype(float)
+
+        done = False
+        err = None
+        action = None
+        target_point = None
+
+        while not done:
+            if self.config.mode != 'Agent':
+                self.sleep(0.02)
+                continue
+
+            observation = self.observe()
+            curr_point = observation[0]
+
+            if curr_point is None:
+                self.warning("Pipette detector did not return a location; waiting for next frame")
+                self.sleep(0.02)
+                continue
+
+            if isinstance(curr_point, np.ndarray):
+                curr_point = curr_point.tolist()
+            if len(curr_point) < 2 or any(value is None for value in curr_point[:2]):
+                self.warning("Pipette detector returned incomplete coordinates; waiting for next frame")
+                self.sleep(0.02)
+                continue
+
+            curr_array = np.asarray(curr_point[:2], dtype=float)
+            if np.isnan(curr_array).any():
+                self.warning("Pipette detector returned NaN coordinates; waiting for next frame")
+                self.sleep(0.02)
+                continue
+
+            curr_point = tuple(int(round(coord)) for coord in curr_array)
+            camera = self.calibrated_stage.camera
+
+            if action is None:
+                action = self.agenthelper.run_inference(observation=observation, goal=goal, is_demo=False)
+                self.info(f"pipette prediction: {action} um")
+
+                if action is None:
+                    self.warning("Model did not return an action; retrying inference")
+                    err = None
+                    self.sleep(0.02)
+                    continue
+
+                pred_offset = np.asarray(action[:2], dtype=float)
+                if pred_offset.size < 2:
+                    self.warning("Predicted offset missing coordinates; retrying inference")
+                    action = None
+                    target_point = None
+                    err = None
+                    self.sleep(0.02)
+                    continue
+
+                if np.isnan(pred_offset).any():
+                    self.warning("Predicted offset contains NaNs; retrying inference")
+                    action = None
+                    target_point = None
+                    err = None
+                    self.sleep(0.02)
+                    continue
+
+                target_point_float = np.asarray(curr_point, dtype=float) + pred_offset
+                target_point_pixels = (
+                    int(round(target_point_float[0])),
+                    int(round(target_point_float[1]))
+                )
+                target_point_microns = (
+                    int(round(pred_offset[0])),
+                    int(round(pred_offset[1])),
+                    0
+                )
+                target_point_microns = self.calibrated_unit.pixels_to_um_relative(target_point_microns) + self.calibrated_unit.position()
+
+                self.info(f" target converted distance relative in um: {target_point_microns} um")
+
+                self.info(f"acting...")
+
+                self.calibrated_unit.absolute_move(target_point_microns)
+
+                width = getattr(camera, "width", None)
+                height = getattr(camera, "height", None)
+
+                if width is not None and height is not None:
+                    if not (0 <= target_point_pixels[0] < width and 0 <= target_point_pixels[1] < height):
+                        self.warning(f"predicted point not on screen: {target_point_pixels}")
+                        action = None
+                        target_point = None
+                        err = None
+                        self.sleep(0.04)
+                        continue
+
+                target_point = target_point_pixels
+
+            # pipette_action = np.asarray(action[:3], dtype=float)
+            # # if pipette_action.size < 3:
+            # #     pipette_action = np.pad(pipette_action, (0, 3 - pipette_action.size), constant_values=0.0)
+            # # if np.linalg.norm(pipette_action) < 0.1:
+            # #     count += 1
+            # #     if count >= 5:
+            # #         done = True
+
+            curr_point = np.array(curr_point)
+            xgerr = goal_error_target[0] - curr_point[0]  # switch
+            ygerr = goal_error_target[1] - curr_point[1]
+            gerr = float(np.sqrt((xgerr ** 2 + ygerr ** 2) / 2.0))
+            self.info(f" Goal error:{gerr}")
+
+            if gerr <= 25:
+                done = True
+
+            if done:
+                self.info("Pipette found")
+                break
+
+            if target_point is not None:
+                camera.show_point(point=target_point, color=(255, 0, 0))
+                xerr = curr_point[0] - target_point[0]
+                yerr = curr_point[1] - target_point[1]
+                err = float(np.sqrt((xerr ** 2 + yerr ** 2) / 2.0))
+                self.info(f"total pixel error: {err}")
+
+                if err <= 10:
+                    action = None
+                    target_point = None
+                    err = None
+                    self.sleep(0.02)
+                    continue
+            else:
+                camera.show_point(point=goal_display_tuple, color=(255, 255, 255), show_center=True)
+
+            self.sleep(0.02)
 
     @record_state("run_protocols")
     def run_protocols(self):
@@ -391,11 +563,10 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
             autoHunt=True
         elif self.config.mode == 'Agent':
-            # get 16 inputs from observation to prime model with. build a nested input list
-            self.ninput = [None] * 16
-            for i in range(16):
-                self.ninput[i] = self.observe()
-            self.autopatchhelper.prime_model("hunt",self.ninput)
+            #prepare model
+            # cell_pos, cell_img,goal_pos = cell
+            # goal_res  = self.first_res + self.config.cell_R_increase*1e6
+            self.agenthelper.prepare_model("hunt")
             autoHunt = True
         else:
             autoHunt = False
@@ -410,22 +581,21 @@ class AutoPatcher(TaskController):
             if autoHunt:
                 try: 
                     model_input = self.observe()
-                    pos = self.autopatchhelper.hunt(model_input)
+                    pos = self.agenthelper.run_inference(model_input)
                     st_pos = pos[:3]
                     pi_pos = pos[3:]
-                    # pi_pos = [x * 1 for x in pos[3:]]
-                    print(type(pi_pos))
-                    
+                    self.info(f"pipette command: {pi_pos},data type {type(pi_pos)}")          
                 except: 
-                    self.error("Error in prediction, skipping movement")
-                    st_pos = [0,0,0]
-                    pi_pos = [0,0,0]
-                # self.info(f"stage command: {st_pos}")
-                self.info(f"pipette command: {pi_pos}")
-                # self.calibrated_stage.relative_move_group(st_pos)
-                # # simple debug
-                # pip_disp = [0,0,1]
-                self.calibrated_unit.relative_move(pi_pos)
+                    self.error("Error in prediction, stopping autopatch")
+                    break
+                #     st_pos = [0,0,0]
+                #     pi_pos = [0,0,0]
+                # # self.info(f"stage command: {st_pos}")
+                # self.info(f"pipette command: {pi_pos}")
+                # # self.calibrated_stage.relative_move_group(st_pos)
+                # # # simple debug
+                # # pip_disp = [0,0,1]
+                # self.calibrated_unit.relative_move(pi_pos)
 
             curr_pos = self.calibrated_unit.position()
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
@@ -451,8 +621,6 @@ class AutoPatcher(TaskController):
 
         self.calibrated_unit.stop()
         self.microscope.stop()
-
-
 
     @record_state("escape")
     def escape(self):
@@ -1145,9 +1313,14 @@ class AutoPatcher(TaskController):
 
     def observe(self):
         """ collects all inputs required for the models"""
+
+
         _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
+        
+        cvpi = self.calibrated_unit.pipetteCalHelper.pipetteDetector.detect_pipette(img)
+        self.info(f"detected pipette position: {cvpi}")
         pi = self.calibrated_unit.position()
-        self.info(f"pipette position: '{pi}' ")
+        # self.info(f"pipette position: '{pi}' ")
         st = self.calibrated_stage.position()[:2]
         stz = self.calibrated_unit.microscope.position() / 5
         st= np.append(st, stz)
@@ -1156,5 +1329,12 @@ class AutoPatcher(TaskController):
         # self.info(f"resistance: {res}")
         
         # Return a list instead of trying to create heterogeneous numpy array
-        return [pi, st, img, res]
+        return [cvpi, st, img, res]
         
+
+    def act(self):
+        '''
+         takes in 
+        '''
+
+
