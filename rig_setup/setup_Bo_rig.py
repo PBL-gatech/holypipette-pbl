@@ -9,6 +9,7 @@ from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.pressurecontroller import BoPressureController, FakePressureController
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
+from holypipette.devices.lamp import OlympusLamp, FakeLamp
 
 
 # set up Camera
@@ -33,7 +34,7 @@ controller = ScientificaSerialNoEncoder(controllerSerial)
 microscope = Microscope(controller, 3)
 microscope.up_direction = 1.0
 
-pipetteSerial = serial.Serial('COM14')
+pipetteSerial = serial.Serial('COM10')
 pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
 stage = ManipulatorUnit(controller, [1, 2])
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
@@ -41,6 +42,11 @@ unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 # set up cell sorter
 cellSorterController = FakeCellSorterController()
 cellSorterManip = FakeCellSorterManip()
+
+
+
+# set up lamp
+lamp = FakeLamp() 
 
 
 
