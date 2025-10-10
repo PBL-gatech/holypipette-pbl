@@ -81,7 +81,7 @@ class PressureController(TaskController):
         t0 = time.time()
         t = t0
         while t - t0 < duration:
-            self.set_pressure(amplitude * (t - t0) / duration, port)
+            self.set_pressure(int(amplitude * (t - t0) / duration), port)
             t = time.time()
         self.set_pressure(0, port)
 

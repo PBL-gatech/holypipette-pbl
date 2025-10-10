@@ -1,19 +1,19 @@
 # patch_gui.py
 import faulthandler
 faulthandler.enable()
-faulthandler.dump_traceback_later(5)
+# faulthandler.dump_traceback_later(5)
 
 import atexit
 import sys
 from PyQt5.QtWidgets import QApplication
 import traceback
-from holypipette.exception_handler import set_global_exception_hook
+from holypipette.utils.exception_handler import set_global_exception_hook
 
 # Set the global exception hook
 set_global_exception_hook()
 
 
-from holypipette.log_utils import setup_logging
+from holypipette.utils.log_utils import setup_logging
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
@@ -36,7 +36,7 @@ def main():
     recording_state_manager = RecordingStateManager()
 
     pipette_controller = PipetteInterface(stage, microscope, camera, unit, cellSorterManip, cellSorterController)
-    patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller)
+    patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller, recording_state_manager, lamp)
     graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager)
     gui = PatchGui(camera, pipette_controller, patch_controller, recording_state_manager)
     graphs = EPhysGraph(graph_interface, recording_state_manager)

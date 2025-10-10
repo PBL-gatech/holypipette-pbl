@@ -48,6 +48,19 @@ class ScientificaSerialEncoder(Manipulator):
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
         self._polling_thread.start()
         self._polling_thread.deamon = True
+
+    def get_max_speed(self):
+        '''Gets the max speed for the Scientifica Stage.  
+           It seems like the range for this is around (1000, 100000)
+        '''
+        resp = self._sendCmd(SerialCommands.GET_MAX_SPEED)
+        return int(resp)
+    def get_max_accel(self):
+        '''Gets the max acceleration for the Scientifica Stage.
+           It seems like the range for this is around (10, 10000)
+        '''
+        resp = self._sendCmd(SerialCommands.GET_MAX_ACCEL)
+        return int(resp)
     
     def set_max_speed(self, speed):
         '''Sets the max speed for the Scientifica Stage.  
@@ -232,9 +245,14 @@ class ScientificaSerialNoEncoder(Manipulator):
         '''
         
         self._lock.acquire()
+        # start  = time.perf_counter_ns()
         self.comPort.write(cmd.encode())
         resp = self.comPort.read_until(b'\r') #read reply to message
         resp = resp[:-1]
+        if resp == b'A':
+            print(f"command received: {resp}")
+        # end = time.perf_counter_ns()
+        # print(f"Time taken to send command: {(end - start)/1e6} ms")
         self._lock.release()
         return resp.decode()
 
@@ -308,6 +326,8 @@ class ScientificaSerialNoEncoder(Manipulator):
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
             self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
+            # end  = time.perf_counter_ns()
+            # print(f"Time taken to move: {(end - start)/1e6} ms")
 
 
         else:

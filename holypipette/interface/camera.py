@@ -6,7 +6,6 @@ import cv2
 from numpy import *
 from holypipette.interface import TaskInterface, command, blocking_command
 import logging
-# from holypipette.utils import EPhysLogger
 from holypipette.utils.RecordingStateManager import RecordingStateManager
 
 
@@ -17,7 +16,6 @@ class CameraInterface(TaskInterface):
         super().__init__()
         self.camera = camera
         self.with_tracking = with_tracking
-        # self.ephys_logger = EPhysLogger()
         self.recording_state_manager = RecordingStateManager()
 
     def connect(self, main_gui):
@@ -86,19 +84,3 @@ class CameraInterface(TaskInterface):
         self.camera.change_exposure(-decrease)
         self.signal_updated_exposure()
 
-    # @command(category='Camera',
-    #          description='Save the current image to a file')
-    # def hold_image(self):
-    #     try:
-    #         from PIL import Image
-    #     except ImportError:
-    #         self.error('Saving images needs the PIL or Pillow module')
-    #         return
-    #     frame, _ = self.camera.snap()
-    #     if frame is None:
-    #         self.error('No image to save')
-    #         return
-    #     else: 
-    #         index = self.recording_state_manager.sample_number # just in case protocol hasn't been run yet
-
-    #         self.ephys_logger.hold_image(frame, index)        

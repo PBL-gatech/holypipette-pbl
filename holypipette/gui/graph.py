@@ -7,9 +7,9 @@ from matplotlib.colors import LinearSegmentedColormap, to_hex
 
 
 from pyqtgraph import PlotWidget
-from pyqtgraph.exporters import ImageExporter
-import io
-from PIL import Image
+
+
+
 
 import threading
 
@@ -100,6 +100,10 @@ class CurrentProtocolGraph(ProtocolGraph):
 
         # Create a gradient color list based on the number of pulses
         color_range = self.graph_interface.daq.pulseRange
+        if color_range is None:
+            color_range = 1
+        else:
+            color_range = int(color_range)
         logging.debug(f"color range: {color_range}")
         start_color = "#003153"  # Prussian Blue
         end_color = "#ffffff"    # White
@@ -115,8 +119,8 @@ class CurrentProtocolGraph(ProtocolGraph):
             respData = graph[1]
             readData = graph[2]
             self.plotWidget.plot(timeData, respData, pen=colors[i])
-            # logging.info("Writing current ephys data to file")
-            pulse = str(pulses[i])
+
+            pulse = str(pulses[i]) if pulses is not None else str(i)
             marker = colors[i] + "_" + pulse
             self.ephys_logger.write_ephys_data(index, timeData, readData, respData, marker)
             if i == color_range - 1:
@@ -157,7 +161,11 @@ class VoltageProtocolGraph(ProtocolGraph):
         # Prepare data for logging
         timeData = self.graph_interface.daq.voltage_protocol_data[0, :]
         respData = self.graph_interface.daq.voltage_protocol_data[1, :]
-        readData = self.graph_interface.daq.voltage_command_data[1, :]
+        if self.graph_interface.daq.voltage_command_data is not None:
+            readData = self.graph_interface.daq.voltage_command_data[1, :]
+        else:
+            readData = np.zeros_like(timeData)
+            raise ValueError("No voltage command data available")
 
         self.ephys_logger.write_ephys_data(index, timeData, readData, respData, colors[0])
         self.ephys_logger.save_ephys_plot(index, self.plotWidget)
@@ -337,7 +345,7 @@ class EPhysGraph(QWidget):
         self.modelType.clicked.connect(self.toggleModeType)
 
         # QTimer for periodic GUI updates 
-        self.updateDt = 33  # ms
+        self.updateDt = 42   # ms
         self.updateTimer = QtCore.QTimer()
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)

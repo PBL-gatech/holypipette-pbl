@@ -14,6 +14,8 @@ import imageio
 import logging
 # from holypipette.deepLearning.cellSegmentor import CellSegmentor2
 from holypipette.deepLearning.pipetteFinder import PipetteFinder
+# from holypipette.deepLearning.cellSegmentor import CellSegmentor2
+# from holypipette.deepLearning.pipetteDetector import PipetteDetector
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -132,6 +134,8 @@ class AcquisitionThread(threading.Thread):
             snap_time = time.time()
             try:
                 raw, processed = self.camera.snap()
+                time.sleep(0.02)  # Simulate processing time
+                # logging.debug(f"frame captured")
             except Exception as ex:
                 print('something went wrong acquiring an image, waiting for 100ms: ')
                 traceback.print_exception(type(ex), ex, ex.__traceback__)
@@ -186,6 +190,8 @@ class Camera(object):
 
         # self.Cellseg = CellSegmentor2()
         self.pipdetector = PipetteFinder()
+        # self.Cellseg = CellSegmentor2()
+        # self.pipdetector = PipetteDetector()
         # testing flag
         
 

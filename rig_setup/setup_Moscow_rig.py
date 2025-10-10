@@ -9,16 +9,17 @@ from holypipette.devices.camera.pcocamera import PcoCamera
 from holypipette.devices.pressurecontroller import MoscowPressureController, FakePressureController
 from holypipette.devices.manipulator import *
 from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
+from holypipette.devices.lamp import OlympusLamp, FakeLamp
 
 
 # set up Camera
 camera = PcoCamera()
 
 # set up Pressure Controller
-# pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
-# pressureReaderSerial = serial.Serial(port='COM9', baudrate=9600, timeout=0)
-# pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
-pressure = FakePressureController()
+pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)
+pressureReaderSerial = serial.Serial(port='COM22', baudrate=9600, timeout=0)
+pressure = MoscowPressureController(channel=1, controllerSerial=pressureControllerSerial, readerSerial=pressureReaderSerial)
+
 
 # set up Ephys
 # amplifier = MultiClampChannel(channel=1)
@@ -41,6 +42,9 @@ unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 # set up cell sorter
 cellSorterController = FakeCellSorterController()
 cellSorterManip = FakeCellSorterManip()
+
+# set up lamp
+lamp = OlympusLamp('COM21')  
 
 
 
