@@ -60,7 +60,7 @@ class PipetteDetector1(PipetteDetector):
     def __init__(self, model_path: Optional[str] = None) -> None:
         super().__init__()
         cur_file = Path(__file__).parent.absolute()
-        default_model = cur_file / "pipetteModel" / "pipetteDetectorNet4.onnx"
+        default_model = cur_file / "pipetteModel" / "BoPipetteDetectorNet.onnx"
         self.model_path = Path(model_path) if model_path is not None else default_model
         self.yolo_net = cv2.dnn.readNetFromONNX(str(self.model_path))
         layer_names = self.yolo_net.getLayerNames()

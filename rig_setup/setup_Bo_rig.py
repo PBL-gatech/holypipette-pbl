@@ -23,7 +23,7 @@ pressure = BoPressureController(channel=1, controllerSerial=pressureControllerSe
 
 # set up Ephys
 amplifier = MultiClampChannel(channel=1)
-daq = NiDAQ('Dev3', 'ai1', 'Dev3', 'ao0', 'Dev3', 'ai3')
+daq = NiDAQ('Dev1', 'ai17', 'Dev1', 'ao0', 'Dev1', 'ai19')
 # daq = FakeDAQ()
 # amplifier = FakeAmplifier()
 
@@ -34,7 +34,7 @@ controller = ScientificaSerialNoEncoder(controllerSerial)
 microscope = Microscope(controller, 3)
 microscope.up_direction = 1.0
 
-pipetteSerial = serial.Serial('COM10')
+pipetteSerial = serial.Serial('COM16')
 pipetteManip = ScientificaSerialNoEncoder(pipetteSerial)
 stage = ManipulatorUnit(controller, [1, 2])
 unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
