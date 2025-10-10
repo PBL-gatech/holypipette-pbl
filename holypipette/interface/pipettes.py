@@ -267,6 +267,11 @@ class PipetteInterface(TaskInterface):
                       task_description='Centering the Pipette')
     def center_pipette(self):
         self.execute([self.calibrated_unit.center_pipette])
+    @blocking_command(category='Manipulators',
+                     description = 'direct the Pipette',
+                      task_description='Directing the Pipette')
+    def direct_pipette(self,desired_px):
+        self.execute([self.calibrated_unit.direct_pipette], argument= desired_px)
     @blocking_command(category='Manipulators and Stage',
                       description='Follow stage',
                         task_description='Following the stage')

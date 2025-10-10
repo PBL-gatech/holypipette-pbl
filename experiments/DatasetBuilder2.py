@@ -157,12 +157,13 @@ class DatasetBuilderSettings:
     rotate_valid: bool = False # set to true to augment validation set with rotations
     stage_y_axis_flip: bool = False # set to true if the stage Y axis is inverted
     pipette_rotation_deg: float = -60.75 # angle to rotate pipette coordinates into stage frame
-    load_next_obs: bool = False # set to true for goal conditioning
+    transform_pipette_positions: bool = False # set to true to align pipette coordinates with the stage frame
+    load_next_obs: bool = True # set to true for goal conditioning
     frequency_mod: int = 1 # downsample data by this factor (minimum 1)
-    displacement: float = 1 # minimum stage/pipette displacement in microns or pixels
+    displacement: float = 10 # minimum stage/pipette displacement in microns or pixels
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
-    pipette_final_pos_red_dot: bool = True # set to true if want to add a red dot to image at final pipette position (for pipette finder only)
+    pipette_final_pos_color_dot: bool = True # set to true if want to add a red dot to image at final pipette position (for pipette finder only)
 
     observation_selector: ObservationSelector = field(default_factory=ObservationSelector)
     action_selector: ActionSelector = field(
@@ -176,7 +177,7 @@ class DatasetBuilderSettings:
     # Legacy toggles preserved for parity with DatasetBuilder
     calibrate: bool = False # set to true to apply calibration transform
     zero_values: bool = False # set to true to zero out starting positions
-    center_crop: bool = True # set to true to center crop images around pipette
+    center_crop: bool = False # set to true to center crop images around pipette
     rotate: bool = False # set to true to augment training set with rotations
     inaction: int = 1 # maximum number of consecutive zero-action steps to keep
 
@@ -421,14 +422,30 @@ class CalibrationMixin:
         return stage_pixels, pipette_pixels
 
     def pixel_coordinate_transform(
-        self, stage_positions: np.ndarray, pipette_positions: np.ndarray
+        self,
+        stage_positions: np.ndarray,
+        pipette_positions: np.ndarray,
+        *,
+        pipette_in_stage_frame: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Convert stage/pipette coordinates into calibrated pixel space."""
+        """Convert stage/pipette coordinates into calibrated pixel space.
 
-        transforms = self.load_calfile()
-        if transforms == (None, None):
+        When ``pipette_in_stage_frame`` is ``True`` the pipette coordinates are
+        assumed to already live in the stage frame (e.g. after
+        ``_transform_pipette_positions``) so the stage calibration, when
+        available, is reused for the pipette as well.
+        """
+
+        stage_cal, pip_cal = self.load_calfile()
+        if stage_cal is None and pip_cal is None:
             return stage_positions, pipette_positions
-        return self.apply_transform(stage_positions, pipette_positions, transforms)
+
+        if pipette_in_stage_frame:
+            pip_transform = stage_cal
+        else:
+            pip_transform = pip_cal
+
+        return self.apply_transform(stage_positions, pipette_positions, (stage_cal, pip_transform))
 
 class RandomFilterMixin:
     """Albumentations augmentation wrapper kept functionally identical."""
@@ -573,7 +590,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self.zero_values = settings.zero_values
         self.center_crop = settings.center_crop
         self.image_resize = settings.image_resize
-        self.pipette_final_pos_red_dot = settings.pipette_final_pos_red_dot
+        self.pipette_final_pos_color_dot = settings.pipette_final_pos_color_dot
         self.rotate = settings.rotate
         self.rotate_valid = settings.rotate_valid
         self.inaction = settings.inaction
@@ -582,6 +599,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self.rng = np.random.default_rng(settings.random_seed)
         self.stage_y_axis_flip = settings.stage_y_axis_flip
         self.pipette_rotation_deg = settings.pipette_rotation_deg
+        self.transform_pipette_positions = settings.transform_pipette_positions
         self.load_next_obs = settings.load_next_obs
         self.frequency_mod = int(max(1, settings.frequency_mod))
         self.displacement = float(abs(settings.displacement))
@@ -1203,15 +1221,27 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return pil_image.crop((left, top, right, bottom))
     
     @staticmethod
-    def add_image_red_dot(numpy_image: Image.Image, red_dot: Tuple[int, int]) -> Image.Image:
-        """Add a red dot to ``pil_image`` at the given coordinates."""
-        width, height, _ = numpy_image.shape
-        red_dot_left = red_dot[0] - 1 if (red_dot[0] - 1 >= 0) else 0
-        red_dot_right = red_dot[0] + 1 if (red_dot[0] + 1 < width) else red_dot[0]
-        red_dot_top = red_dot[1] - 1 if (red_dot[1] - 1 >= 0) else 0
-        red_dot_bottom = red_dot[1] + 1 if (red_dot[1] + 1 < height) else red_dot[1]
+    def add_image_color_dot(numpy_image: np.ndarray, color_dot: Optional[Tuple[int, int]]) -> np.ndarray:
+        """Add a red dot to ``numpy_image`` at the given coordinates."""
+        if color_dot is None or numpy_image.ndim < 2:
+            return numpy_image
 
-        numpy_image[red_dot_left:red_dot_right, red_dot_top:red_dot_bottom] = [255, 0, 0]
+        height, width = numpy_image.shape[:2]
+        x, y = map(int, color_dot)
+        if not (0 <= x < width and 0 <= y < height):
+            return numpy_image
+
+        radius = 1
+        x0 = max(x - radius, 0)
+        x1 = min(x + radius + 1, width)
+        y0 = max(y - radius, 0)
+        y1 = min(y + radius + 1, height)
+
+        if numpy_image.ndim >= 3:
+            dot_value = np.array([255, 255, 255], dtype=numpy_image.dtype)
+        else:
+            dot_value = numpy_image.dtype.type(255)
+        numpy_image[y0:y1, x0:x1] = dot_value
         return numpy_image
 
 
@@ -1324,8 +1354,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             
             resized_image = np.array(pil_image.resize((self.image_resize, self.image_resize)))
             
-            if self.pipette_final_pos_red_dot:
-                resized_image = self.add_image_red_dot(resized_image, pipette_final_pos)
+            if self.pipette_final_pos_color_dot:
+                resized_image = self.add_image_color_dot(resized_image, pipette_final_pos)
 
             frames_list.append(resized_image)
             last_index = max(0, min_idx - 1)
@@ -1371,8 +1401,17 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         stage_positions_full = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions_full = self.get_attempt_pipette_positions(attempt_movement_values)
 
+        pipette_stage_aligned = False
+        if self.transform_pipette_positions:
+            pipette_positions_full = self._transform_pipette_positions(
+                stage_positions_full, pipette_positions_full
+            )
+            pipette_stage_aligned = True
+
         stage_positions_full, pipette_positions_full = self.pixel_coordinate_transform(
-            stage_positions_full, pipette_positions_full
+            stage_positions_full,
+            pipette_positions_full,
+            pipette_in_stage_frame=pipette_stage_aligned,
         )
 
         if self._using_cv_movement_file:
@@ -2008,10 +2047,17 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return self.apply_albu_filter_to_pil(pil_image)
 
     def _pixel_coordinate_transform(
-        self, stage_positions: np.ndarray, pipette_positions: np.ndarray
+        self,
+        stage_positions: np.ndarray,
+        pipette_positions: np.ndarray,
+        pipette_in_stage_frame: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Compatibility shim for :meth:`pixel_coordinate_transform`."""
-        return self.pixel_coordinate_transform(stage_positions, pipette_positions)
+        return self.pixel_coordinate_transform(
+            stage_positions,
+            pipette_positions,
+            pipette_in_stage_frame=pipette_in_stage_frame,
+        )
 
     def _load_calfile(self) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]:
         """Compatibility shim for :meth:`CalibrationMixin.load_calfile`."""
@@ -2260,16 +2306,20 @@ __all__ = [
 if __name__ == "__main__":
 
 # ----------------------------------------------------------------------------------------------------------------------------------------
-    dataset_name = "PatcherBot_test_dataset_v0_190.hdf5"
+    dataset_name = "PatcherBot_test_dataset_v0_300.hdf5"
 
 
     # rig_recorder_data_folder_set = [
     #     "2025_09_25-20_43",
     #     "2025_09_25-21_39",
     #     "2025_10_01-13_15",# ~ 20 more demos
-    #     "2025_10_01-13_30" # ~ 30 more demos
+    #     "2025_10_01-13_30",# ~ 30 more demos
+    #     "2025_10_08-23_18" # version 0.200 and beyond. contains random planar endpoints.
     #     ] # version 0.001 training data (9/25/2025) # find pipette data
-    rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025) find_pipette test set
+    # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025) find_pipette test set
+    # rig_recorder_data_folder_set = ["2025_10_09-18_32"] # version 300
+
+    rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
 
     # ------------------------------------------------------------------------------------------------------------------------------
     # rig_recorder_data_folder_set = [

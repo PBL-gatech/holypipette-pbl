@@ -200,7 +200,7 @@ class Camera(object):
         # testing flag
         
 
-    def show_point(self, point, color=(255, 0, 0), radius=10, duration=1.5, show_center=False):
+    def show_circle(self, point, color=(255, 0, 0), radius=10, duration=1.5, show_center=False):
         self.point_to_show = [point, radius, color, show_center]
         self.stop_show_time = time.time() + duration
 
@@ -261,7 +261,7 @@ class Camera(object):
 
         # Draw pipette location if needed.
         if self.point_to_show and time.time() - self.stop_show_time < 0:
-            img = cv2.circle(img, self.point_to_show[0], self.point_to_show[1], self.point_to_show[2], 3)
+            img = cv2.circle(img, self.point_to_show[0], self.point_to_show[1], self.point_to_show[2], -1)
             if self.point_to_show[3]:
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
 

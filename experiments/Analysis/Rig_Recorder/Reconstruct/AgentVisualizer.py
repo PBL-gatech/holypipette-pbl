@@ -12,8 +12,8 @@ except ImportError:
     sys.exit(1)
 
 # Hardcoded configuration
-INPUT_DIR = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\AgentPath3")
-OUTPUT_PATH = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\AgentPath3\AgentPath.gif")
+INPUT_DIR = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\GoalAgentPath10")
+OUTPUT_PATH = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\GoalAgentPath10\GoalAgentPath10.gif")
 FPS = 30.0
 
 def natural_sort_key(path: Path):

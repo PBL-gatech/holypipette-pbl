@@ -75,7 +75,7 @@ class CalibratedCellSorter(TaskController):
         
         #get the center of the pipette
         x, y, r = circles[0][0]
-        self.camera.show_point([int(x), int(y)], radius=int(r), color=(0, 0, 255), show_center=True)
+        self.camera.show_circle([int(x), int(y)], radius=int(r), color=(0, 0, 255), show_center=True)
 
         self.pipetteOffsetPix = np.array([x, y])
         self.coverslipZPos = self.position()

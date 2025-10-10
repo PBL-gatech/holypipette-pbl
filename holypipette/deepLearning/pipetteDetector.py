@@ -282,17 +282,123 @@ class PipetteDetector2(PipetteDetector):
         return self._last_z
 
 
+class PipetteDetectorYOLO1(PipetteDetector):
+    """YOLO (.pt)-based pipette detector with an API matching PipetteDetector1."""
+
+    def __init__(self, model_path: Optional[str] = None,
+                 device: Optional[str] = None,
+                 imgsz: int = 640,
+                 conf: float = 0.20) -> None:
+        super().__init__()
+        from ultralytics import YOLO
+
+        cur_file = Path(__file__).parent.absolute()
+        default_model = cur_file / "pipetteModel" / "pipetteDetectorNet.pt"
+        self.model_path = Path(model_path) if model_path is not None else default_model
+
+        self.yolo_model = YOLO(str(self.model_path))
+
+        # Match PipetteDetector1 behavior
+        self.pipette_class = 0
+        self.imgsz = imgsz
+        self.conf_threshold = conf
+
+        # ---- Speed flags
+        self.device = device or ("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.use_half = (self.device != "cpu")
+        # Optional: only enable half if GPU supports fast FP16 (most do)
+        if self.device.startswith("cuda"):
+            try:
+                major, _ = torch.cuda.get_device_capability(0)
+                self.use_half = self.use_half and (major >= 7)
+            except Exception:
+                pass
+
+            torch.backends.cudnn.benchmark = True  # fixed-size 640x640
+
+        # Put model on device (Ultralytics will do it, but we make it explicit)
+        try:
+            self.yolo_model.to(self.device)
+        except Exception:
+            pass
+
+        # ---- Warmup once to compile kernels / allocate memory
+        if self.device.startswith("cuda"):
+            dummy = np.zeros((self.imgsz, self.imgsz, 3), dtype=np.uint8)
+            _ = self.yolo_model.predict(
+                source=dummy,
+                imgsz=self.imgsz,
+                conf=0.01,
+                device=self.device,
+                half=self.use_half,
+                verbose=False,
+            )
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+    def detect_pipette(self, img: np.ndarray) -> Optional[Tuple[int, int]]:
+        if img is None:
+            return None
+
+        img = self._ensure_color(img)
+        img = np.ascontiguousarray(img)  # avoid extra copies in preprocessing
+        h, w = img.shape[:2]
+
+        try:
+            results = self.yolo_model.predict(
+                source=img,
+                imgsz=self.imgsz,
+                conf=self.conf_threshold,
+                device=self.device,
+                half=self.use_half,
+                verbose=False,
+            )
+        except Exception as exc:
+            logger.warning("YOLO inference failed: %s", exc)
+            return None
+
+        if not results or results[0] is None or results[0].boxes is None:
+            return None
+
+        boxes = results[0].boxes
+        try:
+            cls = boxes.cls.detach().cpu().numpy().astype(int)
+            conf = boxes.conf.detach().cpu().numpy()
+            xywhn = boxes.xywhn.detach().cpu().numpy()
+        except Exception:
+            return None
+
+        mask = (cls == self.pipette_class) & (conf >= self.conf_threshold)
+        if not np.any(mask):
+            return None
+
+        conf_sel = conf[mask]
+        xywhn_sel = xywhn[mask]
+        best_idx = int(np.argmax(conf_sel))
+        cx_n, cy_n = float(xywhn_sel[best_idx, 0]), float(xywhn_sel[best_idx, 1])
+
+        if np.isnan(cx_n) or np.isnan(cy_n):
+            return None
+
+        x_pix = int(round(cx_n * w))
+        y_pix = int(round(cy_n * h))
+        if not (0 <= x_pix < w and 0 <= y_pix < h):
+            return None
+        return x_pix, y_pix
+
+
 if __name__ == '__main__':
-    detector = PipetteDetector1()
+    detector = PipetteDetectorYOLO1()
     path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
     img = cv2.imread(path)
 
     start = time.time()
     result = detector.detect_pipette(img)
+    end = time.time()
 
     if result is not None:
         x, y = result
-        print(f'framerate: {1 / (time.time() - start)}')
+        print(f'framerate: {1 / (end - start)}')
         cv2.circle(img, (x, y), 3, (0, 255, 0))
         cv2.imshow("pipette detection test", img)
         cv2.waitKey(0)

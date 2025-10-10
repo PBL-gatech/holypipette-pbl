@@ -87,7 +87,7 @@ class ModelImporter:
 class ModelInferencer:
     def __init__(self, model_importer: ModelImporter) -> None:
         """Bind a loaded policy to simple preprocessing and postprocessing utilities."""
-        self.crop_size = 0.5
+        self.crop_size = 1 # set to 1 for version 0.200 and beyond
         self.image_resize = (85, 85)
         self.action_unnorm_object = None
         self.obs_norm_object = None

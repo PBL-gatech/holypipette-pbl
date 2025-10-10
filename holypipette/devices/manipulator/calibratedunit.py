@@ -230,18 +230,18 @@ class CalibratedUnit(ManipulatorUnit):
             raise RuntimeError("can not move to nan location.")
         
         if isinstance(self, CalibratedStage) or isinstance(self, FixedStage):
-            self.debug(f'desired position: {pos_pixels}')
-            self.debug(f'Stage reference position: {self.stage.reference_position()}')
+            self.info(f'desired position: {pos_pixels}')
+            self.info(f'Stage reference position: {self.stage.reference_position()}')
             pos_micron = self.pixels_to_um(pos_pixels - self.stage.reference_position()) # position vector (um) in manipulator unit system
-            self.debug(f'Position in um: {pos_micron}')
+            self.info(f'Position in um: {pos_micron}')
             self.absolute_move(pos_micron)
             self.wait_until_still()
             return
         else:
-            self.debug(f'desired position: {pos_pixels}')
-            self.debug(f'Stage reference position (used for pipette calibration): {self.stage.reference_position()}')
+            self.info(f'desired position: {pos_pixels}')
+            self.info(f'Stage reference position (used for pipette calibration): {self.stage.reference_position()}')
             pos_micron = self.pixels_to_um(pos_pixels - self.stage.reference_position())
-            self.debug(f'Position in um: {pos_micron}')
+            self.info(f'Position in um: {pos_micron}')
             self.absolute_move(pos_micron)
             self.wait_until_still()
             return
@@ -340,6 +340,13 @@ class CalibratedUnit(ManipulatorUnit):
         """
         Moves the pipette so that its detected position in the camera image is centered.
         """
+        self.direct_pipette()
+
+    def direct_pipette(self, desired_px=None):
+        """
+        Moves the pipette so that its detected position matches the requested image coordinates.
+        If no coordinates are provided, the pipette is centered in the camera view.
+        """
         self.abort_if_requested()
         # (1) Retrieve an image from the raw frame queue.
         _, _, _, img = self.camera.raw_frame_queue[0]
@@ -356,10 +363,21 @@ class CalibratedUnit(ManipulatorUnit):
         if detected_px.size == 2:
             detected_px = np.append(detected_px, 0)
         # self.debug("DEBUG: Detected pipette position (pixels):", detected_px)
-        
-        # (3) Define the desired pipette position as the center of the image.
-        # For planar calibration, we set the z-coordinate to 0.
-        desired_px = np.array([w / 2.0, h / 2.0, 0])
+
+        # (3) Define the desired pipette position.
+        if desired_px is None:
+            # Default to the image center when no target coordinates are supplied.
+            desired_px = np.array([w / 2.0, h / 2.0, 0])
+        else:
+            self.unit.set_max_speed(500)
+            desired_px = np.array(desired_px)
+            if desired_px.size == 2:
+                desired_px = np.append(desired_px, 0)
+            elif desired_px.size > 3:
+                desired_px = desired_px[:3]
+            # For planar calibration, we set missing z entries to 0.
+            if desired_px.size < 3:
+                desired_px = np.pad(desired_px, (0, 3 - desired_px.size), constant_values=0)
         # self.debug("DEBUG: Desired pipette position (image center):", desired_px)
         
         # (4) Compute the pixel error (desired minus detected).

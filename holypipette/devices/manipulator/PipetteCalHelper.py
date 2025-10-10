@@ -103,7 +103,7 @@ class PipetteCalHelper():
             encoder_x = encoder_pos[0]
             encoder_y = encoder_pos[1]
             self.cal_points.append((image_x, image_y, encoder_x, encoder_y))
-            self.camera.show_point(pos_pix)
+            self.camera.show_circle(pos_pix)
             print("Recorded calibration point:", self.cal_points[-1])
         else:
             print("No pipette detected in current frame.")

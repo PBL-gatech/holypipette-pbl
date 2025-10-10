@@ -111,7 +111,7 @@ class BaseSegmentor(ABC):
         ax.imshow(mask_image)
 
     @staticmethod
-    def show_points(coords, labels, ax, marker_size=375):
+    def show_circles(coords, labels, ax, marker_size=375):
         pos_points = coords[labels == 1]
         neg_points = coords[labels == 0]
         ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size,
@@ -137,7 +137,7 @@ class BaseSegmentor(ABC):
                 plt.figure(figsize=(10, 10))
                 plt.imshow(self.image)
                 self.show_mask(mask, plt.gca(), borders=borders)
-                self.show_points(input_point, input_label, plt.gca())
+                self.show_circles(input_point, input_label, plt.gca())
                 plt.title(f"Mask {i + 1}, Score: {score:.3f}", fontsize=18)
                 plt.axis('off')
                 plt.show()
@@ -413,7 +413,7 @@ class CellSegmentor3(BaseSegmentor):
         ax.imshow(mask_image)
 
     @staticmethod
-    def show_points(coords, labels, ax, marker_size=375):
+    def show_circles(coords, labels, ax, marker_size=375):
         pos_points = coords[labels == 1]
         neg_points = coords[labels == 0]
         ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
@@ -435,7 +435,7 @@ class CellSegmentor3(BaseSegmentor):
             plt.figure(figsize=(10, 10))
             plt.imshow((self.image * np.array([0.229,0.224,0.225]) + np.array([0.485,0.456,0.406])).clip(0,1))
             self.show_mask(masks, plt.gca(), borders=borders)
-            self.show_points(input_point, input_label, plt.gca())
+            self.show_circles(input_point, input_label, plt.gca())
             plt.title(f"Mask, Score: {score:.3f}", fontsize=18)
             plt.axis('off')
             plt.show()

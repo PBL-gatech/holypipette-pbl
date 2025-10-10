@@ -388,7 +388,9 @@ if __name__ == "__main__":
     # ] # HEK training data (5/20/2025, 4/10/2025)
 
 
-    rig_recorder_data_folder_set = ["2025_04_07-14_50"] # HEK testing data
+    # rig_recorder_data_folder_set = ["2025_04_07-14_50"] # HEK testing data
+
+    rig_recorder_data_folder_set = ["2025_10_09-22_04"]
 
     output_name = "cv_movement_recording.csv"
     use_detector1 = False
