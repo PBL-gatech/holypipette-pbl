@@ -60,7 +60,7 @@ class AutoPatcher(TaskController):
         self.agenthelper =   AgentHelper()
         self.current_protocol_graph = None
         self.goal_needed = True
-        self.goal_random = True
+        self.goal_random = False
         self.ninput = None
         self.done = False
 
@@ -194,7 +194,7 @@ class AutoPatcher(TaskController):
                 if goal_needed and camera is not None:
                     camera.show_circle(point=goal_display_tuple, color=(255, 255, 255), show_center=False)
 
-                if gerr <= 25:
+                if gerr <= 20:
                     done = True
                     self.success_requested = True
                     self.info("Pipette found")
@@ -304,7 +304,7 @@ class AutoPatcher(TaskController):
             if goal_needed and camera is not None:
                 camera.show_circle(point=goal_display_tuple, color=(255, 255, 255), show_center=False)
 
-            if gerr <= 25:
+            if gerr <= 20:
                 done = True
 
             if done:
@@ -1355,7 +1355,7 @@ class AutoPatcher(TaskController):
         """ collects all inputs required for the models"""
 
 
-        _, _, _, img = self.calibrated_stage.camera.raw_frame_queue[0]
+        _, _, _, img = self.calibrated_stage.camera._last_frame_queue[0]
         
         cvpi = self.calibrated_unit.pipetteCalHelper.pipetteDetector.detect_pipette(img)
         self.info(f"detected pipette position: {cvpi}")

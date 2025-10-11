@@ -104,6 +104,7 @@ class DemoPlayer(QWidget):
         self.current_frame = 0
         demo_key = self.demo_keys[idx]
         demo_path = f'data/{demo_key}/obs'
+        demo_path_act = f'data/{demo_key}/actions'
         print(f"Loading demo: {demo_key}")  # Debug message
 
         self.actions = np.zeros((0, 6))
@@ -151,17 +152,17 @@ class DemoPlayer(QWidget):
                 print(f"Warning: expected 1D resistance, got {self.resistance.shape}")
                 self.resistance = np.array([])
 
-        self._load_pipette_positions(demo_path)
+        self._load_pipette_positions(demo_path_act)
         self.plot_resistance()
         self.plot_actions()
 
-    def _load_pipette_positions(self, demo_path):
+    def _load_pipette_positions(self, demo_path_act):
         """Load pipette positions for the current demo if available."""
         self.pipette_positions = np.empty((0, 2), dtype=np.float32)
         self._pipette_frame_count = 0
 
         try:
-            dataset = self.hdf5_file[f'{demo_path}/pipette_positions']
+            dataset = self.hdf5_file[f'{demo_path_act}']
         except KeyError:
             return
 
@@ -180,7 +181,7 @@ class DemoPlayer(QWidget):
             return
 
         if data.ndim != 2 or data.shape[1] < 2:
-            print(f"Warning: '{demo_path}/pipette_positions' has shape {data.shape}, expected >= (N, 2)")
+            print(f"Warning: '{demo_path_act}' has shape {data.shape}, expected >= (N, 2)")
             return
 
         positions = np.asarray(data[:, :2], dtype=np.float32)
@@ -427,7 +428,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     # data_path = r"experiments/Datasets/PatcherBot_test_dataset_v0_201/PatcherBot_test_dataset_v0_201_find_pipette.hdf5"
 
-    data_path = r"experiments/Datasets/PatcherBot_dataset_v0_200/PatcherBot_dataset_v0_200_find_pipette.hdf5"
+    data_path = r"experiments/Datasets/PatcherBot_test_dataset_v0_420/PatcherBot_test_dataset_v0_420_find_pipette.hdf5"
 
     viewer = DemoPlayer(data_path)
     viewer.show()

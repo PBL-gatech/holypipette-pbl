@@ -1,15 +1,15 @@
-"""DatasetBuilder2
+"""SimpleDatasetBuilder
 ====================
 
 How to use
 ----------
-1.  Import :class:`DatasetBuilder2` (and optionally :class:`DatasetBuilderSettings`)
-    from ``experiments.DatasetBuilder2``.
+1.  Import :class:`SimpleDatasetBuilder` (and optionally :class:`DatasetBuilderSettings`)
+    from ``experiments.SimpleDatasetBuilder``.
 2.  Instantiate a settings object or pass keyword arguments mirroring the
     original ``DatasetBuilder`` signature.  Only the parameters you wish to
     change need to be supplied; everything else falls back to the same
     defaults as ``DatasetBuilder``.
-3.  Create ``DatasetBuilder2`` with the settings and call :meth:`add_demo` for
+3.  Create ``SimpleDatasetBuilder`` with the settings and call :meth:`add_demo` for
     each rig-recorder folder.  All downstream helper methods retain their
     names and behaviour, so existing scripts can swap the import with minimal
     edits.
@@ -19,11 +19,10 @@ Example
 
 .. code-block:: python
 
-    from experiments.DatasetBuilder2 import DatasetBuilder2
+    from experiments.SimpleDatasetBuilder import SimpleDatasetBuilder
 
-    builder = DatasetBuilder2(
+    builder = SimpleDatasetBuilder(
         dataset_name="HEK_inference_set5.hdf5",
-        calfile=r"C:\\path\\to\\average_calibration_full.pickle",
         val_ratio=0.0,
         load_next_obs=True,
     )
@@ -150,17 +149,10 @@ class ActionSelector:
 @dataclass(slots=True)
 class DatasetBuilderSettings:
     dataset_name: str
-    calfile: Optional[str] = None
     val_ratio: float = 1 / 6 # fraction of demos to reserve for validation
     omit_stage_movement: bool = True # set to true to only record demos when stage is stationary
     random_seed: int = 0
-    rotate_valid: bool = False # set to true to augment validation set with rotations
-    stage_y_axis_flip: bool = False # set to true if the stage Y axis is inverted
-    pipette_rotation_deg: float = -60.75 # angle to rotate pipette coordinates into stage frame
-    transform_pipette_positions: bool = False # set to true to align pipette coordinates with the stage frame
     load_next_obs: bool = True # set to true for goal conditioning
-    frequency_mod: int = 1 # downsample data by this factor (minimum 1)
-    displacement: float = -1 # minimum stage/pipette displacement in microns or pixels
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
     pipette_final_pos_color_dot: bool = True # set to true if want to add a red dot to image at final pipette position (for pipette finder only)
@@ -175,10 +167,7 @@ class DatasetBuilderSettings:
     )
 
     # Legacy toggles preserved for parity with DatasetBuilder
-    calibrate: bool = False # set to true to apply calibration transform
-    zero_values: bool = False # set to true to zero out starting positions
     center_crop: bool = False # set to true to center crop images around pipette
-    rotate: bool = False # set to true to augment training set with rotations
     inaction: int = 1 # maximum number of consecutive zero-action steps to keep
 
 
@@ -282,170 +271,6 @@ def _ensure_dataset_stub(dataset_name: str, create_file: bool = False) -> Tuple[
             group.attrs["num_demos"] = 0
 
     return dataset_dir, dataset_path
-
-
-class CalibrationMixin:
-    """Retains the calibration-related API, mirroring DatasetBuilder."""
-
-    calfile: Optional[str]
-    calibrate: bool
-
-    def load_calfile(
-        self,
-    ) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]:
-        """Load and cache calibration transforms for stage and pipette."""
-
-        if not getattr(self, "calibrate", False) or not self.calfile:
-            return None, None
-
-        cache = getattr(self, "_calibration_cache", None)
-        if cache is not None:
-            return cache
-
-        path = Path(self.calfile)
-        if not path.exists():
-            self._emit_calibration_warning(f"no calibration matrix found in {path}!")
-            self._calibration_cache = (None, None)
-            return self._calibration_cache
-
-        payload: Optional[Dict[str, Any]] = None
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                payload = json.load(fh)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            try:
-                import pickle  # type: ignore
-
-                with open(path, "rb") as fh:
-                    payload = pickle.load(fh)
-            except Exception as exc:  # pragma: no cover - defensive guard
-                self._emit_calibration_warning(
-                    f"failed to load calibration file {path}: {exc}"
-                )
-                self._calibration_cache = (None, None)
-                return self._calibration_cache
-
-        if not isinstance(payload, dict):
-            self._emit_calibration_warning(
-                f"unexpected calibration payload in {path}; expected a mapping."
-            )
-            self._calibration_cache = (None, None)
-            return self._calibration_cache
-
-        stage_cal = self._parse_calibration_entry(payload.get("stage"))
-        pip_cal = self._parse_calibration_entry(payload.get("manip"))
-
-        if stage_cal is None and pip_cal is None:
-            self._emit_calibration_warning(
-                f"calibration file {path} did not contain stage/manip entries."
-            )
-
-        self._calibration_cache = (stage_cal, pip_cal)
-        return self._calibration_cache
-
-    def _emit_calibration_warning(self, message: str) -> None:
-        """Print a calibration warning once per builder instance."""
-
-        if not getattr(self, "_calibration_warning_emitted", False):
-            print(message)
-            print("passing uncalibrated inputs...")
-            self._calibration_warning_emitted = True
-
-    def _parse_calibration_entry(
-        self, entry: Optional[Dict[str, Any]]
-    ) -> Optional[Dict[str, np.ndarray]]:
-        """Convert a calibration dictionary into numeric matrices."""
-
-        if not entry:
-            return None
-
-        matrix_raw = entry.get("M")
-        if matrix_raw is None:
-            return None
-
-        matrix = np.asarray(matrix_raw, dtype=np.float64)
-        if matrix.ndim != 2:
-            return None
-
-        offset_raw = entry.get("r0")
-        if offset_raw is None:
-            offset = np.zeros(matrix.shape[0], dtype=np.float64)
-        else:
-            offset = np.asarray(offset_raw, dtype=np.float64)
-
-        if matrix.shape[1] == matrix.shape[0] + 1:
-            translation = matrix[:, -1]
-            matrix = matrix[:, :-1]
-            if translation.shape[0] == offset.shape[0]:
-                offset = offset + translation
-            else:
-                offset = translation
-
-        if offset.shape[0] != matrix.shape[0]:
-            aligned = np.zeros(matrix.shape[0], dtype=np.float64)
-            upto = min(offset.shape[0], matrix.shape[0])
-            if upto:
-                aligned[:upto] = offset[:upto]
-            offset = aligned
-
-        return {"matrix": matrix, "offset": offset}
-
-    def apply_transform(
-        self,
-        stage_positions: np.ndarray,
-        pipette_positions: np.ndarray,
-        transforms: Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]],
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Convert stage/pipette coordinates into calibrated pixel space."""
-
-        stage_pixels = np.asarray(stage_positions, dtype=np.float64).copy()
-        pipette_pixels = np.asarray(pipette_positions, dtype=np.float64).copy()
-
-        stage_cal, pip_cal = transforms
-
-        if stage_cal is not None:
-            matrix = stage_cal["matrix"]
-            offset = stage_cal["offset"]
-            cols = matrix.shape[1]
-            source = np.asarray(stage_positions[:, :cols], dtype=np.float64)
-            transformed = source @ matrix.T + offset
-            stage_pixels[:, :matrix.shape[0]] = transformed
-
-        if pip_cal is not None:
-            matrix = pip_cal["matrix"]
-            offset = pip_cal["offset"]
-            cols = matrix.shape[1]
-            source = np.asarray(pipette_positions[:, :cols], dtype=np.float64)
-            transformed = source @ matrix.T + offset
-            pipette_pixels[:, :matrix.shape[0]] = transformed
-
-        return stage_pixels, pipette_pixels
-
-    def pixel_coordinate_transform(
-        self,
-        stage_positions: np.ndarray,
-        pipette_positions: np.ndarray,
-        *,
-        pipette_in_stage_frame: bool = False,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Convert stage/pipette coordinates into calibrated pixel space.
-
-        When ``pipette_in_stage_frame`` is ``True`` the pipette coordinates are
-        assumed to already live in the stage frame (e.g. after
-        ``_transform_pipette_positions``) so the stage calibration, when
-        available, is reused for the pipette as well.
-        """
-
-        stage_cal, pip_cal = self.load_calfile()
-        if stage_cal is None and pip_cal is None:
-            return stage_positions, pipette_positions
-
-        if pipette_in_stage_frame:
-            pip_transform = stage_cal
-        else:
-            pip_transform = pip_cal
-
-        return self.apply_transform(stage_positions, pipette_positions, (stage_cal, pip_transform))
 
 class RandomFilterMixin:
     """Albumentations augmentation wrapper kept functionally identical."""
@@ -567,8 +392,8 @@ class RandomFilterMixin:
         return Image.fromarray(np_img)
 
 
-class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
-    """Reorganised DatasetBuilder with identical public surface area."""
+class SimpleDatasetBuilder(RandomFilterMixin):
+    """DatasetBuilder2 variant with calibration and motion transforms removed."""
 
     def __init__(self, **kwargs):
         """Initialise the builder with keyword arguments from DatasetBuilder.
@@ -585,24 +410,14 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         super().__init__(settings)
 
         self.dataset_name = settings.dataset_name
-        self.calfile = settings.calfile
-        self.calibrate = settings.calibrate
-        self.zero_values = settings.zero_values
         self.center_crop = settings.center_crop
         self.image_resize = settings.image_resize
         self.pipette_final_pos_color_dot = settings.pipette_final_pos_color_dot
-        self.rotate = settings.rotate
-        self.rotate_valid = settings.rotate_valid
         self.inaction = settings.inaction
         self.val_ratio = settings.val_ratio
         self.omit_stage_movement = settings.omit_stage_movement
         self.rng = np.random.default_rng(settings.random_seed)
-        self.stage_y_axis_flip = settings.stage_y_axis_flip
-        self.pipette_rotation_deg = settings.pipette_rotation_deg
-        self.transform_pipette_positions = settings.transform_pipette_positions
         self.load_next_obs = settings.load_next_obs
-        self.frequency_mod = int(max(1, settings.frequency_mod))
-        self.displacement = float(abs(settings.displacement))
         self.observation_selector = settings.observation_selector
         self.action_selector = settings.action_selector
         self._synchronize_selectors()
@@ -610,7 +425,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self._last_action_stage_cols: int = 0
         self._last_stage_motion_detected: bool = False
         self._camera_frame_shape_cache: Dict[str, Tuple[int, int]] = {}
-        self._using_cv_movement_file = True
+        self._using_cv_movement_file = False
+        self._last_pipette_scale: Tuple[float, float] = (1.0, 1.0)
 
         self.dataset_dir, self.dataset_path = _ensure_dataset_stub(settings.dataset_name, create_file=False)
         self._base_dataset_name = self.dataset_name
@@ -719,85 +535,6 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             self._active_state_context = original_context
 
     # ------------------------------------------------------------------
-    def _transform_pipette_positions(
-        self, stage_positions: np.ndarray, pipette_positions: np.ndarray
-    ) -> np.ndarray:
-        """Express pipette coordinates in the stage frame.
-
-        Parameters
-        ----------
-        stage_positions:
-            Array of stage XYZ coordinates for each timestep.
-        pipette_positions:
-            Array of manipulator XYZ coordinates for each timestep.
-
-        Returns
-        -------
-        np.ndarray
-            Pipette coordinates translated into the stage frame while keeping
-            the Z axis untouched.
-        """
-        stage_adj = stage_positions.copy()
-        if self.stage_y_axis_flip and stage_adj.shape[1] >= 2:
-            stage_adj[:, 1] = -stage_adj[:, 1]
-
-        pip_rot = self._rotate_positions(
-            np.asarray(pipette_positions, dtype=np.float64), self.pipette_rotation_deg
-        )
-
-        if pip_rot.shape[1] >= 2 and stage_adj.shape[1] >= 2:
-            pip_rot[:, :2] += stage_adj[:, :2]
-        else:
-            pip_rot += stage_adj
-
-        return pip_rot
-
-
-
-    # --- rotation helpers -------------------------------------------------
-    @staticmethod
-    def _rotate_positions(positions: np.ndarray, angle_degrees: float) -> np.ndarray:
-        """Rotate XY coordinates by ``angle_degrees`` while keeping Z intact."""
-        rad = np.deg2rad(angle_degrees)
-        cos_val, sin_val = np.cos(rad), np.sin(rad)
-        rotated = positions.copy()
-        rotated[:, 0] = cos_val * positions[:, 0] - sin_val * positions[:, 1]
-        rotated[:, 1] = sin_val * positions[:, 0] + cos_val * positions[:, 1]
-        return rotated
-
-    def _rotate_actions(self, actions: np.ndarray, angle_degrees: float) -> np.ndarray:
-        """Rotate stage and pipette XY velocity components by ``angle_degrees``."""
-        rad = np.deg2rad(angle_degrees)
-        cos_val, sin_val = np.cos(rad), np.sin(rad)
-        actions_rot = actions.copy()
-        labels = getattr(self, "_last_action_labels", [])
-
-        def _rotate_pair(idx_x: int, idx_y: int) -> None:
-            x_vals = actions[:, idx_x]
-            y_vals = actions[:, idx_y]
-            actions_rot[:, idx_x] = cos_val * x_vals - sin_val * y_vals
-            actions_rot[:, idx_y] = sin_val * x_vals + cos_val * y_vals
-
-        try:
-            stage_x_idx = labels.index("stage_x")
-            stage_y_idx = labels.index("stage_y")
-        except ValueError:
-            stage_x_idx = stage_y_idx = None
-
-        if stage_x_idx is not None and stage_y_idx is not None:
-            _rotate_pair(stage_x_idx, stage_y_idx)
-
-        if self.transform_pipette_positions:
-            try:
-                pip_x_idx = labels.index("pipette_x")
-                pip_y_idx = labels.index("pipette_y")
-            except ValueError:
-                pip_x_idx = pip_y_idx = None
-
-            if pip_x_idx is not None and pip_y_idx is not None:
-                _rotate_pair(pip_x_idx, pip_y_idx)
-        return actions_rot
-
     # --- filtering --------------------------------------------------------
     def filter_inactive_actions(self, actions: np.ndarray, *arrays: np.ndarray) -> tuple:
         """Drop contiguous segments where all action components remain zero."""
@@ -812,110 +549,12 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         keep = np.ones_like(inactive, dtype=bool)
         for s, e in zip(starts, ends):
             if e - s >= self.inaction:
-                start = max(s, 1)
+                start = max(s, 1)  # always keep the very first sample
                 if start < e:
                     keep[start:e] = False
 
         filtered = (actions[keep],) + tuple(arr[keep] for arr in arrays)
         return filtered
-
-    def _decimate_by_step(self, *arrays: Optional[np.ndarray], keep_last: bool = True):
-        """Downsample arrays and return the shared index used for decimation."""
-        step = self.frequency_mod
-        if step <= 1:
-            return arrays, None
-
-        ref = next((a for a in arrays if a is not None), None)
-        if ref is None:
-            return arrays, None
-        N = len(ref)
-        if N == 0:
-            return arrays, None
-
-        idx = np.arange(0, N, step, dtype=np.int64)
-        if keep_last:
-            if idx.size == 0:
-                idx = np.array([N - 1], dtype=np.int64)
-            elif idx[-1] != N - 1:
-                idx = np.concatenate([idx, np.array([N - 1], dtype=np.int64)])
-
-        out = []
-        for a in arrays:
-            out.append(None if a is None else a[idx])
-        return tuple(out), idx
-
-    def _aggregate_actions_over_windows(
-        self, actions: np.ndarray, idx: Optional[np.ndarray], mode: str = "sum"
-    ) -> np.ndarray:
-        """Aggregate action vectors between successive decimated indices."""
-        if idx is None or len(idx) == 0:
-            return actions
-
-        if mode == "last":
-            return actions[idx]
-        if mode != "sum":
-            raise ValueError("mode must be 'sum' or 'last'.")
-
-        N = len(actions)
-        ends = np.concatenate([idx[1:] - 1, np.array([N - 1], dtype=idx.dtype)])
-        out = np.zeros((len(idx), actions.shape[1]), dtype=actions.dtype)
-        for k, (a, b) in enumerate(zip(idx, ends)):
-            out[k] = actions[a : b + 1].sum(axis=0)
-        return out
-
-
-    def _select_displacement_indices(
-        self,
-        stage_positions: np.ndarray,
-        pipette_positions: np.ndarray,
-        displacement: float,
-    ) -> Optional[np.ndarray]:
-        """Return indices ensuring each retained step exceeds the displacement threshold."""
-        if displacement <= 0 or stage_positions.shape[0] <= 1:
-            return None
-
-        keep: List[int] = [0]
-        last_stage = stage_positions[0].astype(np.float64, copy=True)
-        last_pipette = pipette_positions[0].astype(np.float64, copy=True)
-
-        for idx in range(1, stage_positions.shape[0]):
-            stage_delta = stage_positions[idx] - last_stage
-            pipette_delta = pipette_positions[idx] - last_pipette
-            if (
-                np.linalg.norm(stage_delta) >= displacement
-                or np.linalg.norm(pipette_delta) >= displacement
-            ):
-                keep.append(idx)
-                last_stage = stage_positions[idx].astype(np.float64, copy=True)
-                last_pipette = pipette_positions[idx].astype(np.float64, copy=True)
-
-        final_idx = stage_positions.shape[0] - 1
-        if keep[-1] != final_idx:
-            keep.append(final_idx)
-
-        if len(keep) == stage_positions.shape[0]:
-            return None
-
-        return np.array(keep, dtype=np.int64)
-
-    def _apply_displacement_filter(
-        self,
-        attempt_graph_values: np.ndarray,
-        attempt_movement_values: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Downsample attempt arrays according to the minimum displacement rule."""
-        displacement = abs(getattr(self, "displacement", 0.0))
-        if displacement <= 0 or attempt_movement_values.shape[0] <= 1:
-            return attempt_graph_values, attempt_movement_values
-
-        stage_positions = attempt_movement_values[:, 1:4].astype(np.float64, copy=False)
-        pipette_positions = attempt_movement_values[:, 4:].astype(np.float64, copy=False)
-
-        indices = self._select_displacement_indices(stage_positions, pipette_positions, displacement)
-        if indices is None:
-            return attempt_graph_values, attempt_movement_values
-
-        return attempt_graph_values[indices], attempt_movement_values[indices]
 
     # --- CSV conversion utilities ----------------------------------------
     def convert_graph_recording_csv_to_new_format(self, demo_file_path: str) -> None:
@@ -1199,11 +838,8 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return attempt_graph_values[:, 1].astype(np.float64)
 
     def get_attempt_resistance_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Return resistance values (optionally zero-offset)."""
-        resistance_values = attempt_graph_values[:, 2].astype(np.float64)
-        if self.zero_values:
-            resistance_values[:] -= resistance_values[0]
-        return resistance_values
+        """Return resistance values for the current attempt."""
+        return attempt_graph_values[:, 2].astype(np.float64)
 
     def get_attempt_current_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
         """Parse JSON-encoded current waveform samples for the attempt."""
@@ -1214,18 +850,12 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return _parse_waveform_column(attempt_graph_values[:, 4])
 
     def get_attempt_stage_positions(self, attempt_movement_values: np.ndarray) -> np.ndarray:
-        """Return stage XYZ positions (optionally zero-offset)."""
-        stage_positions = attempt_movement_values[:, 1:4].astype(np.float64)
-        if self.zero_values:
-            stage_positions -= stage_positions[0]
-        return stage_positions
+        """Return stage XYZ positions."""
+        return attempt_movement_values[:, 1:4].astype(np.float64)
 
     def get_attempt_pipette_positions(self, attempt_movement_values: np.ndarray) -> np.ndarray:
-        """Return pipette XYZ positions (optionally zero-offset)."""
-        pipette_positions = attempt_movement_values[:, 4:].astype(np.float64)
-        if self.zero_values:
-            pipette_positions -= pipette_positions[0]
-        return pipette_positions
+        """Return pipette XYZ positions."""
+        return attempt_movement_values[:, 4:].astype(np.float64)
 
     # --- Camera helpers --------------------------------------------------
     @staticmethod
@@ -1419,29 +1049,28 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             voltage_values = None
 
         stage_positions_full = self.get_attempt_stage_positions(attempt_movement_values)
-        pipette_positions_full = self.get_attempt_pipette_positions(attempt_movement_values)
+        pipette_positions_full = self.get_attempt_pipette_positions(attempt_movement_values).astype(np.float64, copy=True)
 
-        pipette_stage_aligned = False
-        if self.transform_pipette_positions:
-            pipette_positions_full = self._transform_pipette_positions(
-                stage_positions_full, pipette_positions_full
-            )
-            pipette_stage_aligned = True
-
-        stage_positions_full, pipette_positions_full = self.pixel_coordinate_transform(
-            stage_positions_full,
-            pipette_positions_full,
-            pipette_in_stage_frame=pipette_stage_aligned,
-        )
+        scale_x = 1.0
+        scale_y = 1.0
 
         if self._using_cv_movement_file:
             frame_shape = self._get_camera_frame_shape(rig_recorder_data_folder)
             if frame_shape is not None:
-                pipette_positions_full = self._apply_camera_crop_and_resize(pipette_positions_full, frame_shape)
+                width, height = frame_shape
+                crop_w = width // 2 if self.center_crop else width
+                crop_h = height // 2 if self.center_crop else height
+                if crop_w > 0 and crop_h > 0:
+                    offset_x = (width - crop_w) // 2 if self.center_crop else 0
+                    offset_y = (height - crop_h) // 2 if self.center_crop else 0
+                    scale_x = self.image_resize / crop_w
+                    scale_y = self.image_resize / crop_h
+                    if pipette_positions_full.shape[1] >= 1:
+                        pipette_positions_full[:, 0] = (pipette_positions_full[:, 0] - offset_x) * scale_x
+                    if pipette_positions_full.shape[1] >= 2:
+                        pipette_positions_full[:, 1] = (pipette_positions_full[:, 1] - offset_y) * scale_y
 
-        if rotation_angle is not None:
-            stage_positions_full = self._rotate_positions(stage_positions_full, rotation_angle)
-            pipette_positions_full = self._rotate_positions(pipette_positions_full, rotation_angle)
+        self._last_pipette_scale = (scale_x, scale_y)
 
         stage_positions: Optional[np.ndarray]
         if selector.include_stage:
@@ -1466,8 +1095,15 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         camera_required = include_camera and selector.include_camera
         camera_frames: Optional[np.ndarray] = None
         if camera_required:
+            if self.pipette_final_pos_color_dot and pipette_positions_full.shape[1] >= 2:
+                pipette_dot = (int(pipette_positions_full[-1][0]), int(pipette_positions_full[-1][1]))
+            else:
+                pipette_dot = None
             camera_frames = self.get_attempt_camera_frames(
-                rig_recorder_data_folder, attempt_graph_values, rotation_angle=rotation_angle, pipette_final_pos=(int(pipette_positions_full[-1][0]), int(pipette_positions_full[-1][1]))
+                rig_recorder_data_folder,
+                attempt_graph_values,
+                rotation_angle=rotation_angle,
+                pipette_final_pos=pipette_dot,
             )
             if camera_frames is None:
                 return None
@@ -1559,31 +1195,20 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
 
-        stage_delta = np.vstack([
-            np.zeros((1, stage_positions.shape[1]), dtype=np.float64),
-            np.diff(stage_positions, axis=0),
-        ])
-        pip_raw_delta = np.vstack(
-            [
-                np.zeros((1, pipette_positions.shape[1]), dtype=np.float64),
-                np.diff(pipette_positions, axis=0),
-            ]
+        stage_delta = np.vstack(
+            [np.zeros((1, stage_positions.shape[1]), dtype=np.float64), np.diff(stage_positions, axis=0)]
+        )
+        pip_delta = np.vstack(
+            [np.zeros((1, pipette_positions.shape[1]), dtype=np.float64), np.diff(pipette_positions, axis=0)]
         )
 
-        if self.stage_y_axis_flip and stage_delta.shape[1] >= 2:
-            stage_delta[:, 1] = -stage_delta[:, 1]
+        scale_x, scale_y = getattr(self, "_last_pipette_scale", (1.0, 1.0))
+        if pip_delta.shape[1] >= 1:
+            pip_delta[:, 0] *= scale_x
+        if pip_delta.shape[1] >= 2:
+            pip_delta[:, 1] *= scale_y
 
-        pip_actions: np.ndarray
-        if pip_raw_delta.size == 0:
-            pip_actions = pip_raw_delta
-        elif self.transform_pipette_positions:
-            pip_actions = self._rotate_positions(pip_raw_delta, self.pipette_rotation_deg)
-            if pip_actions.shape[1] >= 2 and stage_delta.shape[1] >= 2:
-                pip_actions[:, :2] += stage_delta[:, :2]
-        else:
-            pip_actions = pip_raw_delta
-
-        movement_actions = np.hstack([stage_delta, pip_actions])
+        movement_actions = np.hstack([stage_delta, pip_delta])
         stage_dim = stage_delta.shape[1]
 
         selector = self.action_selector
@@ -1593,7 +1218,7 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         self._last_stage_motion_detected = bool(np.any(stage_delta != 0.0))
 
         stage_indices = selector.stage_indices(stage_dim)
-        pip_indices = selector.pipette_indices(pip_raw_delta.shape[1])
+        pip_indices = selector.pipette_indices(pip_delta.shape[1])
 
         selected_components: List[np.ndarray] = []
         action_labels: List[str] = []
@@ -1749,68 +1374,6 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
             "pipette_positions": pipette_positions,
         }
 
-        if self.frequency_mod > 1 and num_samples > 0:
-            decimation_entries: List[Tuple[str, np.ndarray]] = [("dones", dones)]
-            for key in ("pressure", "resistance", "current", "voltage", "stage_positions", "pipette_positions"):
-                value = obs_dict.get(key)
-                if value is not None:
-                    decimation_entries.append((key, value))
-            if effective_include_camera and camera_frames is not None:
-                decimation_entries.append(("camera_image", camera_frames))
-
-            arrays_to_decimate = [None] + [arr for _, arr in decimation_entries]
-            decimated, idx = self._decimate_by_step(*arrays_to_decimate)
-            dec_map = {
-                name: value
-                for (name, _), value in zip(decimation_entries, decimated[1:])
-            }
-
-            dones = dec_map.get("dones", dones)
-            for key in ("pressure", "resistance", "current", "voltage", "stage_positions", "pipette_positions"):
-                if key in dec_map:
-                    obs_dict[key] = dec_map[key]
-            if "camera_image" in dec_map:
-                camera_frames = dec_map["camera_image"]
-
-            actions = self._aggregate_actions_over_windows(actions, idx, mode="sum")
-            num_samples = actions.shape[0]
-
-            if include_next_obs:
-                next_pressure_values = (
-                    _shift_forward(obs_dict["pressure"])
-                    if obs_dict["pressure"] is not None
-                    else None
-                )
-                next_resistance_values = (
-                    _shift_forward(obs_dict["resistance"])
-                    if obs_dict["resistance"] is not None
-                    else None
-                )
-                next_current_values = (
-                    _shift_forward(obs_dict["current"])
-                    if obs_dict["current"] is not None
-                    else None
-                )
-                next_voltage_values = (
-                    _shift_forward(obs_dict["voltage"])
-                    if obs_dict["voltage"] is not None
-                    else None
-                )
-                next_stage_positions = (
-                    _shift_forward(obs_dict["stage_positions"])
-                    if obs_dict["stage_positions"] is not None
-                    else None
-                )
-                next_pipette_positions = (
-                    _shift_forward(obs_dict["pipette_positions"])
-                    if obs_dict["pipette_positions"] is not None
-                    else None
-                )
-                if effective_include_camera and camera_frames is not None:
-                    next_camera_frames = _shift_forward(camera_frames)
-                else:
-                    next_camera_frames = None
-
         pressure_values = obs_dict["pressure"]
         resistance_values = obs_dict["resistance"]
         current_values = obs_dict["current"]
@@ -1948,11 +1511,9 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
 
         settings_dict = asdict(self.settings)
         toggles = {
-            "calibrate": self.calibrate,
-            "zero_values": self.zero_values,
             "center_crop": self.center_crop,
             "image_resize": self.image_resize,
-            "rotate": self.rotate,
+            "pipette_final_pos_color_dot": self.pipette_final_pos_color_dot,
             "inaction": self.inaction,
         }
 
@@ -2073,32 +1634,6 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         """Compatibility shim for :meth:`apply_albu_filter_to_pil`."""
         return self.apply_albu_filter_to_pil(pil_image)
 
-    def _pixel_coordinate_transform(
-        self,
-        stage_positions: np.ndarray,
-        pipette_positions: np.ndarray,
-        pipette_in_stage_frame: bool = False,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compatibility shim for :meth:`pixel_coordinate_transform`."""
-        return self.pixel_coordinate_transform(
-            stage_positions,
-            pipette_positions,
-            pipette_in_stage_frame=pipette_in_stage_frame,
-        )
-
-    def _load_calfile(self) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]:
-        """Compatibility shim for :meth:`CalibrationMixin.load_calfile`."""
-        return self.load_calfile()
-
-    def _apply_transform(
-        self,
-        stage_positions: np.ndarray,
-        pipette_positions: np.ndarray,
-        transforms: Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]],
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compatibility shim for :meth:`CalibrationMixin.apply_transform`."""
-        return self.apply_transform(stage_positions, pipette_positions, transforms)
-
     # --- High level orchestration ---------------------------------------
 
     def add_demo(self, rig_recorder_data_folder: str, record_to_file: bool = False) -> None:
@@ -2141,11 +1676,6 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                     attempt_movement_values = self.associate_attempt_movement_and_graph_values(
                         attempt_graph_values, movement_values
                     )
-                    attempt_graph_values, attempt_movement_values = self._apply_displacement_filter(
-                        attempt_graph_values,
-                        attempt_movement_values,
-                    )
-
                     dones = self.get_attempt_dones(attempt_graph_values)
 
                     split_lbl = "valid" if self.rng.random() < self.val_ratio else "train"
@@ -2239,89 +1769,12 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                     else:
                         self.end_filter_context()
 
-                    if self.rotate and record_to_file and (
-                        split_lbl == "train" or (split_lbl == "valid" and self.rotate_valid)
-                    ):
-                        angles = np.linspace(0, 360, num=10, endpoint=False)[1:]
-                        for angle in angles:
-                            aug_demo_seed = _stable_int_seed(
-                                self.dataset_name,
-                                rig_recorder_data_folder,
-                                attempt_first_timestamp,
-                                attempt_last_timestamp,
-                                f"angle={angle}",
-                            )
-                            self.begin_filter_context(split_lbl, aug_demo_seed)
-
-                            aug_observations = self.get_attempt_observations(
-                                attempt_graph_values,
-                                attempt_movement_values,
-                                rig_recorder_data_folder,
-                                include_camera=include_camera,
-                                rotation_angle=angle,
-                            )
-                            if aug_observations is None:
-                                print("    skipped augmented demo - missing camera frames")
-                                self.end_filter_context()
-                                continue
-
-                            (
-                                aug_pressure,
-                                aug_resistance,
-                                aug_current,
-                                aug_voltage,
-                                aug_stage_pos,
-                                aug_pipette_pos,
-                                aug_cam,
-                            ) = aug_observations
-
-                            aug_actions = self._rotate_actions(actions, angle)
-
-                            aug_next_obs = self.get_attempt_next_observations(
-                                attempt_graph_values,
-                                current_values,
-                                voltage_values,
-                                aug_stage_pos,
-                                aug_pipette_pos,
-                                aug_cam,
-                                include_next_obs=include_next_obs,
-                                include_camera=include_camera,
-                            )
-
-                            aug_key = self.add_attempt_demo_to_dataset(
-                                num_samples=attempt_graph_values.shape[0],
-                                actions=aug_actions,
-                                dones=dones,
-                                pressure_values=aug_pressure,
-                                resistance_values=aug_resistance,
-                                current_values=aug_current,
-                                voltage_values=aug_voltage,
-                                stage_positions=aug_stage_pos,
-                                pipette_positions=aug_pipette_pos,
-                                camera_frames=aug_cam,
-                                next_pressure_values=aug_next_obs[0],
-                                next_resistance_values=aug_next_obs[1],
-                                next_current_values=aug_next_obs[2],
-                                next_voltage_values=aug_next_obs[3],
-                                next_stage_positions=aug_next_obs[4],
-                                next_pipette_positions=aug_next_obs[5],
-                                next_camera_frames=aug_next_obs[6],
-                                include_next_obs=include_next_obs,
-                                include_camera=include_camera,
-                                split_label=split_lbl,
-                            )
-                            self._split_keys[split_lbl].append(aug_key)
-                            print(f"    added augmented {split_lbl} demo (angle {angle} deg)")
-
-                            self.end_filter_context()
-                            self._write_metadata_files()
-
         if record_to_file and base_metadata_needs_update:
             self._write_metadata_files()
 
 
 __all__ = [
-    "DatasetBuilder2",
+    "SimpleDatasetBuilder",
     "DatasetBuilderSettings",
     "FilterSettings",
     "ObservationSelector",
@@ -2375,9 +1828,8 @@ if __name__ == "__main__":
 
     # # rig_recorder_data_folder_set =  ["2025_03_11-16_32"] # inference test data (3/11/2025), unseen for HEK training ignore
 
-    builder = DatasetBuilder2(
+    builder = SimpleDatasetBuilder(
         dataset_name=dataset_name,
-        calfile=r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\Calibration_data\2025_09_25-19_18\calibration.pickle",
         val_ratio=0.1,
         omit_stage_movement=True,
         random_seed=0,

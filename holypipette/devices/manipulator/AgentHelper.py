@@ -208,6 +208,16 @@ class AgentTester:
                 return np.array([vec[0], 0.0], dtype=np.float32)
             return np.zeros(2, dtype=np.float32)
 
+        def _canvas_to_rgb(canvas: FigureCanvasAgg) -> np.ndarray:
+            width, height = canvas.get_width_height()
+            try:
+                buffer = canvas.tostring_rgb()
+            except AttributeError:
+                rgba = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+                return rgba.reshape(height, width, 4)[..., :3].copy()
+            array = np.frombuffer(buffer, dtype=np.uint8)
+            return array.reshape(height, width, 3).copy()
+
         frame_height = frames.shape[1]
         frame_width = frames.shape[2] if frames.ndim >= 3 else frames.shape[1]
 
@@ -226,8 +236,6 @@ class AgentTester:
         overlay_frames = []
         for idx in range(num_frames):
             frame_rgb = _ensure_rgb(frames[idx])
-            gt_vec = _vector_xy(ground_truth[idx])
-            pred_vec = _vector_xy(predictions[idx])
             height, width = frame_rgb.shape[:2]
 
             if pipette_positions is not None and pipette_positions.shape[0] > idx:
@@ -242,46 +250,53 @@ class AgentTester:
             trail_radius = max(2.0, circle_radius * 0.7)
             future_steps = max(0, min(5, num_frames - idx - 1))
 
+            def _clamp_point(coords: np.ndarray) -> np.ndarray:
+                point = np.array(coords, dtype=np.float32)
+                point[0] = float(np.clip(point[0], 0.0, max(width - 1.0, 0.0)))
+                point[1] = float(np.clip(point[1], 0.0, max(height - 1.0, 0.0)))
+                return point
+
             fig = Figure(figsize=(width / 100.0, height / 100.0), dpi=100)
             canvas = FigureCanvasAgg(fig)
             ax = fig.add_axes([0.0, 0.0, 1.0, 1.0])
             ax.imshow(frame_rgb)
             ax.axis("off")
 
-            def _future_positions(vecs: np.ndarray) -> List[np.ndarray]:
+            def _future_points_from_deltas(
+                vecs: np.ndarray,
+                *,
+                start_anchor: np.ndarray,
+            ) -> List[np.ndarray]:
                 points: List[np.ndarray] = []
-                for step_idx in range(1, future_steps + 1):
+                base = np.array(start_anchor, dtype=np.float32)
+                for step_idx in range(future_steps):
                     action_idx = idx + step_idx
                     if action_idx >= vecs.shape[0]:
                         break
                     delta = _vector_xy(vecs[action_idx])
                     if np.any(np.isnan(delta)):
                         continue
-                    prev_idx = action_idx - 1
-                    if (
-                        pipette_positions is not None
-                        and prev_idx < pipette_positions.shape[0]
-                    ):
-                        base = np.array(
-                            [
-                                float(np.clip(pipette_positions[prev_idx, 0], 0.0, max(width - 1.0, 0.0))),
-                                float(np.clip(pipette_positions[prev_idx, 1], 0.0, max(height - 1.0, 0.0))),
-                            ],
-                            dtype=np.float32,
-                        )
-                    elif points:
-                        base = points[-1].copy()
-                    else:
-                        base = np.array([current_x, current_y], dtype=np.float32)
-                    offset = np.array(
-                        [float(delta[0]), -float(delta[1])],
-                        dtype=np.float32,
-                    )
-                    point = base + offset
-                    point[0] = float(np.clip(point[0], 0.0, max(width - 1.0, 0.0)))
-                    point[1] = float(np.clip(point[1], 0.0, max(height - 1.0, 0.0)))
-                    points.append(point)
+                    offset = np.array([float(delta[0]), -float(delta[1])], dtype=np.float32)
+                    base = _clamp_point(base + offset)
+                    points.append(base.copy())
                 return points
+
+            def _future_ground_truth_points() -> List[np.ndarray]:
+                points: List[np.ndarray] = []
+                if pipette_positions is not None:
+                    for step_idx in range(future_steps):
+                        future_idx = idx + step_idx + 1
+                        if future_idx >= pipette_positions.shape[0]:
+                            break
+                        points.append(_clamp_point(pipette_positions[future_idx, :2]))
+                    if points:
+                        return points
+                current_point = np.array([current_x, current_y], dtype=np.float32)
+                return _future_points_from_deltas(ground_truth, start_anchor=current_point)
+
+            def _future_prediction_points() -> List[np.ndarray]:
+                current_point = np.array([current_x, current_y], dtype=np.float32)
+                return _future_points_from_deltas(predictions, start_anchor=current_point)
 
             def _draw_trail(points: List[np.ndarray], color: str) -> None:
                 for step_idx, point in enumerate(points):
@@ -297,8 +312,10 @@ class AgentTester:
                     )
 
             if future_steps:
-                _draw_trail(_future_positions(ground_truth), "tab:blue")
-                _draw_trail(_future_positions(predictions), "tab:orange")
+                gt_points = _future_ground_truth_points()
+                pred_points = _future_prediction_points()
+                _draw_trail(gt_points, "tab:blue")
+                _draw_trail(pred_points, "tab:orange")
 
             ax.add_patch(
                 Circle(
@@ -310,10 +327,8 @@ class AgentTester:
                     alpha=0.95,
                 )
             )
-
             canvas.draw()
-            buf = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
-            image = buf.reshape(canvas.get_width_height()[::-1] + (3,))
+            image = _canvas_to_rgb(canvas)
             overlay_frames.append(image)
             plt.close(fig)
 
@@ -343,8 +358,7 @@ class AgentTester:
 
         canvas_plot = FigureCanvasAgg(fig_plot)
         canvas_plot.draw()
-        plot_array = np.frombuffer(canvas_plot.tostring_rgb(), dtype=np.uint8)
-        plot_array = plot_array.reshape(canvas_plot.get_width_height()[::-1] + (3,))
+        plot_array = _canvas_to_rgb(canvas_plot)
 
         if save_plot_path is not None:
             save_plot_path = Path(save_plot_path)
@@ -490,8 +504,8 @@ if __name__ == "__main__":
     agenttester = AgentTester()
 
     model_type = "find_pipette"
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_170\PatcherBot_test_dataset_v0_170_find_pipette.hdf5"
-    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_160\PatcherBot_dataset_v0_160_find_pipette.hdf5"
-    demo_id = "demo_1"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_300\PatcherBot_test_dataset_v0_300_find_pipette.hdf5"
+    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_400\PatcherBot_dataset_v0_400_find_pipette.hdf5"
+    demo_id = "demo_2"
     agenttester.main(model_type=model_type, data_path=data_path, demo_id=demo_id)
 

@@ -14,6 +14,7 @@ class ModelImporter:
                  output_normalization_npz_path: str, model_desc_json_path: str) -> None:
         """Store file system handles for a single exported policy."""
         self.onnx_path = Path(onnx_model_path)
+        print(onnx_model_path)
         self.obs_npz_path = Path(input_normalization_npz_path) if input_normalization_npz_path else None
         self.action_npz_path = Path(output_normalization_npz_path) if output_normalization_npz_path else None
         self.model_json_path = Path(model_desc_json_path) if model_desc_json_path else None
@@ -66,6 +67,7 @@ class ModelImporter:
         resolve = lambda path, ending: self._find_first(path, ending) if path else None
 
         self.onnx_path = self._find_first(self.onnx_path, ".onnx")
+        print(f"ONNX model: {self.onnx_path}")
         self.obs_npz_path = resolve(self.obs_npz_path, ".npz")
         self.action_npz_path = resolve(self.action_npz_path, ".npz")
         self.model_json_path = resolve(self.model_json_path, ".json")
@@ -96,6 +98,8 @@ class ModelInferencer:
         self.internal_states = [0, 0]
         self._last_frame_params: Optional[Dict[str, float]] = None
         self._pipette_action_dim: Optional[int] = None
+        self._debug_run_uid = datetime.now().strftime("%Y_%m_%d-%H_%M")
+
 
         self.importer = model_importer.load()
         self.session = self.importer.session
@@ -298,8 +302,10 @@ class ModelInferencer:
         cvpi, stage, image, resistance = observation
         obs_values: Dict[str, np.ndarray] = {}
 
-        debug_save_dir = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing")
+        # debug_save_dir = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing")
+        debug_save_dir = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\agent_movement_data")
         debug_timestamp: Optional[str] = None
+        run_dir = debug_save_dir / self._debug_run_uid
 
         frame_params: Optional[Dict[str, float]] = None
         prepared_image: Optional[np.ndarray]
@@ -356,7 +362,9 @@ class ModelInferencer:
                     for x, y in overlay_points:
                         bbox = (x - radius, y - radius, x + radius, y + radius)
                         draw.ellipse(bbox, fill=(255, 0, 0), outline=(255, 255, 255))
-                debug_image.save(debug_save_dir / f"camera_image_{debug_timestamp}.png")
+                    if not is_demo:
+                        run_dir.mkdir(parents=True, exist_ok=True)
+                        debug_image.save(run_dir / f"camera_image_{debug_timestamp}.png")
             except Exception:
                 pass
             if self.requires_preprocessing:
@@ -459,6 +467,7 @@ class PipetteFinder(ModelInferencer):
     def __init__(self, model_path: str = r"holypipette\deepLearning\patchModel\Agents\PipetteFinder"):
         """Initialize the pipette finder policy."""
         base = Path(model_path)
+        # print(model_path)
         importer = ModelImporter(base, base, base, base)
         super().__init__(importer)
         self.action_dim = 6
