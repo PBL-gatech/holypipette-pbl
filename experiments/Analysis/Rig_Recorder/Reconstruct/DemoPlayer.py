@@ -547,7 +547,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     # data_path = r"experiments/Datasets/PatcherBot_test_dataset_v0_201/PatcherBot_test_dataset_v0_201_find_pipette.hdf5"
 
-    data_path = r"experiments/Datasets/PatcherBot_test_dataset_v0_420/PatcherBot_test_dataset_v0_420_find_pipette.hdf5"
+    data_path = r"experiments/Datasets/PatcherBot_dataset_v0_420/PatcherBot_dataset_v0_420_find_pipette.hdf5"
 
     viewer = DemoPlayer(data_path)
     viewer.show()

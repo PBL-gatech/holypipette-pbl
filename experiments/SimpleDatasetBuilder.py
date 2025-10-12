@@ -41,22 +41,18 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
-import io
 import os
 import warnings
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 import albumentations as A
 import h5py
 import numpy as np
 import pandas as pd
 from PIL import Image
-
-
-ATL_TO_UTC_TIME_DELTA = 4  # March 9 - Nov 1: 4 hours, otherwise 5 hours
 
 
 # ---------------------------------------------------------------------------
@@ -208,31 +204,6 @@ def _shift_forward(arr: np.ndarray) -> np.ndarray:
     out[:-1] = arr[1:]
     out[-1] = arr[-1]
     return out
-
-def _read_csv_with_fallback(
-    path: Path,
-    *,
-    encodings: Sequence[str] = ("utf-8", "utf-8-sig", "cp1252", "latin-1"),
-    **kwargs,
-) -> pd.DataFrame:
-    """Load a CSV trying multiple encodings before replacing undecodable bytes."""
-
-    last_error: Optional[Exception] = None
-    for encoding in encodings:
-        try:
-            return pd.read_csv(path, encoding=encoding, **kwargs)
-        except (UnicodeDecodeError, LookupError) as exc:
-            last_error = exc
-            continue
-    with path.open("rb") as fh:
-        buffer = fh.read().decode("utf-8", errors="replace")
-    if last_error is not None:
-        warnings.warn(
-            f"Decoding issues detected while reading {path}; characters outside the fallback encoding were replaced.",
-            RuntimeWarning,
-        )
-    return pd.read_csv(io.StringIO(buffer), **kwargs)
-
 
 def _parse_waveform_column(column: Sequence[str]) -> np.ndarray:
     """Parse JSON-encoded voltage/current columns and pad to equal length."""
@@ -610,10 +581,9 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     # --- Experiment loading ----------------------------------------------
     def load_experiment_data(
         self, rig_recorder_data_folder: str
-    ) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
-        """Load graph, movement, and log tables for a given experiment folder."""
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Load graph and movement tables for a given experiment folder."""
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder
-        graph_values = pd.read_csv(base / "graph_recording.csv", delimiter=";").to_numpy()
         movement_path = None
         for name in ("cv_movement_recording.csv", "movement_recording.csv"):
             candidate = base / name
@@ -624,76 +594,35 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             raise FileNotFoundError(f"Missing movement recording for {rig_recorder_data_folder}.")
         self._using_cv_movement_file = movement_path.name.lower().startswith("cv")
         movement_values = pd.read_csv(movement_path, delimiter=";").to_numpy()
-        log_file = Path("experiments/Data/log_data") / f"logs_{rig_recorder_data_folder[:10]}.csv"
-        log_values = _read_csv_with_fallback(log_file, on_bad_lines="skip")
-        return graph_values, movement_values, log_values
-
-    # --- Log parsing -----------------------------------------------------
-    def get_timestamps_for_all_experiment_recordings(
-        self,
-        log_values: pd.DataFrame,
-        experiment_first_timestamp: float,
-        experiment_last_timestamp: float,
-    ) -> List[Tuple[float, float]]:
-        """Return (start, end) timestamps for each recording within a session."""
-        started_mask = log_values["Message"].str.contains(
-            "Recording started", na=False
-        )
-        started_logs = log_values.loc[started_mask].copy()
-        started_logs.loc[:, "Full Time"] = (
-            pd.to_datetime(
-                started_logs["Time(HH:MM:SS)"] + "." + started_logs["Time(ms)"].astype(str),
-                format="%Y-%m-%d %H:%M:%S.%f",
+        graph_file = base / "graph_recording.csv"
+        selector = self.observation_selector
+        graph_required = any(
+            (
+                selector.include_pressure,
+                selector.include_resistance,
+                selector.include_current,
+                selector.include_voltage,
             )
-            + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)
-        ).apply(lambda x: x.timestamp())
-
-        curr_started = started_logs[started_logs["Full Time"] > experiment_first_timestamp]
-        curr_started = curr_started[curr_started["Full Time"] < experiment_last_timestamp]
-        filtered_started = curr_started.drop_duplicates()
-
-        ended_mask = log_values["Message"].str.contains(
-            "Recording stopped", na=False
         )
-        ended_logs = log_values.loc[ended_mask].copy()
-        ended_logs.loc[:, "Full Time"] = (
-            pd.to_datetime(
-                ended_logs["Time(HH:MM:SS)"] + "." + ended_logs["Time(ms)"].astype(str),
-                format="%Y-%m-%d %H:%M:%S.%f",
-            )
-            + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)
-        ).apply(lambda x: x.timestamp())
-
-        curr_ended = ended_logs[ended_logs["Full Time"] > experiment_first_timestamp]
-        curr_ended = curr_ended[curr_ended["Full Time"] < experiment_last_timestamp]
-        filtered_ended = curr_ended.drop_duplicates()
-
-        recording_start_times = list(filtered_started["Full Time"])
-        recording_time_ranges: List[Tuple[float, float]] = []
-        for end_ts in filtered_ended["Full Time"]:
-            for i, start_ts in enumerate(recording_start_times):
-                if i < len(recording_start_times) - 1:
-                    if start_ts < end_ts < recording_start_times[i + 1]:
-                        recording_time_ranges.append((start_ts, end_ts))
-                else:
-                    if start_ts < end_ts < experiment_last_timestamp:
-                        recording_time_ranges.append((start_ts, end_ts))
-        return recording_time_ranges
-
+        if graph_file.exists():
+            graph_values = pd.read_csv(graph_file, delimiter=";").to_numpy()
+        else:
+            if graph_required:
+                raise FileNotFoundError(f"Missing graph recording for {rig_recorder_data_folder}.")
+            timestamps = movement_values[:, 0].astype(np.float64, copy=True)
+            # Fall back to timestamps only when graph-dependent features are disabled.
+            graph_values = timestamps.reshape(-1, 1)
+        return graph_values, movement_values
 
     def get_timestamps_for_all_successful_state_attempts(
         self,
         rig_recorder_data_folder: str,
-        log_values: pd.DataFrame,
-        recording_timestamp_ranges: Iterable[Tuple[float, float]],
+        valid_start: float,
+        valid_end: float,
     ) -> Dict[str, List[Tuple[float, float]]]:
         """Extract successful attempt windows for each state using JSON logs."""
 
         state_attempts: Dict[str, List[Tuple[float, float]]] = {}
-        rec_ranges = list(recording_timestamp_ranges)
-        if not rec_ranges:
-            return state_attempts
-
         state_root = Path("experiments/Data/state_recorder_data")
         day_token = rig_recorder_data_folder.split('-', 1)[0]
         tolerance = 0.5
@@ -702,96 +631,40 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             for day_dir in sorted(state_root.glob(f"{day_token}*")):
                 if not day_dir.is_dir():
                     continue
-                for attempt_dir in sorted(day_dir.glob('attempt_*')):
+                for attempt_dir in sorted(day_dir.glob("attempt_*")):
                     if not attempt_dir.is_dir():
                         continue
-                    for json_path in sorted(attempt_dir.glob('*.json')):
+                    for json_path in sorted(attempt_dir.glob("*.json")):
                         try:
-                            with open(json_path, 'r', encoding='utf-8') as fh:
+                            with open(json_path, "r", encoding="utf-8") as fh:
                                 payload = json.load(fh)
                         except (OSError, json.JSONDecodeError):
                             continue
 
-                        outcome = payload.get('outcome')
-                        started = payload.get('started')
-                        finished = payload.get('finished')
+                        outcome = payload.get("outcome")
+                        started = payload.get("started")
+                        finished = payload.get("finished")
                         if outcome != 0 or started is None or finished is None:
                             continue
                         if finished <= started:
                             continue
+                        if finished < (valid_start - tolerance) or started > (valid_end + tolerance):
+                            continue
 
                         stem = json_path.stem
-                        parts = stem.split('_')
+                        parts = stem.split("_")
                         if len(parts) >= 3:
-                            state_name = '_'.join(parts[1:-1])
+                            state_name = "_".join(parts[1:-1])
                         else:
                             state_name = stem
                         slug = _slugify_state_name(state_name)
 
-                        for rec_start, rec_end in rec_ranges:
-                            if (rec_start - tolerance) <= started and finished <= (rec_end + tolerance):
-                                state_attempts.setdefault(slug, []).append((started, finished))
-                                break
-
-        if 'hunt_cell' not in state_attempts:
-            try:
-                fallback = self.get_timestamps_for_all_successful_hunt_cell_attempts(
-                    log_values, rec_ranges
-                )
-            except (TypeError, pd.errors.InvalidComparison):
-                fallback = []
-            if fallback:
-                state_attempts['hunt_cell'] = fallback
+                        state_attempts.setdefault(slug, []).append((started, finished))
 
         for attempts in state_attempts.values():
             attempts.sort(key=lambda window: window[0])
 
         return state_attempts
-
-    def get_timestamps_for_all_successful_hunt_cell_attempts(
-        self, log_values: pd.DataFrame, recording_timestamp_ranges: Iterable[Tuple[float, float]]
-    ) -> List[Tuple[float, float]]:
-        """Extract attempt windows bracketed by resistance drop and cell events."""
-        successful_ranges: List[Tuple[float, float]] = []
-        for start_timestamp, end_timestamp in recording_timestamp_ranges:
-            ir_mask = log_values["Message"].str.contains(
-                "Initial resistance:", na=False
-            )
-            ir_logs = log_values.loc[ir_mask].copy()
-            ir_logs.loc[:, "Full Time"] = (
-                pd.to_datetime(
-                    ir_logs["Time(HH:MM:SS)"] + "." + ir_logs["Time(ms)"].astype(str),
-                    format="%Y-%m-%d %H:%M:%S.%f",
-                )
-                + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)
-            ).apply(lambda x: x.timestamp())
-            ir_logs = ir_logs[(ir_logs["Full Time"] > start_timestamp) & (ir_logs["Full Time"] < end_timestamp)]
-            filtered_ir_logs = ir_logs.drop_duplicates()
-
-            cell_mask = log_values["Message"].str.contains(
-                "Cell detected: True", na=False
-            )
-            cell_logs = log_values.loc[cell_mask].copy()
-            cell_logs.loc[:, "Full Time"] = (
-                pd.to_datetime(
-                    cell_logs["Time(HH:MM:SS)"] + "." + cell_logs["Time(ms)"].astype(str),
-                    format="%Y-%m-%d %H:%M:%S.%f",
-                )
-                + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)
-            ).apply(lambda x: x.timestamp())
-            cell_logs = cell_logs[(cell_logs["Full Time"] > start_timestamp) & (cell_logs["Full Time"] < end_timestamp)]
-            filtered_cell_logs = cell_logs.drop_duplicates()
-
-            ir_start_times = list(filtered_ir_logs["Full Time"])
-            for cell_ts in filtered_cell_logs["Full Time"]:
-                for i, ir_ts in enumerate(ir_start_times):
-                    if i < len(ir_start_times) - 1:
-                        if ir_ts < cell_ts < ir_start_times[i + 1]:
-                            successful_ranges.append((ir_ts, cell_ts))
-                    else:
-                        if ir_ts < cell_ts < end_timestamp:
-                            successful_ranges.append((ir_ts, cell_ts))
-        return successful_ranges
 
     # --- Graph / movement alignment -------------------------------------
     def truncate_graph_values(
@@ -1184,13 +1057,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         )
 
     # --- Action computation ----------------------------------------------
-    def get_attempt_actions(
-        self,
-        attempt_movement_values: np.ndarray,
-        attempt_graph_values: np.ndarray,
-        log_values: pd.DataFrame,
-        include_high_level_actions: bool = False,
-    ) -> np.ndarray:
+    def get_attempt_actions(self, attempt_movement_values: np.ndarray) -> np.ndarray:
         """Return low-level deltas (and optional command hashes) per timestep."""
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
@@ -1243,31 +1110,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             actions = np.hstack(selected_components)
         else:
             actions = np.zeros((movement_actions.shape[0], 0), dtype=movement_actions.dtype)
-
-        include_high_level = include_high_level_actions and selector.include_high_level
-        if include_high_level:
-            action_logs = log_values[
-                log_values["Message"].str.contains("Executing command", na=False)
-            ].copy()
-            action_logs.loc[:, "Full Time"] = (
-                pd.to_datetime(
-                    action_logs["Time(HH:MM:SS)"] + "." + action_logs["Time(ms)"].astype(str),
-                    format="%Y-%m-%d %H:%M:%S.%f",
-                )
-                + datetime.timedelta(hours=ATL_TO_UTC_TIME_DELTA)
-            ).apply(lambda x: x.timestamp())
-
-            mask = (action_logs["Full Time"] > attempt_movement_values[0, 0]) & (
-                action_logs["Full Time"] < attempt_movement_values[-1, 0]
-            )
-            action_logs = action_logs.loc[mask].drop_duplicates()
-
-            hi_lvl = np.full((movement_actions.shape[0], 1), hash("None"), dtype=np.int64)
-            for ts, msg in zip(action_logs["Full Time"], action_logs["Message"]):
-                idx = np.argmin(np.abs(attempt_graph_values[:, 0] - ts))
-                hi_lvl[idx, 0] = hash(msg[19:])
-            actions = np.hstack([actions, hi_lvl])
-            action_labels.append("high_level")
 
         self._last_action_labels = action_labels
         self._last_action_stage_cols = len(stage_indices)
@@ -1647,20 +1489,19 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
         include_next_obs = self.load_next_obs
         include_camera = self.observation_selector.include_camera
-        include_high_level_actions = self.action_selector.include_high_level
 
-        graph_values, movement_values, log_values = self.load_experiment_data(
-            rig_recorder_data_folder
-        )
+        if self.action_selector.include_high_level:
+            raise RuntimeError(
+                "High-level action extraction requires log files, which are no longer processed."
+            )
 
-        experiment_first_timestamp = graph_values[0][0] - 1
-        experiment_last_timestamp = graph_values[-1][0] + 1
+        graph_values, movement_values = self.load_experiment_data(rig_recorder_data_folder)
 
-        rec_ranges = self.get_timestamps_for_all_experiment_recordings(
-            log_values, experiment_first_timestamp, experiment_last_timestamp
-        )
+        graph_start = graph_values[0][0]
+        graph_end = graph_values[-1][0]
+
         state_attempts = self.get_timestamps_for_all_successful_state_attempts(
-            rig_recorder_data_folder, log_values, rec_ranges
+            rig_recorder_data_folder, graph_start, graph_end
         )
 
         if not state_attempts:
@@ -1727,12 +1568,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         include_camera=include_camera,
                     )
 
-                    actions = self.get_attempt_actions(
-                        attempt_movement_values,
-                        attempt_graph_values,
-                        log_values,
-                        include_high_level_actions=include_high_level_actions,
-                    )
+                    actions = self.get_attempt_actions(attempt_movement_values)
 
                     stage_moved = getattr(self, "_last_stage_motion_detected", False)
                     if self.omit_stage_movement and stage_moved:
@@ -1791,7 +1627,7 @@ __all__ = [
 if __name__ == "__main__":
 
 # ----------------------------------------------------------------------------------------------------------------------------------------
-    dataset_name = "PatcherBot_test_dataset_v0_420.hdf5"
+    dataset_name = "PatcherBot_dataset_v0_420.hdf5"
 
 
     # rig_recorder_data_folder_set = [
@@ -1802,9 +1638,9 @@ if __name__ == "__main__":
     #     "2025_10_08-23_18" # version 0.200 and beyond. contains random planar endpoints.
     #     ] # version 0.001 training data (9/25/2025) # find pipette data
     # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025) find_pipette test set
-    # rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300
+    rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300
 
-    rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
+    # rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
 
     # ------------------------------------------------------------------------------------------------------------------------------
     # rig_recorder_data_folder_set = [
