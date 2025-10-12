@@ -1195,12 +1195,17 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
 
-        stage_delta = np.vstack(
-            [np.zeros((1, stage_positions.shape[1]), dtype=np.float64), np.diff(stage_positions, axis=0)]
-        )
-        pip_delta = np.vstack(
-            [np.zeros((1, pipette_positions.shape[1]), dtype=np.float64), np.diff(pipette_positions, axis=0)]
-        )
+        zero_stage = np.zeros((1, stage_positions.shape[1]), dtype=np.float64)
+        if stage_positions.shape[0] > 1:
+            stage_delta = np.vstack([zero_stage, np.diff(stage_positions, axis=0)])
+        else:
+            stage_delta = zero_stage
+
+        zero_pipette = np.zeros((1, pipette_positions.shape[1]), dtype=np.float64)
+        if pipette_positions.shape[0] > 1:
+            pip_delta = np.vstack([zero_pipette, np.diff(pipette_positions, axis=0)])
+        else:
+            pip_delta = zero_pipette
 
         scale_x, scale_y = getattr(self, "_last_pipette_scale", (1.0, 1.0))
         if pip_delta.shape[1] >= 1:

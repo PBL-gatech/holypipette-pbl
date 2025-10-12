@@ -1,6 +1,7 @@
 import sys
 import h5py
 import numpy as np
+from typing import List
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QGraphicsScene, QGraphicsView, QPushButton, QMessageBox
@@ -14,9 +15,11 @@ class DemoPlayer(QWidget):
         super().__init__()
         self.hdf5_path = hdf5_path
         self.playing = True  # video plays by default
-        self.pipette_positions = np.empty((0, 2), dtype=np.float32)
+        self.observed_pipette_positions = np.empty((0, 2), dtype=np.float32)
+        self.reconstructed_pipette_positions = np.empty((0, 2), dtype=np.float32)
         self._pipette_frame_count = 0
         self.pipette_tail_length = 25
+        self.action_axes: List[str] = []
 
         # Try opening the HDF5 file.
         try:
@@ -107,8 +110,10 @@ class DemoPlayer(QWidget):
         demo_path_act = f'data/{demo_key}/actions'
         print(f"Loading demo: {demo_key}")  # Debug message
 
-        self.actions = np.zeros((0, 6))
-        self.pipette_positions = np.empty((0, 2), dtype=np.float32)
+        self.actions = np.empty((0, 0), dtype=np.float32)
+        self.action_axes = []
+        self.observed_pipette_positions = np.empty((0, 2), dtype=np.float32)
+        self.reconstructed_pipette_positions = np.empty((0, 2), dtype=np.float32)
         self._pipette_frame_count = 0
 
         for name, attr in (('camera_image', 'images'), ('resistance', 'resistance')):
@@ -119,13 +124,22 @@ class DemoPlayer(QWidget):
                 setattr(self, attr, np.array([]))
 
         try:
-            data = self.hdf5_file[f'data/{demo_key}/actions'][:]
-            if data.ndim == 2:
-                cols = min(data.shape[1], 6)
-                self.actions = np.zeros((data.shape[0], 6))
-                self.actions[:, :cols] = data[:, :cols]
+            action_ds = self.hdf5_file[f'data/{demo_key}/actions']
+            data = np.asarray(action_ds[:], dtype=np.float32)
+            if data.ndim == 1:
+                data = data.reshape(-1, 1)
+            elif data.ndim > 2:
+                data = data.reshape(data.shape[0], -1)
+            self.actions = data
+            axes_attr = action_ds.attrs.get("axes")
+            if axes_attr is None:
+                self.action_axes = []
             else:
-                print(f"Warning: unexpected 'actions' shape {data.shape} in data/{demo_key}")
+                axes_array = np.atleast_1d(axes_attr)
+                self.action_axes = [
+                    axis.decode("utf-8") if isinstance(axis, bytes) else str(axis)
+                    for axis in axes_array
+                ]
         except KeyError:
             print(f"Warning: missing 'actions' dataset in data/{demo_key}")
 
@@ -152,17 +166,17 @@ class DemoPlayer(QWidget):
                 print(f"Warning: expected 1D resistance, got {self.resistance.shape}")
                 self.resistance = np.array([])
 
-        self._load_pipette_positions(demo_path_act)
+        self._load_observed_pipette_positions(demo_path)
+        self._build_reconstructed_pipette_path()
         self.plot_resistance()
         self.plot_actions()
 
-    def _load_pipette_positions(self, demo_path_act):
+    def _load_observed_pipette_positions(self, demo_path):
         """Load pipette positions for the current demo if available."""
-        self.pipette_positions = np.empty((0, 2), dtype=np.float32)
-        self._pipette_frame_count = 0
+        self.observed_pipette_positions = np.empty((0, 2), dtype=np.float32)
 
         try:
-            dataset = self.hdf5_file[f'{demo_path_act}']
+            dataset = self.hdf5_file[f'{demo_path}/pipette_positions']
         except KeyError:
             return
 
@@ -180,11 +194,15 @@ class DemoPlayer(QWidget):
         if data.size == 0:
             return
 
-        if data.ndim != 2 or data.shape[1] < 2:
-            print(f"Warning: '{demo_path_act}' has shape {data.shape}, expected >= (N, 2)")
+        if data.ndim != 2 or data.shape[1] == 0:
+            print(f"Warning: '{demo_path}/pipette_positions' has unexpected shape {data.shape}")
             return
 
-        positions = np.asarray(data[:, :2], dtype=np.float32)
+        dims = min(2, data.shape[1])
+        if dims < 2:
+            print(f"Warning: '{demo_path}/pipette_positions' has only {data.shape[1]} column(s); expected at least 2 for image overlay")
+            return
+        positions = np.asarray(data[:, :dims], dtype=np.float32)
 
         frame_dims = None
         if self.images.size:
@@ -227,11 +245,75 @@ class DemoPlayer(QWidget):
             print(f"Warning: dropping {dropped} pipette position rows with non-finite values")
             positions = positions[finite_mask]
 
-        self.pipette_positions = positions
-        self._pipette_frame_count = self.pipette_positions.shape[0]
+        self.observed_pipette_positions = positions
 
-        if self._pipette_frame_count and frame_dims is not None and not _in_frame(self.pipette_positions, frame_dims):
+        if positions.size and frame_dims is not None and not _in_frame(positions, frame_dims):
             print(f"Warning: pipette positions fall outside image bounds ({int(frame_dims[0])}x{int(frame_dims[1])}); overlay may not be visible")
+
+    def _resolve_pipette_action_columns(self, pipette_dim: int) -> List[int]:
+        """Return indices corresponding to pipette deltas within the action matrix."""
+        if self.actions.size == 0 or self.actions.ndim != 2:
+            return []
+
+        indices: List[int] = []
+        if self.action_axes:
+            indices = [
+                idx for idx, name in enumerate(self.action_axes)
+                if isinstance(name, str) and name.startswith("pipette_")
+            ]
+
+        if not indices and pipette_dim > 0:
+            total = self.actions.shape[1]
+            if total >= pipette_dim:
+                indices = list(range(total - pipette_dim, total))
+
+        return indices[:pipette_dim] if indices else []
+
+    def _build_reconstructed_pipette_path(self):
+        """Integrate pipette action deltas to obtain absolute positions for overlay."""
+        self.reconstructed_pipette_positions = np.empty((0, 2), dtype=np.float32)
+        self._pipette_frame_count = 0
+
+        if self.actions.size == 0:
+            return
+
+        if self.observed_pipette_positions.size:
+            pipette_dim = self.observed_pipette_positions.shape[1]
+        else:
+            pipette_dim = sum(
+                1 for name in self.action_axes if name.startswith("pipette_")
+            ) or min(2, self.actions.shape[1])
+
+        pipette_dim = max(0, min(pipette_dim, self.actions.shape[1]))
+        pipette_dim = min(2, pipette_dim)
+        if pipette_dim == 0:
+            return
+
+        pip_cols = self._resolve_pipette_action_columns(pipette_dim)
+        if not pip_cols:
+            return
+
+        deltas = self.actions[:, pip_cols].astype(np.float32, copy=False)
+        if deltas.ndim != 2:
+            deltas = deltas.reshape(-1, pipette_dim)
+
+        cumulative = np.cumsum(deltas, axis=0)
+        if self.observed_pipette_positions.size:
+            start = self.observed_pipette_positions[0]
+        else:
+            start = np.zeros((pipette_dim,), dtype=np.float32)
+        cumulative += start
+
+        frame_limit = cumulative.shape[0]
+        if self.images.size:
+            frame_limit = min(frame_limit, len(self.images))
+        if self.observed_pipette_positions.size:
+            frame_limit = min(frame_limit, self.observed_pipette_positions.shape[0])
+
+        self.reconstructed_pipette_positions = cumulative[:frame_limit]
+        if self.observed_pipette_positions.size:
+            self.observed_pipette_positions = self.observed_pipette_positions[:frame_limit]
+        self._pipette_frame_count = self.reconstructed_pipette_positions.shape[0]
 
     # ------------------------------------------------------------------
     # Resistance-plotting code (unchanged)
@@ -276,37 +358,50 @@ class DemoPlayer(QWidget):
         tN.setPos(plot_w - tN.boundingRect().width(), plot_h + 5)
 
     def plot_actions(self):
-        """Draw a 6-column bar chart of non-zero action counts."""
+        """Draw a bar chart of non-zero action counts for up to six axes."""
         self.action_scene.clear()
 
-        counts = np.zeros(6, dtype=int)
-        if self.actions.size:
-            raw = np.count_nonzero(self.actions, axis=0)
-            counts[:min(raw.size, 6)] = raw[:6]
+        if self.actions.size == 0 or self.actions.ndim != 2:
+            self.action_scene.addText("No action data available")
+            return
+
+        max_cols = min(6, self.actions.shape[1])
+        if max_cols == 0:
+            self.action_scene.addText("No action data available")
+            return
+
+        counts = np.count_nonzero(self.actions[:, :max_cols], axis=0)
+        labels = []
+        for idx in range(max_cols):
+            if self.action_axes and idx < len(self.action_axes):
+                labels.append(self.action_axes[idx])
+            else:
+                labels.append(str(idx))
 
         plot_w, plot_h = 400, 200
-        bar_w   = plot_w / 6
-        max_ct  = counts.max() or 1
+        bar_w = plot_w / max_cols
+        max_ct = counts.max() or 1
 
-        pen   = QPen(Qt.black)
+        pen = QPen(Qt.black)
         brush = Qt.gray
 
         for i, c in enumerate(counts):
             x = i * bar_w
             h = (c / max_ct) * plot_h
-            # bar
             self.action_scene.addRect(x, plot_h - h, bar_w * 0.8, h, pen, brush)
-            # value label
-            t = self.action_scene.addText(str(int(c)))
-            t.setPos(x + bar_w*0.4 - t.boundingRect().width()/2,
-                     plot_h - h - t.boundingRect().height() - 2)
+            label_item = self.action_scene.addText(str(int(c)))
+            label_item.setPos(
+                x + bar_w * 0.4 - label_item.boundingRect().width() / 2,
+                plot_h - h - label_item.boundingRect().height() - 2,
+            )
 
-        # x-axis labels
-        for i in range(6):
-            lbl = self.action_scene.addText(str(i))
-            lbl.setPos(i*bar_w + bar_w*0.4 - lbl.boundingRect().width()/2,
-                       plot_h + 5)
-
+        for i in range(max_cols):
+            axis_label = labels[i][:12]
+            lbl_item = self.action_scene.addText(axis_label)
+            lbl_item.setPos(
+                i * bar_w + bar_w * 0.4 - lbl_item.boundingRect().width() / 2,
+                plot_h + 5,
+            )
 
     def _draw_pipette_overlay(self, pixmap, frame_idx):
         if self._pipette_frame_count == 0:
@@ -317,25 +412,49 @@ class DemoPlayer(QWidget):
         if frame_idx < 0:
             return
 
-        point = self.pipette_positions[frame_idx]
+        point = self.reconstructed_pipette_positions[frame_idx]
         if not np.all(np.isfinite(point)):
             return
 
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        pen = QPen(Qt.red)
         pen_width = max(2, max(pixmap.width(), pixmap.height()) // 180)
+        radius = max(3, min(pixmap.width(), pixmap.height()) // 50)
+
+        if self.observed_pipette_positions.shape[0] > frame_idx:
+            obs_point = self.observed_pipette_positions[frame_idx]
+            if np.all(np.isfinite(obs_point)):
+                obs_pen = QPen(Qt.green)
+                obs_pen.setWidth(max(1, pen_width // 2))
+                obs_pen.setStyle(Qt.DashLine)
+                painter.setPen(obs_pen)
+                painter.setBrush(Qt.NoBrush)
+                obs_radius = max(2, radius // 2)
+                painter.drawEllipse(
+                    QPointF(float(obs_point[0]), float(obs_point[1])),
+                    obs_radius,
+                    obs_radius,
+                )
+                if frame_idx > 0 and self.pipette_tail_length > 0:
+                    start_idx = max(0, frame_idx - self.pipette_tail_length)
+                    obs_tail = self.observed_pipette_positions[start_idx:frame_idx + 1]
+                    finite_obs = obs_tail[np.all(np.isfinite(obs_tail), axis=1)]
+                    if finite_obs.shape[0] > 1:
+                        q_obs_points = [QPointF(float(p[0]), float(p[1])) for p in finite_obs]
+                        for p0, p1 in zip(q_obs_points[:-1], q_obs_points[1:]):
+                            painter.drawLine(p0, p1)
+
+        pen = QPen(Qt.red)
         pen.setWidth(int(pen_width))
         painter.setPen(pen)
         painter.setBrush(QBrush(Qt.red))
 
-        radius = max(3, min(pixmap.width(), pixmap.height()) // 50)
         painter.drawEllipse(QPointF(float(point[0]), float(point[1])), radius, radius)
 
         if frame_idx > 0 and self.pipette_tail_length > 0:
             start_idx = max(0, frame_idx - self.pipette_tail_length)
-            tail = self.pipette_positions[start_idx:frame_idx + 1]
+            tail = self.reconstructed_pipette_positions[start_idx:frame_idx + 1]
             finite_tail = tail[np.all(np.isfinite(tail), axis=1)]
             if finite_tail.shape[0] > 1:
                 q_points = [QPointF(float(p[0]), float(p[1])) for p in finite_tail]
