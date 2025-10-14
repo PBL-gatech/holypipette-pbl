@@ -30,73 +30,6 @@ except:
 __all__ = ['Camera', 'FakeCamera', 'RecordedVideoCamera']
 
 
-class FileWriteThread(threading.Thread): # saves frames individually
-    def __init__(self, *args, **kwds):
-        self.queue = kwds.pop('queue')
-        self.debug_write_delay = kwds.pop('debug_write_delay', 0)
-        self.directory = kwds.pop('directory')
-        self.file_prefix = kwds.pop('file_prefix')
-        self.skip_frames = kwds.pop('skip_frames', 0)
-        threading.Thread.__init__(self, *args, **kwds)
-        self.first_frame = None
-        self.start_time = None
-        self.last_report = None
-        self.written_frames = 0
-        self.running = True
-        self.skipped = -1
-
-    def write_frame(self):
-        frame_number, creation_time, elapsed_time, frame = self.queue.popleft()
-        if frame_number is None:
-            # Marker for end of recording
-            return False
-        
-        # Make all frame numbers relative to the first frame
-        if self.first_frame is None:
-            self.first_frame = frame_number
-            self.start_time = time.time()
-            self.last_report = self.start_time
-        frame_number -= self.first_frame
-        # If desired, skip frames
-        self.skipped += 1
-        if self.skipped >= self.skip_frames:
-            self.skipped = -1
-            fname = os.path.join(self.directory, '{}_{:05d}.tiff'.format(self.file_prefix, frame_number))
-            with imageio.get_writer(fname, software='holypipette') as writer:
-                writer.append_data(frame, meta={'datetime': creation_time,
-                                                'description': 'Time since start of recording: {}'.format(repr(elapsed_time))})
-            self.written_frames += 1
-            time.sleep(self.debug_write_delay)
-            if time.time() - self.last_report > 1:
-                frame_rate = self.written_frames / (time.time() - self.last_report)
-                print('Writing {:.1f} fps (total frames written: {})'.format(frame_rate, frame_number))
-                self.last_report = time.time()
-                self.written_frames = 0
-
-        return True
-
-    def run(self):
-        self.running = True
-        if not os.path.exists(self.directory):
-            os.makedirs(self.directory)
-        
-        while self.running:
-            try:
-                if len(self.queue) > self.queue.maxlen // 2:
-                    print('WARNING: FileWriteThread queue is getting full ({}/{})'.format(len(self.queue),
-                                                                                          self.queue.maxlen))
-                if not self.write_frame():
-                    break
-            except IndexError:
-                # queue is emtpy, wait
-                time.sleep(0.01)
-                # TODO: Store image metadata to file as well?
-
-        if len(self.queue):
-            print('Still need to write {} images to disk.'.format(len(self.queue)))
-            while len(self.queue):
-                if not self.write_frame():
-                    break
 
 
 class AcquisitionThread(threading.Thread):
@@ -200,7 +133,7 @@ class Camera(object):
         # testing flag
         
 
-    def show_circle(self, point, color=(255, 0, 0), radius=10, duration=1.5, show_center=False):
+    def show_circle(self, point, color=(255, 255, 255), radius=10, duration=1.5, show_center=False):
         self.point_to_show = [point, radius, color, show_center]
         self.stop_show_time = time.time() + duration
 
@@ -213,21 +146,6 @@ class Camera(object):
     def stop_acquisition(self):
         self._acquisition_thread.running = False
 
-    # def start_recording(self, directory='', file_prefix='', skip_frames=0, queue_size=1000):
-    #     if len(self._acquisition_thread.queues) > 1:
-    #         del self._acquisition_thread.queues[1]
-    #     self._file_queue = collections.deque(maxlen=queue_size)
-    #     self._acquisition_thread.queues.append(self._file_queue)
-    #     self._file_thread = FileWriteThread(queue=self._file_queue,
-    #                                         directory=directory,
-    #                                         file_prefix=file_prefix,
-    #                                         skip_frames=skip_frames,
-    #                                         debug_write_delay=self._debug_write_delay)
-    #     self._file_thread.start()
-
-    # def stop_recording(self):
-    #     if self._file_thread:
-    #         self._file_thread.running = False
 
     def flip(self):
         self.flipped = not self.flipped
@@ -236,7 +154,6 @@ class Camera(object):
     def segment(self, img, cell, label):
 
         mask = self.Cellseg.segment(image = img, input_point = cell, input_label = label)
-        # print("mask shape: ", mask.shape)
         return mask
     
     def mask_test(self, mask,cell,img):
