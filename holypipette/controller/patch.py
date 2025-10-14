@@ -258,21 +258,34 @@ class AutoPatcher(TaskController):
 
                 target_point_float = np.asarray(curr_point, dtype=float) + pred_offset
                 target_point_pixels = (
-                    int(round(target_point_float[0])),
-                    int(round(target_point_float[1]))
+                    ((target_point_float[0])),
+                    ((target_point_float[1]))
                 )
+
                 target_point_microns = (
-                    int(round(pred_offset[0])),
-                    int(round(pred_offset[1])),
+                    ((pred_offset[0])),
+                    ((pred_offset[1])),
                     0
                 )
+                self.info(f"target converted relative distance: {target_point_microns} um")
                 target_point_microns = self.calibrated_unit.pixels_to_um_relative(target_point_microns) + self.calibrated_unit.position()
 
-                self.info(f" target converted distance relative in um: {target_point_microns} um")
+                self.info(f" target converted distance in um: {target_point_microns} um")
 
                 self.info(f"acting...")
 
-                self.calibrated_unit.absolute_move(target_point_microns)
+                # self.calibrated_unit.absolute_move(target_point_microns)
+                # intstead, divide the values by 33ms of time, the rough recording frequency and command themn to move at that velocity
+                target_point_microns_velocity = (
+                    ((pred_offset[0]))/0.033,
+                    ((pred_offset[1]))/0.033,
+                    0
+                )
+
+                target_point_microns_velocity = list(target_point_microns_velocity)
+                self.info(f"velocity: {target_point_microns_velocity} um/s")
+                self.calibrated_unit.absolute_move_group_velocity(target_point_microns_velocity)
+                
 
                 width = getattr(camera, "width", None)
                 height = getattr(camera, "height", None)

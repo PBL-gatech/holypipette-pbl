@@ -148,6 +148,7 @@ class DatasetBuilderSettings:
     val_ratio: float = 1 / 6 # fraction of demos to reserve for validation
     omit_stage_movement: bool = True # set to true to only record demos when stage is stationary
     random_seed: int = 0
+    freq_mask: int = 2
     load_next_obs: bool = True # set to true for goal conditioning
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
@@ -389,6 +390,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.omit_stage_movement = settings.omit_stage_movement
         self.rng = np.random.default_rng(settings.random_seed)
         self.load_next_obs = settings.load_next_obs
+        self.freq_mask = max(1, int(settings.freq_mask))
         self.observation_selector = settings.observation_selector
         self.action_selector = settings.action_selector
         self._synchronize_selectors()
@@ -612,6 +614,10 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             timestamps = movement_values[:, 0].astype(np.float64, copy=True)
             # Fall back to timestamps only when graph-dependent features are disabled.
             graph_values = timestamps.reshape(-1, 1)
+        if self.freq_mask > 1:
+            step = self.freq_mask
+            graph_values = graph_values[::step]
+            movement_values = movement_values[::step]
         return graph_values, movement_values
 
     def get_timestamps_for_all_successful_state_attempts(
@@ -1627,7 +1633,7 @@ __all__ = [
 if __name__ == "__main__":
 
 # ----------------------------------------------------------------------------------------------------------------------------------------
-    dataset_name = "PatcherBot_dataset_v0_420.hdf5"
+    dataset_name = "PatcherBot_test_dataset_v0_432.hdf5"
 
 
     # rig_recorder_data_folder_set = [
@@ -1638,9 +1644,9 @@ if __name__ == "__main__":
     #     "2025_10_08-23_18" # version 0.200 and beyond. contains random planar endpoints.
     #     ] # version 0.001 training data (9/25/2025) # find pipette data
     # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025) find_pipette test set
-    rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300
+    # rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300
 
-    # rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
+    rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
 
     # ------------------------------------------------------------------------------------------------------------------------------
     # rig_recorder_data_folder_set = [
