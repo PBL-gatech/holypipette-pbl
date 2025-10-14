@@ -228,6 +228,7 @@ class AutoPatcher(TaskController):
                                         goal_array[..., 0] = (goal_array[..., 0] - offset_x) * scale_x
                                         goal_array[..., 1] = (goal_array[..., 1] - offset_y) * scale_y
                                         agent_goal = goal_array
+                                        self.info(f"goal scaled: {agent_goal} um")
                         except Exception as exc:
                             self.warning(f"Goal preprocessing failed; using raw goal. Error: {exc}")
                 action = self.agenthelper.run_inference(observation=observation, goal=agent_goal, is_demo=False)
