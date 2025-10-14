@@ -118,10 +118,10 @@ class AutoPatchInterface(TaskInterface):
 
             # print(f'Stage position dimensions: {np.size(stage_pos_pixels)}')
             # print(f'Stage um position: {stage_pos_pixels}')
-            #take a 256x256 image centered on the cell
+            #take a 512x512 image centered on the cell
             img = self.current_autopatcher.calibrated_unit.camera.get_16bit_image()
-            img = img[int(position[1]-128):int(position[1]+128), int(position[0]-128):int(position[0]+128)]
-            if img is None or img.shape != (256, 256):
+            img = img[int(position[1]-256):int(position[1]+256), int(position[0]-256):int(position[0]+256)]
+            if img is None or img.shape != (512, 512):
                 raise RuntimeError('Cell too Close to edge!')
             
             #save the image

@@ -467,11 +467,11 @@ class ClassicPatchButtons(ButtonTabWidget):
                         change_color_on_complete=True, completion_color="rgba(173, 216, 230, 0.5)")
 
         # Add a box for movement commands 
-        buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane'],['Center Pipette','Clean pipette','Focus Pipette']]
+        buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane','Focus Stage'],['Center Pipette','Clean pipette','Focus Pipette']]
         cmds = [
             [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
             [self.patch_interface.move_to_safe_space, self.patch_interface.move_to_home_space],
-            [self.pipette_interface.go_to_floor],
+            [self.pipette_interface.go_to_floor,self.pipette_interface.focus_stage],
             [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
         ]
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
