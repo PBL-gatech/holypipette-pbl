@@ -233,7 +233,7 @@ class TaskInterface(QtCore.QObject, LoggingObject):
         except RequestedSuccessException:
             controller.success_requested = False
             controller.delete_state()
-            self.info('Task "{}" finished manually'.format(func.__name__))
+            self.info('Task "{}" finished Successfully'.format(func.__name__))
             self.task_finished.emit(0, controller)
             self._current_controller = None
             return False

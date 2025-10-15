@@ -16,7 +16,7 @@ import pickle
 import os
 from holypipette.interface.patchConfig import PatchConfig
 
-from .base import TaskController
+from .base import TaskController, RequestedSuccessException
 import threading
 # import locking package
 from threading import Lock
@@ -610,9 +610,12 @@ class AutoPatcher(TaskController):
         self.info(f"Initial resistance: {self.first_res}")
         self.info(f"{self.config.mode}: starting hunt")
 
-        if self.config.mode == 'classic':
-            self.calibrated_unit.absolute_move_group_velocity([0, 0, -10])
-            autoHunt=True
+        if self.config.mode == 'Classic':
+            speed = [0, 0, self.config.max_descent_speed]
+
+            self.calibrated_unit.absolute_move_group_velocity(speed)
+            self.info(f"moving pipette at: {speed} um/s")
+            # autoHunt=True
         elif self.config.mode == 'Agent':
             #prepare model
             # cell_pos, cell_img,goal_pos = cell
@@ -629,16 +632,16 @@ class AutoPatcher(TaskController):
                 self.config.cell_R_increase = 0.200
         test_scalar = 10
         while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
-            if autoHunt:
-                try: 
-                    model_input = self.observe()
-                    pos = self.agenthelper.run_inference(model_input)
-                    st_pos = pos[:3]
-                    pi_pos = pos[3:]
-                    self.info(f"pipette command: {pi_pos},data type {type(pi_pos)}")          
-                except: 
-                    self.error("Error in prediction, stopping autopatch")
-                    break
+            # if autoHunt:
+            #     try: 
+            #         model_input = self.observe()
+            #         pos = self.agenthelper.run_inference(model_input)
+            #         st_pos = pos[:3]
+            #         pi_pos = pos[3:]
+            #         self.info(f"pipette command: {pi_pos},data type {type(pi_pos)}")          
+            #     except: 
+            #         self.error("Error in prediction, stopping autopatch")
+            #         break
                 #     st_pos = [0,0,0]
                 #     pi_pos = [0,0,0]
                 # # self.info(f"stage command: {st_pos}")
@@ -663,8 +666,10 @@ class AutoPatcher(TaskController):
                     self.calibrated_unit.stop()
                     self.calibrated_stage.stop()
                     self.microscope.stop()
-                self.success_requested = True
+
                 self.info("Cell Detected")
+                self.success_requested = True
+                self.debut("Cell Detected")
 
 
                 break
@@ -858,6 +863,8 @@ class AutoPatcher(TaskController):
             if consecutive_success >= 3:
                 self.pressure.set_ATM(atm=True)
                 self.info("Seal successful!")
+                self.success_requested = True
+                self.debug("Seal successful!")
                 return
 
         # Abort request came in
@@ -904,6 +911,8 @@ class AutoPatcher(TaskController):
         speed         = 3
         good_count    = 0
         threshold_AR  = self.config.max_access_R      # adjust here if units differ
+        wait_period = 0.50
+
 
         # ---------- main loop ----------
         while True:
@@ -933,7 +942,7 @@ class AutoPatcher(TaskController):
                 self.pressure.set_ATM(atm=False)
                 self.sleep(1 / speed)
                 self.pressure.set_ATM(atm=True)
-                self.sleep(0.75)
+                self.sleep(wait_period*(1 + trials/2))
                 speed = 3
 
                 osc = trials % 3
@@ -961,6 +970,7 @@ class AutoPatcher(TaskController):
         # ---------- success ----------
         self.info("Successful break-in, Running Avg Access Resistance = "
                 f"{measuredAccessResistance:.2f}")
+        self.success_requested = True
 
     def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
@@ -992,7 +1002,24 @@ class AutoPatcher(TaskController):
     def patch(self, cell=None):
         """Runs the automatic patch-clamp algorithm, including manipulator movements."""
         self._in_patch = True
-        self._get_state_recorder()          
+        self._get_state_recorder()
+
+        def _run_phase(phase_callable, *phase_args, sleep_after=None):
+            """
+            Execute a patching phase while ignoring manual success interrupts so
+            the full sequence can continue. Any other exception still bubbles up.
+            """
+            try:
+                phase_callable(*phase_args)
+            except RequestedSuccessException:
+                return
+            finally:
+                # Reset the flag so follow-up phases do not see a stale request.
+                self.success_requested = False
+            if sleep_after:
+                self.sleep(sleep_after)
+
+        cleanup_performed = False
 
         try:
             # ------ rig preparation -------------------------------#
@@ -1006,19 +1033,16 @@ class AutoPatcher(TaskController):
             self.info("Starting patching process")
 
             #! Phase 0: locate cell
-            self.locate_cell(cell)
-            self.sleep(3)
+            _run_phase(self.locate_cell, cell, sleep_after=5)
 
             #! Phase 1: hunt for cell
-            self.hunt_cell(cell)
-            self.sleep(3)
+            _run_phase(self.hunt_cell, cell, sleep_after=3)
 
             #! Phase 2: attempt to form a gigaseal
-            self.gigaseal()
-            self.sleep(10)
+            _run_phase(self.gigaseal, sleep_after=3)
 
             #! Phase 3: break into cell
-            self.break_in()
+            _run_phase(self.break_in)
             self.info("Whole-cell achieved, resting for 30 seconds")
             self.sleep(30)
             
@@ -1026,14 +1050,26 @@ class AutoPatcher(TaskController):
                     #! Phase 4: run protocols
                     for i in (1, 2, 3):
                         self.info(f"Running protocol {i}")
-                        self.run_protocols()
+                        _run_phase(self.run_protocols)
                         self.sleep(20 if i < 3 else 5)
 
                     #! Phase 5: clean pipette
                     self.info("Data collection complete, cleaning pipette")
-                    self.escape()
+                    _run_phase(self.escape)
+                    cleanup_performed = True
+
+            self.success_requested = True
 
         finally:
+            if not cleanup_performed:
+                try:
+                    self.info("Patch attempt interrupted, running escape cleanup")
+                    self.escape()
+                except RequestedSuccessException:
+                    # Escape may also set success; clear it so teardown can finish.
+                    self.success_requested = False
+                except Exception as cleanup_error:
+                    self.warning(f"Cleanup escape failed: {cleanup_error}")
             # ---- teardown so the next call starts a fresh attempt ----
             self._state_recorder = None
             self._in_patch = False
