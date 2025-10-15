@@ -39,7 +39,7 @@ class CalibrationConfig(Config):
                                      doc='dt for updating displayed pos.',
                                      bounds=(0, 10000))
     
-    autofocus_dist = NumberWithUnit(50, unit='um',
+    autofocus_dist = NumberWithUnit(15, unit='um',
                                      doc='z dist to scan for autofocusing.',
                                      bounds=(10, 5000))
     
