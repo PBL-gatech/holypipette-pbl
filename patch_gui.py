@@ -38,7 +38,7 @@ def main():
     pipette_controller = PipetteInterface(stage, microscope, camera, unit, cellSorterManip, cellSorterController)
     patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller, recording_state_manager, lamp)
     graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager)
-    gui = PatchGui(camera, pipette_controller, patch_controller, recording_state_manager)
+    gui = PatchGui(camera, pipette_camera, pipette_controller, patch_controller, recording_state_manager)
     graphs = EPhysGraph(graph_interface, recording_state_manager)
     # graphs.location_on_the_screen()
     graphs.show()

@@ -22,9 +22,11 @@ class ManipulatorGui(CameraGui):
     pipette_command_signal = QtCore.pyqtSignal(MethodType, object)
     pipette_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera, pipette_interface, with_tracking=False, recording_state_manager: RecordingStateManager = None):
-        super(ManipulatorGui, self).__init__(camera, with_tracking=with_tracking,recording_state_manager=recording_state_manager)
+    def __init__(self, camera, aux_camera, pipette_interface, with_tracking=False, recording_state_manager: RecordingStateManager = None):
+        super(ManipulatorGui, self).__init__(camera, aux_camera=aux_camera, with_tracking=with_tracking, recording_state_manager=recording_state_manager)
         self.setWindowTitle("Pipette GUI")
+        self.microscope_camera = camera
+        self.pipette_camera = aux_camera
         self.interface = pipette_interface
         self.control_thread = QtCore.QThread()
         self.control_thread.setObjectName('PipetteControlThread')
@@ -56,6 +58,8 @@ class ManipulatorGui(CameraGui):
         '''
         Displays the number of the selected manipulator.
         '''
+        if getattr(self, 'active_camera_role', 'main') != 'main':
+            return
         painter = QtGui.QPainter(pixmap)
         pen = QtGui.QPen(QtGui.QColor(200, 0, 0, 125))
         painter.setPen(pen)
@@ -64,6 +68,8 @@ class ManipulatorGui(CameraGui):
 
     def draw_scale_bar(self, pixmap, text=True, autoscale=True,
                        position=True):
+        if getattr(self, 'active_camera_role', 'main') != 'main':
+            return
         if autoscale and not text:
             raise ValueError('Automatic scaling of the bar without showing text '
                              'will not be very helpful...')
@@ -224,6 +230,8 @@ class ManipulatorGui(CameraGui):
     def show_tip(self, pixmap):
         # Show the tip of the electrode
         if self.show_tip_on:
+            if getattr(self, 'active_camera_role', 'main') != 'main':
+                return
             interface = self.interface
             scale = 1.0 * self.camera.width / pixmap.size().width()
             pixel_per_um = getattr(self.camera, 'pixel_per_um', None)

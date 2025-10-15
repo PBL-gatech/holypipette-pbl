@@ -411,18 +411,41 @@ class CameraGui(QtWidgets.QMainWindow):
     log_signal = QtCore.pyqtSignal('QString')
     camera_signal = QtCore.pyqtSignal(MethodType, object)
     camera_reset_signal = QtCore.pyqtSignal(TaskController)
+    aux_camera_signal = QtCore.pyqtSignal(MethodType, object)
+    aux_camera_reset_signal = QtCore.pyqtSignal(TaskController)
 
 
-    def __init__(self, camera, recording_state_manager, image_edit = None, display_edit = None,
+    def __init__(self, camera, aux_camera=None, recording_state_manager=None,
+                 image_edit=None, display_edit=None,
                  with_tracking=False, base_directory='.'):
         super().__init__()
-        self.camera = camera
-        self.is_recording = False
-        self.camera_interface = CameraInterface(camera,
-                                                with_tracking=with_tracking)
+        self.main_camera = camera
+        self.aux_camera = aux_camera
+        self.recording_state_manager = recording_state_manager
+        if self.recording_state_manager is None:
+            raise ValueError("RecordingStateManager must be provided")
         self.base_directory = base_directory
-        self.show_overlay = True
         self.with_tracking = with_tracking
+        self.show_overlay = True
+        self.is_recording = False
+
+        self.main_interface = None
+        if self.main_camera is not None:
+            self.main_interface = CameraInterface(self.main_camera,
+                                                  with_tracking=with_tracking,
+                                                  status_category='Main Camera')
+        self.aux_interface = None
+        if self.aux_camera is not None:
+            self.aux_interface = CameraInterface(self.aux_camera,
+                                                 with_tracking=False,
+                                                 status_category='Aux Camera')
+
+        self.active_camera_role = 'main' if self.main_camera is not None else 'aux'
+        self.active_camera = self.main_camera if self.active_camera_role == 'main' else self.aux_camera
+        self.camera = self.active_camera
+        self.active_interface = self.main_interface if self.active_camera_role == 'main' else self.aux_interface
+        self.camera_interface = self.active_interface
+
         self.status_bar = QtWidgets.QStatusBar()
         self.task_abort_button = QtWidgets.QToolButton(clicked=self.abort_task)
         self.task_abort_button.setIcon(qta.icon('fa.ban'))
@@ -463,22 +486,27 @@ class CameraGui(QtWidgets.QMainWindow):
         self.record_button.setToolTip('Toggle video recording')
         self.record_button.setStyleSheet('QToolButton:checked {background-color: red;}')
 
-        self.autoexposure_button = QtWidgets.QToolButton(clicked=self.camera_interface.normalize)
+        self.autoexposure_button = QtWidgets.QToolButton(clicked=self.normalize_active_camera)
         self.autoexposure_button.setIcon(qta.icon('fa.camera'))
         self.autoexposure_button.setToolTip('Normalize the image')
 
         # create autonormalizatoin checkbox
         self.autonormalize_checkbox = QtWidgets.QCheckBox('Auto-normalize')
         self.autonormalize_checkbox.setChecked(False)
-        self.autonormalize_checkbox.stateChanged.connect(lambda: self.camera_interface.autonormalize(self.autonormalize_checkbox.isChecked()))
+        self.autonormalize_checkbox.stateChanged.connect(self.handle_autonormalize_change)
+
+        self.switch_view_button = QtWidgets.QPushButton()
+        self.switch_view_button.clicked.connect(self.toggle_camera_view)
+        self.switch_view_button.setEnabled(self.aux_camera is not None)
+        self._update_switch_button_text()
 
         self.setexposure_edit = QtWidgets.QLineEdit()
         self.setexposure_edit.setMaximumWidth(200)
         self.setexposure_edit.setPlaceholderText('Exposure time (ms)')
         # convert the text to a float and set the exposure time if the user presses enter and clear the text box
-        self.setexposure_edit.returnPressed.connect(lambda: self.camera_interface.set_exposure(float(self.setexposure_edit.text())))
-        self.setexposure_edit.returnPressed.connect(lambda: self.setexposure_edit.clear())
+        self.setexposure_edit.returnPressed.connect(self.apply_active_exposure)
 
+        self.status_bar.addPermanentWidget(self.switch_view_button)
         self.status_bar.addPermanentWidget(self.setexposure_edit)
         self.status_bar.addPermanentWidget(self.help_button)
         self.status_bar.addPermanentWidget(self.log_button)
@@ -519,20 +547,46 @@ class CameraGui(QtWidgets.QMainWindow):
             self.image_edit_funcs.extend(image_edit)
         elif image_edit is not None:
             self.image_edit_funcs.append(image_edit)
-        self.recording_state_manager = recording_state_manager
+        self._camera_key_bindings = []
 
-        self.video = LiveFeedQt(self.camera,
-                                image_edit=self.image_edit,
-                                display_edit=self.display_edit,
-                                mouse_handler=self.video_mouse_press,
-                                recording_state_manager=self.recording_state_manager)
+        self.main_video = None
+        if self.main_camera is not None:
+            self.main_video = LiveFeedQt(self.main_camera,
+                                         image_edit=self.image_edit,
+                                         display_edit=self.display_edit,
+                                         mouse_handler=self.video_mouse_press,
+                                         recording_state_manager=self.recording_state_manager,
+                                         frame_folder_name='camera_frames')
+        self.aux_video = None
+        if self.aux_camera is not None:
+            self.aux_video = LiveFeedQt(self.aux_camera,
+                                        image_edit=self.image_edit,
+                                        display_edit=self.display_edit,
+                                        mouse_handler=self.video_mouse_press,
+                                        recording_state_manager=self.recording_state_manager,
+                                        frame_folder_name='aux_camera_frames')
+
+        self.video_stack = QtWidgets.QStackedWidget()
+        if self.main_video is not None:
+            self.video_stack.addWidget(self.main_video)
+        if self.aux_video is not None:
+            self.video_stack.addWidget(self.aux_video)
+        self.active_video = self.main_video if self.active_camera_role == 'main' else self.aux_video
+        if self.active_video is not None:
+            self.video_stack.setCurrentWidget(self.active_video)
+
         self.recording_settings = {}
         self.setFocus()  # Need this to handle arrow keys, etc.
-        self.interface_signals = {self.camera_interface: (self.camera_signal,
-                                                          self.camera_reset_signal)}
+        self.interface_signals = {}
+        if self.main_interface is not None:
+            self.interface_signals[self.main_interface] = (self.camera_signal,
+                                                           self.camera_reset_signal)
+        if self.aux_interface is not None:
+            self.interface_signals[self.aux_interface] = (self.aux_camera_signal,
+                                                          self.aux_camera_reset_signal)
 
         self.splitter = QtWidgets.QSplitter()
-        self.splitter.addWidget(self.video)
+        self.splitter.addWidget(self.video_stack)
         self.config_tab = QtWidgets.QTabWidget()
         self.splitter.addWidget(self.config_tab)
         self.setCentralWidget(self.splitter)
@@ -544,6 +598,95 @@ class CameraGui(QtWidgets.QMainWindow):
         handler.setLevel(logging.ERROR)
         logging.getLogger('holypipette').addHandler(handler)
         self.log_signal.connect(self.error_status)
+
+    def _update_switch_button_text(self):
+        if not hasattr(self, 'switch_view_button') or self.switch_view_button is None:
+            return
+        if self.aux_camera is None:
+            self.switch_view_button.setText('Switch View')
+            return
+        if self.active_camera_role == 'main':
+            self.switch_view_button.setText('Switch to Pipette View')
+        else:
+            self.switch_view_button.setText('Switch to Microscope View')
+
+    def normalize_active_camera(self):
+        if self.active_interface is None:
+            return
+        self.active_interface.normalize()
+
+    def handle_autonormalize_change(self, state):
+        if self.active_interface is None:
+            return
+        self.active_interface.autonormalize(bool(state))
+
+    def apply_active_exposure(self):
+        if self.active_interface is None:
+            self.setexposure_edit.clear()
+            return
+        try:
+            exposure_value = float(self.setexposure_edit.text())
+        except ValueError:
+            self.status_bar.showMessage('Invalid exposure value', 2000)
+            return
+        self.active_interface.set_exposure(exposure_value)
+        self.setexposure_edit.clear()
+
+    def toggle_camera_view(self):
+        if self.aux_camera is None:
+            return
+        target_role = 'aux' if self.active_camera_role == 'main' else 'main'
+        self._set_active_camera(target_role)
+
+    def _set_active_camera(self, role):
+        if role not in ('main', 'aux'):
+            return
+        if role == 'main' and self.main_camera is None:
+            return
+        if role == 'aux' and self.aux_camera is None:
+            return
+        if role == self.active_camera_role:
+            return
+        self.active_camera_role = role
+        self.active_camera = self.main_camera if role == 'main' else self.aux_camera
+        self.camera = self.active_camera
+        self.active_interface = self.main_interface if role == 'main' else self.aux_interface
+        self.camera_interface = self.active_interface
+        self.active_video = self.main_video if role == 'main' else self.aux_video
+        if self.active_video is not None:
+            self.video_stack.setCurrentWidget(self.active_video)
+        self._update_switch_button_text()
+        self._rebind_camera_key_actions()
+        self._sync_interface_activity()
+
+    def _sync_interface_activity(self):
+        if self.main_interface is not None:
+            self.main_interface.set_active(self.active_camera_role == 'main')
+        if self.aux_interface is not None:
+            self.aux_interface.set_active(self.active_camera_role == 'aux')
+
+    def _rebind_camera_key_actions(self):
+        if self.active_interface is None:
+            return
+        for key, modifier, method_name, argument, _ in self._camera_key_bindings:
+            command = getattr(self.active_interface, method_name, None)
+            if command is None:
+                continue
+            self.register_key_action(key, modifier, command, argument, default_doc=False)
+
+    def register_camera_key_action(self, key, modifier, method_name, argument=None, default_doc=True):
+        binding = (key, modifier, method_name, argument, default_doc)
+        if binding not in self._camera_key_bindings:
+            self._camera_key_bindings.append(binding)
+        if self.active_interface is None:
+            return
+        command = getattr(self.active_interface, method_name, None)
+        if command is None:
+            return
+        self.register_key_action(key, modifier, command, argument, default_doc=default_doc)
+
+    def _current_video_widget(self):
+        return getattr(self, 'active_video', None)
 
     # Add a cross to the display
     def draw_cross(self, pixmap):
@@ -632,11 +775,25 @@ class CameraGui(QtWidgets.QMainWindow):
              description='Toggle recording image files to disk')
     def toggle_recording(self, *args):
         if self.is_recording:
-            self.camera.stop_recording()
+            for cam in filter(None, [self.main_camera, self.aux_camera]):
+                stop_method = getattr(cam, 'stop_recording', None)
+                if stop_method is not None:
+                    stop_method()
+            if self.recording_state_manager is not None:
+                self.recording_state_manager.set_recording(False)
+            if self.main_video is not None:
+                self.main_video.recorder.handle_recording_stopped()
+            if self.aux_video is not None:
+                self.aux_video.recorder.handle_recording_stopped()
             self.is_recording = False
         else:
-            dlg = RecordingDialog(self.base_directory, frame_rate=self.camera.get_frame_rate(),
-                                  pixels=self.camera.width * self.camera.height,
+            active_cam = self.active_camera or self.main_camera or self.aux_camera
+            if active_cam is None:
+                return
+            frame_rate = getattr(active_cam, 'get_frame_rate', lambda: 0)()
+            pixels = getattr(active_cam, 'width', 0) * getattr(active_cam, 'height', 0)
+            dlg = RecordingDialog(self.base_directory, frame_rate=frame_rate,
+                                  pixels=pixels,
                                   settings=self.recording_settings, parent=self)
             if dlg.exec_():
                 directory = os.path.abspath(dlg.directory_edit.text())
@@ -646,9 +803,16 @@ class CameraGui(QtWidgets.QMainWindow):
                 self.recording_settings['memory'] = memory
                 skip_frames = dlg.skip_spin.value()
                 self.recording_settings['skip_frames'] = skip_frames
-                queue_size = int(memory*1e6/(self.camera.width * self.camera.height)) + 1
-                self.camera.start_recording(directory=directory, file_prefix=prefix,
-                                            skip_frames=skip_frames, queue_size=queue_size)
+                for cam in filter(None, [self.main_camera, self.aux_camera]):
+                    width = getattr(cam, 'width', getattr(active_cam, 'width', 1))
+                    height = getattr(cam, 'height', getattr(active_cam, 'height', 1))
+                    queue_size = int(memory * 1e6 / (width * height)) + 1 if width and height else 1
+                    start_method = getattr(cam, 'start_recording', None)
+                    if start_method is not None:
+                        start_method(directory=directory, file_prefix=prefix,
+                                     skip_frames=skip_frames, queue_size=queue_size)
+                if self.recording_state_manager is not None:
+                    self.recording_state_manager.set_recording(True)
                 self.is_recording = True
         self.record_button.setChecked(self.is_recording)
 
@@ -661,14 +825,14 @@ class CameraGui(QtWidgets.QMainWindow):
         '''
         self.register_key_action(Qt.Key_Question, None, self.help_keypress)
         self.register_key_action(Qt.Key_L, None, self.log_keypress)
-        self.register_key_action(Qt.Key_N, None, self.camera_interface.normalize)
+        self.register_camera_key_action(Qt.Key_N, None, 'normalize')
         self.register_key_action(Qt.Key_Q, Qt.ControlModifier, self.exit)
-        self.register_key_action(Qt.Key_Plus, None,
-                                 self.camera_interface.increase_exposure,
-                                 default_doc=False)
-        self.register_key_action(Qt.Key_Minus, None,
-                                 self.camera_interface.decrease_exposure,
-                                 default_doc=False)
+        self.register_camera_key_action(Qt.Key_Plus, None,
+                                        'increase_exposure',
+                                        default_doc=False)
+        self.register_camera_key_action(Qt.Key_Minus, None,
+                                        'decrease_exposure',
+                                        default_doc=False)
         self.help_window.register_custom_action('Camera', '+/-',
                                                 'Increase/decrease exposure by 2.5ms')
         # self.register_key_action(Qt.Key_I, None,
@@ -680,12 +844,32 @@ class CameraGui(QtWidgets.QMainWindow):
         '''
         Close the GUI.
         '''
-        if self.camera:
-            logging.info('closing GUI')
-            self.camera.stop_acquisition()
-            self.camera.stop_recording()
-            self.camera.close()
-            self.camera = None
+        logging.info('closing GUI')
+        for attr_name in ('main_camera', 'aux_camera'):
+            cam = getattr(self, attr_name, None)
+            if cam is None:
+                continue
+            stop_acq = getattr(cam, 'stop_acquisition', None)
+            if stop_acq is not None:
+                stop_acq()
+            stop_recording = getattr(cam, 'stop_recording', None)
+            if stop_recording is not None:
+                stop_recording()
+            close_cam = getattr(cam, 'close', None)
+            if close_cam is not None:
+                close_cam()
+            setattr(self, attr_name, None)
+        for video_attr in ('main_video', 'aux_video'):
+            video_widget = getattr(self, video_attr, None)
+            if video_widget is not None:
+                video_widget.recorder.close()
+        if self.recording_state_manager is not None:
+            self.recording_state_manager.set_recording(False)
+        self.camera = None
+        self.active_camera = None
+        self.active_interface = None
+        self.camera_interface = None
+        self.active_video = None
         super(CameraGui, self).close()
 
     def register_mouse_action(self, click_type, modifier, command,
@@ -733,11 +917,17 @@ class CameraGui(QtWidgets.QMainWindow):
             # Mouse commands do not have custom arguments, they always get
             # the position in the image (rescaled, i.e. independent of the
             # window size)
+            video_widget = self._current_video_widget()
+            if video_widget is None or self.active_camera is None:
+                return
+            pixmap = video_widget.pixmap()
+            if pixmap is None:
+                return
             x, y = event.x(), event.y()
-            xs = x - self.video.size().width() / 2.
-            ys = y - self.video.size().height() / 2.
+            xs = x - video_widget.size().width() / 2.
+            ys = y - video_widget.size().height() / 2.
             # displayed image is not necessarily the same size as the original camera image
-            scale = 1.0 * self.camera.width / self.video.pixmap().size().width()
+            scale = 1.0 * self.active_camera.width / pixmap.size().width()
             position = (xs * scale, ys * scale)
             if command.is_blocking:
                 self.start_task(command.task_description, command.__self__)
@@ -763,6 +953,7 @@ class CameraGui(QtWidgets.QMainWindow):
             reset_signal.connect(interface.reset_requested)
             interface.task_finished.connect(self.task_finished)
             interface.connect(self)
+        self._sync_interface_activity()
         self.register_commands()
         # Add a button for the configuration options if necessary
         if self.config_tab.count() > 0:

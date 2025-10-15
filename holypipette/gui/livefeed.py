@@ -17,7 +17,7 @@ __all__ = ['LiveFeedQt']
 
 
 class LiveFeedQt(QtWidgets.QLabel):
-    def __init__(self, camera: Camera, recording_state_manager: RecordingStateManager, image_edit=None, display_edit=None, mouse_handler=None, parent=None, log_processed_frames=False):
+    def __init__(self, camera: Camera, recording_state_manager: RecordingStateManager, image_edit=None, display_edit=None, mouse_handler=None, parent=None, log_processed_frames=False, frame_folder_name: str = "camera_frames"):
 
         super(LiveFeedQt, self).__init__(parent=parent)
         # The image_edit function (does nothing by default) gets the raw
@@ -41,7 +41,8 @@ class LiveFeedQt(QtWidgets.QLabel):
         self.setAlignment(Qt.AlignCenter)
 
         self.recording_state_manager = recording_state_manager
-        self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", isVideo=True, filetype="csv", recorder_filename="camera_frames")
+        self.recorder = FileLogger(recording_state_manager, folder_path="experiments/Data/rig_recorder_data/", isVideo=True, filetype="csv", recorder_filename="camera_frames", frame_folder_name=frame_folder_name)
+        self._uses_aux_folder = frame_folder_name == self.recorder.aux_frame_folder_name
         self.log_processed_frames = bool(log_processed_frames)
 
         # Remember the last frame that we displayed, to not unnecessarily
@@ -84,6 +85,10 @@ class LiveFeedQt(QtWidgets.QLabel):
     def set_log_processed_frames(self, value: bool) -> None:
         self.log_processed_frames = bool(value)
 
+    def set_camera_metadata(self, camera: Camera) -> None:
+        self.camera = camera
+        self.width, self.height = self.camera.width, self.camera.height
+
     @QtCore.pyqtSlot()
     def update_image(self):
         try:
@@ -107,7 +112,10 @@ class LiveFeedQt(QtWidgets.QLabel):
                 frame_to_log = raw_frame.copy() if hasattr(raw_frame, "copy") else raw_frame
             # * Where you place this function is important, relative to repeated frames and such. Either you check in this file
             # * or in the FileLogger file
-            self.recorder.write_camera_frames(frame_time.timestamp(), frame_to_log, frameno)
+            if self._uses_aux_folder:
+                self.recorder.write_aux_camera_frames(frame_time.timestamp(), frame_to_log, frameno)
+            else:
+                self.recorder.write_camera_frames(frame_time.timestamp(), frame_to_log, frameno)
             # self.log_frame_rate()
             # print(f"FRAME SHAPE: {frame.shape}")
 

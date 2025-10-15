@@ -5,6 +5,7 @@ from holypipette.devices.amplifier.multiclamp import MultiClampChannel
 from holypipette.devices.amplifier.amplifier import FakeAmplifier
 from holypipette.devices.amplifier.DAQ import NiDAQ
 from holypipette.devices.camera.pcocamera import PcoCamera
+from holypipette.devices.camera.PipetteCamera import PipetteCamera
 from holypipette.devices.manipulator import SensapexManip, ScientificaSerialNoEncoder
 from holypipette.devices.pressurecontroller.IBBPressureController import IBBPressureController
 from holypipette.devices.manipulator import *
@@ -21,6 +22,7 @@ sensapexController = SensapexManip()
 stage = ManipulatorUnit(stageController, [1, 2])
 
 camera = PcoCamera()
+pipette_camera = PipetteCamera()
 microscope = Microscope(stageController, 3)
 microscope.up_direction = 1.0
 

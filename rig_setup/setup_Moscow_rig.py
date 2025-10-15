@@ -14,8 +14,7 @@ from holypipette.devices.lamp import OlympusLamp, FakeLamp
 
 # set up Camera
 camera = PcoCamera()
-# camera = PipetteCamera()
-# auxiliary_camera = PipetteCamera()
+pipette_camera = PipetteCamera()
 
 # set up Pressure Controller
 pressureControllerSerial = serial.Serial(port='COM5', baudrate=9600, timeout=0)

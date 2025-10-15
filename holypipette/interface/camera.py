@@ -12,11 +12,13 @@ from holypipette.utils.RecordingStateManager import RecordingStateManager
 class CameraInterface(TaskInterface):
     updated_exposure = QtCore.pyqtSignal('QString', 'QString')
 
-    def __init__(self, camera, with_tracking=False):
+    def __init__(self, camera, with_tracking=False, status_category='Camera'):
         super().__init__()
         self.camera = camera
         self.with_tracking = with_tracking
         self.recording_state_manager = RecordingStateManager()
+        self.status_category = status_category
+        self._is_active = False
 
     def connect(self, main_gui):
         self.updated_exposure.connect(main_gui.set_status_message)
@@ -28,9 +30,29 @@ class CameraInterface(TaskInterface):
 
     def signal_updated_exposure(self):
         # Should be called by subclasses that actually support setting the exposure
+        if not self._is_active:
+            return
         exposure = self.camera.get_exposure()
         if exposure > 0:
-            self.updated_exposure.emit('Camera', 'Exposure: %.1f ms' % exposure)
+            self.updated_exposure.emit(self.status_category, 'Exposure: %.1f ms' % exposure)
+
+    def set_active(self, is_active: bool):
+        was_active = self._is_active
+        self._is_active = bool(is_active)
+        if self._is_active:
+            self.signal_updated_exposure()
+        elif was_active:
+            self.updated_exposure.emit(self.status_category, None)
+
+    def set_status_category(self, category: str) -> None:
+        self.status_category = category
+        if self._is_active:
+            self.signal_updated_exposure()
+
+    def set_camera(self, camera) -> None:
+        self.camera = camera
+        if self._is_active:
+            self.signal_updated_exposure()
 
     @blocking_command(category='Camera',
                       description='Auto exposure',

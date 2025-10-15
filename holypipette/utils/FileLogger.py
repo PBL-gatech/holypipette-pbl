@@ -11,7 +11,7 @@ import pandas as pd
 
 
 class FileLogger(threading.Thread):
-    def __init__(self, recording_state_manager, folder_path="experiments/Data/", recorder_filename="recording", filetype="csv", isVideo=False, frame_batch_size=500):
+    def __init__(self, recording_state_manager, folder_path="experiments/Data/", recorder_filename="recording", filetype="csv", isVideo=False, frame_batch_size=500, frame_folder_name="camera_frames", aux_frame_folder_name="aux_camera_frames"):
         super().__init__()
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
@@ -22,11 +22,16 @@ class FileLogger(threading.Thread):
         if testMode:
             folder_path = folder_path.replace("Data/", "Data/TEST_")
 
-        self.folder_path = folder_path + self.time_truth.strftime("%Y_%m_%d-%H_%M") + "/"
-        self.camera_folder_path = self.folder_path + "camera_frames/"
-        self.filename = self.folder_path + recorder_filename + "." + filetype
+        self.frame_folder_name = frame_folder_name
+        self.aux_frame_folder_name = aux_frame_folder_name
+
+        self.folder_path = os.path.join(folder_path, self.time_truth.strftime("%Y_%m_%d-%H_%M"))
+        self.camera_folder_path = os.path.join(self.folder_path, self.frame_folder_name)
+        self.aux_camera_folder_path = os.path.join(self.folder_path, self.aux_frame_folder_name)
+        self.filename = os.path.join(self.folder_path, recorder_filename + "." + filetype)
         self.file = None
         self.last_frameno = 0
+        self.last_aux_frameno = 0
         self.frame_batch_size = frame_batch_size
         self.frame_batch_limit = int(frame_batch_size * 0.8)
 
@@ -55,6 +60,7 @@ class FileLogger(threading.Thread):
         if self.recording_state_manager.is_recording_enabled() and not self.folder_created:
             try:
                 os.makedirs(self.camera_folder_path, exist_ok=True)
+                os.makedirs(self.aux_camera_folder_path, exist_ok=True)
                 self.folder_created = True  # Set the flag to True once folder is created
                 print(f"Created folder at: {self.folder_path}")
             except OSError as exc:
@@ -162,9 +168,21 @@ class FileLogger(threading.Thread):
         if frameno <= self.last_frameno:
             return
         self.create_folder()  # Create the folder if recording is enabled and it's the first time
-        image_path = self.camera_folder_path + str(frameno) + '_' + str(time_value) + "." + self.image_type
+        image_path = os.path.join(self.camera_folder_path, f"{frameno}_{time_value}.{self.image_type}")
         self._save_image(frame, image_path)
         self.last_frameno = frameno
+
+    def write_aux_camera_frames(self, time_value, frame, frameno):
+        if not self.recording_state_manager.is_recording_enabled():
+            self._save_image_sleep()
+            return
+
+        if frameno is None or frameno <= self.last_aux_frameno:
+            return
+        self.create_folder()
+        image_path = os.path.join(self.aux_camera_folder_path, f"{frameno}_{time_value}.{self.image_type}")
+        self._save_image(frame, image_path)
+        self.last_aux_frameno = frameno
 
     def setBatchGraph(self, value=True):
         self.batch_mode_graph = value
