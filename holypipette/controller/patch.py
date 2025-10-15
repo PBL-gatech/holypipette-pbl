@@ -778,7 +778,7 @@ class AutoPatcher(TaskController):
 
         self.pressure.set_ATM(atm=True)
 
-        self.sleep(10)
+        self.sleep(3)
 
         if autoPressure:
             currPressure = -5
@@ -857,6 +857,7 @@ class AutoPatcher(TaskController):
 
             if consecutive_success >= 3:
                 self.pressure.set_ATM(atm=True)
+                self.success_requested = True
                 self.info("Seal successful!")
                 return
 
@@ -959,6 +960,8 @@ class AutoPatcher(TaskController):
                     raise AutopatchError("Break-in unsuccessful")
 
         # ---------- success ----------
+        self.success_requested = True
+        self.pressure.set_pressure(0)
         self.info("Successful break-in, Running Avg Access Resistance = "
                 f"{measuredAccessResistance:.2f}")
 
