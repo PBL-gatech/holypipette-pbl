@@ -2,8 +2,13 @@ from __future__ import annotations
 import logging, os, cv2, numpy as np
 from typing import Optional, Tuple
 from holypipette.deepLearning.cellSegmentor import CellSegmentor2
+from holypipette.deepLearning.PatchMatcher import (
+    PatchMatcher,
+    MatcherConfig,
+    ImageInput,
+)
 
-__all__ = ["CellTrackHelper"]
+__all__ = ["CellTrackHelper", "CellTrackHelper2"]
 
 
 class CellTrackHelper:
@@ -102,3 +107,59 @@ class CellTrackHelper:
         cx, cy = M["m10"] / M["m00"], M["m01"] / M["m00"]
         logging.debug("CellTrackHelper: centroid (%.2f, %.2f) px", cx, cy)
         return np.array([cx, cy], dtype=np.float32)
+
+
+class CellTrackHelper2:
+    """
+    Lightweight tracker that relies on LightGlue displacement through PatchMatcher.
+
+    Provide a reference image at construction time. Subsequent calls compare the
+    current image against that reference and return the displacement reported by
+    LightGlue. Use ``update_reference`` when a new baseline should be adopted.
+    """
+
+    def __init__(
+        self,
+        stage,
+        camera,
+        **matcher_kwargs: object,
+    ) -> None:
+        self.stage = stage
+        self.camera = camera
+        self.width = int(getattr(camera, "width", None) or 0)
+        self.height = int(getattr(camera, "height", None) or 0)
+        self._matcher = PatchMatcher(**matcher_kwargs)
+
+    def find_centroid(
+        self,
+        reference_image: ImageInput,
+        image: ImageInput,
+        *,
+        load_conf: Optional[MatcherConfig] = None,
+        **preprocess: object,
+    ) -> Optional[np.ndarray]:
+        """
+        Return the estimated target position in pixel space as `[cx, cy]`.
+        """
+        current_center: Optional[Tuple[float, float]] = None
+        if self.width and self.height:
+            current_center = (self.width / 2, self.height / 2)
+
+        try:
+            match = self._matcher.find_target(
+                reference_image,
+                image,
+                current_center=current_center,
+                load_conf=load_conf,
+                **preprocess,
+            )
+        except Exception as exc:
+            logging.error("CellTrackHelper2: LightGlue matching failed: %s", exc)
+            return None
+
+        target_point = match.get("target_point")
+        if target_point is None:
+            logging.error("CellTrackHelper2: match result missing 'target_point'.")
+            return None
+
+        return np.asarray(target_point, dtype=np.float32)
