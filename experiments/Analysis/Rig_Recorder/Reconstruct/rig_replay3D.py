@@ -13,6 +13,7 @@ import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 import numpy as np
 from collections import deque
+import re
 
 # ------------------- 3D Mesh Creation Functions -------------------
 
@@ -294,6 +295,9 @@ class DataManager:
         self.image_paths = []
         self.timestamps = []
         self.image_index = []
+        self.aux_image_paths = []
+        self.aux_timestamps = []
+        self.aux_image_index = []
         self.movement_data = []
         self.graph_data = []
         self.directory = None
@@ -303,11 +307,13 @@ class DataManager:
     def load_directory(self, directory):
         self.directory = directory
         camera_frames_dir = os.path.join(directory, 'camera_frames')
+        aux_camera_frames_dir = os.path.join(directory, 'aux_camera_frames')
         movement_file_path = os.path.join(directory, 'movement_recording.csv')
         graph_file_path = os.path.join(directory, 'graph_recording.csv')
 
         # Load images
         self.load_images(camera_frames_dir)
+        self.load_aux_images(aux_camera_frames_dir)
 
         # Load movement data
         if os.path.exists(movement_file_path):
@@ -321,53 +327,147 @@ class DataManager:
         else:
             raise FileNotFoundError("graph_recording.csv not found in the selected directory.")
 
-    def load_images(self, directory):
+    def _parse_image_directory(self, directory, allow_empty=False, empty_message=None):
         if not os.path.exists(directory):
+            if allow_empty:
+                return [], [], []
             raise FileNotFoundError(f"{directory} does not exist.")
 
         image_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith('.webp')]
         if not image_files:
-            raise FileNotFoundError("No .webp images found in the camera_frames directory.")
+            if allow_empty:
+                return [], [], []
+            raise FileNotFoundError(empty_message or f"No .webp images found in {directory}.")
 
-        # Order frames by their timestamp (fallback to index) to avoid lexicographic mix-ups
         parsed_images = []
         for img_path in image_files:
             idx, ts = self.extract_image_data(img_path)
             parsed_images.append((ts, idx, img_path))
         parsed_images.sort(key=lambda item: (item[0], item[1]))
+        paths = [item[2] for item in parsed_images]
+        indices = [item[1] for item in parsed_images]
+        timestamps = [item[0] for item in parsed_images]
+        return paths, indices, timestamps
 
-        self.image_paths = [item[2] for item in parsed_images]
-        self.image_index = [item[1] for item in parsed_images]
-        self.timestamps = [item[0] for item in parsed_images]
+    def load_images(self, directory):
+        paths, indices, timestamps = self._parse_image_directory(
+            directory,
+            allow_empty=False,
+            empty_message="No .webp images found in the camera_frames directory."
+        )
+        self.image_paths = paths
+        self.image_index = indices
+        self.timestamps = timestamps
         self.init_image_time = self.timestamps[0] if self.timestamps else 0.0
+
+    def load_aux_images(self, directory):
+        self.aux_image_paths = []
+        self.aux_image_index = []
+        self.aux_timestamps = []
+        if not os.path.isdir(directory):
+            return
+
+        paths, indices, timestamps = self._parse_image_directory(directory, allow_empty=True)
+        if paths:
+            self.aux_image_paths = paths
+            self.aux_image_index = indices
+            self.aux_timestamps = timestamps
+
+    @staticmethod
+    def _parse_numeric_list(value):
+        """
+        Parse a string representation of a numeric list, handling optional np.float64 wrappers.
+        """
+        if value is None:
+            return []
+        value = value.strip()
+        if value.startswith('[') and value.endswith(']'):
+            value = value[1:-1]
+        if not value:
+            return []
+        cleaned = re.sub(r'np\.float64\((.*?)\)', r'\1', value)
+        return [float(item) for item in cleaned.split(',') if item.strip()]
+
+    def has_aux_images(self):
+        return bool(self.aux_image_paths)
+
+    def get_aux_image_for_timestamp(self, timestamp):
+        if not self.aux_timestamps:
+            return None
+
+        idx = bisect.bisect_left(self.aux_timestamps, timestamp)
+        if idx == 0:
+            return self.aux_image_paths[0]
+        if idx >= len(self.aux_timestamps):
+            return self.aux_image_paths[-1]
+
+        before_ts = self.aux_timestamps[idx - 1]
+        after_ts = self.aux_timestamps[idx]
+        if abs(timestamp - before_ts) <= abs(after_ts - timestamp):
+            return self.aux_image_paths[idx - 1]
+        return self.aux_image_paths[idx]
 
     def load_movement_data(self, file_path):
         self.movement_data.clear()
         try:
             with open(file_path, mode='r') as file:
                 first_line = file.readline().strip()
-                # New format detection: if semicolons are present and header contains "timestamp"
-                if ';' in first_line and 'timestamp' in first_line.lower():
+                if ';' in first_line:
                     file.seek(0)
-                    reader = csv.DictReader(file, delimiter=';')
-                    for row in reader:
-                        try:
-                            time_value = float(row['timestamp'])
-                            st_x = float(row['st_x']) * self.scaling_factor
-                            st_y = float(row['st_y']) * self.scaling_factor
-                            st_z = float(row['st_z']) * self.scaling_factor
-                            pi_x = float(row['pi_x']) * self.scaling_factor
-                            pi_y = float(row['pi_y']) * self.scaling_factor
-                            pi_z = float(row['pi_z']) * self.scaling_factor
+                    reader = csv.reader(file, delimiter=';')
+                    rows = list(reader)
+                    if not rows:
+                        raise ValueError("No data found in movement file.")
 
+                    header_candidates = {'timestamp', 'st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z'}
+                    row_lower = [cell.strip().lower() for cell in rows[0]]
+                    has_header = any(cell in header_candidates for cell in row_lower)
+                    if has_header:
+                        header = row_lower
+                        data_rows = rows[1:]
+                        idx_map = {name: idx for idx, name in enumerate(header)}
+                        required_fields = ['timestamp', 'st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z']
+                        if not all(field in idx_map for field in required_fields):
+                            raise ValueError("Movement file header missing required columns.")
+                        for row in data_rows:
+                            if len(row) < len(header):
+                                continue
+                            try:
+                                time_value = float(row[idx_map['timestamp']])
+                                st_x = float(row[idx_map['st_x']]) * self.scaling_factor
+                                st_y = float(row[idx_map['st_y']]) * self.scaling_factor
+                                st_z = float(row[idx_map['st_z']]) * self.scaling_factor
+                                pi_x = float(row[idx_map['pi_x']]) * self.scaling_factor
+                                pi_y = float(row[idx_map['pi_y']]) * self.scaling_factor
+                                pi_z = float(row[idx_map['pi_z']]) * self.scaling_factor
+                            except Exception:
+                                continue
                             self.movement_data.append({
                                 'time': time_value,
                                 'microscope_z': -(st_z),
                                 'stage': (-st_x, -st_y),
                                 'pipette': (-pi_x, -pi_y, -(pi_z - 1.365))
                             })
-                        except Exception:
-                            continue
+                    else:
+                        for row in rows:
+                            if len(row) < 7:
+                                continue
+                            try:
+                                time_value = float(row[0])
+                                st_x = float(row[1]) * self.scaling_factor
+                                st_y = float(row[2]) * self.scaling_factor
+                                st_z = float(row[3]) * self.scaling_factor
+                                pi_x = float(row[4]) * self.scaling_factor
+                                pi_y = float(row[5]) * self.scaling_factor
+                                pi_z = float(row[6]) * self.scaling_factor
+                            except Exception:
+                                continue
+                            self.movement_data.append({
+                                'time': time_value,
+                                'microscope_z': -(st_z),
+                                'stage': (-st_x, -st_y),
+                                'pipette': (-pi_x, -pi_y, -(pi_z - 1.365))
+                            })
                 else:
                     # Assume old format with space-delimited values and colon-split key-value pairs
                     file.seek(0)
@@ -440,26 +540,34 @@ class DataManager:
         try:
             with open(file_path, mode='r') as file:
                 first_line = file.readline().strip()
-                # New format detection: if semicolons are present and header contains "timestamp"
-                if ';' in first_line and 'timestamp' in first_line.lower():
+                if ';' in first_line:
                     file.seek(0)
-                    reader = csv.DictReader(file, delimiter=';')
-                    for row in reader:
-                        try:
-                            time_value = float(row['timestamp'])
-                            pressure_value = float(row['pressure'])
-                            resistance_value = float(row['resistance'])
-                            # Parse list values for current and voltage
-                            current_str = row['current'].strip()
-                            if current_str.startswith('[') and current_str.endswith(']'):
-                                current_str = current_str[1:-1]
-                            current_value = [float(x) for x in current_str.split(',') if x.strip() != '']
+                    reader = csv.reader(file, delimiter=';')
+                    rows = list(reader)
+                    if not rows:
+                        raise ValueError("No data found in graph file.")
 
-                            voltage_str = row['voltage'].strip()
-                            if voltage_str.startswith('[') and voltage_str.endswith(']'):
-                                voltage_str = voltage_str[1:-1]
-                            voltage_value = [float(x) for x in voltage_str.split(',') if x.strip() != '']
-
+                    header_candidates = {'timestamp', 'pressure', 'resistance', 'current', 'voltage'}
+                    row_lower = [cell.strip().lower() for cell in rows[0]]
+                    has_header = any(cell in header_candidates for cell in row_lower)
+                    if has_header:
+                        header = row_lower
+                        data_rows = rows[1:]
+                        idx_map = {name: idx for idx, name in enumerate(header)}
+                        required_fields = ['timestamp', 'pressure', 'resistance', 'current', 'voltage']
+                        if not all(field in idx_map for field in required_fields):
+                            raise ValueError("Graph file header missing required columns.")
+                        for row in data_rows:
+                            if len(row) < len(header):
+                                continue
+                            try:
+                                time_value = float(row[idx_map['timestamp']])
+                                pressure_value = float(row[idx_map['pressure']])
+                                resistance_value = float(row[idx_map['resistance']])
+                                current_value = self._parse_numeric_list(row[idx_map['current']])
+                                voltage_value = self._parse_numeric_list(row[idx_map['voltage']])
+                            except Exception:
+                                continue
                             self.graph_data.append({
                                 'time': time_value,
                                 'pressure': pressure_value,
@@ -467,8 +575,25 @@ class DataManager:
                                 'current': current_value,
                                 'voltage': voltage_value
                             })
-                        except Exception:
-                            continue
+                    else:
+                        for row in rows:
+                            if len(row) < 5:
+                                continue
+                            try:
+                                time_value = float(row[0])
+                                pressure_value = float(row[1])
+                                resistance_value = float(row[2])
+                                current_value = self._parse_numeric_list(row[3])
+                                voltage_value = self._parse_numeric_list(row[4])
+                            except Exception:
+                                continue
+                            self.graph_data.append({
+                                'time': time_value,
+                                'pressure': pressure_value,
+                                'resistance': resistance_value,
+                                'current': current_value,
+                                'voltage': voltage_value
+                            })
                 else:
                     # Assume old format with colon-separated values
                     file.seek(0)
@@ -597,6 +722,34 @@ class IntegratedTimeline(QMainWindow):
         self.three_d_view = GLViewWidgetWithGrid()
         self.graph_stack.addWidget(self.three_d_view)  # Add 3D view to stack
 
+        # Aux Camera Widget (populated when data is available)
+        self.aux_frame = QFrame()
+        self.aux_frame.setFrameShape(QFrame.StyledPanel)
+        self.aux_frame.setFrameShadow(QFrame.Sunken)
+        self.aux_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        aux_layout = QVBoxLayout(self.aux_frame)
+        aux_layout.setContentsMargins(5, 5, 5, 5)
+        aux_layout.setSpacing(5)
+        self.aux_image_label = QLabel("Aux camera data not loaded.")
+        self.aux_image_label.setAlignment(Qt.AlignCenter)
+        self.aux_image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        aux_layout.addWidget(self.aux_image_label)
+        self.graph_stack.addWidget(self.aux_frame)  # Aux camera view
+
+        self.view_widgets = {
+            'graphs': self.graph_frame,
+            'three_d': self.three_d_view,
+            'aux': self.aux_frame
+        }
+        self.view_labels = {
+            'graphs': "2D Graphs",
+            'three_d': "3D View",
+            'aux': "Aux Camera"
+        }
+        self.view_order = ['graphs', 'three_d']
+        self.current_view_key = 'graphs'
+        self.graph_stack.setCurrentWidget(self.graph_frame)
+
         self.top_layout.addWidget(self.graph_stack, stretch=1)  # Graphs take 1 part
 
         # Slider Frame
@@ -663,10 +816,11 @@ class IntegratedTimeline(QMainWindow):
         self.buttons_layout.addWidget(self.select_image_dir_button)
 
         # Toggle View Button
-        self.toggle_view_button = QPushButton("Switch to 3D View")
+        self.toggle_view_button = QPushButton("")
         self.toggle_view_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.toggle_view_button.clicked.connect(self.toggle_view)
         self.buttons_layout.addWidget(self.toggle_view_button)
+        self.update_toggle_button_text()
 
         # Add a spacer to push buttons to the left
         self.buttons_layout.addStretch()
@@ -739,14 +893,53 @@ class IntegratedTimeline(QMainWindow):
         """)
 
     def toggle_view(self):
-        """Toggle between 2D graphs and 3D plot."""
-        current_widget = self.graph_stack.currentWidget()
-        if current_widget == self.graph_frame:
-            self.graph_stack.setCurrentWidget(self.three_d_view)
-            self.toggle_view_button.setText("Switch to 2D Graphs")
+        """Cycle through available right-side views."""
+        next_view = self._get_next_view_key()
+        if not next_view:
+            return
+
+        self.current_view_key = next_view
+        target_widget = self.view_widgets[next_view]
+        self.graph_stack.setCurrentWidget(target_widget)
+
+        if next_view == 'aux':
+            self.update_aux_image()
+
+        self.update_toggle_button_text()
+
+    def _get_next_view_key(self):
+        if not self.view_order:
+            return None
+        try:
+            current_index = self.view_order.index(self.current_view_key)
+        except ValueError:
+            self.current_view_key = self.view_order[0]
+            current_index = 0
+        return self.view_order[(current_index + 1) % len(self.view_order)]
+
+    def update_toggle_button_text(self):
+        next_view = self._get_next_view_key()
+        if not next_view:
+            self.toggle_view_button.setText("Switch View")
+            return
+        self.toggle_view_button.setText(f"Switch to {self.view_labels[next_view]}")
+
+    def refresh_view_order(self):
+        self.view_order = ['graphs', 'three_d']
+        if self.data_manager.has_aux_images():
+            self.view_order.append('aux')
         else:
-            self.graph_stack.setCurrentWidget(self.graph_frame)
-            self.toggle_view_button.setText("Switch to 3D View")
+            self.aux_image_label.setText("Aux camera data not loaded.")
+            self.aux_image_label.setPixmap(QPixmap())
+
+        if self.current_view_key not in self.view_order:
+            self.current_view_key = 'graphs'
+            self.graph_stack.setCurrentWidget(self.view_widgets[self.current_view_key])
+
+        if self.current_view_key == 'aux':
+            self.update_aux_image()
+
+        self.update_toggle_button_text()
 
     def open_directory(self):
         """Open a directory dialog to select data directory."""
@@ -756,6 +949,9 @@ class IntegratedTimeline(QMainWindow):
                 self.data_manager.load_directory(directory)
                 self.directory = directory
                 self.info.setText(f"Loaded data from {directory}")
+                self.current_view_key = 'graphs'
+                self.graph_stack.setCurrentWidget(self.view_widgets[self.current_view_key])
+                self.refresh_view_order()
 
                 # Initialize timeline
                 self.current_index = 0
@@ -769,14 +965,8 @@ class IntegratedTimeline(QMainWindow):
                 finally:
                     self.slider.blockSignals(False)
 
-                # Display first image
-                self.display_image(self.data_manager.image_paths[self.current_index])
-
-                # Update 2D graphs
-                self.update_graphs()
-
-                # Update 3D view
-                self.update_3d_view()
+                # Display first timepoint
+                self.update_view()
 
             except FileNotFoundError as e:
                 QMessageBox.critical(self, "File Not Found", str(e))
@@ -848,6 +1038,8 @@ class IntegratedTimeline(QMainWindow):
     def update_view(self):
         """Update image, 2D graphs, and 3D plot based on current index."""
         self.display_image(self.data_manager.image_paths[self.current_index])
+        if self.data_manager.has_aux_images():
+            self.update_aux_image()
         self.update_graphs()
         self.update_3d_view()
 
@@ -868,10 +1060,45 @@ class IntegratedTimeline(QMainWindow):
             self.image.setPixmap(scaled_pixmap)
             self.image.show()
 
+    def update_aux_image(self):
+        """Display the aux camera frame that matches the current timestamp."""
+        if not self.data_manager.has_aux_images():
+            return
+        if not self.data_manager.timestamps:
+            return
+        if not (0 <= self.current_index < len(self.data_manager.timestamps)):
+            return
+
+        aux_image_path = self.data_manager.get_aux_image_for_timestamp(
+            self.data_manager.timestamps[self.current_index]
+        )
+        if not aux_image_path or not os.path.exists(aux_image_path):
+            self.aux_image_label.clear()
+            self.aux_image_label.setText("Aux frame missing for this timepoint.")
+            return
+
+        pixmap = QPixmap(aux_image_path)
+        if pixmap.isNull():
+            self.aux_image_label.clear()
+            self.aux_image_label.setText("Unable to load aux camera image.")
+            return
+
+        target_size = self.aux_image_label.size()
+        if target_size.width() > 0 and target_size.height() > 0:
+            pixmap = pixmap.scaled(
+                target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+
+        self.aux_image_label.setText("")
+        self.aux_image_label.setPixmap(pixmap)
+        self.aux_image_label.show()
+
     def resizeEvent(self, event):
         """Handle window resize events to scale the image appropriately."""
         if self.data_manager.image_paths and 0 <= self.current_index < len(self.data_manager.image_paths):
             self.display_image(self.data_manager.image_paths[self.current_index])
+        if self.data_manager.has_aux_images() and self.current_view_key == 'aux':
+            self.update_aux_image()
         super().resizeEvent(event)  # Ensure the base class resizeEvent is also called
 
     def update_graphs(self):
