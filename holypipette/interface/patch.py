@@ -154,9 +154,19 @@ class AutoPatchInterface(TaskInterface):
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
     def patch(self) -> None:
-        cell, img,pos = self.cells_to_patch[0]
+        if not self.cells_to_patch:
+            self.warning("No cells queued for patching; skipping patch command")
+            return
+
+        stage_coords, img, stage_coords_um = self.cells_to_patch[0]
+
+        # Allocate a fresh sample index and persist metadata before protocols run
+        self.recording_state_manager.increment_sample_number()
+        index = self.recording_state_manager.sample_number
+        self.ephys_logger.save_cell_metadata(index, stage_coords_um, img)
+
         self.execute(self.current_autopatcher.patch,
-                     argument=(cell, img,pos))
+                     argument=(stage_coords, img, stage_coords_um))
         time.sleep(2)
         if  not self.current_autopatcher.config.custom_cclamp_protocol:
                 self.cells_to_patch = self.cells_to_patch[1:] # remove the cell from the list after patching if using the default protocol

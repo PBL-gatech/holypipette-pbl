@@ -16,7 +16,7 @@ class PatchConfig(Config):
     min_R = NumberWithUnit(2e6, bounds=(0, 1000e6), doc='Minimum normal resistance', unit='MΩ', magnitude=1e6)
     max_R = NumberWithUnit(25e6, bounds=(0, 1000e6), doc='Maximum normal resistance', unit='MΩ', magnitude=1e6)
     max_cell_R = NumberWithUnit(300e6, bounds=(0, 1000e6), doc='Maximum cell resistance', unit='MΩ', magnitude=1e6)
-    max_access_R = NumberWithUnit(50, bounds=(0, 1000), doc='Maximum access resistance', unit='MΩ', magnitude=1)
+    max_access_R = NumberWithUnit(70, bounds=(0, 1000), doc='Maximum access resistance', unit='MΩ', magnitude=1)
     min_cell_C = NumberWithUnit(5e-12, bounds=(0, 1), doc='Minimum cell capacitance', unit='pF', magnitude=1e-12)
     cell_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell', unit='μm') # 50 for Neurons, 20 for HEK cells
     slice_start_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell in slice', unit='μm') # 20 um default
@@ -44,7 +44,7 @@ class PatchConfig(Config):
     cclamp_step = NumberWithUnit(30, bounds=(0, 3000), doc='Step Current', unit='pA', magnitude=1)
     cclamp_start = NumberWithUnit(-500, bounds=(-30000, 0), doc='Start Current', unit='pA', magnitude=1)
     cclamp_end = NumberWithUnit(500, bounds=(0, 30000), doc='End Current', unit='pA', magnitude=1)
-    cclamp_hold = NumberWithUnit(-50, bounds=(-200, 0), doc='Holding Current', unit='pA', magnitude=1)
+    cclamp_hold = NumberWithUnit(-20, bounds=(-200, 0), doc='Holding Current', unit='pA', magnitude=1)
     hclamp_duration = NumberWithUnit(30, bounds=(0, 600), doc='Holding Protocol Duration', unit='s')
 
     cell_type_toggle = Boolean(default=False, doc='Toggle for automatic cell type protocol selection')
