@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Dict, Optional, Tuple, Union
+
+import torch
+
+try:
+    from .cellModel.LightGlue.PointMatcher import PointMatcher
+except ImportError:  # pragma: no cover - allow running as a script
+    from cellModel.LightGlue.PointMatcher import PointMatcher
+
+ImageInput = Union[str, Path, torch.Tensor]
+MatcherConfig = Dict[str, object]
+
+
+class PatchMatcher:
+    """LightGlue wrapper that exposes the target point derived from center alignment."""
+
+    def __init__(self, **matcher_kwargs: object) -> None:
+        """Forward kwargs to ``PointMatcher`` for configuration."""
+        self._matcher = PointMatcher(**matcher_kwargs)
+
+    @staticmethod
+    def _to_float_pair(value: Union[Sequence[Union[int, float]], torch.Tensor]) -> Tuple[float, float]:
+        if isinstance(value, torch.Tensor):
+            value = value.detach().cpu().tolist()
+        if not isinstance(value, Sequence):
+            raise TypeError("Expected a length-2 sequence or tensor for a point.")
+        if len(value) != 2:
+            raise ValueError("Expected a length-2 sequence for a point.")
+        return float(value[0]), float(value[1])
+
+    def find_target(
+        self,
+        reference_image: ImageInput,
+        current_image: ImageInput,
+        *,
+        current_center: Optional[Union[Sequence[Union[int, float]], torch.Tensor]] = None,
+        load_conf: Optional[MatcherConfig] = None,
+        **preprocess: object,
+    ) -> Dict[str, Tuple[float, float]]:
+        """Return the target point computed from the center displacement."""
+        result = self._matcher.match(reference_image, current_image, load_conf=load_conf, **preprocess)
+        shift = result.get("center_shift")
+        if not shift:
+            raise RuntimeError("LightGlue did not return a center shift; cannot compute target point.")
+
+        displacement = shift.get("center_displacement")
+        if displacement is None:
+            displacement = {
+                "dx": float(shift["center_dx"]),
+                "dy": float(shift["center_dy"]),
+            }
+
+        dx = float(displacement["dx"])
+        dy = float(displacement["dy"])
+
+        if current_center is None:
+            current_center = shift.get("center1")
+            if current_center is None:
+                raise ValueError(
+                    "The current center must be provided when LightGlue does not expose the second image size."
+                )
+
+        cx, cy = self._to_float_pair(current_center)
+        target_point = (cx + dx, cy + dy)
+
+        return {
+            "target_point": target_point,
+            "current_center": (cx, cy),
+            "displacement": (dx, dy),
+        }
+
+
+if __name__ == "__main__":
+    import pprint
+
+    reference_image = Path(r"C:\Users\sa-forest\Documents\GitHub\LightGlue\ex_data\88602_1760469071.915733.webp")
+    current_image = Path(r"C:\Users\sa-forest\Documents\GitHub\LightGlue\ex_data\106826_1760469696.866317.webp")
+
+    patch_matcher = PatchMatcher()
+    match_info = patch_matcher.find_target(reference_image, current_image)
+    pprint.pprint(match_info)
