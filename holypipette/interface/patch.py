@@ -51,12 +51,15 @@ class AutoPatchInterface(TaskInterface):
     
     @blocking_command(category='Patch', description='Break into the cell',
                       task_description='Breaking into the cell')
+    
     def break_in(self):
+        self.recording_state_manager.increment_sample_number()
         self.execute(self.current_autopatcher.break_in)
 
     @blocking_command(category='Patch', description='GigaSeal the cell',
                       task_description='GigaSealing the cell')
     def gigaseal(self):
+        self.recording_state_manager.increment_sample_number()
         self.execute(self.current_autopatcher.gigaseal)
 
     def start_selecting_cells(self):
@@ -82,6 +85,7 @@ class AutoPatchInterface(TaskInterface):
             description='Run Protocols on the Cell',
             task_description='Run Protocols on the Cell')
     def run_protocols(self):
+        self.recording_state_manager.increment_sample_number()
         index = self.recording_state_manager.sample_number
         if self.cells_to_patch:
             stage_coords, img,stage_coords_um = self.cells_to_patch[0]
@@ -176,6 +180,7 @@ class AutoPatchInterface(TaskInterface):
                         task_description='Moving to the cell')
     def locate_cell(self):
         cell, img,pos = self.cells_to_patch[0]
+        self.recording_state_manager.increment_sample_number()
         self.execute(self.current_autopatcher.locate_cell,
                       argument = (cell, img,pos))
         time.sleep(2)
@@ -194,6 +199,7 @@ class AutoPatchInterface(TaskInterface):
                         task_description='Moving to the cell and detecting it ')
     def hunt_cell(self):
         cell, img,pos = self.cells_to_patch[0]
+        self.recording_state_manager.increment_sample_number()
         self.execute(self.current_autopatcher.hunt_cell,
                       argument = (cell, img,pos))
         time.sleep(2)

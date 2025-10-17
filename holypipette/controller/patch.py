@@ -675,7 +675,7 @@ class AutoPatcher(TaskController):
 
                 self.info("Cell Detected")
                 self.success_requested = True
-                self.debut("Cell Detected")
+                self.debug("Cell Detected")
 
 
                 break
