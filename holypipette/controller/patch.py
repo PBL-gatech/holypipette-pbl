@@ -569,7 +569,9 @@ class AutoPatcher(TaskController):
         self.info("Located Cell")
 
         self.amplifier.start_patch()
+        self.success_requested = True
         self.sleep(0.1)
+
 
     @record_state("hunt_cell")
     def hunt_cell(self,cell = None):
@@ -636,8 +638,9 @@ class AutoPatcher(TaskController):
                 self.config.cell_R_increase = 0.300
             elif self.config.cell_type == "Slice":
                 self.config.cell_R_increase = 0.200
-        test_scalar = 10
-        while not self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase) and self.abort_requested == False:
+
+        cell_detected = self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase)
+        while not cell_detected and self.abort_requested == False:
             # if autoHunt:
             #     try: 
             #         model_input = self.observe()
@@ -667,7 +670,7 @@ class AutoPatcher(TaskController):
                     self.microscope.stop()
                     self.escape()
                 break
-            elif self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase):
+            elif cell_detected:
                 if autoHunt:
                     self.calibrated_unit.stop()
                     self.calibrated_stage.stop()
@@ -683,6 +686,7 @@ class AutoPatcher(TaskController):
             self.sleep(0.04)
             lastResDeque.append(daqResistance)
             daqResistance = self.daq.resistance()
+            cell_detected = self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase)
 
         self.calibrated_unit.stop()
         self.microscope.stop()
@@ -1003,6 +1007,7 @@ class AutoPatcher(TaskController):
         detected = cellThreshold <= r_delta
         if detected:
             self.info(f"Cell detected: {detected}; resistance: {r_delta}")
+            self.success_requested = True
             self.calibrated_unit.stop()
 
         return cellThreshold <= r_delta
