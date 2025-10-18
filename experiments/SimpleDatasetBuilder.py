@@ -148,7 +148,7 @@ class DatasetBuilderSettings:
     val_ratio: float = 1 / 6 # fraction of demos to reserve for validation
     omit_stage_movement: bool = True # set to true to only record demos when stage is stationary
     random_seed: int = 0
-    freq_mask: int = 3
+    freq_mask: int = 1
     load_next_obs: bool = True # set to true for goal conditioning
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
@@ -1633,7 +1633,7 @@ __all__ = [
 if __name__ == "__main__":
 
 # ----------------------------------------------------------------------------------------------------------------------------------------
-    dataset_name = "PatcherBot_dataset_v0_432.hdf5"
+    dataset_name = "PatcherBot_test_dataset_v0_435.hdf5"
 
 
     # rig_recorder_data_folder_set = [
@@ -1644,9 +1644,9 @@ if __name__ == "__main__":
     #     "2025_10_08-23_18" # version 0.200 and beyond. contains random planar endpoints.
     #     ] # version 0.001 training data (9/25/2025) # find pipette data
     # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025) find_pipette test set
-    rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300 - version 432
+    # rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300 - version 435
 
-    # rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
+    rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
 
     # ------------------------------------------------------------------------------------------------------------------------------
     # rig_recorder_data_folder_set = [

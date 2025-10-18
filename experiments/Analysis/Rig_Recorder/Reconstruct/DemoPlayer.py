@@ -18,7 +18,7 @@ class DemoPlayer(QWidget):
         self.observed_pipette_positions = np.empty((0, 2), dtype=np.float32)
         self.reconstructed_pipette_positions = np.empty((0, 2), dtype=np.float32)
         self._pipette_frame_count = 0
-        self.pipette_tail_length = 25
+        self.pipette_tail_length = 25  # number of upcoming points to render
         self.action_axes: List[str] = []
 
         # Try opening the HDF5 file.
@@ -436,10 +436,13 @@ class DemoPlayer(QWidget):
                     obs_radius,
                     obs_radius,
                 )
-                if frame_idx > 0 and self.pipette_tail_length > 0:
-                    start_idx = max(0, frame_idx - self.pipette_tail_length)
-                    obs_tail = self.observed_pipette_positions[start_idx:frame_idx + 1]
-                    finite_obs = obs_tail[np.all(np.isfinite(obs_tail), axis=1)]
+                if self.pipette_tail_length > 0:
+                    end_idx = min(
+                        self.observed_pipette_positions.shape[0],
+                        frame_idx + self.pipette_tail_length + 1,
+                    )
+                    obs_future = self.observed_pipette_positions[frame_idx:end_idx]
+                    finite_obs = obs_future[np.all(np.isfinite(obs_future), axis=1)]
                     if finite_obs.shape[0] > 1:
                         q_obs_points = [QPointF(float(p[0]), float(p[1])) for p in finite_obs]
                         for p0, p1 in zip(q_obs_points[:-1], q_obs_points[1:]):
@@ -452,12 +455,15 @@ class DemoPlayer(QWidget):
 
         painter.drawEllipse(QPointF(float(point[0]), float(point[1])), radius, radius)
 
-        if frame_idx > 0 and self.pipette_tail_length > 0:
-            start_idx = max(0, frame_idx - self.pipette_tail_length)
-            tail = self.reconstructed_pipette_positions[start_idx:frame_idx + 1]
-            finite_tail = tail[np.all(np.isfinite(tail), axis=1)]
-            if finite_tail.shape[0] > 1:
-                q_points = [QPointF(float(p[0]), float(p[1])) for p in finite_tail]
+        if self.pipette_tail_length > 0:
+            end_idx = min(
+                self._pipette_frame_count,
+                frame_idx + self.pipette_tail_length + 1,
+            )
+            future_path = self.reconstructed_pipette_positions[frame_idx:end_idx]
+            finite_future = future_path[np.all(np.isfinite(future_path), axis=1)]
+            if finite_future.shape[0] > 1:
+                q_points = [QPointF(float(p[0]), float(p[1])) for p in finite_future]
                 for p0, p1 in zip(q_points[:-1], q_points[1:]):
                     painter.drawLine(p0, p1)
 
@@ -547,7 +553,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     # data_path = r"experiments/Datasets/PatcherBot_test_dataset_v0_201/PatcherBot_test_dataset_v0_201_find_pipette.hdf5"
 
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_432\PatcherBot_dataset_v0_432_find_pipette.hdf5"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_435\PatcherBot_dataset_v0_435_find_pipette.hdf5"
 
     viewer = DemoPlayer(data_path)
     viewer.show()

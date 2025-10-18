@@ -275,18 +275,20 @@ class AutoPatcher(TaskController):
                 self.info(f" target converted distance in um: {target_point_microns} um")
 
                 self.info(f"acting...")
+                
+                self.calibrated_unit.absolute_move(np.array(target_point_microns))
 
-                # self.calibrated_unit.absolute_move(target_point_microns)
-                # intstead, divide the values by 33ms of time, the rough recording frequency and command themn to move at that velocity
-                target_point_microns_velocity = (
-                    ((pred_offset[0]))/0.033,
-                    ((pred_offset[1]))/0.033,
-                    0
-                )
+                # # self.calibrated_unit.absolute_move(target_point_microns)
+                # # intstead, divide the values by 33ms of time, the rough recording frequency and command themn to move at that velocity
+                # target_point_microns_velocity = (
+                #     ((pred_offset[0]))/0.033,
+                #     ((pred_offset[1]))/0.033,
+                #     0
+                # )
 
-                target_point_microns_velocity = list(target_point_microns_velocity)
-                self.info(f"velocity: {target_point_microns_velocity} um/s")
-                self.calibrated_unit.absolute_move_group_velocity(target_point_microns_velocity)
+                # target_point_microns_velocity = list(target_point_microns_velocity)
+                # self.info(f"velocity: {target_point_microns_velocity} um/s")
+                # self.calibrated_unit.absolute_move_group_velocity(target_point_microns_velocity)
                 
 
                 width = getattr(camera, "width", None)
