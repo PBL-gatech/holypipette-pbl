@@ -1,4 +1,4 @@
-import threading
+﻿import threading
 import time
 import numpy as np
 import pandas as pd
@@ -166,6 +166,9 @@ class DAQ(TaskController):
         self.latest_protocol_data = None
         self.current_protocol_data = None
         self.voltage_protocol_data = None
+        self.voltage_membrane_test = None
+        self.vclamp_steps = None
+        self.vclamp_hold_value = None
         self.holding_protocol_data = None
         self._deviceLock = threading.Lock()
         self.isRunningProtocol = False
@@ -180,6 +183,7 @@ class DAQ(TaskController):
         self.cellMode = False
         self._pause_evt = threading.Event(); self._pause_evt.set()   # allow run
         self._idle_evt  = threading.Event(); self._idle_evt.set()    # initially idle
+        self.sweep_clip = None
 
 
     def setCellMode(self, mode: bool) -> None:
@@ -275,7 +279,7 @@ class DAQ(TaskController):
             raw = self._readAnalogInput(samplesPerSec, recordingTime)
 
         # Process raw 2×N array -> six-tuple
-        return self._squareWaveProcessor(raw, samplesPerSec, amplitude)
+        return self._squareWaveProcessor(raw, samplesPerSec, amplitude,sweep_clip=None)
       
     # --------------------------
     # ABSTRACT (DEVICE-SPECIFIC)
@@ -336,6 +340,13 @@ class DAQ(TaskController):
         """
         raise NotImplementedError("Implement in subclass.")
 
+    def getVoltageClampSweep(self, *args, **kwargs):
+        """Run the voltage-step protocol (V-clamp).
+
+        Sub-classes **must** implement this.
+        """
+        raise NotImplementedError("Implement in subclass.")
+
     # --------------------------
     # COMMON CALCULATION METHODS
     # --------------------------
@@ -376,6 +387,50 @@ class DAQ(TaskController):
             self._wave_samples = numSamples
 
         return wave, samplesPerSec, numSamples
+
+    def createSquareWaveVoltage(self,
+                                wave_freq,
+                                samplesPerSec,
+                                dutyCycle,
+                                amplitude,
+                                recordingTime,
+                                *,
+                                store: bool = False):
+        """
+        Build the V-clamp buffer with baseline-test-baseline segments.
+
+        recordingTime represents the total duration (baseline + test + baseline).
+        Each segment occupies one third of the total time.
+        """
+        segment_time = float(recordingTime) / 3.0
+
+        baseline_wave, *_ = self.createSquareWave(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=0.0,
+            recordingTime=segment_time,
+            pre_pad_ms=0,
+            store=False,
+        )
+        test_wave, rate, _ = self.createSquareWave(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=amplitude,
+            recordingTime=segment_time,
+            pre_pad_ms=0,
+            store=False,
+        )
+
+        wave = np.concatenate((baseline_wave, test_wave, baseline_wave))
+
+        if store:
+            self.wave = wave
+            self._wave_rate = samplesPerSec
+            self._wave_samples = wave.size
+
+        return wave, rate, wave.size
 
     def createSquareWaveCurrent(self,
                                 wave_freq,          # test-pulse frequency (Hz)
@@ -429,7 +484,7 @@ class DAQ(TaskController):
         return wave, rate, wave.size
 
 
-    def _squareWaveProcessor(self, raw_data, samplesPerSec, amplitude):
+    def _squareWaveProcessor(self, raw_data, samplesPerSec, amplitude,sweep_clip=None):
         """
         Cut out the pulse, convert units, compute R & C.
         Identical to our previous implementation, unchanged.
@@ -442,13 +497,19 @@ class DAQ(TaskController):
         grad = np.gradient(read, timeData)
         max_i = np.argmax(grad)
         min_i = np.argmin(grad[max_i:]) + max_i
+        
+        if sweep_clip is not None:
+            left,right = sweep_clip
+        else:
+            left, right = 100,300
 
-        left, right = 100,300
+
         idx0 = max(0, max_i-left)
         idx1 = min(N, min_i+right)
         td = timeData[idx0:idx1] - timeData[idx0]
         rd = resp[idx0:idx1] * self.V_CLAMP_VOLT_PER_AMP
         cd = read[idx0:idx1] * self.V_CLAMP_VOLT_PER_VOLT
+
 
         if self.getCellMode():
             accR, memR, memC = self._getParamsfromCurrent(
@@ -878,6 +939,90 @@ class NiDAQ(DAQ):
         self.ao_task.start()
         self.ai_task.start()
 
+    def _setupAcquisitionVoltage(self,
+                                 *,
+                                 wave_freq: float,
+                                 samplesPerSec: int,
+                                 dutyCycle: float,
+                                 recordingTime: float,
+                                 exp_samples: int,
+                                 buffer_trains: int):
+        """
+        Configure the dedicated AI/AO pair for the V-clamp step protocol.
+        Mirrors the current-clamp setup while preserving voltage-specific buffer sizing.
+        """
+        import nidaqmx
+        import nidaqmx.constants as c
+
+        # ------------------------------------------------------------------
+        # 1. prime buffer (0 V step)
+        # ------------------------------------------------------------------
+        zero_wave, _, num_samples = self.createSquareWaveVoltage(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=0.0,
+            recordingTime=recordingTime,
+            store=False,
+        )
+
+        # ------------------------------------------------------------------
+        # 2. tasks (AI clock; AO waits on AI start trigger)
+        # ------------------------------------------------------------------
+        self.ai_task = nidaqmx.Task()
+        self.ai_task.ai_channels.add_ai_voltage_chan(
+            f"{self.readDev}/{self.readChannel}",
+            terminal_config=c.TerminalConfiguration.DIFF,
+            min_val=-10.0,
+            max_val=10.0,
+        )
+        self.ai_task.ai_channels.add_ai_voltage_chan(
+            f"{self.respDev}/{self.respChannel}",
+            terminal_config=c.TerminalConfiguration.DIFF,
+            min_val=-10.0,
+            max_val=10.0,
+        )
+        self.ai_task.timing.cfg_samp_clk_timing(
+            rate=samplesPerSec,
+            sample_mode=c.AcquisitionType.CONTINUOUS,
+        )
+        self.ai_task.in_stream.input_buf_size = max(
+            self.ai_task.in_stream.input_buf_size,
+            exp_samples * buffer_trains,
+        )
+
+        self.ao_task = nidaqmx.Task()
+        self.ao_task.ao_channels.add_ao_voltage_chan(f"{self.cmdDev}/{self.cmdChannel}")
+        self.ao_task.timing.cfg_samp_clk_timing(
+            rate=samplesPerSec,
+            sample_mode=c.AcquisitionType.CONTINUOUS,
+            samps_per_chan=num_samples,
+        )
+        self.ao_task.out_stream.regen_mode = c.RegenerationMode.DONT_ALLOW_REGENERATION
+        self.ao_task.out_stream.output_buf_size = max(
+            self.ao_task.out_stream.output_buf_size,
+            num_samples * buffer_trains,
+        )
+
+        # ------------------------------------------------------------------
+        # 3. trigger routing (AO armed by AI start trigger)
+        # ------------------------------------------------------------------
+        start_trig_term = (
+            f"/{self.readDev.split('Mod')[0] if 'Mod' in self.readDev else self.readDev}"
+            "/ai/StartTrigger"
+        )
+        self.ao_task.triggers.start_trigger.cfg_dig_edge_start_trig(
+            start_trig_term,
+            trigger_edge=c.Edge.RISING,
+        )
+
+        # ------------------------------------------------------------------
+        # 4. prime AO FIFO and start in LabVIEW order
+        # ------------------------------------------------------------------
+        self.ao_task.write(zero_wave, auto_start=False)
+        self.ao_task.start()
+        self.ai_task.start()
+
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         """
         Wrapper for the AI task: read exactly one bufferful.
@@ -966,6 +1111,146 @@ class NiDAQ(DAQ):
 
         # 2) write the new wave to the AO task
         self.ao_task.write(wave, auto_start=False)
+
+    def _sendSquareWaveVoltage(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        """
+        Generate the next voltage-step wave and queue it on the running AO task.
+        """
+        wave, _, _ = self.createSquareWaveVoltage(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=amplitude,
+            recordingTime=recordingTime,
+            store=False,
+        )
+        self.ao_task.write(wave, auto_start=False)
+
+    def getVoltageClampSweep(
+            self,
+            *,
+            start_voltage: float,
+            end_voltage: float,
+            holding_voltage: float,
+            step_voltage: float = 20e-3,
+            wave_freq: int = 4,
+            samplesPerSec: int = 50_000,
+            dutyCycle: float = 0.5,
+            recordingTime: float = 0.750
+    ):
+        """
+        Run a finite V-clamp sweep that mirrors the I-clamp protocol lifecycle.
+        Returns a list of [time, response, command] arrays processed identically
+        to the membrane-test traces.
+        """
+        import numpy as np
+
+        if step_voltage == 0:
+            raise ValueError("step_voltage must be non-zero")
+
+        samplesPerSec = int(samplesPerSec)
+        dutyCycle = float(dutyCycle)
+        recordingTime = float(recordingTime)
+        wave_freq = float(wave_freq)
+
+        span = end_voltage - start_voltage
+        step = abs(step_voltage)
+
+        if span == 0:
+            targets = np.array([start_voltage], dtype=float)
+        else:
+            step_signed = step if span > 0 else -step
+            targets = np.arange(start_voltage, end_voltage, step_signed, dtype=float)
+            if targets.size == 0 or abs(targets[-1] - end_voltage) > 1e-9:
+                targets = np.append(targets, end_voltage)
+
+        self.vclamp_steps = targets
+        self.info(f"V-clamp pulses (pA): {self.vclamp_steps}")
+        self.vclamp_hold_value = holding_voltage
+        self.voltage_protocol_data = []
+
+        self.pause_acquisition()
+        for task_name in ("ai_task", "ao_task"):
+            task = getattr(self, task_name, None)
+            if task is not None:
+                try:
+                    task.stop()
+                except Exception:
+                    pass
+                try:
+                    task.close()
+                except Exception:
+                    pass
+        buffer_trains = max(len(targets) + 2, 4)
+        _, _, num_samples = self.createSquareWaveVoltage(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=0.0,
+            recordingTime=recordingTime,
+            store=False,
+        )
+        exp_samples = num_samples
+        total_duration = num_samples / samplesPerSec
+        self._setupAcquisitionVoltage(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            recordingTime=recordingTime,
+            exp_samples=exp_samples,
+            buffer_trains=buffer_trains,
+        )
+
+        if targets.size:
+            first_delta = targets[0] - holding_voltage
+            first_amp = first_delta / self.V_CLAMP_VOLT_PER_VOLT
+            self._sendSquareWaveVoltage(
+                wave_freq, samplesPerSec, dutyCycle, first_amp, recordingTime
+            )
+
+
+        while self.ai_task.in_stream.avail_samp_per_chan < exp_samples:
+            self.sleep(0.002)
+        _ = self.ai_task.read(exp_samples, timeout=2.0)
+
+        sweeps: list[list[np.ndarray]] = []
+
+        try:
+            for idx, target in enumerate(targets):
+                if idx + 1 < len(targets):
+                    next_delta = targets[idx + 1] - holding_voltage
+                    next_amp = next_delta / self.V_CLAMP_VOLT_PER_VOLT
+                    self._sendSquareWaveVoltage(
+                        wave_freq, samplesPerSec, dutyCycle, next_amp, recordingTime
+                    )
+                    self.info(f"Waiting for {target*1000:.0f} mV train…")
+
+                while self.ai_task.in_stream.avail_samp_per_chan < exp_samples:
+                    self.sleep(0.002)
+
+                raw = np.asarray(self.ai_task.read(exp_samples, timeout=2.0), dtype=float)
+                step_amp_volts = (target - holding_voltage) / self.V_CLAMP_VOLT_PER_VOLT
+                self._squareWaveProcessor(raw, samplesPerSec, step_amp_volts)
+
+                time_vec = np.linspace(0, total_duration, exp_samples, dtype=float)
+                resp_vec = raw[1] * self.V_CLAMP_VOLT_PER_AMP
+                command_vec = raw[0] * self.V_CLAMP_VOLT_PER_VOLT
+                sweeps.append([time_vec, resp_vec, command_vec])
+                self.info(f"Captured {target*1000:.0f} mV pulse")
+
+        finally:
+            try:
+                self.ai_task.stop(); self.ao_task.stop()
+                self.ai_task.close(); self.ao_task.close()
+            except Exception:
+                pass
+            self.resume_acquisition()
+
+        self.voltage_protocol_data = sweeps
+        if targets.size and self.voltage_membrane_test is not None:
+            self.voltage_membrane_test["sweep_hold_mV"] = holding_voltage * 1e3
+
+        return self.voltage_protocol_data
 
     def getDataFromCurrentProtocol(self,
                                    custom: bool = False,
@@ -1144,7 +1429,8 @@ class NiDAQ(DAQ):
             dutyCycle: float = 0.5,
             amplitude: float = 0.5,
             recordingTime: float = 0.025,  # 25 ms period
-            max_attempts: int = 15
+            max_attempts: int = 15,
+            membrane_hold: float | None = None
     ):
         """
         • Pauses the DAQAcquisitionThread (tasks keep streaming).
@@ -1161,6 +1447,8 @@ class NiDAQ(DAQ):
             Averaged capacitance (pF), or None if no acceptable trace was found.
         """
         import math, time, numpy as np
+        self.voltage_membrane_test = None
+
 
         # ─── 1. Pause the worker thread (leave AI / AO running) ─────────
         self._pause_evt.clear()
@@ -1198,6 +1486,15 @@ class NiDAQ(DAQ):
                         self.voltageMembraneResistance,
                         self.voltageAccessResistance,
                         self.voltageMembraneCapacitance) = result
+                        hold_mV = membrane_hold * 1e3 if membrane_hold is not None else None
+                        self.voltage_membrane_test = {
+                            "time": np.copy(prot_data[0]),
+                            "response": np.copy(prot_data[1]),
+                            "command": np.copy(cmd_data[1]),
+                            "step_mV": float(amplitude * self.V_CLAMP_VOLT_PER_VOLT * 1e3),
+                            "hold_mV": hold_mV,
+                            "color": "#000000"
+                        }
                         first_saved = True
 
                     cm_values.append(memC)

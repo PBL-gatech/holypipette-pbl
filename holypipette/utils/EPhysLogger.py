@@ -43,9 +43,9 @@ class EPhysLogger(threading.Thread):
             pass # Folder already created, no need to create it again
             # logging.debug("Folder already created. Skipping creation.")
 
-    def _write_to_file(self, index, timeData, readData, respData, color):
+    def _write_to_file(self, index, timeData, readData, respData, color, filename_override=None):
         # Check if "CurrentProtocol" is in filename
-        if "CurrentProtocol" in self.filename:
+        if filename_override is None and "CurrentProtocol" in self.filename:
             with self.index_color_lock:
                 if index not in self.index_color_dict:
                     # Index is unique, create a new entry with an empty list for colors
@@ -63,20 +63,31 @@ class EPhysLogger(threading.Thread):
         # If "CurrentProtocol" is not in filename, proceed as the original method
         lines = [f"{timeData[i]} {readData[i]} {respData[i]}\n" for i in range(len(timeData))]
         # Open the file in append mode and write the formatted strings
-        logging.debug("Writing to file %s", self.filename)
-        with open(f"{self.filename}_{index}_{color}.csv", 'a+') as file:
+        if filename_override:
+            target_path = os.path.join(self.folder_path, f"{filename_override}.csv")
+        else:
+            target_path = f"{self.filename}_{index}_{color}.csv"
+
+        logging.debug("Writing to file %s", target_path)
+        with open(target_path, 'a+') as file:
             file.writelines(lines)
         self.write_event.set()  # Signal that writing is done
 
-    def write_ephys_data(self, index, timeData, readData, respData, color):
+    def write_ephys_data(self, index, timeData, readData, respData, color, *, filename_override=None):
         self.create_folder()  # Ensure folder is created if it hasn't been
         self.write_event.clear()
-        threading.Thread(target=self._write_to_file, args=(index, timeData, readData, respData, color)).start()
+        threading.Thread(
+            target=self._write_to_file,
+            args=(index, timeData, readData, respData, color, filename_override)
+        ).start()
 
-    def save_ephys_plot(self, index, plot):
+    def save_ephys_plot(self, index, plot, *, filename_override=None):
         self.create_folder()  # Ensure folder is created if it hasn't been
 
-        image_path = f"{self.filename}_{index}.png"
+        if filename_override:
+            image_path = os.path.join(self.folder_path, f"{filename_override}.png")
+        else:
+            image_path = f"{self.filename}_{index}.png"
         exporter = QtGui.QImage(plot.width(), plot.height(), QtGui.QImage.Format_ARGB32)
         painter = QtGui.QPainter(exporter)
         plot.render(painter)

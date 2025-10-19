@@ -140,10 +140,18 @@ class VoltageProtocolGraph(ProtocolGraph):
                          ephys_filename="VoltageProtocol")
 
     def update_plot(self):
-        # Compare arrays; if no new data or data is None, exit early.
-        if (self.graph_interface.daq.voltage_protocol_data is None or 
-            (self.latestDisplayedData is not None and 
-             np.array_equal(np.array(self.latestDisplayedData), np.array(self.graph_interface.daq.voltage_protocol_data)))):
+        daq = self.graph_interface.daq
+        sweeps_raw = daq.voltage_protocol_data
+        membrane_test = daq.voltage_membrane_test
+        if isinstance(sweeps_raw, np.ndarray):
+            sweeps = []
+        elif sweeps_raw is None:
+            sweeps = []
+        else:
+            sweeps = list(sweeps_raw)
+
+        has_sweeps = len(sweeps) > 0
+        if membrane_test is None and not has_sweeps:
             return
 
         index = self.recording_state_manager.sample_number
@@ -152,26 +160,81 @@ class VoltageProtocolGraph(ProtocolGraph):
             self.setHidden(False)
 
         self.plotWidget.clear()
-        colors = ["k"]
-        # Plot voltage protocol data
-        self.plotWidget.plot(self.graph_interface.daq.voltage_protocol_data[0, :],
-                             self.graph_interface.daq.voltage_protocol_data[1, :],
-                             pen=colors[0])
 
-        # Prepare data for logging
-        timeData = self.graph_interface.daq.voltage_protocol_data[0, :]
-        respData = self.graph_interface.daq.voltage_protocol_data[1, :]
-        if self.graph_interface.daq.voltage_command_data is not None:
-            readData = self.graph_interface.daq.voltage_command_data[1, :]
-        else:
-            readData = np.zeros_like(timeData)
-            raise ValueError("No voltage command data available")
+        # Render sweep traces with gradient colours
+        if has_sweeps:
+            sweep_count = len(sweeps)
+            start_color = "#003153"
+            end_color = "#ffffff"
+            cmap = LinearSegmentedColormap.from_list("", [start_color, end_color])
+            colors = [to_hex(cmap(float(i) / max(sweep_count - 1, 1))) for i in range(sweep_count)]
+            steps = getattr(daq, "vclamp_steps", None)
 
-        self.ephys_logger.write_ephys_data(index, timeData, readData, respData, colors[0])
-        self.ephys_logger.save_ephys_plot(index, self.plotWidget)
+            for i, trace in enumerate(sweeps):
+                timeData, respData, commandData = trace
+                color = colors[i]
+                self.plotWidget.plot(timeData, respData, pen=color)
 
-        self.latestDisplayedData = self.graph_interface.daq.voltage_protocol_data.copy()
-        self.graph_interface.daq.voltage_protocol_data = None  # Reset after plotting
+                if steps is not None and i < len(steps):
+                    step_label = f"{int(round(steps[i] * 1e3))}mV"
+                else:
+                    step_label = f"step{i}"
+                marker = f"{color}_{step_label}"
+
+                self.ephys_logger.write_ephys_data(
+                    index,
+                    timeData,
+                    commandData,
+                    respData,
+                    marker
+                )
+            self.ephys_logger.save_ephys_plot(index, self.plotWidget)
+
+        # Plot and export membrane-test data
+        if membrane_test is not None:
+            mem_color = membrane_test.get("color", "#000000")
+            timeData = membrane_test.get("time")
+            respData = membrane_test.get("response")
+            commandData = membrane_test.get("command")
+            step_mV = membrane_test.get("step_mV")
+            sweep_hold_mV = membrane_test.get("sweep_hold_mV", membrane_test.get("hold_mV"))
+
+            if timeData is not None and respData is not None:
+                self.plotWidget.plot(timeData, respData, pen=mem_color)
+
+            step_label = f"{int(round(step_mV))}mV" if step_mV is not None else "step"
+            hold_label = f"{int(round(sweep_hold_mV))}mV" if sweep_hold_mV is not None else "hold"
+
+            filename_override = f"MembraneTest_{index}_{mem_color}_{hold_label}_{step_label}"
+            self.ephys_logger.write_ephys_data(
+                index,
+                timeData,
+                commandData,
+                respData,
+                mem_color,
+                filename_override=filename_override
+            )
+            if timeData is not None and respData is not None:
+                self.ephys_logger.write_ephys_data(
+                    index,
+                    timeData,
+                    commandData,
+                    respData,
+                    mem_color,
+                    filename_override=filename_override
+                )
+                self.ephys_logger.save_ephys_plot(
+                    index,
+                    self.plotWidget,
+                    filename_override=f"MembraneTest_{index}"
+                )
+
+        # Reset DAQ buffers after plotting
+        self.latestDisplayedData = {"membrane": membrane_test is not None, "sweeps": len(sweeps)}
+        daq.voltage_protocol_data = None
+        daq.voltage_membrane_test = None
+        daq.vclamp_steps = None
+        daq.vclamp_hold_value = None
 class HoldingProtocolGraph(ProtocolGraph):
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
         super().__init__(graph_interface, recording_state_manager,
