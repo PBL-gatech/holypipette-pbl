@@ -1,4 +1,4 @@
-from holypipette.utils.config import Config, NumberWithUnit, Number, Boolean ,Selector
+﻿from holypipette.utils.config import Config, NumberWithUnit, Number, Boolean ,Selector
 import logging
 
 class PatchConfig(Config):
@@ -33,6 +33,10 @@ class PatchConfig(Config):
 
     Vramp_duration = NumberWithUnit(10, bounds=(0, 60), doc='Voltage ramp duration', unit='s')
     Vramp_amplitude = NumberWithUnit(-70e-3, bounds=(-200e-3, 0), doc='Holding Potential', unit='mV', magnitude=1e-3) # changed from -70 to -20 for HEK cells
+    run_voltage_sweep = Boolean(default=False, doc='Run the voltage-clamp sweep after the membrane test')
+    vclamp_start = NumberWithUnit(-110e-3, bounds=(-200e-3, 0), doc='Voltage-clamp sweep start', unit='mV', magnitude=1e-3)
+    vclamp_end = NumberWithUnit(50e-3, bounds=(0, 200e-3), doc='Voltage-clamp sweep end', unit='mV', magnitude=1e-3)
+    vclamp_hold = NumberWithUnit(-110e-3, bounds=(-200e-3, 0), doc='Voltage-clamp sweep holding potential', unit='mV', magnitude=1e-3)
 
     zap = Boolean(False, doc='Zap the cell to break the seal')
 
@@ -56,9 +60,10 @@ class PatchConfig(Config):
         ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_duration', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
         ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol']),
-        ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end','cclamp_hold', 'hclamp_duration']),
+        ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end','cclamp_hold', 'run_voltage_sweep', 'vclamp_start', 'vclamp_end', 'vclamp_hold', 'hclamp_duration']),
         ('AutoPatching', ['cell_type_toggle','cell_type', 'mode']),
         ('Fluorescence', ['lamp'])  
     ]
 
     logging.info("PatchConfig initialized successfully.")
+
