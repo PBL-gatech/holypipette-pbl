@@ -888,6 +888,90 @@ class NiDAQ(DAQ):
         self.ao_task.start()
         self.ai_task.start()
 
+    def _setupAcquisitionVoltage(self,
+                                 *,
+                                 wave_freq: float,
+                                 samplesPerSec: int,
+                                 dutyCycle: float,
+                                 recordingTime: float,
+                                 exp_samples: int,
+                                 buffer_trains: int):
+        """
+        Configure the dedicated AI/AO pair for the V-clamp step protocol.
+        Mirrors the current-clamp setup while preserving voltage-specific buffer sizing.
+        """
+        import nidaqmx
+        import nidaqmx.constants as c
+
+        # ------------------------------------------------------------------
+        # 1. prime buffer (0 V step)
+        # ------------------------------------------------------------------
+        zero_wave, _, num_samples = self.createSquareWave(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=0.0,
+            recordingTime=recordingTime,
+            store=False,
+        )
+
+        # ------------------------------------------------------------------
+        # 2. tasks (AI clock; AO waits on AI start trigger)
+        # ------------------------------------------------------------------
+        self.ai_task = nidaqmx.Task()
+        self.ai_task.ai_channels.add_ai_voltage_chan(
+            f"{self.readDev}/{self.readChannel}",
+            terminal_config=c.TerminalConfiguration.DIFF,
+            min_val=-10.0,
+            max_val=10.0,
+        )
+        self.ai_task.ai_channels.add_ai_voltage_chan(
+            f"{self.respDev}/{self.respChannel}",
+            terminal_config=c.TerminalConfiguration.DIFF,
+            min_val=-10.0,
+            max_val=10.0,
+        )
+        self.ai_task.timing.cfg_samp_clk_timing(
+            rate=samplesPerSec,
+            sample_mode=c.AcquisitionType.CONTINUOUS,
+        )
+        self.ai_task.in_stream.input_buf_size = max(
+            self.ai_task.in_stream.input_buf_size,
+            exp_samples * buffer_trains,
+        )
+
+        self.ao_task = nidaqmx.Task()
+        self.ao_task.ao_channels.add_ao_voltage_chan(f"{self.cmdDev}/{self.cmdChannel}")
+        self.ao_task.timing.cfg_samp_clk_timing(
+            rate=samplesPerSec,
+            sample_mode=c.AcquisitionType.CONTINUOUS,
+            samps_per_chan=num_samples,
+        )
+        self.ao_task.out_stream.regen_mode = c.RegenerationMode.DONT_ALLOW_REGENERATION
+        self.ao_task.out_stream.output_buf_size = max(
+            self.ao_task.out_stream.output_buf_size,
+            num_samples * buffer_trains,
+        )
+
+        # ------------------------------------------------------------------
+        # 3. trigger routing (AO armed by AI start trigger)
+        # ------------------------------------------------------------------
+        start_trig_term = (
+            f"/{self.readDev.split('Mod')[0] if 'Mod' in self.readDev else self.readDev}"
+            "/ai/StartTrigger"
+        )
+        self.ao_task.triggers.start_trigger.cfg_dig_edge_start_trig(
+            start_trig_term,
+            trigger_edge=c.Edge.RISING,
+        )
+
+        # ------------------------------------------------------------------
+        # 4. prime AO FIFO and start in LabVIEW order
+        # ------------------------------------------------------------------
+        self.ao_task.write(zero_wave, auto_start=False)
+        self.ao_task.start()
+        self.ai_task.start()
+
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         """
         Wrapper for the AI task: read exactly one bufferful.
@@ -977,6 +1061,20 @@ class NiDAQ(DAQ):
         # 2) write the new wave to the AO task
         self.ao_task.write(wave, auto_start=False)
 
+    def _sendSquareWaveVoltage(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        """
+        Generate the next voltage-step wave and queue it on the running AO task.
+        """
+        wave, _, _ = self.createSquareWave(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=amplitude,
+            recordingTime=recordingTime,
+            store=False,
+        )
+        self.ao_task.write(wave, auto_start=False)
+
     def getVoltageClampSweep(
             self,
             *,
@@ -995,11 +1093,14 @@ class NiDAQ(DAQ):
         to the membrane-test traces.
         """
         import numpy as np
-        import nidaqmx
-        import nidaqmx.constants as c
 
         if step_voltage == 0:
             raise ValueError("step_voltage must be non-zero")
+
+        samplesPerSec = int(samplesPerSec)
+        dutyCycle = float(dutyCycle)
+        recordingTime = float(recordingTime)
+        wave_freq = float(wave_freq)
 
         span = end_voltage - start_voltage
         step = abs(step_voltage)
@@ -1016,7 +1117,8 @@ class NiDAQ(DAQ):
         self.vclamp_hold_value = holding_voltage
         self.voltage_protocol_data = []
 
-        exp_samples = int(samplesPerSec * recordingTime)
+        fullRecTime = recordingTime
+        exp_samples = int(samplesPerSec * fullRecTime)
 
         self.pause_acquisition()
         for task_name in ("ai_task", "ao_task"):
@@ -1030,80 +1132,22 @@ class NiDAQ(DAQ):
                     task.close()
                 except Exception:
                     pass
-        zero_wave, _, num_samples = self.createSquareWave(
+        buffer_trains = max(len(targets) + 2, 4)
+        self._setupAcquisitionVoltage(
             wave_freq=wave_freq,
             samplesPerSec=samplesPerSec,
             dutyCycle=dutyCycle,
-            amplitude=0.0,
             recordingTime=recordingTime,
-            store=False,
+            exp_samples=exp_samples,
+            buffer_trains=buffer_trains,
         )
-
-        buffer_trains = max(len(targets) + 2, 4)
-
-        self.ai_task = nidaqmx.Task()
-        self.ai_task.ai_channels.add_ai_voltage_chan(
-            f"{self.readDev}/{self.readChannel}",
-            terminal_config=c.TerminalConfiguration.DIFF,
-            min_val=-10.0,
-            max_val=10.0,
-        )
-        self.ai_task.ai_channels.add_ai_voltage_chan(
-            f"{self.respDev}/{self.respChannel}",
-            terminal_config=c.TerminalConfiguration.DIFF,
-            min_val=-10.0,
-            max_val=10.0,
-        )
-        self.ai_task.timing.cfg_samp_clk_timing(
-            rate=samplesPerSec,
-            sample_mode=c.AcquisitionType.CONTINUOUS,
-        )
-        self.ai_task.in_stream.input_buf_size = max(
-            self.ai_task.in_stream.input_buf_size,
-            exp_samples * buffer_trains,
-        )
-
-        self.ao_task = nidaqmx.Task()
-        self.ao_task.ao_channels.add_ao_voltage_chan(f"{self.cmdDev}/{self.cmdChannel}")
-        self.ao_task.timing.cfg_samp_clk_timing(
-            rate=samplesPerSec,
-            sample_mode=c.AcquisitionType.CONTINUOUS,
-            samps_per_chan=num_samples,
-        )
-        self.ao_task.out_stream.regen_mode = c.RegenerationMode.DONT_ALLOW_REGENERATION
-        self.ao_task.out_stream.output_buf_size = max(
-            self.ao_task.out_stream.output_buf_size,
-            num_samples * buffer_trains,
-        )
-
-        start_trig_term = (
-            f"/{self.readDev.split('Mod')[0] if 'Mod' in self.readDev else self.readDev}"
-            "/ai/StartTrigger"
-        )
-        self.ao_task.triggers.start_trigger.cfg_dig_edge_start_trig(
-            start_trig_term,
-            trigger_edge=c.Edge.RISING,
-        )
-
-        self.ao_task.write(zero_wave, auto_start=False)
-        self.ao_task.start()
-        self.ai_task.start()
-
-        def queue_step(amplitude_volts: float):
-            wave, _, _ = self.createSquareWave(
-                wave_freq=wave_freq,
-                samplesPerSec=samplesPerSec,
-                dutyCycle=dutyCycle,
-                amplitude=amplitude_volts,
-                recordingTime=recordingTime,
-                store=False,
-            )
-            self.ao_task.write(wave, auto_start=False)
 
         if targets.size:
             first_delta = targets[0] - holding_voltage
             first_amp = first_delta / self.V_CLAMP_VOLT_PER_VOLT
-            queue_step(first_amp)
+            self._sendSquareWaveVoltage(
+                wave_freq, samplesPerSec, dutyCycle, first_amp, recordingTime
+            )
 
         while self.ai_task.in_stream.avail_samp_per_chan < exp_samples:
             self.sleep(0.002)
@@ -1116,16 +1160,16 @@ class NiDAQ(DAQ):
                 if idx + 1 < len(targets):
                     next_delta = targets[idx + 1] - holding_voltage
                     next_amp = next_delta / self.V_CLAMP_VOLT_PER_VOLT
-                    queue_step(next_amp)
+                    self._sendSquareWaveVoltage(
+                        wave_freq, samplesPerSec, dutyCycle, next_amp, recordingTime
+                    )
 
                 while self.ai_task.in_stream.avail_samp_per_chan < exp_samples:
                     self.sleep(0.002)
 
                 raw = np.asarray(self.ai_task.read(exp_samples, timeout=2.0), dtype=float)
                 step_amp_volts = (target - holding_voltage) / self.V_CLAMP_VOLT_PER_VOLT
-                prot_data, cmd_data, *_ = self._squareWaveProcessor(
-                    raw, samplesPerSec, step_amp_volts
-                )
+                prot_data, cmd_data, *_ = self._squareWaveProcessor(raw, samplesPerSec, step_amp_volts)
 
                 time_vec = np.copy(prot_data[0])
                 resp_vec = np.copy(prot_data[1])

@@ -35,6 +35,7 @@ class PatchConfig(Config):
     Vramp_amplitude = NumberWithUnit(-70e-3, bounds=(-200e-3, 0), doc='Holding Potential', unit='mV', magnitude=1e-3) # changed from -70 to -20 for HEK cells
     run_voltage_sweep = Boolean(default=False, doc='Run the voltage-clamp sweep after the membrane test')
     vclamp_start = NumberWithUnit(-110e-3, bounds=(-200e-3, 0), doc='Voltage-clamp sweep start', unit='mV', magnitude=1e-3)
+    vclamp_step = NumberWithUnit(20e-3, bounds=(0, 100e-3), doc='Voltage-clamp sweep step', unit='mV', magnitude=1e-3)
     vclamp_end = NumberWithUnit(50e-3, bounds=(0, 200e-3), doc='Voltage-clamp sweep end', unit='mV', magnitude=1e-3)
     vclamp_hold = NumberWithUnit(-110e-3, bounds=(-200e-3, 0), doc='Voltage-clamp sweep holding potential', unit='mV', magnitude=1e-3)
 

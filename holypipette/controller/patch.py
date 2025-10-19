@@ -377,6 +377,7 @@ class AutoPatcher(TaskController):
 
             if self.config.run_voltage_sweep:
                 sweep_hold = float(self.config.vclamp_hold)
+                sweep_step = float(self.config.vclamp_step)
                 sweep_start = float(self.config.vclamp_start)
                 sweep_end = float(self.config.vclamp_end)
                 self.amplifier.set_holding(sweep_hold)
@@ -388,6 +389,7 @@ class AutoPatcher(TaskController):
                 self.info("Getting data from voltage clamp sweep")
                 self.daq.getVoltageClampSweep(
                     start_voltage=sweep_start,
+                    step_voltage=sweep_step,
                     end_voltage=sweep_end,
                     holding_voltage=sweep_hold
                 )
