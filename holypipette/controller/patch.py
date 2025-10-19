@@ -921,7 +921,7 @@ class AutoPatcher(TaskController):
 
         # ---------- loop variables ----------
         trials        = 0
-        speed         = 3
+        speed         = 2
         good_count    = 0
         threshold_AR  = self.config.max_access_R      # adjust here if units differ
         wait_period = 0.50
@@ -956,7 +956,7 @@ class AutoPatcher(TaskController):
                 self.sleep(1 / speed)
                 self.pressure.set_ATM(atm=True)
                 self.sleep(wait_period*(1 + trials/2))
-                speed = 3
+                speed = 2
 
                 osc = trials % 3
                 if self.config.zap and osc == 0:

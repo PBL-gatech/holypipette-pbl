@@ -8,7 +8,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
-from holypipette.deepLearning.PatcherBotAgent import CellHunter, GigaSealer, Burglar, PipetteFinder
+from holypipette.deepLearning.PatcherBotAgent import (
+    Burglar,
+    CellHunter,
+    DemoReplayAgent,
+    GigaSealer,
+    PipetteFinder,
+)
 
 import h5py
 
@@ -19,6 +25,7 @@ class AgentHelper:
         """Track the active agent instance and its configuration."""
         self.agent = None
         self.requires_goal = False
+        self._demo_actions: Optional[np.ndarray] = None
 
     def prepare_model(self, model_type):
         """Instantiate one of the supported agent subclasses."""
@@ -31,9 +38,24 @@ class AgentHelper:
             self.agent = GigaSealer()
         elif model_type == "break_in":
             self.agent = Burglar()
+        elif model_type in {"find_pipette_replay", "hunt_replay"}:
+            self.agent = DemoReplayAgent()
         else:
             raise ValueError(f"Model type '{model_type}' not supported")
+        if isinstance(self.agent, DemoReplayAgent) and self._demo_actions is not None:
+            self.agent.load_actions(self._demo_actions)
         self.requires_goal = bool(getattr(self.agent, "goal_required", False))
+
+    def load_demo(self, actions: np.ndarray) -> None:
+        """Store demo actions for later replay and pass them to an active replay agent."""
+        replay = np.asarray(actions, dtype=np.float32)
+        if replay.ndim == 1:
+            replay = replay.reshape(1, -1)
+        if replay.size == 0:
+            raise ValueError("Demo action array must contain at least one action")
+        self._demo_actions = replay.astype(np.float32, copy=False)
+        if isinstance(self.agent, DemoReplayAgent):
+            self.agent.load_actions(self._demo_actions)
 
     def run_inference(
         self,
@@ -424,6 +446,7 @@ class AgentTester:
         """Run inference over a dataset and collect error/latency metrics."""
         dataset = self._load_hdf5_sequence(Path(data_path), demo_id=demo_id)
         self.last_dataset = dataset
+        self.agent_helper.load_demo(dataset["actions"])
         self.agent_helper.prepare_model(model_type)
 
         goal = None

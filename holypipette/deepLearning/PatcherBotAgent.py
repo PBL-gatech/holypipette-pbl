@@ -463,6 +463,35 @@ class ModelInferencer:
         return processed_action
 
 
+class DemoReplayAgent:
+    def __init__(self, actions: Optional[np.ndarray] = None) -> None:
+        """Replay a cached sequence of actions without using live observations."""
+        self._actions: Optional[np.ndarray] = None
+        self._cursor: int = 0
+        if actions is not None:
+            self.load_actions(actions)
+
+    def load_actions(self, actions: np.ndarray) -> None:
+        """Store the sequence of actions that will be returned on subsequent calls."""
+        replay = np.asarray(actions, dtype=np.float32)
+        if replay.ndim == 1:
+            replay = replay.reshape(1, -1)
+        if replay.size == 0:
+            raise ValueError("DemoReplayAgent received an empty action array")
+        self._actions = replay.astype(np.float32, copy=False)
+        self._cursor = 0
+
+    def inference(self, observation, goal=None, is_demo: bool = False):
+        """Return the next cached action, ignoring all inputs once initialized."""
+        if self._actions is None:
+            raise RuntimeError("DemoReplayAgent requires actions to be loaded before inference")
+        index = min(self._cursor, self._actions.shape[0] - 1)
+        action = self._actions[index]
+        if self._cursor < self._actions.shape[0]:
+            self._cursor += 1
+        return np.asarray(action, dtype=np.float32)
+
+
 class PipetteFinder(ModelInferencer):
     def __init__(self, model_path: str = r"holypipette\deepLearning\patchModel\Agents\PipetteFinder"):
         """Initialize the pipette finder policy."""
