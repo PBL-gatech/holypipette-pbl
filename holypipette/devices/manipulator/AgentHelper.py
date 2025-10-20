@@ -26,6 +26,15 @@ class AgentHelper:
         self.agent = None
         self.requires_goal = False
         self._demo_actions: Optional[np.ndarray] = None
+        self._last_demo_dataset: Optional[Dict[str, Any]] = None
+        self._default_demo_sources: Dict[str, Dict[str, Any]] = {
+            "find_pipette_replay": {
+                "path": Path(
+                    r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_435\PatcherBot_dataset_v0_435_find_pipette.hdf5"
+                ),
+                "demo_id": "demo_140",
+            },
+        }
 
     def prepare_model(self, model_type):
         """Instantiate one of the supported agent subclasses."""
@@ -40,10 +49,26 @@ class AgentHelper:
             self.agent = Burglar()
         elif model_type in {"find_pipette_replay", "hunt_replay"}:
             self.agent = DemoReplayAgent()
+            if self._demo_actions is None:
+                source = self._default_demo_sources.get(model_type)
+                if source and source.get("path"):
+                    try:
+                        self.load_demo_from_hdf5(source["path"], demo_id=source.get("demo_id"))
+                    except Exception as exc:
+                        raise RuntimeError(f"Failed to load demo actions for '{model_type}': {exc}") from exc
+                else:
+                    raise RuntimeError(
+                        f"No demo actions loaded for '{model_type}'. "
+                        "Call load_demo()/load_demo_from_hdf5() or register a demo source via set_demo_source()."
+                    )
+            else:
+                self.agent.load_actions(self._demo_actions)
         else:
             raise ValueError(f"Model type '{model_type}' not supported")
-        if isinstance(self.agent, DemoReplayAgent) and self._demo_actions is not None:
-            self.agent.load_actions(self._demo_actions)
+        if isinstance(self.agent, DemoReplayAgent):
+            image_size = self._infer_image_size(self._last_demo_dataset)
+            if image_size is not None:
+                self.agent.set_image_size(image_size)
         self.requires_goal = bool(getattr(self.agent, "goal_required", False))
 
     def load_demo(self, actions: np.ndarray) -> None:
@@ -57,29 +82,45 @@ class AgentHelper:
         if isinstance(self.agent, DemoReplayAgent):
             self.agent.load_actions(self._demo_actions)
 
-    def run_inference(
+    def has_demo_actions(self) -> bool:
+        """Return True when a demo action sequence has been cached."""
+        return self._demo_actions is not None and self._demo_actions.size > 0
+
+    def load_demo_from_hdf5(self, data_path: Union[str, Path], *, demo_id: Optional[str] = None) -> Dict[str, Any]:
+        """Load demo data from disk and cache its action sequence for replay use."""
+        dataset = self._load_hdf5_sequence(Path(data_path), demo_id=demo_id)
+        self._last_demo_dataset = dataset
+        self.load_demo(dataset["actions"])
+        return dataset
+
+    def set_demo_source(
         self,
-        observation: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
-        goal: Optional[np.ndarray] = None,
+        model_type: str,
         *,
-        is_demo: bool = False,
-    ) -> np.ndarray:
-        """Execute inference on the prepared agent."""
-        if self.agent is None:
-            raise RuntimeError("Call prepare_model before run_inference")
-        active_goal = goal if self.requires_goal else None
-        return self.agent.inference(observation=observation, goal=active_goal, is_demo=is_demo)
+        path: Optional[Union[str, Path]],
+        demo_id: Optional[str] = None,
+    ) -> None:
+        """Register or remove a default demo dataset for a replay-capable model."""
+        if path is None:
+            self._default_demo_sources.pop(model_type, None)
+            return
+        self._default_demo_sources[model_type] = {
+            "path": Path(path),
+            "demo_id": demo_id,
+        }
 
-
-class AgentTester:
-    def __init__(self) -> None:
-        """Prepare the agent for testing."""
-        self.agent_helper = AgentHelper()
-        self.predictions: List[np.ndarray] = []
-        self.latencies_ms: List[float] = []
-        self.errors: List[float] = []
-        self.last_results: Optional[Dict[str, Any]] = None
-        self.last_dataset: Optional[Dict[str, Any]] = None
+    def _infer_image_size(self, dataset: Optional[Dict[str, Any]]) -> Optional[Tuple[int, int]]:
+        """Extract the (height, width) from the cached dataset if available."""
+        if not dataset:
+            return None
+        images = dataset.get("images")
+        if images is None or getattr(images, "shape", None) is None:
+            return None
+        if images.ndim == 4:  # (N, H, W, C)
+            return int(images.shape[1]), int(images.shape[2])
+        if images.ndim == 3:  # (N, H, W)
+            return int(images.shape[1]), int(images.shape[2])
+        return None
 
     def _load_hdf5_sequence(
         self,
@@ -139,9 +180,33 @@ class AgentTester:
             "images": np.asarray(images),
             "resistance": np.asarray(resistance, dtype=np.float32),
             "pipette_positions": np.asarray(pipette_positions, dtype=np.float32),
-            "stage_positions": stage_positions,
+            "stage_positions": np.asarray(stage_positions, dtype=np.float32),
             "actions": np.asarray(actions, dtype=np.float32),
         }
+
+    def run_inference(
+        self,
+        observation: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        goal: Optional[np.ndarray] = None,
+        *,
+        is_demo: bool = False,
+    ) -> np.ndarray:
+        """Execute inference on the prepared agent."""
+        if self.agent is None:
+            raise RuntimeError("Call prepare_model before run_inference")
+        active_goal = goal if self.requires_goal else None
+        return self.agent.inference(observation=observation, goal=active_goal, is_demo=is_demo)
+
+
+class AgentTester:
+    def __init__(self) -> None:
+        """Prepare the agent for testing."""
+        self.agent_helper = AgentHelper()
+        self.predictions: List[np.ndarray] = []
+        self.latencies_ms: List[float] = []
+        self.errors: List[float] = []
+        self.last_results: Optional[Dict[str, Any]] = None
+        self.last_dataset: Optional[Dict[str, Any]] = None
 
     def compute_errors(self, predictions: np.ndarray, actions: np.ndarray) -> List[float]:
         """Compute the L2 error between the predicted and actual actions per frame."""
@@ -444,9 +509,8 @@ class AgentTester:
         demo_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run inference over a dataset and collect error/latency metrics."""
-        dataset = self._load_hdf5_sequence(Path(data_path), demo_id=demo_id)
+        dataset = self.agent_helper.load_demo_from_hdf5(data_path, demo_id=demo_id)
         self.last_dataset = dataset
-        self.agent_helper.load_demo(dataset["actions"])
         self.agent_helper.prepare_model(model_type)
 
         goal = None
@@ -527,8 +591,9 @@ if __name__ == "__main__":
     agenttester = AgentTester()
 
     model_type = "find_pipette"
-    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_300\PatcherBot_test_dataset_v0_300_find_pipette.hdf5"
+    # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_300\PatcherBot_test_dataset_v0_300_find_pipette.hdf5"
+    data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_435\PatcherBot_dataset_v0_435_find_pipette.hdf5"
     # data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_400\PatcherBot_dataset_v0_400_find_pipette.hdf5"
-    demo_id = "demo_2"
+    demo_id = "demo_140"
     agenttester.main(model_type=model_type, data_path=data_path, demo_id=demo_id)
 

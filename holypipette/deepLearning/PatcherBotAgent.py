@@ -322,7 +322,9 @@ class ModelInferencer:
         if cvpi is not None:
             pipette_array = np.asarray(cvpi, dtype=np.float32)
             if not is_demo and frame_params is not None:
+                print(f"pipette_array before scaling: {pipette_array}")
                 pipette_array = self._scale_pipette_for_model(pipette_array, frame_params)
+                print(f"pipette_array after scaling: {pipette_array}")
         if pipette_array is not None and pipette_array.ndim >= 1 and pipette_array.shape[-1] > 0:
             self._pipette_action_dim = int(pipette_array.shape[-1])
 
@@ -431,7 +433,14 @@ class ModelInferencer:
             if pip_dim > 0:
                 pip_slice = slice(arr.shape[0] - pip_dim, arr.shape[0])
                 pipette_components = np.asarray(arr[pip_slice], dtype=np.float32)
+                before_str = np.array2string(pipette_components, precision=7, separator=", ")
+                print(
+                    f"[process_action] pipette components (model space): {before_str} "
+                    f"with frame params {self._last_frame_params}"
+                )
                 restored = self._restore_pipette_from_model(pipette_components, self._last_frame_params)
+                after_str = np.array2string(restored, precision=7, separator=", ")
+                print(f"[process_action] pipette components (image space): {after_str}")
                 arr[pip_slice] = restored.reshape(pip_dim)
         return arr.astype(np.float32)
 
@@ -459,6 +468,7 @@ class ModelInferencer:
         inputs = self.process_obs(observation, is_demo=is_demo)
         self.set_goal(goal)
         action, _ = self.predict(inputs)
+        print(f"[inference] raw action from model: {action}")
         processed_action = self.process_action(action)
         return processed_action
 
@@ -468,6 +478,7 @@ class DemoReplayAgent:
         """Replay a cached sequence of actions without using live observations."""
         self._actions: Optional[np.ndarray] = None
         self._cursor: int = 0
+        self._image_size: Optional[Tuple[int, int]] = None  # (height, width)
         if actions is not None:
             self.load_actions(actions)
 
@@ -481,6 +492,27 @@ class DemoReplayAgent:
         self._actions = replay.astype(np.float32, copy=False)
         self._cursor = 0
 
+    def set_image_size(self, image_shape: Tuple[int, int]) -> None:
+        """Provide the target image height/width for scaling pixel-level actions."""
+        if image_shape is None or len(image_shape) != 2:
+            raise ValueError("Image shape must be a (height, width) tuple")
+        self._image_size = (int(image_shape[0]), int(image_shape[1]))
+
+    def _scale_action(self, action: np.ndarray) -> np.ndarray:
+        """Scale normalized (85x85) pixel deltas up to the full image resolution."""
+        if self._image_size is None:
+            return action.astype(np.float32, copy=False)
+        height, width = self._image_size
+        print(f"Image dimensions: {width}x{height} px")
+        scaled = np.asarray(action, dtype=np.float32).copy()
+        if scaled.size >= 2:
+            scaled[0] = scaled[0] * (1280 / 85.0)
+            scaled[1] = scaled[1] * (1280 / 85.0)
+        if scaled.size >= 4:
+            scaled[2] = scaled[2] * (1280 / 85.0)
+            scaled[3] = scaled[3] * (1280 / 85.0)
+        return scaled.astype(np.float32, copy=False)
+
     def inference(self, observation, goal=None, is_demo: bool = False):
         """Return the next cached action, ignoring all inputs once initialized."""
         if self._actions is None:
@@ -489,7 +521,7 @@ class DemoReplayAgent:
         action = self._actions[index]
         if self._cursor < self._actions.shape[0]:
             self._cursor += 1
-        return np.asarray(action, dtype=np.float32)
+        return self._scale_action(action)
 
 
 class PipetteFinder(ModelInferencer):
@@ -499,7 +531,7 @@ class PipetteFinder(ModelInferencer):
         # print(model_path)
         importer = ModelImporter(base, base, base, base)
         super().__init__(importer)
-        self.action_dim = 6
+        self.action_dim = 2
 
 
 class CellHunter(ModelInferencer):

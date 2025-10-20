@@ -120,7 +120,7 @@ class AutoPatcher(TaskController):
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
-        self.agenthelper.prepare_model("find_pipette")
+        self.agenthelper.prepare_model("find_pipette_replay")
         sleep_time = 0.005 # seconds
 
         goal_needed = bool(self.goal_needed)
@@ -269,16 +269,19 @@ class AutoPatcher(TaskController):
                     ((pred_offset[1])),
                     0
                 )
-                self.info(f"target converted relative distance: {target_point_microns} um")
-                target_point_microns = self.calibrated_unit.pixels_to_um_relative(target_point_microns) + self.calibrated_unit.position()
 
-                self.info(f" target converted distance in um: {target_point_microns} um")
+                target_point_microns_relative = self.calibrated_unit.pixels_to_um_relative(target_point_microns) 
+                self.info(f"target converted relative distance: {target_point_microns_relative} um")
+                target_point_microns_absolute = target_point_microns_relative + self.calibrated_unit.position()
+
+                self.info(f" target converted distance in um: {target_point_microns_absolute} um")
 
                 self.info(f"acting...")
                 
-                self.calibrated_unit.absolute_move(np.array(target_point_microns))
+                # self.calibrated_unit.absolute_move(np.array(target_point_microns))
+                self.calibrated_unit.relative_move(np.array(target_point_microns_relative))
 
-                # # self.calibrated_unit.absolute_move(target_point_microns)
+                # self.calibrated_unit.absolute_move(target_point_microns)
                 # # intstead, divide the values by 33ms of time, the rough recording frequency and command themn to move at that velocity
                 # target_point_microns_velocity = (
                 #     ((pred_offset[0]))/0.033,
