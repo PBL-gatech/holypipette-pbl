@@ -166,6 +166,7 @@ class DatasetBuilderSettings:
     # Legacy toggles preserved for parity with DatasetBuilder
     center_crop: bool = False # set to true to center crop images around pipette
     inaction: int = 1 # maximum number of consecutive zero-action steps to keep
+    inaction_tolerance: float = 0.1 # per-axis magnitude treated as inactivity
 
 
 @dataclass(slots=True)
@@ -386,6 +387,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.image_resize = settings.image_resize
         self.pipette_final_pos_color_dot = settings.pipette_final_pos_color_dot
         self.inaction = settings.inaction
+        self.inaction_tolerance = settings.inaction_tolerance
         self.val_ratio = settings.val_ratio
         self.omit_stage_movement = settings.omit_stage_movement
         self.rng = np.random.default_rng(settings.random_seed)
@@ -514,7 +516,10 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         if self.inaction == 0:
             return (actions,) + arrays
 
-        inactive = (actions.sum(axis=1) == 0).astype(np.int8)
+        if self.inaction_tolerance > 0.0:
+            inactive = (np.all(np.abs(actions) <= self.inaction_tolerance, axis=1)).astype(np.int8)
+        else:
+            inactive = (actions.sum(axis=1) == 0).astype(np.int8)
         diff = np.diff(np.concatenate(([0], inactive, [0])))
         starts = np.where(diff == 1)[0]
         ends = np.where(diff == -1)[0]
@@ -1633,7 +1638,7 @@ __all__ = [
 if __name__ == "__main__":
 
 # ----------------------------------------------------------------------------------------------------------------------------------------
-    dataset_name = "PatcherBot_test_dataset_v0_435.hdf5"
+    dataset_name = "PatcherBot_dataset_v0_510.hdf5"
 
 
     # rig_recorder_data_folder_set = [
@@ -1644,9 +1649,9 @@ if __name__ == "__main__":
     #     "2025_10_08-23_18" # version 0.200 and beyond. contains random planar endpoints.
     #     ] # version 0.001 training data (9/25/2025) # find pipette data
     # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025) find_pipette test set
-    # rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300 - version 435
+    rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300 - version 510
 
-    rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
+    # rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
 
     # ------------------------------------------------------------------------------------------------------------------------------
     # rig_recorder_data_folder_set = [
