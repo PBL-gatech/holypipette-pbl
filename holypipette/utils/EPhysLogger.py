@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import datetime
 import threading
 import os
@@ -107,7 +108,25 @@ class EPhysLogger(threading.Thread):
                 image = image.astype(np.uint8)
             return image
 
-    def save_cell_metadata(self, index, stage_coords, image=None):
+    def _format_metadata_value(self, value):
+        if value is None:
+            return "NaN"
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return "NaN"
+        if math.isnan(value):
+            return "NaN"
+        return f"{value:.6g}"
+
+    def _append_metadata_row(self, target_path, header, row):
+        write_header = not os.path.exists(target_path)
+        with open(target_path, "a+", encoding="utf-8") as f:
+            if write_header:
+                f.write(header)
+            f.write(row)
+
+    def save_cell_metadata(self, index, stage_coords, image=None, *, voltage_hold=None, current_hold=None):
         """Save cell image and stage coordinates for a given protocol index."""
         self.create_folder()
 
@@ -120,13 +139,14 @@ class EPhysLogger(threading.Thread):
         imageio.imwrite(os.path.join(self.folder_path, img_filename), image)
 
         timestamp = int(datetime.now().timestamp() * 1000)
-        write_header = not os.path.exists(self.cell_metadata_file)
-        with open(self.cell_metadata_file, "a+") as f:
-            if write_header:
-                f.write("index;stage_x;stage_y;stage_z;image;timestamp\n")
-            f.write(
-                f"{index};{stage_coords[0]};{stage_coords[1]};{stage_coords[2]};{img_filename};{timestamp}\n"
-            )
+        voltage_hold_str = self._format_metadata_value(voltage_hold)
+        current_hold_str = self._format_metadata_value(current_hold)
+        header = "index;stage_x;stage_y;stage_z;image;timestamp;voltage_hold_mV;current_hold_pA\n"
+        row = (
+            f"{index};{stage_coords[0]};{stage_coords[1]};{stage_coords[2]};"
+            f"{img_filename};{timestamp};{voltage_hold_str};{current_hold_str}\n"
+        )
+        self._append_metadata_row(self.cell_metadata_file, header, row)
 
     def hold_image(self, index, image):
         if image is None:
