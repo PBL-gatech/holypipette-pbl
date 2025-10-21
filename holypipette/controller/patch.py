@@ -60,7 +60,7 @@ class AutoPatcher(TaskController):
         self.agenthelper =   AgentHelper()
         self.current_protocol_graph = None
         self.goal_needed = True
-        self.goal_random = False
+        self.goal_random = True
         self.ninput = None
         self.done = False
 
@@ -120,7 +120,7 @@ class AutoPatcher(TaskController):
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
-        self.agenthelper.prepare_model("find_pipette_replay")
+        self.agenthelper.prepare_model("find_pipette")
         sleep_time = 0.005 # seconds
 
         goal_needed = bool(self.goal_needed)

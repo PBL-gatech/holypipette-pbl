@@ -1638,7 +1638,7 @@ __all__ = [
 if __name__ == "__main__":
 
 # ----------------------------------------------------------------------------------------------------------------------------------------
-    dataset_name = "PatcherBot_dataset_v0_510.hdf5"
+    dataset_name = "PatcherBot_test_dataset_v0_510.hdf5"
 
 
     # rig_recorder_data_folder_set = [
@@ -1649,9 +1649,9 @@ if __name__ == "__main__":
     #     "2025_10_08-23_18" # version 0.200 and beyond. contains random planar endpoints.
     #     ] # version 0.001 training data (9/25/2025) # find pipette data
     # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025) find_pipette test set
-    rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300 - version 510
+    # rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300 - version 510
 
-    # rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
+    rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
 
     # ------------------------------------------------------------------------------------------------------------------------------
     # rig_recorder_data_folder_set = [

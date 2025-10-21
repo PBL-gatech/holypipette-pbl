@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image, UnidentifiedImageError
 
 # --- USER CONFIGURATION DEFAULTS ---
-DEFAULT_INPUT_DIR = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\agent_movement_data\2025_10_10-21_24")
+DEFAULT_INPUT_DIR = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\agent_movement_data\2025_10_20-21_35")
 DEFAULT_FPS = 30.0
 DEFAULT_RED_THRESHOLDS = (150, 100, 100)  # (r_min, g_max, b_max)
 DEFAULT_AXIS_LIMIT = 85
