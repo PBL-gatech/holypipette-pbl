@@ -399,6 +399,14 @@ class AutoPatcher(TaskController):
         self.amplifier.switch_holding(True)
         self.info('holding enabled for voltage sweep')
         self.sleep(0.25)
+        self.info("Executing P/4 leak subtraction series")
+        self.daq.getLeakSubtraction(
+            start_voltage=sweep_start,
+            step_voltage=sweep_step,
+            end_voltage=sweep_end,
+            holding_voltage=sweep_hold
+        )
+        self.sleep(0.25)
         self.info("Getting data from voltage clamp sweep")
         self.daq.getVoltageClampSweep(
             start_voltage=sweep_start,
