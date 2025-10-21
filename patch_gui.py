@@ -18,7 +18,7 @@ from holypipette.utils.RecordingStateManager import RecordingStateManager
 from holypipette.interface import AutoPatchInterface
 from holypipette.interface.pipettes import PipetteInterface
 from holypipette.interface.graph import GraphInterface
-from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, HoldingProtocolGraph
+from holypipette.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, LeakSubtractionGraph, HoldingProtocolGraph
 from holypipette.gui.patch import PatchGui
 
 
@@ -45,6 +45,7 @@ def main():
 
     currentProtocolGraph = CurrentProtocolGraph(graph_interface, recording_state_manager)
     voltageProtocolGraph = VoltageProtocolGraph(graph_interface, recording_state_manager)
+    leakSubtractionGraph = LeakSubtractionGraph(graph_interface, recording_state_manager)
     holdingProtocolGraph = HoldingProtocolGraph(graph_interface, recording_state_manager)
 
 

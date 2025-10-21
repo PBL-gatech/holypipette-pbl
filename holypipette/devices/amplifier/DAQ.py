@@ -169,6 +169,8 @@ class DAQ(TaskController):
         self.voltage_membrane_test = None
         self.vclamp_steps = None
         self.vclamp_hold_value = None
+        self.leak_subtraction_data = None
+        self.leak_subtraction_meta = None
         self.holding_protocol_data = None
         self._deviceLock = threading.Lock()
         self.isRunningProtocol = False
@@ -1125,6 +1127,217 @@ class NiDAQ(DAQ):
             store=False,
         )
         self.ao_task.write(wave, auto_start=False)
+
+    def getLeakSubtraction(
+            self,
+            *,
+            start_voltage: float,
+            end_voltage: float,
+            holding_voltage: float,
+            step_voltage: float = 20e-3,
+            wave_freq: float = 5.0,
+            samplesPerSec: int = 50_000,
+            dutyCycle: float = 0.5,
+            pulse_recording_time: float = 0.600,
+            repeats: int = 4,
+    ):
+        """
+        Execute a P/4 leak subtraction sequence prior to a voltage sweep.
+
+        For each sweep target, this generates ``repeats`` square pulses whose
+        amplitude is ``-(target - holding) / 4``.  Each pulse uses a 50 % duty
+        cycle square wave lasting ``pulse_recording_time / 3`` seconds inside a
+        baseline–pulse–baseline layout that mirrors ``getVoltageClampSweep``.
+        Averaged traces are stored on ``self.leak_subtraction_data`` for GUI /
+        logging consumers and the raw repeats are discarded after averaging.
+        """
+        import numpy as np
+
+        if step_voltage == 0:
+            raise ValueError("step_voltage must be non-zero")
+        if repeats <= 0:
+            raise ValueError("repeats must be positive")
+        if self.V_CLAMP_VOLT_PER_VOLT in (None, 0):
+            raise RuntimeError("V_CLAMP_VOLT_PER_VOLT must be configured before leak subtraction.")
+        if self.V_CLAMP_VOLT_PER_AMP in (None, 0):
+            raise RuntimeError("V_CLAMP_VOLT_PER_AMP must be configured before leak subtraction.")
+
+        samplesPerSec = int(samplesPerSec)
+        dutyCycle = float(dutyCycle)
+        pulse_recording_time = float(pulse_recording_time)
+        wave_freq = float(wave_freq)
+
+        span = end_voltage - start_voltage
+        step = abs(step_voltage)
+
+        if span == 0:
+            targets = np.array([start_voltage], dtype=float)
+        else:
+            step_signed = step if span > 0 else -step
+            targets = np.arange(start_voltage, end_voltage, step_signed, dtype=float)
+            if targets.size == 0 or abs(targets[-1] - end_voltage) > 1e-9:
+                targets = np.append(targets, end_voltage)
+
+        leak_plan = []
+        leak_step_values = []
+        leak_target_voltages = []
+
+        for idx, target in enumerate(targets):
+            delta = target - holding_voltage
+            leak_step = -delta / 4.0
+            leak_target_voltage = holding_voltage + leak_step
+            ao_amplitude = leak_step / self.V_CLAMP_VOLT_PER_VOLT
+
+            leak_step_values.append(leak_step)
+            leak_target_voltages.append(leak_target_voltage)
+
+            for repeat_idx in range(repeats):
+                leak_plan.append({
+                    "target_index": idx,
+                    "target_voltage": target,
+                    "leak_target_voltage": leak_target_voltage,
+                    "ao_amplitude": ao_amplitude,
+                    "repeat_index": repeat_idx,
+                })
+
+        if not leak_plan:
+            self.leak_subtraction_data = []
+            self.leak_subtraction_meta = {
+                "holding_voltage": holding_voltage,
+                "targets": targets,
+                "leak_step_values": np.array(leak_step_values, dtype=float),
+                "repeats": repeats,
+                "wave_freq": wave_freq,
+                "pulse_recording_time": pulse_recording_time,
+            }
+            return self.leak_subtraction_data
+
+        self.pause_acquisition()
+        for task_name in ("ai_task", "ao_task"):
+            task = getattr(self, task_name, None)
+            if task is not None:
+                try:
+                    task.stop()
+                except Exception:
+                    pass
+                try:
+                    task.close()
+                except Exception:
+                    pass
+
+        buffer_trains = max(len(leak_plan) + 2, 4)
+        _, _, num_samples = self.createSquareWaveVoltage(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=0.0,
+            recordingTime=pulse_recording_time,
+            store=False,
+        )
+        exp_samples = num_samples
+        total_duration = exp_samples / samplesPerSec
+
+        self._setupAcquisitionVoltage(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            recordingTime=pulse_recording_time,
+            exp_samples=exp_samples,
+            buffer_trains=buffer_trains,
+        )
+
+        if leak_plan:
+            first_amp = leak_plan[0]["ao_amplitude"]
+            self._sendSquareWaveVoltage(
+                wave_freq=wave_freq,
+                samplesPerSec=samplesPerSec,
+                dutyCycle=dutyCycle,
+                amplitude=first_amp,
+                recordingTime=pulse_recording_time,
+            )
+
+        while self.ai_task.in_stream.avail_samp_per_chan < exp_samples:
+            self.sleep(0.002)
+        _ = self.ai_task.read(exp_samples, timeout=2.0)
+
+        pulses_by_target: list[list[dict]] = [[] for _ in range(targets.size)]
+
+        try:
+            for idx, pulse in enumerate(leak_plan):
+                if idx + 1 < len(leak_plan):
+                    next_amp = leak_plan[idx + 1]["ao_amplitude"]
+                    self._sendSquareWaveVoltage(
+                        wave_freq=wave_freq,
+                        samplesPerSec=samplesPerSec,
+                        dutyCycle=dutyCycle,
+                        amplitude=next_amp,
+                        recordingTime=pulse_recording_time,
+                    )
+
+                while self.ai_task.in_stream.avail_samp_per_chan < exp_samples:
+                    self.sleep(0.002)
+
+                raw = np.asarray(self.ai_task.read(exp_samples, timeout=2.0), dtype=float)
+                self._squareWaveProcessor(raw, samplesPerSec, pulse["ao_amplitude"])
+
+                time_vec = np.linspace(0, total_duration, exp_samples, dtype=float)
+                resp_vec = raw[1] * self.V_CLAMP_VOLT_PER_AMP
+                command_vec = raw[0] * self.V_CLAMP_VOLT_PER_VOLT
+
+                pulses_by_target[pulse["target_index"]].append({
+                    "time": time_vec,
+                    "response": resp_vec,
+                    "command": command_vec,
+                    "repeat_index": pulse["repeat_index"],
+                })
+
+                self.info(
+                    f"Captured P/4 leak pulse {pulse['repeat_index'] + 1}/{repeats} "
+                    f"for {pulse['target_voltage'] * 1e3:.0f} mV sweep target."
+                )
+        finally:
+            try:
+                self.ai_task.stop(); self.ao_task.stop()
+                self.ai_task.close(); self.ao_task.close()
+            except Exception:
+                pass
+            self.resume_acquisition()
+
+        leak_results: list[dict] = []
+        for idx, target in enumerate(targets):
+            pulses = pulses_by_target[idx]
+            if not pulses:
+                continue
+
+            time_vec = pulses[0]["time"].copy()
+            resp_stack = np.vstack([p["response"] for p in pulses])
+            cmd_stack = np.vstack([p["command"] for p in pulses])
+
+            avg_resp = resp_stack.mean(axis=0)
+            avg_cmd = cmd_stack.mean(axis=0)
+
+            leak_results.append({
+                "time": time_vec,
+                "response": avg_resp,
+                "command": avg_cmd,
+                "target_voltage": target,
+                "leak_target_voltage": leak_target_voltages[idx],
+                "leak_step_voltage": leak_step_values[idx],
+                "repeat_count": len(pulses),
+            })
+
+        self.leak_subtraction_data = leak_results
+        self.leak_subtraction_meta = {
+            "holding_voltage": holding_voltage,
+            "targets": targets,
+            "leak_target_voltages": np.array(leak_target_voltages, dtype=float),
+            "leak_step_values": np.array(leak_step_values, dtype=float),
+            "repeats": repeats,
+            "wave_freq": wave_freq,
+            "pulse_recording_time": pulse_recording_time,
+        }
+
+        return self.leak_subtraction_data
 
     def getVoltageClampSweep(
             self,

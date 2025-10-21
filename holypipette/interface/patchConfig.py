@@ -33,7 +33,6 @@ class PatchConfig(Config):
 
     Vramp_duration = NumberWithUnit(10, bounds=(0, 60), doc='Voltage ramp duration', unit='s')
     Vramp_amplitude = NumberWithUnit(-70e-3, bounds=(-200e-3, 0), doc='Holding Potential', unit='mV', magnitude=1e-3) # changed from -70 to -20 for HEK cells
-    run_voltage_sweep = Boolean(default=False, doc='Run the voltage-clamp sweep after the membrane test')
     vclamp_start = NumberWithUnit(-110e-3, bounds=(-200e-3, 0), doc='Voltage-clamp sweep start', unit='mV', magnitude=1e-3)
     vclamp_step = NumberWithUnit(20e-3, bounds=(0, 100e-3), doc='Voltage-clamp sweep step', unit='mV', magnitude=1e-3)
     vclamp_end = NumberWithUnit(50e-3, bounds=(0, 200e-3), doc='Voltage-clamp sweep end', unit='mV', magnitude=1e-3)
@@ -44,6 +43,7 @@ class PatchConfig(Config):
     voltage_protocol = Boolean(default = True, doc='Run the Voltage Protocol automatically')
     current_protocol = Boolean(default = True, doc='Run the Current Protocol automatically')
     holding_protocol = Boolean(default = False, doc='Run the Holding Protocol automatically')
+    voltage_sweep_protocol = Boolean(default = False, doc='Run the Voltage Sweep Protocol automatically')
 
     custom_cclamp_protocol = Boolean(default = False, doc='Customize the protocol parameters')
     cclamp_step = NumberWithUnit(30, bounds=(0, 3000), doc='Step Current', unit='pA', magnitude=1)
@@ -58,10 +58,10 @@ class PatchConfig(Config):
     lamp = Selector(default= '2', objects = ['1', '2', '3','4','5','6'], doc='default fluorescence cube slot')
     categories = [
         ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance','max_distance', 'cell_R_increase','max_descent_speed']),
-        ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_duration', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
-        ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R','max_access_R','min_cell_C','pulse_pressure_break_in']),
-        ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol']),
-        ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end','cclamp_hold', 'run_voltage_sweep', 'vclamp_start', 'vclamp_end', 'vclamp_hold', 'hclamp_duration']),
+        ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
+        ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R','max_access_R','min_cell_C']),
+        ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol', 'voltage_sweep_protocol']),
+        ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end','cclamp_hold', 'vclamp_start', 'vclamp_end', 'vclamp_hold', 'hclamp_duration']),
         ('AutoPatching', ['cell_type_toggle','cell_type', 'mode']),
         ('Fluorescence', ['lamp'])  
     ]

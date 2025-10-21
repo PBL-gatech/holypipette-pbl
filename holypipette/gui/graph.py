@@ -29,7 +29,7 @@ from datetime import datetime
 
 from holypipette.interface.graph import GraphInterface
 
-__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "HoldingProtocolGraph"]
+__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "LeakSubtractionGraph", "HoldingProtocolGraph"]
 
 
 class ProtocolGraph(QWidget):
@@ -235,6 +235,70 @@ class VoltageProtocolGraph(ProtocolGraph):
         daq.voltage_membrane_test = None
         daq.vclamp_steps = None
         daq.vclamp_hold_value = None
+class LeakSubtractionGraph(ProtocolGraph):
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        super().__init__(
+            graph_interface,
+            recording_state_manager,
+            window_title="Leak Subtraction (P/4)",
+            y_label="PicoAmps",
+            y_unit="A",
+            x_label="Time",
+            x_unit="s",
+            ephys_filename="LeakSubtraction",
+        )
+
+    def update_plot(self):
+        daq = self.graph_interface.daq
+        leak_data = getattr(daq, "leak_subtraction_data", None)
+        if leak_data is None or len(leak_data) == 0:
+            return
+
+        index = self.recording_state_manager.sample_number
+
+        if self.isHidden():
+            self.setHidden(False)
+
+        self.plotWidget.clear()
+
+        sweep_count = len(leak_data)
+        start_color = "#003153"
+        end_color = "#ffffff"
+        cmap = LinearSegmentedColormap.from_list("", [start_color, end_color])
+        colors = [to_hex(cmap(float(i) / max(sweep_count - 1, 1))) for i in range(sweep_count)]
+
+        for i, entry in enumerate(leak_data):
+            timeData = entry["time"]
+            respData = entry["response"]
+            commandData = entry["command"]
+            color = colors[i]
+
+            self.plotWidget.plot(timeData, respData, pen=color)
+
+            target_voltage = entry.get("target_voltage")
+            if target_voltage is not None:
+                step_label = f"{int(round(target_voltage * 1e3))}mV"
+            else:
+                step_label = f"step{i}"
+
+            marker = f"{color}_{step_label}"
+            self.ephys_logger.write_ephys_data(
+                index,
+                timeData,
+                commandData,
+                respData,
+                marker
+            )
+
+        self.ephys_logger.save_ephys_plot(
+            index,
+            self.plotWidget,
+            filename_override=f"LeakSubtraction_{index}"
+        )
+
+        self.latestDisplayedData = sweep_count
+        daq.leak_subtraction_data = None
+        daq.leak_subtraction_meta = None
 class HoldingProtocolGraph(ProtocolGraph):
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
         super().__init__(graph_interface, recording_state_manager,

@@ -360,12 +360,15 @@ class AutoPatcher(TaskController):
             self.run_current_protocol()
             self.sleep(0.25)
             self.daq.setCellMode(True)
+        if self.config.voltage_sweep_protocol:
+            self.run_voltage_sweep_protocol()
+            self.sleep(0.25)
         if self.config.holding_protocol:
             self.run_holding_protocol()
         # self.done = True
 
     def run_voltage_protocol(self):
-        self.info('Running voltage protocol (membrane test and optional sweep)')
+        self.info('Running voltage protocol (membrane test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
         self.amplifier.auto_fast_compensation()
@@ -391,34 +394,44 @@ class AutoPatcher(TaskController):
             self.daq.getDataFromVoltageProtocol(membrane_hold=membrane_hold)
             self.sleep(0.25)
 
-            if self.config.run_voltage_sweep:
-                sweep_hold = float(self.config.vclamp_hold)
-                sweep_step = float(self.config.vclamp_step)
-                sweep_start = float(self.config.vclamp_start)
-                sweep_end = float(self.config.vclamp_end)
-                self.amplifier.set_holding(sweep_hold)
-                self.info(f'holding at {sweep_hold * 1e3:.1f} mV for voltage sweep')
-                self.sleep(0.25)
-                self.amplifier.switch_holding(True)
-                self.info('holding enabled for voltage sweep')
-                self.sleep(0.25)
-                self.info("Getting data from voltage clamp sweep")
-                self.daq.getVoltageClampSweep(
-                    start_voltage=sweep_start,
-                    step_voltage=sweep_step,
-                    end_voltage=sweep_end,
-                    holding_voltage=sweep_hold
-                )
-                self.sleep(0.25)
-            else:
-                self.daq.voltage_protocol_data = []
-                self.info('Voltage sweep skipped (run_voltage_sweep disabled)')
         finally:
             self.amplifier.set_holding(membrane_hold)
             self.amplifier.switch_holding(True)
             self.sleep(0.25)
             self.info(f'holding reset to {membrane_hold * 1e3:.1f} mV after voltage protocol')
-            self.info('finished running voltage protocol')
+            self.info('finished running voltage membrane test')
+
+    def run_voltage_sweep_protocol(self):
+        self.info('Running voltage sweep protocol')
+        self.amplifier.voltage_clamp()
+        self.sleep(0.25)
+        sweep_hold = float(self.config.vclamp_hold)
+        sweep_step = float(self.config.vclamp_step)
+        sweep_start = float(self.config.vclamp_start)
+        sweep_end = float(self.config.vclamp_end)
+        self.amplifier.set_holding(sweep_hold)
+        self.info(f'holding at {sweep_hold * 1e3:.1f} mV for voltage sweep')
+        self.sleep(0.25)
+        self.amplifier.switch_holding(True)
+        self.info('holding enabled for voltage sweep')
+        self.sleep(0.25)
+        self.info("Executing P/4 leak subtraction series")
+        self.daq.getLeakSubtraction(
+            start_voltage=sweep_start,
+            step_voltage=sweep_step,
+            end_voltage=sweep_end,
+            holding_voltage=sweep_hold
+        )
+        self.sleep(0.25)
+        self.info("Getting data from voltage clamp sweep")
+        self.daq.getVoltageClampSweep(
+            start_voltage=sweep_start,
+            step_voltage=sweep_step,
+            end_voltage=sweep_end,
+            holding_voltage=sweep_hold
+        )
+        self.sleep(0.25)
+        self.info('finished running voltage sweep protocol')
 
     def run_current_protocol(self):
         self.info('Running current protocol (current clamp)')
