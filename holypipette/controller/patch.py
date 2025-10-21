@@ -415,6 +415,7 @@ class AutoPatcher(TaskController):
             holding_voltage=sweep_hold
         )
         self.sleep(0.25)
+        self.amplifier.set_holding(self.config.Vramp_amplitude)
         self.info('finished running voltage sweep protocol')
 
     def run_current_protocol(self):

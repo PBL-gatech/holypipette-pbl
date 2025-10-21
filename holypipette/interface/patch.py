@@ -47,7 +47,26 @@ class AutoPatchInterface(TaskInterface):
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_camera_cell_list)
         self.timer.start(50)
-        
+
+    def _protocol_holding_parameters(self):
+        config = self.current_autopatcher.config
+        voltage_hold = float("nan")
+        current_hold = float("nan")
+
+        if getattr(config, "voltage_protocol", False):
+            try:
+                voltage_hold = float(config.Vramp_amplitude) * 1e3
+            except (TypeError, ValueError):
+                voltage_hold = float("nan")
+
+        if getattr(config, "current_protocol", False):
+            try:
+                current_hold = float(config.cclamp_hold)
+            except (TypeError, ValueError):
+                current_hold = float("nan")
+
+        return voltage_hold, current_hold
+
     
     @blocking_command(category='Patch', description='Break into the cell',
                       task_description='Breaking into the cell')
@@ -85,7 +104,14 @@ class AutoPatchInterface(TaskInterface):
         index = self.recording_state_manager.sample_number
         if self.cells_to_patch:
             stage_coords, img,stage_coords_um = self.cells_to_patch[0]
-            self.ephys_logger.save_cell_metadata(index, stage_coords_um, img)
+            voltage_hold, current_hold = self._protocol_holding_parameters()
+            self.ephys_logger.save_cell_metadata(
+                index,
+                stage_coords_um,
+                img,
+                voltage_hold=voltage_hold,
+                current_hold=current_hold,
+            )
         self.execute(self.current_autopatcher.run_protocols)
     
 
@@ -154,9 +180,26 @@ class AutoPatchInterface(TaskInterface):
     @blocking_command(category='Patch', description='Move to cell and patch it',
                       task_description='Moving to cell and patching it')
     def patch(self) -> None:
-        cell, img,pos = self.cells_to_patch[0]
+        if not self.cells_to_patch:
+            self.warning("No cells queued for patching; skipping patch command")
+            return
+
+        stage_coords, img, stage_coords_um = self.cells_to_patch[0]
+
+        # Allocate a fresh sample index and persist metadata before protocols run
+        self.recording_state_manager.increment_sample_number()
+        index = self.recording_state_manager.sample_number
+        voltage_hold, current_hold = self._protocol_holding_parameters()
+        self.ephys_logger.save_cell_metadata(
+            index,
+            stage_coords_um,
+            img,
+            voltage_hold=voltage_hold,
+            current_hold=current_hold,
+        )
+
         self.execute(self.current_autopatcher.patch,
-                     argument=(cell, img,pos))
+                     argument=(stage_coords, img,stage_coords_um))
         time.sleep(2)
         if  not self.current_autopatcher.config.custom_cclamp_protocol:
                 self.cells_to_patch = self.cells_to_patch[1:] # remove the cell from the list after patching if using the default protocol
