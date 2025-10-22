@@ -24,7 +24,7 @@ from numpy.linalg import inv, pinv, norm
 from threading import Thread
 from .StageCalHelper import FocusHelper, StageCalHelper
 from .PipetteCalHelper import PipetteCalHelper, PipetteFocusHelper
-from .CellTrackHelper import CellTrackHelper2
+from .CellTrackHelper import CellTrackHelper
 
 __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
 
@@ -562,7 +562,7 @@ class CalibratedStage(CalibratedUnit):
 
         self.focusHelper = FocusHelper(microscope, camera)
         self.stageCalHelper = StageCalHelper(unit, camera, self.config.frame_lag)
-        self.cellTrackHelper = CellTrackHelper2(self,  camera) 
+        self.cellTrackHelper = CellTrackHelper(self, camera)
         self.pipette_cal_position = np.zeros(2)
         self.unit = unit
 

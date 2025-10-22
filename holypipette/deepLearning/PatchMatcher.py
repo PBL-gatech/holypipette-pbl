@@ -48,14 +48,22 @@ class PatchMatcher:
             raise RuntimeError("LightGlue did not return a center shift; cannot compute target point.")
 
         displacement = shift.get("center_displacement")
-        if displacement is None:
-            displacement = {
-                "dx": float(shift["center_dx"]),
-                "dy": float(shift["center_dy"]),
-            }
+        translation_dx = shift.get("center_dx")
+        translation_dy = shift.get("center_dy")
 
-        dx = float(displacement["dx"])
-        dy = float(displacement["dy"])
+        if translation_dx is None or translation_dy is None:
+            if displacement is None:
+                raise RuntimeError("LightGlue centre shift did not include translation information.")
+            translation_pair = (float(displacement["dx"]), float(displacement["dy"]))
+        else:
+            translation_pair = (float(translation_dx), float(translation_dy))
+
+        if displacement is None:
+            displacement_pair = translation_pair
+        else:
+            displacement_pair = (float(displacement["dx"]), float(displacement["dy"]))
+
+        dx, dy = translation_pair
 
         if current_center is None:
             current_center = shift.get("center1")
@@ -70,15 +78,17 @@ class PatchMatcher:
         return {
             "target_point": target_point,
             "current_center": (cx, cy),
-            "displacement": (dx, dy),
+            "translation": translation_pair,
+            "displacement": displacement_pair,
         }
 
 
 if __name__ == "__main__":
     import pprint
-
-    reference_image = Path(r"C:\Users\sa-forest\Documents\GitHub\LightGlue\ex_data\88602_1760469071.915733.webp")
-    current_image = Path(r"C:\Users\sa-forest\Documents\GitHub\LightGlue\ex_data\106826_1760469696.866317.webp")
+    reference_image = Path(r"C:\Users\sa-forest\Documents\GitHub\LightGlue\ex_data\cell_4.webp")
+    current_image = Path(r"C:\Users\sa-forest\Documents\GitHub\LightGlue\ex_data\36712_1760473097.769556.webp")
+    # reference_image = Path(r"C:\Users\sa-forest\Documents\GitHub\LightGlue\ex_data\88602_1760469071.915733.webp")
+    # current_image = Path(r"C:\Users\sa-forest\Documents\GitHub\LightGlue\ex_data\106826_1760469696.866317.webp")
 
     patch_matcher = PatchMatcher()
     match_info = patch_matcher.find_target(reference_image, current_image)
