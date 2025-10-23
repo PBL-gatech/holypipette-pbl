@@ -50,7 +50,7 @@ class Manipulator(TaskController):
     def recover_state(self):
         self.absolute_move(self.saved_state)
 
-    def absolute_move(self, x, axis=None, speed=None):
+    def  absolute_move(self, x, axis=None, speed=None):
         '''
         Moves the device axis to position x.
 
@@ -171,19 +171,18 @@ class Manipulator(TaskController):
     def get_max_speed(self):
         ''' returns the max speed of the device, (if possible)
         '''
-        raise NotImplementedError('get_max_speed not implemented')
+        pass
     
     def get_max_accel(self):
         ''' returns the max acceleration of the device, (if possible)
         '''
-        raise NotImplementedError('get_max_accel not implemented')
-
+        pass
     def set_max_speed(self, speed):
         ''' sets the max speed of the device, (if possible)
         '''
-        raise NotImplementedError('set_max_speed not implemented')
+        pass
 
     def set_max_accel(self, accel):
         ''' sets the max acceleration of the device, (if possible)
         '''
-        raise NotImplementedError('set_max_accel not implemented')
+        pass

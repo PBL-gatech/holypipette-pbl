@@ -156,7 +156,23 @@ class ManipulatorUnit(Manipulator):
         self.dev.wait_until_reached(position, axes, precision, timeout)
 
     def set_max_speed(self, speed):
-        self.dev.set_max_speed(speed)
+        if speed is None:
+            return
+        if hasattr(self.dev, "set_max_speed"):
+            self.dev.set_max_speed(speed)
     
     def set_max_accel(self, accel):
-        self.dev.set_max_accel(accel)
+        if accel is None:
+            return
+        if hasattr(self.dev, "set_max_accel"):
+            self.dev.set_max_accel(accel)
+
+    def get_max_speed(self):
+        if hasattr(self.dev, "get_max_speed"):
+            return self.dev.get_max_speed()
+        return None
+
+    def get_max_accel(self):
+        if hasattr(self.dev, "get_max_accel"):
+            return self.dev.get_max_accel()
+        return None

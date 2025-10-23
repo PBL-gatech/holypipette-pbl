@@ -544,13 +544,12 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
         
-        # move to cell position 
+        # move to cell_distance above cell.
         cell_pos, cell_img,pos = cell
-        if self.config.cell_type_toggle:
-            if self.config.cell_type == "Plate":
-                self.config.cell_distance = 20
-            elif self.config.cell_type == "Slice":
-                self.config.cell_distance = 75
+        if self.config.cell_type == "Plate":
+            cell_distance = self.config.cell_distance
+        elif self.config.cell_type == "Slice":
+            cell_distance = self.config.slice_start_distance
             
 
         self.info(f" Moving to Cell position: {cell_pos}") 
@@ -590,7 +589,7 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
-        second = zdist_cell/2 + self.config.cell_distance
+        second = zdist_cell/2 + cell_distance
         self.move_group_down(-second)
         self.sleep(0.1)
         self.calibrated_unit.center_pipette()
@@ -607,16 +606,16 @@ class AutoPatcher(TaskController):
         zdistleft  = z_pos - cell_pos[2]
         self.microscope.relative_move(-zdistleft)
         self.microscope.wait_until_still()
-        if self.config.cell_type_toggle and self.config.cell_type == "Plate": 
+        if self.config.cell_type_toggle: 
             self.info("centering on cell")
             self.calibrated_stage.center_on_cell(cell)
             self.calibrated_stage.wait_until_still()
             self.info(f"correcting pipette position, moving microscope by {zdistleft} um")
-            self.microscope.relative_move(-self.config.cell_distance)
+            self.microscope.relative_move(-cell_distance)
             self.microscope.wait_until_still()
             self.calibrated_unit.center_pipette()
             self.calibrated_unit.wait_until_still()
-            self.microscope.relative_move(self.config.cell_distance)
+            self.microscope.relative_move(cell_distance)
             self.microscope.wait_until_still()
         self.info("Located Cell")
 
@@ -625,6 +624,20 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
 
 
+    # def align_pipette_to_cell(self, cell):
+    #     '''
+    #     Aligns the pipette to the cell using microscope imaging
+    #     '''
+    #     self.info("Aligning pipette to cell using imaging")
+    #     cell_pos, cell_img,pos = cell
+    #     self.calibrated_stage.center_on_cell(cell)
+    #     self.calibrated_stage.wait_until_still()
+    #     pos = self.calibrated_stage.position()
+    #     self.info(f"Moving pipette down by {dist} um to cell distance")
+    #     self.calibrated_unit.relative_move(dist, axis=2)
+    #     self.calibrated_unit.wait_until_still()
+
+        
     @record_state("hunt_cell")
     def hunt_cell(self,cell = None):
         '''
@@ -647,7 +660,9 @@ class AutoPatcher(TaskController):
             # move pipette down to slice position
             dist = self.config.cell_distance - self.config.slice_start_distance
             currspeed =  self.calibrated_unit.get_max_speed()
-            self.calibrated_unit.set_max_speed(50) # set speed to 10 um/s
+            self.info(f"Current speed: {currspeed} um/s")
+            self.calibrated_unit.set_max_speed(50) # set speed to 50 um/s
+            self.info(f"Moving pipette down by {dist} um at 50 um/s")
             self.calibrated_unit.relative_move(dist, axis=2)
             self.calibrated_unit.set_max_speed(currspeed) # reset speed to previous value
             
@@ -1487,10 +1502,4 @@ class AutoPatcher(TaskController):
         # Return a list instead of trying to create heterogeneous numpy array
         return [cvpi, st, img, res]
         
-
-    def act(self):
-        '''
-         takes in 
-        '''
-
 

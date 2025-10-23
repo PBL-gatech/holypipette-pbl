@@ -753,9 +753,17 @@ class CalibratedStage(CalibratedUnit):
         error_px = desired_px - centroid[:n_axes] 
 
         # -------- debug ---------------------------------------------------
-        # self.info(f"centroid_px = {centroid}")
-        # self.info(f"desired_px  = {desired_px}")
-        # self.info(f"error_px    = {error_px}")
+        self.info(f"centroid_px = {centroid}")
+        self.info(f"desired_px  = {desired_px}")
+        self.info(f"error_px    = {error_px}")
+        # ------------------------------------------------------------------
+
+        # ------------------------------------------------------------------
+        # Clamp extreme pixel errors so we do not command huge stage jumps.
+        max_error_px = 150
+        if np.any(np.abs(error_px) > max_error_px):
+            error_px = np.clip(error_px, -max_error_px, max_error_px)
+
         # ------------------------------------------------------------------
 
         self.reference_relative_move(error_px)   # px → µm handled inside

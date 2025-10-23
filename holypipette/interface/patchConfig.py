@@ -19,7 +19,7 @@ class PatchConfig(Config):
     max_access_R = NumberWithUnit(70, bounds=(0, 1000), doc='Maximum access resistance', unit='MΩ', magnitude=1)
     min_cell_C = NumberWithUnit(5e-12, bounds=(0, 1), doc='Minimum cell capacitance', unit='pF', magnitude=1e-12)
     cell_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell', unit='μm') # 50 for Neurons, 20 for HEK cells
-    slice_start_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell in slice', unit='μm') # 20 um default
+    slice_start_distance = NumberWithUnit(75, bounds=(0, 100), doc='Initial distance above target cell in slice', unit='μm') # 20 um default
     max_distance = NumberWithUnit(30, bounds=(0, 100), doc='Maximum movement during approach', unit='μm')
     max_descent_speed = Number(-10,bounds=(-50,50),doc='Maximum descent speed for Neuron Hunting')
 
