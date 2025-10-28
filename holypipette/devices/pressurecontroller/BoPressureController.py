@@ -109,7 +109,8 @@ class BoPressureController(PressureController):
                 pressure_str = reading[1:-1]
                 try:
                     pressureVal = float(pressure_str)
-                    pressureVal = float((pressureVal *2.545)-1304.1) # conversion to raw because the seeed is not working
+                    
+                    pressureVal = float((pressureVal *3.0579)-1577.8) # conversion to raw because the seeed is not working
                     self.lastVal = pressureVal
                 except ValueError:
                     self.warning("Invalid pressure data received")

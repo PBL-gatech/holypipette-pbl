@@ -31,8 +31,10 @@ class SerialReaderThread(QThread):
                         numeric_part = line[1:-1]
                         try:
                             value = float(numeric_part)
+                            #print(value)
                             # value = (value - 520.72) / 0.3923  # Adjusted conversion for pressure sensor
                             # value = (value - 521)/0.213  # Adjusted conversion for pressure sensor
+                            #value = (value *1.2897) # +23.659 # conversion to raw because the seeed is not working
                             timestamp = time.time()
                             self.data_received.emit(timestamp, value)
                         except ValueError:
@@ -282,7 +284,7 @@ class PressureReaderApp(QWidget):
     def handle_new_data(self, timestamp, value):
         """ Handle new data received from the serial port """
         # Display data
-        value = float((value - 516.72)/0.3923) # conversion to raw because the seeed is not working
+        value = float((value*3.0579)-1577.8) # conversion to raw because the seeed is not working
         self.data_display.append(f"time: {timestamp:.2f}s, pressure: {value:.2f}mbar")
 
         # Update plot data buffer
