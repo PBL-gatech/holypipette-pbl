@@ -236,7 +236,7 @@ class TaskInterface(QtCore.QObject, LoggingObject):
             self.info('Task "{}" finished Successfully'.format(func.__name__))
             self.task_finished.emit(0, controller)
             self._current_controller = None
-            return False
+            return True
         # We send a reference to the "controller" with the task_finished signal,
         # this can be used to ask the user for a state reset after a failed
         # command (e.g. move back the pipette to its start position in case a
@@ -279,11 +279,11 @@ class TaskInterface(QtCore.QObject, LoggingObject):
 
         Returns
         -------
-        success : bool
-            Whether the execution was completed successfully. This can be used
-            to manually enchain multiple tasks to avoid calling subsequent tasks
-            after a failed/aborted task. Note that it can be easier to pass a
-            list of functions instead.
+        bool
+            ``True`` if all tasks completed successfully, ``False`` otherwise.
+            This can be used to manually enchain multiple tasks to avoid calling
+            subsequent tasks after a failed/aborted task. Note that it can be
+            easier to pass a list of functions instead.
         """
         if not isinstance(task, Sequence):
             task = [task]
@@ -291,6 +291,7 @@ class TaskInterface(QtCore.QObject, LoggingObject):
         if argument is None:
             argument = [None]
 
+        last_controller = None
         for one_task, one_argument in zip(task, argument):
             controller = one_task.__self__
             if not isinstance(controller, TaskController):
@@ -299,9 +300,12 @@ class TaskInterface(QtCore.QObject, LoggingObject):
                                 '{}'.format(one_task.__name__, type(controller)))
             success = self._execute_single_task(controller, one_task,
                                                 one_argument)
+            last_controller = controller
             if not success:
-                return
-        self.task_finished.emit(0, controller)
+                return False
+        if last_controller is not None:
+            self.task_finished.emit(0, last_controller)
+        return True
 
     @QtCore.pyqtSlot(TaskController)
     def reset_requested(self, controller):

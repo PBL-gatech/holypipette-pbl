@@ -1,4 +1,4 @@
-﻿import threading
+import threading
 import time
 import numpy as np
 import pandas as pd
@@ -1713,7 +1713,7 @@ class NiDAQ(DAQ):
                     cm_values.append(memC)
                 else:
                     self.warning(f"Voltage step attempt {attempts}: "
-                                "unacceptable fit → skipped")
+                                "unacceptable fit -> skipped")
 
                 # wait one extra period so traces do not overlap in FIFO
                 time.sleep(recordingTime)

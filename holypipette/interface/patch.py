@@ -85,8 +85,15 @@ class AutoPatchInterface(TaskInterface):
         self.is_selecting_cells = True
 
     def remove_last_cell(self):
-        if len(self.cells_to_patch) > 0:
+        if self.cells_to_patch:
+            last_cell = self.cells_to_patch[-1]
+            self.info(
+                f"removing last cell {last_cell}... {self.is_selecting_cells}, at {self.cells_to_patch}"
+            )
             self.cells_to_patch = self.cells_to_patch[:-1]
+        else:
+            self.info("remove_last_cell called but there are no cells to remove")
+
 
     @blocking_command(category='Cell Sorter',
             description='Move the cell sorter to a cell',
@@ -202,11 +209,19 @@ class AutoPatchInterface(TaskInterface):
             current_hold=current_hold,
         )
 
-        self.execute(self.current_autopatcher.patch,
-                     argument=(stage_coords, img,stage_coords_um))
+        success = self.execute(
+            self.current_autopatcher.patch,
+            argument=(stage_coords, img, stage_coords_um)
+        )
         time.sleep(2)
-        if  not self.current_autopatcher.config.custom_cclamp_protocol:
-                self.cells_to_patch = self.cells_to_patch[1:] # remove the cell from the list after patching if using the default protocol
+        if success and not self.current_autopatcher.config.custom_cclamp_protocol:
+            # Remove the cell from the list after patching if using the default protocol
+            # self.cells_to_patch = self.cells_to_patch[1:]
+            self.remove_last_cell()
+        elif not success and self.current_autopatcher.config.auto_clean_pipette:
+            self.remove_last_cell()
+        elif not success and not self.current_autopatcher.config.auto_clean_pipette:
+             self.info("Patch command did not complete and auto escape not enabled; leaving cell in queue for manual follow-up.")
 
     @blocking_command(category='Patch',
                         description='Locate the cell',
@@ -244,7 +259,8 @@ class AutoPatchInterface(TaskInterface):
     def escape_cell(self):
         self.execute(self.current_autopatcher.escape)
         time.sleep(2)
-        self.cells_to_patch = self.cells_to_patch[1:]
+        # self.cells_to_patch = self.cells_to_patch[1:]
+        self.remove_last_cell()
 
     @blocking_command(category='Patch',
                         description='find the pipette',
@@ -253,12 +269,6 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.current_autopatcher.find_pipette)
         time.sleep(2)
 
-    @blocking_command(category='Patch',
-                        description='task done',
-                        task_description='assesing completion state')
-    def task_done(self):
-        self.execute(self.current_autopatcher.task_done)
-        time.sleep(2)
 
     @command(category='Patch',
              description='Store the position of the washing bath',

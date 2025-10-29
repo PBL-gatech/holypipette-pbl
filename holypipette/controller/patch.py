@@ -325,12 +325,11 @@ class AutoPatcher(TaskController):
                 camera.show_circle(point=goal_display_tuple, color=(255, 255, 255), show_center=False)
 
             if gerr <= 20:
-                done = True
-
-            if done:
                 self.success_requested = True
+
+            if self.success_requested:
                 self.info("Pipette found")
-                break
+                self.success_if_requested()
 
             if target_point is not None:
                 xerr = curr_point_np[0] - target_point[0]
@@ -365,7 +364,9 @@ class AutoPatcher(TaskController):
             self.sleep(0.25)
         if self.config.holding_protocol:
             self.run_holding_protocol()
-        # self.done = True
+        self.success_requested = True
+        self.success_if_requested()
+
 
     def run_voltage_protocol(self):
         self.info('Running voltage protocol (membrane test)')
@@ -570,28 +571,30 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.relative_move(pipette_disp)
         self.calibrated_unit.wait_until_still() 
         # center pipette on cell xy 
-        self.calibrated_unit.center_pipette()
-        self.calibrated_unit.wait_until_still()
-        self.calibrated_unit.center_pipette()
-        self.calibrated_unit.wait_until_still()
-        self.calibrated_unit.autofocus_pipette()
-        self.calibrated_unit.wait_until_still()
-        self.calibrated_unit.autofocus_pipette()
-        self.calibrated_unit.wait_until_still()
+        self.fine_calibrate_pipette()
         zdist_cell = self.home_stage_position[2] - cell_pos[2]
         self.move_group_down(-zdist_cell/2)# on real rig
         self.sleep(0.1)
-        self.calibrated_unit.center_pipette()
-        self.calibrated_unit.wait_until_still()
-        self.calibrated_unit.center_pipette()
-        self.calibrated_unit.wait_until_still()
-        self.calibrated_unit.autofocus_pipette()
-        self.calibrated_unit.wait_until_still()
-        self.calibrated_unit.autofocus_pipette()
-        self.calibrated_unit.wait_until_still()
+        self.fine_calibrate_pipette()
         second = zdist_cell/2 + cell_distance
         self.move_group_down(-second)
         self.sleep(0.1)
+        self.fine_calibrate_pipette()
+
+        self.align(cell, cell_distance)
+        self.info("Located Cell")
+
+        self.amplifier.start_patch()
+
+        self.success_requested = True
+        self.success_if_requested()
+
+
+    def fine_calibrate_pipette(self):
+        '''
+        Fine calibrates the pipette using microscope imaging
+        '''
+        self.info("Fine calibrating pipette using imaging")
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
@@ -600,13 +603,22 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
+
+    def align(self, cell, cell_distance):
+        '''
+        Aligns the pipette to the cell using microscope imaging
+        '''
+        self.info("Aligning pipette to cell using imaging")
+        cell_pos, _, _ = cell
+
         self.microscope.move_to_floor()
         self.microscope.wait_until_still()
         z_pos = self.microscope.position()/5.0
-        zdistleft  = z_pos - cell_pos[2]
+        zdistleft = z_pos - cell_pos[2]
         self.microscope.relative_move(-zdistleft)
         self.microscope.wait_until_still()
-        if self.config.cell_type_toggle: 
+
+        if self.config.cell_type_toggle:
             self.info("centering on cell")
             self.calibrated_stage.center_on_cell(cell)
             self.calibrated_stage.wait_until_still()
@@ -617,26 +629,6 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.wait_until_still()
             self.microscope.relative_move(cell_distance)
             self.microscope.wait_until_still()
-        self.info("Located Cell")
-
-        self.amplifier.start_patch()
-        self.success_requested = True
-        self.sleep(0.1)
-
-
-    # def align_pipette_to_cell(self, cell):
-    #     '''
-    #     Aligns the pipette to the cell using microscope imaging
-    #     '''
-    #     self.info("Aligning pipette to cell using imaging")
-    #     cell_pos, cell_img,pos = cell
-    #     self.calibrated_stage.center_on_cell(cell)
-    #     self.calibrated_stage.wait_until_still()
-    #     pos = self.calibrated_stage.position()
-    #     self.info(f"Moving pipette down by {dist} um to cell distance")
-    #     self.calibrated_unit.relative_move(dist, axis=2)
-    #     self.calibrated_unit.wait_until_still()
-
         
     @record_state("hunt_cell")
     def hunt_cell(self,cell = None):
@@ -657,14 +649,12 @@ class AutoPatcher(TaskController):
 
         if self.config.cell_type_toggle and self.config.cell_type == "Slice":
             self.info("Moving pipette to slice position")
-            # move pipette down to slice position
-            dist = self.config.cell_distance - self.config.slice_start_distance
-            currspeed =  self.calibrated_unit.get_max_speed()
-            self.info(f"Current speed: {currspeed} um/s")
-            self.calibrated_unit.set_max_speed(50) # set speed to 50 um/s
-            self.info(f"Moving pipette down by {dist} um at 50 um/s")
-            self.calibrated_unit.relative_move(dist, axis=2)
-            self.calibrated_unit.set_max_speed(currspeed) # reset speed to previous value
+            speed = [0, 0, self.config.max_descent_speed*5]
+            start_pos = self.calibrated_unit.position()
+            self.calibrated_unit.absolute_move_group_velocity(speed)
+            while start_pos[2] - self.calibrated_unit.position()[2] < (self.config.cell_distance - self.config.slice_start_distance):
+                self.sleep(0.1)
+            self.calibrated_unit.stop()
             
         # # #ensure "near cell" pressure
         self.info(f"Setting pressure to {self.config.pressure_near} mbar")
@@ -745,7 +735,8 @@ class AutoPatcher(TaskController):
 
                 self.info("Cell Detected")
                 self.success_requested = True
-                self.debug("Cell Detected")
+                self.success_if_requested()
+
 
 
                 break
@@ -779,6 +770,8 @@ class AutoPatcher(TaskController):
             self.move_to_safe_space()
             self.sleep(5)
             self.microscope.move_to_floor()
+            self.success_requested = True
+            self.success_if_requested()
     
     def _safe_average(self, read_fn, num_measurements: int = 5, interval: float = 0.200):
         """Return the mean of *valid* samples from *read_fn*.
@@ -878,7 +871,7 @@ class AutoPatcher(TaskController):
         while not self.abort_requested:
             # Deadline check
             if time.time() - last_progress_time >= self.config.seal_deadline:
-                raise AutopatchError("Seal unsuccessful: resistance did not improve significantly.")
+                raise AutopatchError(f"Seal attempt failed: resistance did not improve by at least {self.config.gigaseal_min_delta_R} MegaOhms by the {self.config.seal_deadline} second deadline.")
 
             prev_resistance = avg_resistance
             avg_resistance = self.resistanceRamp()
@@ -914,7 +907,7 @@ class AutoPatcher(TaskController):
                     self.sleep(5)
                     testresistance = self.resistanceRamp()
                     difference = testresistance - avg_resistance
-                    print(f"Test resistance: {testresistance} MΩ; difference: {difference} MΩ")
+                    self.info(f"Test resistance: {testresistance} MΩ; difference: {difference} MΩ")
                     if difference < 0:
                         bad_cell_count += 1
                         if bad_cell_count > 5:
@@ -942,11 +935,11 @@ class AutoPatcher(TaskController):
                 self.success_requested = True
                 self.info("Seal successful!")
                 self.success_requested = True
-                self.debug("Seal successful!")
+                self.success_if_requested()
                 return
 
         # Abort request came in
-        raise AutopatchError("Seal unsuccessful: gigaseal criteria not met.")
+        raise AutopatchError("Seal attempt failed: gigaseal criteria not met.")
    
     @record_state("break_in")
     def break_in(self):
@@ -986,7 +979,7 @@ class AutoPatcher(TaskController):
 
         # ---------- loop variables ----------
         trials        = 0
-        speed         = 2
+        speed         = self.config.pulse_pressure_duration
         good_count    = 0
         threshold_AR  = self.config.max_access_R      # adjust here if units differ
         wait_period = 0.50
@@ -1016,12 +1009,11 @@ class AutoPatcher(TaskController):
 
                 speedosc = trials % 5
                 if speedosc == 0:
-                    speed = 2
+                    speed = 2*self.config.pulse_pressure_duration
                 self.pressure.set_ATM(atm=False)
                 self.sleep(1 / speed)
                 self.pressure.set_ATM(atm=True)
                 self.sleep(wait_period*(1 + trials/2))
-                speed = 2
 
                 osc = trials % 3
                 if self.config.zap and osc == 0:
@@ -1042,8 +1034,8 @@ class AutoPatcher(TaskController):
                     f"{measuredCapacitance}, Access Resistance: {r_ax}")
 
                 if trials > 15:
-                    self.info("Break-in unsuccessful")
-                    raise AutopatchError("Break-in unsuccessful")
+                    self.info("Break-in failed")
+                    raise AutopatchError("Break-in failed")
 
         # ---------- success ----------
         self.success_requested = True
@@ -1051,6 +1043,7 @@ class AutoPatcher(TaskController):
         self.info("Successful break-in, Running Avg Access Resistance = "
                 f"{measuredAccessResistance:.2f}")
         self.success_requested = True
+        self.success_if_requested()
 
     def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
         '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
@@ -1124,20 +1117,20 @@ class AutoPatcher(TaskController):
 
             #! Phase 3: break into cell
             _run_phase(self.break_in)
-            self.info("Whole-cell achieved, resting for 30 seconds")
-            self.sleep(30)
+            self.info("Whole-cell achieved, resting for 10 seconds")
+            self.sleep(10)
             
             if not self.config.custom_cclamp_protocol: 
                     #! Phase 4: run protocols
-                    for i in (1):
-                        self.info(f"Running protocol {i}")
-                        _run_phase(self.run_protocols)
-                        self.sleep(20 if i < 3 else 5)
+                    self.info(f"Running protocol")
+                    _run_phase(self.run_protocols)
+
 
                     #! Phase 5: clean pipette
                     self.info("Data collection complete, cleaning pipette")
-                    _run_phase(self.escape)
-                    cleanup_performed = True
+                    if self.config.auto_clean_pipette:
+                        _run_phase(self.escape)
+                        cleanup_performed = True
 
             self.success_requested = True
 
@@ -1145,7 +1138,8 @@ class AutoPatcher(TaskController):
             if not cleanup_performed:
                 try:
                     self.info("Patch attempt interrupted, running escape cleanup")
-                    self.escape()
+                    if self.config.auto_clean_pipette:
+                        self.escape()
                 except RequestedSuccessException:
                     # Escape may also set success; clear it so teardown can finish.
                     self.success_requested = False

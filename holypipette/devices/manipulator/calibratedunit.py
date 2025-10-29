@@ -760,8 +760,9 @@ class CalibratedStage(CalibratedUnit):
 
         # ------------------------------------------------------------------
         # Clamp extreme pixel errors so we do not command huge stage jumps.
-        max_error_px = 150
+        max_error_px = self.camera.width / 20 # max 1/20 of image width
         if np.any(np.abs(error_px) > max_error_px):
+            self.info(f"Clamping extreme pixel error (>{max_error_px} px).")
             error_px = np.clip(error_px, -max_error_px, max_error_px)
 
         # ------------------------------------------------------------------

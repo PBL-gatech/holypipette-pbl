@@ -239,6 +239,7 @@ class CellTrackHelper:
             logging.warning("CellTrackHelper: SAM2 returned no mask.")
             return None
 
+
         return self._compute_centroid(mask)
 
     # ------------------------------------------------------------------ #
@@ -248,7 +249,31 @@ class CellTrackHelper:
         if mask.ndim == 3:
             mask = mask[0]
 
-        mask_uint8 = mask.astype(np.uint8)
+        mask_bool = np.asarray(mask > 0)
+        mask_bool = np.squeeze(mask_bool)
+        if mask_bool.ndim != 2:
+            logging.warning("CellTrackHelper: unexpected mask shape %s.", mask_bool.shape)
+            return None
+        size = int(np.count_nonzero(mask_bool))
+        if size == 0:
+            logging.warning("CellTrackHelper: segmentation mask has zero area.")
+            return None
+        if size < 5:
+            logging.warning("CellTrackHelper: SAM2 mask too small (%d px).", size)
+            return None
+
+        height, width = mask_bool.shape[:2]
+        image_area = height * width
+        if image_area > 0 and size > image_area * 0.25:
+            percentage = 100.0 * size / float(image_area)
+            logging.warning(
+                "CellTrackHelper: SAM2 mask too large (%d px, %.1f%% of image).",
+                size,
+                percentage,
+            )
+            return None
+
+        mask_uint8 = mask_bool.astype(np.uint8)
         moments = cv2.moments(mask_uint8)
         if moments["m00"] == 0.0:
             logging.warning("CellTrackHelper: segmentation mask has zero area.")

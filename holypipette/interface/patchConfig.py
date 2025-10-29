@@ -12,6 +12,7 @@ class PatchConfig(Config):
     pressure_ramp_max = NumberWithUnit(-30, bounds=(-1000, 0), doc='Pressure ramp maximum', unit='mbar')
     pressure_ramp_duration = NumberWithUnit(1.15, bounds=(0, 10), doc='Pressure ramp duration', unit='s')
     pulse_pressure_break_in = NumberWithUnit(-345, bounds=(-1000, 0), doc='Pressure pulse for break-in', unit='mbar')
+    pulse_pressure_duration = NumberWithUnit(1, bounds=(0, 5), doc='Duration of pressure pulse for break-in', unit='s')
 
     min_R = NumberWithUnit(2e6, bounds=(0, 1000e6), doc='Minimum normal resistance', unit='MΩ', magnitude=1e6)
     max_R = NumberWithUnit(25e6, bounds=(0, 1000e6), doc='Maximum normal resistance', unit='MΩ', magnitude=1e6)
@@ -55,14 +56,15 @@ class PatchConfig(Config):
     cell_type_toggle = Boolean(default=False, doc='Toggle for automatic cell type protocol selection')
     cell_type = Selector(default='Plate',objects = ['Plate', 'Slice'], doc='Cell type for protocol selection')
     mode = Selector( default='Classic', objects =['Manual', 'Classic', 'Agent'], doc='Mode for AutoPatch algorithm')
+    auto_clean_pipette = Boolean(True, doc='Automatically clean pipette after attempt')
     lamp = Selector(default= '2', objects = ['1', '2', '3','4','5','6'], doc='default fluorescence cube slot')
     categories = [
         ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance','max_distance', 'cell_R_increase','max_descent_speed']),
         ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
-        ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration', 'max_cell_R','max_access_R','min_cell_C']),
+        ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration','pulse_pressure_break_in','pulse_pressure_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol', 'voltage_sweep_protocol']),
         ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end','cclamp_hold', 'vclamp_start', 'vclamp_end', 'vclamp_hold', 'hclamp_duration']),
-        ('AutoPatching', ['cell_type_toggle','cell_type', 'mode']),
+        ('AutoPatching', ['cell_type_toggle','cell_type', 'mode','auto_clean_pipette']),
         ('Fluorescence', ['lamp'])  
     ]
 

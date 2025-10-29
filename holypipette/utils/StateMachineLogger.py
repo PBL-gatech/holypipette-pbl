@@ -84,7 +84,8 @@ class StateMachineLogger:
             system_mode = StateMachineLogger.NOMODE
 
         with self._lock:
-            if state not in self._states:
+            record = self._states.get(state)
+            if record is None or record.get("finished") is not None:
                 epoch_ts = time.time()                               # seconds
                 self._states[state] = {
                     "started":     epoch_ts,
@@ -92,6 +93,9 @@ class StateMachineLogger:
                     "outcome":     None,
                     "system_mode": system_mode
                 }
+            else:
+                # State already active: refresh the mode in case it changed.
+                record["system_mode"] = system_mode
 
     def finish(self, state: str, outcome: int) -> None:
         """Stamp *finished*, set outcome, and write the pickle and JSON files."""
@@ -100,6 +104,8 @@ class StateMachineLogger:
             rec["finished"] = time.time()
             rec["outcome"]  = outcome
             self._save(state, rec)
+            # Drop finished records so repeat runs get fresh timestamps/files.
+            del self._states[state]
 
     # ------------------------------------------------------------------ #
     # internal helper

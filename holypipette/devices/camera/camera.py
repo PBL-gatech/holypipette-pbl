@@ -182,43 +182,43 @@ class Camera(object):
             if self.point_to_show[3]:
                 img = cv2.circle(img, self.point_to_show[0], 2, self.point_to_show[2], 3)
 
-        # # Process each cell's segmentation.
-        # for cell_coords, cell_img in self.cell_list:
-        #     # cell_coords is assumed to be a 2D coordinate [x, y] in full-image space.
-        #     x, y = cell_coords[0], cell_coords[1]
-        #     if not (0 <= x < self.width and 0 <= y < self.height):
-        #         continue  # Skip if the cell is offscreen.
-        #     final_mask = None
-        #     if final_mask is None:
-        #         if len(img.shape) == 2 or (len(img.shape) == 3 and img.shape[2] == 1):
-        #             rgbimg = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-        #         else:
-        #             rgbimg = img
+        # Process each cell's segmentation.
+        for cell_coords, _, cell_img in self.cell_list:
+            # cell_coords is assumed to be a 2D coordinate [x, y] in full-image space.
+            x, y = cell_coords[0], cell_coords[1]
+            if not (0 <= x < self.width and 0 <= y < self.height):
+                continue  # Skip if the cell is offscreen.
+            # final_mask = None
+            # if final_mask is None:
+            #     if len(img.shape) == 2 or (len(img.shape) == 3 and img.shape[2] == 1):
+            #         rgbimg = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            #     else:
+            #         rgbimg = img
 
-        #         # Convert rgbimg to float32 and normalize if needed.
-        #         if rgbimg.dtype != np.float32:
-        #             rgbimg = rgbimg.astype(np.float32) / 255.0
+            #     # Convert rgbimg to float32 and normalize if needed.
+            #     if rgbimg.dtype != np.float32:
+            #         rgbimg = rgbimg.astype(np.float32) / 255.0
 
-        #         cell_point_full = np.array(cell_coords, dtype=np.float32).reshape(1, 2)
-        #         label_full = np.array([1], dtype=np.int32)
-        #         mask = self.segment(rgbimg, cell_point_full, label_full)
-        #     else:
-        #         mask = final_mask
+            #     cell_point_full = np.array(cell_coords, dtype=np.float32).reshape(1, 2)
+            #     label_full = np.array([1], dtype=np.int32)
+            #     mask = self.segment(rgbimg, cell_point_full, label_full)
+            # else:
+            #     mask = final_mask
 
-        #     if mask is not None:
-        #         if mask.dtype != np.uint8:
-        #             mask = mask.astype(np.uint8)
-        #         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # if mask is not None:
+            #     if mask.dtype != np.uint8:
+            #         mask = mask.astype(np.uint8)
+            #     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        #         total_area = sum(cv2.contourArea(c) for c in contours)
-        #         image_area = self.width * self.height
+            #     total_area = sum(cv2.contourArea(c) for c in contours)
+            #     image_area = self.width * self.height
 
-        #         # Skip drawing if the mask area is too large.
-        #         if total_area > 0.03 * image_area:
-        #             continue
+            #     # Skip drawing if the mask area is too large.
+            #     if total_area > 0.03 * image_area:
+            #         continue
 
-        #         # cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
-        #         # img = cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), 1)
+                # cv2.drawContours(img, contours, -1, (0, 255, 0), thickness=1)
+            img = cv2.circle(img, (int(x), int(y)), 5, (0, 255, 0), 1)
 
         if self.flipped:
             img = img[:, ::-1]
