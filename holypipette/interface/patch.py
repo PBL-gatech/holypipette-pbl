@@ -214,14 +214,17 @@ class AutoPatchInterface(TaskInterface):
             argument=(stage_coords, img, stage_coords_um)
         )
         time.sleep(2)
-        if success and not self.current_autopatcher.config.custom_cclamp_protocol:
+        if success and not self.current_autopatcher.config.auto_clean_pipette:
             # Remove the cell from the list after patching if using the default protocol
-            # self.cells_to_patch = self.cells_to_patch[1:]
-            self.remove_last_cell()
+            self.info("Patch command completed successfully, but auto escape not enabled; leaving cell in of queue for manual follow-up.")
         elif not success and self.current_autopatcher.config.auto_clean_pipette:
+            self.error("Patch command did not complete successfully; cleaning pipette and escaping cell")
             self.remove_last_cell()
         elif not success and not self.current_autopatcher.config.auto_clean_pipette:
-             self.info("Patch command did not complete and auto escape not enabled; leaving cell in queue for manual follow-up.")
+             self.error("Patch command did not complete and auto escape not enabled; leaving cell in queue for manual follow-up.")
+        else:
+            self.info("Patch command completed successfully; escaping cell and cleaning pipette")
+            self.remove_last_cell()
 
     @blocking_command(category='Patch',
                         description='Locate the cell',

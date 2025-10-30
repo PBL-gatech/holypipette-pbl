@@ -245,12 +245,20 @@ class TaskInterface(QtCore.QObject, LoggingObject):
             controller.success_requested = False
             self.info('Task "{}" aborted'.format(func.__name__))
             self.task_finished.emit(2, controller)
+            if hasattr(controller, "_state_recorder"):
+                controller._state_recorder = None
+            if hasattr(controller, "_in_patch"):
+                controller._in_patch = False
             self._current_controller = None
             return False
         except Exception:
             controller.success_requested = False
             self.exception('Task "{}" failed'.format(func.__name__))
             self.task_finished.emit(1, controller)
+            if hasattr(controller, "_state_recorder"):
+                controller._state_recorder = None
+            if hasattr(controller, "_in_patch"):
+                controller._in_patch = False
             self._current_controller = None
             return False
 

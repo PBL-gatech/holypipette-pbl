@@ -718,7 +718,7 @@ class CalibratedStage(CalibratedUnit):
         return big_image
     
 
-    def center_on_cell(self, cell, check_same_cell=False):
+    def center_on_cell(self, cell, check_same_cell=False, use_centroid = True):
         """
         Find the cell centroid in pixel space and nudge the stage so the centroid
         is centred in the camera view.
@@ -731,12 +731,22 @@ class CalibratedStage(CalibratedUnit):
 
         # capture new image
         _, _, _, image = self.camera.raw_frame_queue[0]
-        # find the cell centroid in pixel space
+        # compute expected cell location in the current camera frame (stage bookkeeping)
+        stage_ref_px = np.asarray(self.reference_position(), dtype=np.float32)
+        queued_ref_px = np.asarray(_cell_coords, dtype=np.float32)
+        expected_px = stage_ref_px[:2] - queued_ref_px[:2]
 
+        # reference thumbnails are cropped around the cell, so default to the crop centre
+        ref_h, ref_w = reference_image.shape[:2]
+        template_prompt = np.array([ref_w / 2.0, ref_h / 2.0], dtype=np.float32)
 
+        self.info(f"Centering on cell at approx. {expected_px} px")
         centroid = self.cellTrackHelper.find_centroid(
             reference_image,
             image,
+            use_centroid=use_centroid,
+            prompt_point=template_prompt,
+            expected_point=expected_px,
         )
         if centroid is None:
             return self.wait_until_still        # keep call chain consistent

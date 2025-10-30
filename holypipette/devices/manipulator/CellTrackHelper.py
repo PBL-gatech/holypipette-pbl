@@ -74,8 +74,10 @@ class CellTrackHelper:
         self,
         reference_image: ImageInput,
         image: ImageInput,
+        use_centroid: bool = True,
         *,
         prompt_point: Optional[Tuple[float, float]] = None,
+        expected_point: Optional[Tuple[float, float]] = None,
         load_conf: Optional[MatcherConfig] = None,
         offsets: Optional[Sequence[Tuple[float, float]]] = None,
         max_refine_distance: float = 120.0,
@@ -87,8 +89,14 @@ class CellTrackHelper:
         Args:
             reference_image: Template captured when the user queued the cell.
             image: Current camera frame.
+            use_centroid: When ``True`` (default) run SAM segmentation to recover a
+                refined centroid. When ``False`` skip segmentation and return the
+                LightGlue match directly.
             prompt_point: Optional positive point (x, y) used to seed the template
-                segmentation. Defaults to the template centre.
+                segmentation (when enabled). Defaults to the template centre.
+            expected_point: Optional prediction (x, y) of the cell position in the
+                current frame, typically derived from stage bookkeeping. Used to
+                gate LightGlue outliers and as an extra seed for refinement.
             load_conf: Configuration forwarded to ``PatchMatcher``.
             offsets: Extra seed offsets (px) for the refinement segmentation step.
             max_refine_distance: Reject segmentation results that stray further than
@@ -104,14 +112,33 @@ class CellTrackHelper:
         tmpl_height, tmpl_width = tmpl_np.shape[:2]
         curr_height, curr_width = curr_np.shape[:2]
         tmpl_center = np.array([tmpl_width / 2.0, tmpl_height / 2.0], dtype=np.float32)
-        prompt = (
-            np.array(prompt_point, dtype=np.float32)
-            if prompt_point is not None
-            else tmpl_center
-        )
+        if prompt_point is not None:
+            prompt_raw = np.array(prompt_point, dtype=np.float32).reshape(-1)
+            if prompt_raw.size < 2:
+                logging.error(
+                    "CellTrackHelper: prompt_point must have at least two values, got %s",
+                    prompt_raw,
+                )
+                return None
+            prompt = prompt_raw[:2]
+        else:
+            prompt = tmpl_center.copy()
+
+        expected: Optional[np.ndarray] = None
+        if expected_point is not None:
+            expected_raw = np.array(expected_point, dtype=np.float32).reshape(-1)
+            if expected_raw.size < 2:
+                logging.error(
+                    "CellTrackHelper: expected_point must have at least two values, got %s",
+                    expected_raw,
+                )
+                return None
+            expected = self._clamp_point(expected_raw[:2], curr_width, curr_height)
 
         # Step 1: Segment template to obtain the true centroid.
-        reference_centroid = self._segment_centroid(tmpl_np, prompt)
+        reference_centroid: Optional[np.ndarray] = (
+            self._segment_centroid(tmpl_np, prompt) if use_centroid else None
+        )
         if reference_centroid is None:
             reference_centroid = prompt
 
@@ -144,18 +171,37 @@ class CellTrackHelper:
             coarse_point = np.asarray(target_point, dtype=np.float32) + ref_offset
         coarse_point = self._clamp_point(coarse_point, curr_width, curr_height)
 
-        # Step 3: Re-run segmentation around the coarse prediction.
         offsets_to_use: Iterable[Tuple[float, float]] = (
             offsets if offsets is not None else self._DEFAULT_SEGMENTATION_OFFSETS
         )
-        refined = self._refine_with_segmentation(
-            curr_np,
-            coarse_point,
-            offsets_to_use,
-            max_refine_distance=max_refine_distance,
-        )
+        dynamic_offsets: list[Tuple[float, float]] = list(offsets_to_use)
 
-        final_point = refined if refined is not None else coarse_point
+        if expected is not None:
+            delta_expected = float(np.linalg.norm(coarse_point - expected))
+            if delta_expected > max_refine_distance:
+                logging.warning(
+                    "CellTrackHelper: LightGlue prediction deviates from stage estimate by %.1f px; falling back to stage prediction.",
+                    delta_expected,
+                )
+                coarse_point = expected.copy()
+            else:
+                offset_vec = expected - coarse_point
+                if np.any(np.abs(offset_vec) > 1e-3):
+                    dynamic_offsets.insert(0, (float(offset_vec[0]), float(offset_vec[1])))
+
+        offsets_for_refine: Tuple[Tuple[float, float], ...] = tuple(dynamic_offsets)
+
+        # Step 3: Re-run segmentation around the coarse prediction if requested.
+        if use_centroid:
+            refined = self._refine_with_segmentation(
+                curr_np,
+                coarse_point,
+                offsets_for_refine,
+                max_refine_distance=max_refine_distance,
+            )
+            final_point = refined if refined is not None else coarse_point
+        else:
+            final_point = coarse_point
         return final_point.astype(np.float32)
 
     # ------------------------------------------------------------------ #

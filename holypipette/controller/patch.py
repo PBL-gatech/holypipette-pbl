@@ -581,7 +581,7 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         self.fine_calibrate_pipette()
 
-        self.align(cell, cell_distance)
+        self.align(cell, cell_distance,self.config.use_centroid)
         self.info("Located Cell")
 
         self.amplifier.start_patch()
@@ -604,7 +604,7 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
 
-    def align(self, cell, cell_distance):
+    def align(self, cell, cell_distance, use_centroid):
         '''
         Aligns the pipette to the cell using microscope imaging
         '''
@@ -620,7 +620,7 @@ class AutoPatcher(TaskController):
 
         if self.config.cell_type_toggle:
             self.info("centering on cell")
-            self.calibrated_stage.center_on_cell(cell)
+            self.calibrated_stage.center_on_cell(cell,use_centroid)
             self.calibrated_stage.wait_until_still()
             self.info(f"correcting pipette position, moving microscope by {zdistleft} um")
             self.microscope.relative_move(-cell_distance)
@@ -776,7 +776,7 @@ class AutoPatcher(TaskController):
     def _safe_average(self, read_fn, num_measurements: int = 5, interval: float = 0.200):
         """Return the mean of *valid* samples from *read_fn*.
 
-        * Skips any reading that is ``None`` or ``NaN``.
+        * Skips any reading that is ``None``, ``NaN``, or negative.
         * If **every** reading in a window is invalid, run ``_adjustTrace``
           **once per window** and retry.
         * Retries *max_windows* times (default = 3).  After that, raises.
@@ -788,8 +788,10 @@ class AutoPatcher(TaskController):
                 val = read_fn()
                 # Guard against NaN/None without raising TypeError on None
                 if val is None or (isinstance(val, (float, np.floating)) and np.isnan(val)):
-                    # Keep log format identical – use debug so existing info/print lines stay untouched
+                    # Keep log format identical - use debug so existing info/print lines stay untouched
                     self.debug("_safe_average: invalid reading skipped (NaN/None)")
+                elif isinstance(val, (int, float, np.integer, np.floating)) and val < 0:
+                    self.debug("_safe_average: invalid reading skipped (negative)")
                 else:
                     readings.append(val)
                 self.sleep(interval)
@@ -894,7 +896,7 @@ class AutoPatcher(TaskController):
                 elif rate_mohm_per_sec <= -(self.config.gigaseal_R / 100):
                     currPressure += 5; currPressure = max(currPressure, -5); speed = 0.5
 
-                currPressure = min(currPressure, 0.0)
+                currPressure = min(currPressure, -5.0)
                 currPressure = max(currPressure, self.config.pressure_ramp_max)
 
                 if currPressure != prevpressure:
@@ -990,7 +992,6 @@ class AutoPatcher(TaskController):
             # ---- 1) quick access-R check ----
             r_ax = self.accessRamp()
             self.debug(f"Access-R check: {r_ax:.2f} Ohm (good_count={good_count})")
-
 
             if r_ax <= threshold_AR:
                 good_count += 1
@@ -1117,8 +1118,8 @@ class AutoPatcher(TaskController):
 
             #! Phase 3: break into cell
             _run_phase(self.break_in)
-            self.info("Whole-cell achieved, resting for 10 seconds")
-            self.sleep(10)
+            self.info("Whole-cell achieved, resting for 5 seconds")
+            self.sleep(5)
             
             if not self.config.custom_cclamp_protocol: 
                     #! Phase 4: run protocols
