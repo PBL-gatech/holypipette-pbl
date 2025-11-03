@@ -312,11 +312,11 @@ class CellTrackHelper:
         image_area = height * width
         if image_area > 0 and size > image_area * 0.25:
             percentage = 100.0 * size / float(image_area)
-            logging.warning(
-                "CellTrackHelper: SAM2 mask too large (%d px, %.1f%% of image).",
-                size,
-                percentage,
-            )
+            # logging.warning(
+            #     "CellTrackHelper: SAM2 mask too large (%d px, %.1f%% of image).",
+            #     size,
+            #     percentage,
+            # )
             return None
 
         mask_uint8 = mask_bool.astype(np.uint8)

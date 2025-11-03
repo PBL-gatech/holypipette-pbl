@@ -763,8 +763,8 @@ class CalibratedStage(CalibratedUnit):
         error_px = desired_px - centroid[:n_axes] 
 
         # -------- debug ---------------------------------------------------
-        self.info(f"centroid_px = {centroid}")
-        self.info(f"desired_px  = {desired_px}")
+        self.debug(f"centroid_px = {centroid}")
+        self.debug(f"desired_px  = {desired_px}")
         self.info(f"error_px    = {error_px}")
         # ------------------------------------------------------------------
 
@@ -772,7 +772,7 @@ class CalibratedStage(CalibratedUnit):
         # Clamp extreme pixel errors so we do not command huge stage jumps.
         max_error_px = self.camera.width / 20 # max 1/20 of image width
         if np.any(np.abs(error_px) > max_error_px):
-            self.info(f"Clamping extreme pixel error (>{max_error_px} px).")
+            self.warning(f"Clamping extreme pixel error (>{max_error_px} px).")
             error_px = np.clip(error_px, -max_error_px, max_error_px)
 
         # ------------------------------------------------------------------
@@ -785,7 +785,51 @@ class CalibratedStage(CalibratedUnit):
         # self.info(f"new stage px offset  : {self.reference_position()}")
 
 
+    def get_cell_position(self, cell, use_centroid=True):
+        """
+        Find the cell centroid in pixel space.
 
+        Returns the centroid position (in pixels) as a numpy array.
+        """
+        _cell_coords, reference_image, _position = cell
+
+        # capture new image
+        _, _, _, image = self.camera.raw_frame_queue[0]
+        # compute expected cell location in the current camera frame (stage bookkeeping)
+        stage_ref_px = np.asarray(self.reference_position(), dtype=np.float32)
+        queued_ref_px = np.asarray(_cell_coords, dtype=np.float32)
+        expected_px = stage_ref_px[:2] - queued_ref_px[:2]
+
+        # reference thumbnails are cropped around the cell, so default to the crop centre
+        ref_h, ref_w = reference_image.shape[:2]
+        template_prompt = np.array([ref_w / 2.0, ref_h / 2.0], dtype=np.float32)
+
+        self.info(f"Getting position of cell at approx. {expected_px} px")
+        centroid = self.cellTrackHelper.find_centroid(
+            reference_image,
+            image,
+            use_centroid=use_centroid,
+            prompt_point=template_prompt,
+            expected_point=expected_px,
+        )
+        if centroid is None:
+            return None, None
+
+        n_axes = self.Minv.shape[1]
+        centroid = centroid[:n_axes].astype(np.float32, copy=False)
+        desired_px = np.array(
+            [self.camera.width / 2.0, self.camera.height / 2.0],
+            dtype=np.float32,
+        )[:n_axes]
+        error_px = desired_px - centroid
+
+        self.debug(f"centroid_px = {centroid}")
+        self.debug(f"desired_px  = {desired_px}")
+        self.info(f"error_px    = {error_px}")
+
+
+        return centroid, error_px
+ 
 
 
 class FixedStage(CalibratedUnit):

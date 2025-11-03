@@ -652,7 +652,9 @@ class AutoPatcher(TaskController):
             speed = [0, 0, self.config.max_descent_speed*5]
             start_pos = self.calibrated_unit.position()
             self.calibrated_unit.absolute_move_group_velocity(speed)
-            while start_pos[2] - self.calibrated_unit.position()[2] < (self.config.cell_distance - self.config.slice_start_distance):
+            cell_hover_pos = self.config.cell_distance - self.config.slice_start_distance
+            self.info(f"Cell hover position: {cell_hover_pos} um")
+            while start_pos[2] - self.calibrated_unit.position()[2] > cell_hover_pos and not self.abort_requested:
                 self.sleep(0.1)
             self.calibrated_unit.stop()
             
@@ -680,7 +682,7 @@ class AutoPatcher(TaskController):
 
             self.calibrated_unit.absolute_move_group_velocity(speed)
             self.info(f"moving pipette at: {speed} um/s")
-            # autoHunt=True
+            autoHunt=True
         elif self.config.mode == 'Agent':
             #prepare model
             # cell_pos, cell_img,goal_pos = cell
@@ -689,12 +691,6 @@ class AutoPatcher(TaskController):
             autoHunt = True
         else:
             autoHunt = False
-
-        if self.config.cell_type_toggle:
-            if self.config.cell_type == "Plate":
-                self.config.cell_R_increase = 0.300
-            elif self.config.cell_type == "Slice":
-                self.config.cell_R_increase = 0.200
 
         cell_detected = self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase)
         while not cell_detected and self.abort_requested == False:
@@ -721,11 +717,9 @@ class AutoPatcher(TaskController):
             if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
                 # we have moved expected um down and still no cell detected
                 self.info("cell not detected")
-                if autoHunt:
-                    self.calibrated_unit.stop()
-                    self.calibrated_stage.stop()
-                    self.microscope.stop()
-                    self.escape()
+                self.calibrated_unit.stop()
+                self.calibrated_stage.stop()
+                self.microscope.stop()
                 break
             elif cell_detected:
                 if autoHunt:
@@ -736,16 +730,22 @@ class AutoPatcher(TaskController):
                 self.info("Cell Detected")
                 self.success_requested = True
                 self.success_if_requested()
-
-
-
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
+            if self.config.track_cell:
+                position, disp = self.calibrated_stage.get_cell_position(cell,use_centroid=self.config.use_centroid)
+                if position is not None and disp is not None:
+                    self.info(f"cell displacement: {disp} px")
+                    self.info(f"cell position: {position} px")
+                else:
+                    self.info("lost track of cell")
+
             self.sleep(0.04)
             lastResDeque.append(daqResistance)
             daqResistance = self.daq.resistance()
             cell_detected = self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase)
 
+        self.calibrated_stage.stop()
         self.calibrated_unit.stop()
         self.microscope.stop()
 
