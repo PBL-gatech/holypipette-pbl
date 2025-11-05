@@ -85,8 +85,8 @@ class AxisToggle:
 
 @dataclass(slots=True)
 class ObservationSelector:
-    include_pressure: bool = False
-    include_resistance: bool = False
+    include_pressure: bool = True
+    include_resistance: bool = True
     include_current: bool = False
     include_voltage: bool = False
     include_stage: bool = True
@@ -146,27 +146,27 @@ class ActionSelector:
 class DatasetBuilderSettings:
     dataset_name: str
     val_ratio: float = 1 / 6 # fraction of demos to reserve for validation
-    omit_stage_movement: bool = True # set to true to only record demos when stage is stationary
+    omit_stage_movement: bool = False # set to true to only record demos when stage is stationary
     random_seed: int = 0
     freq_mask: int = 1
-    load_next_obs: bool = True # set to true for goal conditioning
+    load_next_obs: bool = False # set to true for goal conditioning
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
-    pipette_final_pos_color_dot: bool = True # set to true if want to add a red dot to image at final pipette position (for pipette finder only)
+    pipette_final_pos_color_dot: bool = False # set to true if want to add a red dot to image at final pipette position (for pipette finder only)
 
     observation_selector: ObservationSelector = field(default_factory=ObservationSelector)
     action_selector: ActionSelector = field(
         default_factory=lambda: ActionSelector(
             include_stage=False,
-            stage_axes=AxisToggle(x=False, y=False, z=False),
-            pipette_axes=AxisToggle(x=True, y=True, z=False),
+            stage_axes=AxisToggle(x=True, y=True, z=True),
+            pipette_axes=AxisToggle(x=True, y=True, z=True),
         )
     )
 
     # Legacy toggles preserved for parity with DatasetBuilder
     center_crop: bool = False # set to true to center crop images around pipette
-    inaction: int = 1 # maximum number of consecutive zero-action steps to keep
-    inaction_tolerance: float = 0.1 # per-axis magnitude treated as inactivity
+    inaction: int = 0 # maximum number of consecutive zero-action steps to keep
+    inaction_tolerance: float = 0 # per-axis magnitude treated as inactivity
 
 
 @dataclass(slots=True)
@@ -1638,7 +1638,8 @@ __all__ = [
 if __name__ == "__main__":
 
 # ----------------------------------------------------------------------------------------------------------------------------------------
-    dataset_name = "PatcherBot_test_dataset_v0_510.hdf5"
+    # dataset_name = "PatcherBot_test_dataset_v0_510.hdf5"
+    dataset_name = "PatcherBot_classic_dataset_v0_001.hdf5"
 
 
     # rig_recorder_data_folder_set = [
@@ -1651,7 +1652,10 @@ if __name__ == "__main__":
     # rig_recorder_data_folder_set = ["2025_09_25-22_13"] # version 0.001 test data (9/25/2025) find_pipette test set
     # rig_recorder_data_folder_set = ["2025_10_10-15_12"] # version 300 - version 510
 
-    rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
+    # rig_recorder_data_folder_set = ["2025_10_09-22_04"] # test_set
+
+    rig_recorder_data_folder_set = ["2025_11_02-19_41",
+                                    "2025_11_02-21_00"]
 
     # ------------------------------------------------------------------------------------------------------------------------------
     # rig_recorder_data_folder_set = [
@@ -1683,9 +1687,9 @@ if __name__ == "__main__":
     builder = SimpleDatasetBuilder(
         dataset_name=dataset_name,
         val_ratio=0.1,
-        omit_stage_movement=True,
+        omit_stage_movement=False,
         random_seed=0,
-        load_next_obs=True,
+        load_next_obs=False,
     )
 
     for folder in rig_recorder_data_folder_set:
