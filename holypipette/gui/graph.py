@@ -206,14 +206,6 @@ class VoltageProtocolGraph(ProtocolGraph):
             hold_label = f"{int(round(sweep_hold_mV))}mV" if sweep_hold_mV is not None else "hold"
 
             filename_override = f"MembraneTest_{index}_{mem_color}_{hold_label}_{step_label}"
-            self.ephys_logger.write_ephys_data(
-                index,
-                timeData,
-                commandData,
-                respData,
-                mem_color,
-                filename_override=filename_override
-            )
             if timeData is not None and respData is not None:
                 self.ephys_logger.write_ephys_data(
                     index,
