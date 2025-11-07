@@ -26,6 +26,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.colors as mcolors
+from matplotlib import transforms
 
 
 # ============================ CONFIG ============================
@@ -410,7 +411,7 @@ def draw_average_attempt_gantt(
     if summary.empty:
         raise RuntimeError("Average Gantt summary is empty after grouping by method.")
 
-    fig, ax = plt.subplots(figsize=(14, 2.8))
+    fig, ax = plt.subplots(figsize=(14, 1.4))
     fig.patch.set_alpha(0)
     ax.set_facecolor("none")
 
@@ -473,12 +474,6 @@ def draw_cumulative_success_rate(
             "axes.linewidth": 1.6,
         }
     )
-    fig = plt.figure(figsize=(7.0, 2.8))
-    ax = fig.add_subplot(111)
-
-    for side in ("right", "top"):
-        ax.spines[side].set_visible(False)
-
     PRISM_LINE_LW = 2.4
     PRISM_MARKER_SIZE = 6.0
     PRISM_MARKER_EDGE = 2.1
@@ -487,8 +482,20 @@ def draw_cumulative_success_rate(
     PRISM_TICK_PAD = 6
     SUCCESS_COLOR = "#003057"
     FAIL_COLOR = "red"
+    UPPER_SEGMENT_MIN = 0.80  # First visible tick above the break
+    BREAK_Y = 0.70  # Height at which the y-axis break is indicated
+    VISIBLE_MIN = BREAK_Y - 0.07  # Extend ylim lower so the break floats above the axis base
+    BREAK_SLASH_DY = 0.02  # Vertical span of each slash (data units)
+    BREAK_SLASH_GAP = 0.02  # Vertical separation between the two slashes
+    BREAK_SLASH_DX = 0.014  # Half-width of each slash (axes fraction)
+    BREAK_AXIS_SEGMENT_PAD = 0.0  # Optional cushion so manual spine segments stop shy of the slashes
 
-    ax.spines["left"].set_linewidth(PRISM_TICK_WIDTH)
+    fig, ax = plt.subplots(figsize=(7.0, 3.0))
+
+    for side in ("right", "top"):
+        ax.spines[side].set_visible(False)
+    left_spine = ax.spines["left"]
+    left_spine.set_linewidth(PRISM_TICK_WIDTH)
     ax.spines["bottom"].set_linewidth(PRISM_TICK_WIDTH)
     ax.tick_params(
         direction="out",
@@ -509,32 +516,35 @@ def draw_cumulative_success_rate(
         mfc=SUCCESS_COLOR,
         solid_capstyle="round",
         label="Cumulative success rate",
-    )
+    )[0]
 
     fail_mask = ~success_flags.values
     failed_idx = attempt_numbers[fail_mask]
+    fail_rates = success_rate[fail_mask]
     if len(failed_idx) > 0:
         fail_scatter = ax.scatter(
             failed_idx,
-            success_rate[fail_mask],
+            fail_rates,
             color=FAIL_COLOR,
             s=(PRISM_MARKER_SIZE**2),
-            label="Attempt incomplete",
             zorder=3,
         )
-        handles = [line[0], fail_scatter]
+        handles = [line, fail_scatter]
         labels = ["Cumulative success rate", "Attempt incomplete"]
     else:
-        handles = [line[0]]
+        handles = [line]
         labels = ["Cumulative success rate"]
 
-    ax.set_xlim(0, max(2.0, attempt_numbers[-1] + 2.0))
-    ax.set_ylim(0, 1.05)
+    x_max = max(2.0, attempt_numbers[-1] + 2.0)
+    ax.set_xlim(0, x_max)
     ax.set_xticks(attempt_numbers)
-    ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
-    ax.set_xlabel("Attempt Number")
+
+    ax.set_ylim(VISIBLE_MIN, 1.05)
+    ax.set_yticks([UPPER_SEGMENT_MIN, 0.9, 1.0])
     ax.set_ylabel("Cumulative Success Rate")
+    ax.set_xlabel("Attempt Number")
     ax.set_title("Cumulative Attempt Success Rate")
+
     target_line = ax.axhline(
         0.9,
         color="#000000",
@@ -545,6 +555,62 @@ def draw_cumulative_success_rate(
     handles.append(target_line)
     labels.append("90% target")
     ax.legend(handles, labels, loc="lower right", frameon=False, fontsize=11, handlelength=1.4)
+
+    # Manually annotate the hidden 0.0 baseline just below the break.
+    axis_transform = ax.get_yaxis_transform(which="grid")
+    tick_len = 0.015
+    ax.plot(
+        (-tick_len, 0),
+        (VISIBLE_MIN, VISIBLE_MIN),
+        transform=axis_transform,
+        color="k",
+        linewidth=PRISM_TICK_WIDTH,
+        clip_on=False,
+    )
+    ax.text(
+        -tick_len - 0.01,
+        VISIBLE_MIN,
+        "0.0",
+        transform=axis_transform,
+        fontsize=11,
+        ha="right",
+        va="center",
+    )
+
+    # Draw paired diagonal break marks centered at BREAK_Y to indicate the jump to 0.80.
+    break_kwargs = dict(color="k", clip_on=False, linewidth=PRISM_TICK_WIDTH, zorder=5)
+    break_transform = transforms.blended_transform_factory(ax.transAxes, ax.transData)
+
+    # Replace the hidden portion of the left spine with two manual segments that
+    # terminate at the outer tips of the break slashes.
+    axis_color = left_spine.get_edgecolor()
+    axis_width = left_spine.get_linewidth()
+    left_spine.set_visible(False)
+    ymin, ymax = ax.get_ylim()
+    slash_outer_span = (BREAK_SLASH_GAP / 2) + (BREAK_SLASH_DY / 2)
+    lower_stop = BREAK_Y - slash_outer_span - BREAK_AXIS_SEGMENT_PAD
+    upper_start = BREAK_Y + slash_outer_span + BREAK_AXIS_SEGMENT_PAD
+    axis_segment_kwargs = dict(
+        color=axis_color,
+        linewidth=axis_width,
+        solid_capstyle="butt",
+        transform=break_transform,
+        clip_on=False,
+        zorder=4,
+    )
+    if lower_stop > ymin:
+        ax.plot((0, 0), (ymin, lower_stop), **axis_segment_kwargs)
+    if upper_start < ymax:
+        ax.plot((0, 0), (upper_start, ymax), **axis_segment_kwargs)
+
+    for offset in (-BREAK_SLASH_GAP / 2, BREAK_SLASH_GAP / 2):
+        y_center = BREAK_Y + offset
+        ax.plot(
+            (-BREAK_SLASH_DX, BREAK_SLASH_DX),
+            (y_center - BREAK_SLASH_DY / 2, y_center + BREAK_SLASH_DY / 2),
+            transform=break_transform,
+            **break_kwargs,
+        )
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=200, bbox_inches="tight", transparent=True)
