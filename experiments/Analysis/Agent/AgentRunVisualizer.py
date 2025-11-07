@@ -8,9 +8,11 @@ Edit the CONFIG section below:
 - EXCLUDE_METHODS: list of method names to remove (case-insensitive)
 - Column names: ATTEMPT_COL, METHOD_COL, START_COL, END_COL
 
-Two PNGs are produced:
-- OUT_TIME:   combined_gantt_by_method.png
-- OUT_ZEROED: combined_gantt_by_method_zeroed.png
+Four PNGs are produced:
+- OUT_TIME:    combined_gantt_by_method.png
+- OUT_ZEROED:  combined_gantt_by_method_zeroed.png
+- OUT_SUCCESS: attempt_cumulative_success.png
+- OUT_AVERAGE: average_gantt.png
 
 Same attempt numbers from different files are distinguished by appending the
 attempt's FIRST start time to the lane label, e.g. "attempt_12 @ 2025-11-03 01:05".
@@ -23,6 +25,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import matplotlib.colors as mcolors
 
 
 # ============================ CONFIG ============================
@@ -49,6 +52,7 @@ END_COL     = "end_utc"
 OUT_TIME      = FOLDER / "combined_gantt_by_method.png"
 OUT_ZEROED    = FOLDER / "combined_gantt_by_method_zeroed.png"
 OUT_SUCCESS   = FOLDER / "attempt_cumulative_success.png"
+OUT_AVERAGE   = FOLDER / "average_gantt.png"
 
 # Bar styling
 BAR_HEIGHT = 0.8
@@ -74,12 +78,46 @@ def extract_first_int(s):
     return int(m.group(0)) if m else None
 
 
-def method_display_color(method_name: str):
-    """Return an override color for a given method, or None to use defaults."""
+def method_display_color(method_name: str, palette):
+    """Return a palette color (normalized by method name) or fallback."""
+    if not palette:
+        return None
     norm = normalize_method(method_name)
-    if norm == "locate cell":
-        return "tab:orange"
-    return None
+    if norm and norm in palette:
+        return palette[norm]
+    return palette.get("__fallback__")
+
+
+def build_method_palette(data: pd.DataFrame) -> dict:
+    """Assign each normalized method a color sampled from the cividis colormap."""
+    method_series = (
+        data[METHOD_COL]
+        .dropna()
+        .astype(str)
+        .map(str.strip)
+    )
+    norm_methods = []
+    seen = set()
+    for name in method_series:
+        norm = normalize_method(name)
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        norm_methods.append(norm)
+
+    palette = {}
+    if norm_methods:
+        cmap = plt.get_cmap("twilight")
+        positions = np.linspace(0.1, 0.9, len(norm_methods))
+        palette.update(
+            {
+                norm: mcolors.to_hex(cmap(pos))
+                for norm, pos in zip(norm_methods, positions)
+            }
+        )
+    fallback_color = mcolors.to_hex(plt.get_cmap("cividis")(0.05))
+    palette["__fallback__"] = fallback_color
+    return palette
 
 
 def read_one_csv(path: Path) -> pd.DataFrame:
@@ -183,6 +221,7 @@ def draw_layered_by_method_datetime(
     attempt_labels: list,
     attempt_index: dict,
     out_path: Path,
+    method_palette: dict,
 ):
     """Combined Gantt with datetime x-axis; layer methods by total duration (longer first)."""
     width_days = (data["__end_ts__"] - data["__start_ts__"]).dt.total_seconds() / (24 * 3600)
@@ -202,7 +241,8 @@ def draw_layered_by_method_datetime(
     else:
         draw_methods = []
 
-    fig, ax = plt.subplots(figsize=(14, max(5, 0.5 * len(attempt_labels))))
+    fig_height = max(1.0, 0.1 * len(attempt_labels))
+    fig, ax = plt.subplots(figsize=(14, fig_height))
     fig.patch.set_alpha(0)
     ax.set_facecolor("none")
 
@@ -213,7 +253,7 @@ def draw_layered_by_method_datetime(
         y = sub["__attempt_label__"].map(attempt_index).values
         lefts = mdates.date2num(sub["__start_ts__"].values)
         widths = mdates.date2num(sub["__end_ts__"].values) - lefts
-        color = method_display_color(method)
+        color = method_display_color(method, method_palette)
         bar_kwargs = dict(
             height=BAR_HEIGHT,
             align="center",
@@ -242,11 +282,11 @@ def draw_layered_by_method_datetime(
         )
 
     ax.set_yticks(list(range(len(attempt_labels))), labels=attempt_labels)
-    ax.set_ylabel("Attempt (num, time-disambiguated)")
+    ax.set_ylabel("Attempt #)")
     ax.invert_yaxis()
 
-    ax.set_xlabel("Time")
-    ax.set_title("Combined Categorical Gantt (colored by method)")
+    ax.set_xlabel("Time (minutes)")
+    ax.set_title("Method Attempt times")
     locator = mdates.AutoDateLocator()
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
@@ -262,6 +302,7 @@ def draw_zeroed_by_method_minutes(
     attempt_labels: list,
     attempt_index: dict,
     out_path: Path,
+    method_palette: dict,
 ):
     """Combined Gantt with x-axis in minutes since each attempt's first start (t=0 per attempt)."""
     left_min  = (data["__start_ts__"] - data["__attempt_start__"]).dt.total_seconds() / 60.0
@@ -282,18 +323,22 @@ def draw_zeroed_by_method_minutes(
     else:
         draw_methods = []
 
-    fig, ax = plt.subplots(figsize=(14, max(5, 0.5 * len(attempt_labels))))
+    spacing = 0.24
+    y_positions = {lab: i * spacing for i, lab in enumerate(attempt_labels)}
+    fig_height = max(1.2, spacing * max(1, len(attempt_labels)) + 0.6)
+    fig, ax = plt.subplots(figsize=(7, fig_height))
     fig.patch.set_alpha(0)
     ax.set_facecolor("none")
+    bar_height = spacing * 0.30  # slightly thicker line-like bars
 
     for method in draw_methods:
         sub = complete[complete[METHOD_COL].astype(str) == method]
         if sub.empty:
             continue
-        y = sub["__attempt_label__"].map(attempt_index).values
-        color = method_display_color(method)
+        y = sub["__attempt_label__"].map(y_positions).values
+        color = method_display_color(method, method_palette)
         bar_kwargs = dict(
-            height=BAR_HEIGHT,
+            height=bar_height,
             align="center",
             alpha=BAR_ALPHA,
             label=method,
@@ -309,12 +354,12 @@ def draw_zeroed_by_method_minutes(
 
     if not incomplete.empty:
         sub = incomplete
-        y = sub["__attempt_label__"].map(attempt_index).values
+        y = sub["__attempt_label__"].map(y_positions).values
         ax.barh(
             y,
             sub["__width_min__"].values,
             left=sub["__left_min__"].values,
-            height=BAR_HEIGHT,
+            height=bar_height,
             align="center",
             alpha=BAR_ALPHA,
             color="red",
@@ -322,13 +367,78 @@ def draw_zeroed_by_method_minutes(
             label="incomplete attempt",
         )
 
-    ax.set_yticks(list(range(len(attempt_labels))), labels=attempt_labels)
-    ax.set_ylabel("Attempt (num, time-disambiguated)")
+    tick_positions = [y_positions[lab] for lab in attempt_labels]
+    tick_labels = [re.sub(r"^attempt\s*", "", lab, flags=re.IGNORECASE) for lab in attempt_labels]
+    ax.set_yticks(tick_positions, labels=tick_labels)
+    ax.set_ylabel("Attempt (num)")
     ax.invert_yaxis()
 
-    ax.set_xlabel("Minutes since attempt start (t = 0 per attempt)")
-    ax.set_title("Combined Categorical Gantt (by method, start time zeroed per attempt)")
+    ax.set_xlabel("Time since start (minutes)")
+    ax.set_title("Method Attempt times")
     ax.legend(title="Method / status", loc="best", ncol=2)
+    max_minutes = max(5.0, float(right_min.max()))
+    ax.set_xlim(0, max_minutes)
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200, bbox_inches="tight", transparent=True)
+    plt.close(fig)
+
+
+def draw_average_attempt_gantt(
+    data: pd.DataFrame,
+    out_path: Path,
+    method_palette: dict,
+):
+    """Single-row Gantt showing the mean start time and duration of each method."""
+    left_min = (data["__start_ts__"] - data["__attempt_start__"]).dt.total_seconds() / 60.0
+    right_min = (data["__end_ts__"] - data["__attempt_start__"]).dt.total_seconds() / 60.0
+    data = data.assign(__left_min__=left_min, __width_min__=(right_min - left_min))
+
+    complete = data[data["__is_complete__"]].copy()
+    complete = complete[complete["__width_min__"] > 0]
+    if complete.empty:
+        raise RuntimeError("No complete attempts with finite durations to compute average Gantt.")
+
+    complete["__method_display__"] = complete[METHOD_COL].fillna("(unknown)").astype(str)
+
+    summary = (
+        complete.groupby("__method_display__", dropna=False)[["__left_min__", "__width_min__"]]
+        .agg(avg_left=("__left_min__", "mean"), avg_width=("__width_min__", "mean"))
+        .reset_index()
+        .sort_values("avg_left", kind="mergesort")
+    )
+    if summary.empty:
+        raise RuntimeError("Average Gantt summary is empty after grouping by method.")
+
+    fig, ax = plt.subplots(figsize=(14, 2.8))
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
+
+    y_value = 0.0
+    for _, row in summary.iterrows():
+        method = row["__method_display__"]
+        color = method_display_color(method, method_palette)
+        bar_kwargs = dict(
+            height=BAR_HEIGHT,
+            align="center",
+            alpha=BAR_ALPHA,
+            label=method,
+        )
+        if color is not None:
+            bar_kwargs["color"] = color
+        ax.barh(
+            y_value,
+            row["avg_width"],
+            left=row["avg_left"],
+            **bar_kwargs,
+        )
+
+    ax.set_yticks([y_value], labels=["Average Attempt"])
+    ax.set_ylabel("Attempt")
+    ax.set_xlabel("Minutes since attempt start (mean per method)")
+    ax.set_title("Average Attempt Categorical Gantt")
+    ax.set_xlim(left=0)
+    ax.legend(title="Method", loc="upper right", ncol=2)
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=200, bbox_inches="tight", transparent=True)
@@ -363,7 +473,7 @@ def draw_cumulative_success_rate(
             "axes.linewidth": 1.6,
         }
     )
-    fig = plt.figure(figsize=(7.0, 4.3))
+    fig = plt.figure(figsize=(7.0, 2.8))
     ax = fig.add_subplot(111)
 
     for side in ("right", "top"):
@@ -427,7 +537,7 @@ def draw_cumulative_success_rate(
     ax.set_title("Cumulative Attempt Success Rate")
     target_line = ax.axhline(
         0.9,
-        color="#555555",
+        color="#000000",
         linestyle=(0, (3.5, 2.5)),
         linewidth=1.4,
         zorder=1,
@@ -443,13 +553,21 @@ def draw_cumulative_success_rate(
 
 def main():
     data = load_folder(FOLDER)
+    method_palette = build_method_palette(data)
     attempt_labels, label_map = attempt_order(data)
     data = data.assign(__attempt_label__=data["__attempt_label__"].map(label_map))
     attempt_index = {lab: i for i, lab in enumerate(attempt_labels)}
-    draw_layered_by_method_datetime(data, attempt_labels, attempt_index, OUT_TIME)
-    draw_zeroed_by_method_minutes(data, attempt_labels, attempt_index, OUT_ZEROED)
+    draw_layered_by_method_datetime(data, attempt_labels, attempt_index, OUT_TIME, method_palette)
+    draw_zeroed_by_method_minutes(data, attempt_labels, attempt_index, OUT_ZEROED, method_palette)
+    draw_average_attempt_gantt(data, OUT_AVERAGE, method_palette)
     draw_cumulative_success_rate(data, attempt_labels, OUT_SUCCESS)
-    print(f"Saved:\n  - {OUT_TIME}\n  - {OUT_ZEROED}\n  - {OUT_SUCCESS}")
+    print(
+        "Saved:\n"
+        f"  - {OUT_TIME}\n"
+        f"  - {OUT_ZEROED}\n"
+        f"  - {OUT_AVERAGE}\n"
+        f"  - {OUT_SUCCESS}"
+    )
 
 
 if __name__ == "__main__":
