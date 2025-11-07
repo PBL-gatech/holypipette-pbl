@@ -59,6 +59,35 @@ OUT_AVERAGE   = FOLDER / "average_gantt.png"
 BAR_HEIGHT = 0.8
 BAR_ALPHA  = 0.9
 
+# Shared styling parameters for polished axes in summary plots.
+PRISM_RC_PARAMS = {
+    "font.family": "Arial",
+    "axes.labelsize": 12,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "axes.linewidth": 1.6,
+}
+PRISM_TICK_LENGTH = 8
+PRISM_TICK_WIDTH = 1.8
+PRISM_TICK_PAD = 6
+
+
+def apply_prism_axes_style(ax):
+    """Apply consistent fonts, spine widths, and tick spacing."""
+    plt.rcParams.update(PRISM_RC_PARAMS)
+    for side in ("right", "top"):
+        ax.spines[side].set_visible(False)
+    left_spine = ax.spines["left"]
+    left_spine.set_linewidth(PRISM_TICK_WIDTH)
+    ax.spines["bottom"].set_linewidth(PRISM_TICK_WIDTH)
+    ax.tick_params(
+        direction="out",
+        width=PRISM_TICK_WIDTH,
+        length=PRISM_TICK_LENGTH,
+        pad=PRISM_TICK_PAD,
+    )
+    return left_spine
+
 # ===============================================================
 
 
@@ -108,7 +137,7 @@ def build_method_palette(data: pd.DataFrame) -> dict:
 
     palette = {}
     if norm_methods:
-        cmap = plt.get_cmap("twilight")
+        cmap = plt.get_cmap("twilight_shifted")
         positions = np.linspace(0.1, 0.9, len(norm_methods))
         palette.update(
             {
@@ -391,39 +420,40 @@ def draw_average_attempt_gantt(
     method_palette: dict,
 ):
     """Single-row Gantt showing the mean start time and duration of each method."""
-    left_min = (data["__start_ts__"] - data["__attempt_start__"]).dt.total_seconds() / 60.0
-    right_min = (data["__end_ts__"] - data["__attempt_start__"]).dt.total_seconds() / 60.0
-    data = data.assign(__left_min__=left_min, __width_min__=(right_min - left_min))
+    left_sec = (data["__start_ts__"] - data["__attempt_start__"]).dt.total_seconds()
+    right_sec = (data["__end_ts__"] - data["__attempt_start__"]).dt.total_seconds()
+    data = data.assign(__left_sec__=left_sec, __width_sec__=(right_sec - left_sec))
 
     complete = data[data["__is_complete__"]].copy()
-    complete = complete[complete["__width_min__"] > 0]
+    complete = complete[complete["__width_sec__"] > 0]
     if complete.empty:
         raise RuntimeError("No complete attempts with finite durations to compute average Gantt.")
 
     complete["__method_display__"] = complete[METHOD_COL].fillna("(unknown)").astype(str)
 
     summary = (
-        complete.groupby("__method_display__", dropna=False)[["__left_min__", "__width_min__"]]
-        .agg(avg_left=("__left_min__", "mean"), avg_width=("__width_min__", "mean"))
+        complete.groupby("__method_display__", dropna=False)[["__left_sec__", "__width_sec__"]]
+        .agg(avg_left=("__left_sec__", "mean"), avg_width=("__width_sec__", "mean"))
         .reset_index()
         .sort_values("avg_left", kind="mergesort")
     )
     if summary.empty:
         raise RuntimeError("Average Gantt summary is empty after grouping by method.")
 
-    fig, ax = plt.subplots(figsize=(14, 1.4))
+    fig, ax = plt.subplots(figsize=(7.0, 1.8))
     fig.patch.set_alpha(0)
     ax.set_facecolor("none")
+    apply_prism_axes_style(ax)
 
+    avg_bar_height = BAR_HEIGHT / 2.0
     y_value = 0.0
     for _, row in summary.iterrows():
         method = row["__method_display__"]
         color = method_display_color(method, method_palette)
         bar_kwargs = dict(
-            height=BAR_HEIGHT,
+            height=avg_bar_height,
             align="center",
             alpha=BAR_ALPHA,
-            label=method,
         )
         if color is not None:
             bar_kwargs["color"] = color
@@ -434,12 +464,21 @@ def draw_average_attempt_gantt(
             **bar_kwargs,
         )
 
-    ax.set_yticks([y_value], labels=["Average Attempt"])
-    ax.set_ylabel("Attempt")
-    ax.set_xlabel("Minutes since attempt start (mean per method)")
-    ax.set_title("Average Attempt Categorical Gantt")
-    ax.set_xlim(left=0)
-    ax.legend(title="Method", loc="upper right", ncol=2)
+    ax.set_yticks([])
+    pad = max(0.05, avg_bar_height / 2.0)
+    ax.set_ylim(-avg_bar_height - pad, avg_bar_height + pad)
+    ax.set_ylabel("")
+    ax.set_xlabel("Time since start (s)")
+    ax.set_title("Mean Succesful Method Attempt Timing")
+    avg_finish = summary["avg_left"] + summary["avg_width"]
+    max_seconds = max(30.0, float(avg_finish.max()))
+    tick_step = 30.0
+    left_bound = max(0.0, float(summary["avg_left"].min()) - 20.0)
+    right_bound = max_seconds - 20.0
+    if right_bound <= left_bound:
+        right_bound = left_bound + tick_step
+    ax.set_xlim(left_bound, right_bound)
+    ax.set_xticks(np.arange(left_bound, right_bound + tick_step, tick_step))
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=200, bbox_inches="tight", transparent=True)
@@ -465,21 +504,9 @@ def draw_cumulative_success_rate(
     cumulative_successes = success_flags.astype(int).cumsum()
     success_rate = cumulative_successes / attempt_numbers
 
-    plt.rcParams.update(
-        {
-            "font.family": "Arial",
-            "axes.labelsize": 12,
-            "xtick.labelsize": 12,
-            "ytick.labelsize": 12,
-            "axes.linewidth": 1.6,
-        }
-    )
     PRISM_LINE_LW = 2.4
     PRISM_MARKER_SIZE = 6.0
     PRISM_MARKER_EDGE = 2.1
-    PRISM_TICK_LENGTH = 8
-    PRISM_TICK_WIDTH = 1.8
-    PRISM_TICK_PAD = 6
     SUCCESS_COLOR = "#003057"
     FAIL_COLOR = "red"
     UPPER_SEGMENT_MIN = 0.80  # First visible tick above the break
@@ -491,18 +518,7 @@ def draw_cumulative_success_rate(
     BREAK_AXIS_SEGMENT_PAD = 0.0  # Optional cushion so manual spine segments stop shy of the slashes
 
     fig, ax = plt.subplots(figsize=(7.0, 3.0))
-
-    for side in ("right", "top"):
-        ax.spines[side].set_visible(False)
-    left_spine = ax.spines["left"]
-    left_spine.set_linewidth(PRISM_TICK_WIDTH)
-    ax.spines["bottom"].set_linewidth(PRISM_TICK_WIDTH)
-    ax.tick_params(
-        direction="out",
-        width=PRISM_TICK_WIDTH,
-        length=PRISM_TICK_LENGTH,
-        pad=PRISM_TICK_PAD,
-    )
+    left_spine = apply_prism_axes_style(ax)
 
     line = ax.plot(
         attempt_numbers,
