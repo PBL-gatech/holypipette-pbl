@@ -354,35 +354,87 @@ def draw_cumulative_success_rate(
     cumulative_successes = success_flags.astype(int).cumsum()
     success_rate = cumulative_successes / attempt_numbers
 
-    fig, ax = plt.subplots(figsize=(12, 6))
-    fig.patch.set_alpha(0)
-    ax.set_facecolor("none")
-    ax.plot(
+    plt.rcParams.update(
+        {
+            "font.family": "Arial",
+            "axes.labelsize": 12,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+            "axes.linewidth": 1.6,
+        }
+    )
+    fig = plt.figure(figsize=(7.0, 4.3))
+    ax = fig.add_subplot(111)
+
+    for side in ("right", "top"):
+        ax.spines[side].set_visible(False)
+
+    PRISM_LINE_LW = 2.4
+    PRISM_MARKER_SIZE = 6.0
+    PRISM_MARKER_EDGE = 2.1
+    PRISM_TICK_LENGTH = 8
+    PRISM_TICK_WIDTH = 1.8
+    PRISM_TICK_PAD = 6
+    SUCCESS_COLOR = "#003057"
+    FAIL_COLOR = "red"
+
+    ax.spines["left"].set_linewidth(PRISM_TICK_WIDTH)
+    ax.spines["bottom"].set_linewidth(PRISM_TICK_WIDTH)
+    ax.tick_params(
+        direction="out",
+        width=PRISM_TICK_WIDTH,
+        length=PRISM_TICK_LENGTH,
+        pad=PRISM_TICK_PAD,
+    )
+
+    line = ax.plot(
         attempt_numbers,
         success_rate,
+        color=SUCCESS_COLOR,
+        lw=PRISM_LINE_LW,
         marker="o",
-        color="tab:blue",
+        ms=PRISM_MARKER_SIZE,
+        mec=SUCCESS_COLOR,
+        mew=PRISM_MARKER_EDGE,
+        mfc=SUCCESS_COLOR,
+        solid_capstyle="round",
         label="Cumulative success rate",
     )
 
-    failed_idx = attempt_numbers[~success_flags.values]
+    fail_mask = ~success_flags.values
+    failed_idx = attempt_numbers[fail_mask]
     if len(failed_idx) > 0:
-        ax.scatter(
+        fail_scatter = ax.scatter(
             failed_idx,
-            success_rate[~success_flags.values],
-            color="red",
-            zorder=3,
+            success_rate[fail_mask],
+            color=FAIL_COLOR,
+            s=(PRISM_MARKER_SIZE**2),
             label="Attempt incomplete",
+            zorder=3,
         )
+        handles = [line[0], fail_scatter]
+        labels = ["Cumulative success rate", "Attempt incomplete"]
+    else:
+        handles = [line[0]]
+        labels = ["Cumulative success rate"]
 
-    ax.set_xlim(1, max(1, attempt_numbers[-1]))
-    ax.set_ylim(0, 1.1,)
+    ax.set_xlim(0, max(2.0, attempt_numbers[-1] + 2.0))
+    ax.set_ylim(0, 1.05)
     ax.set_xticks(attempt_numbers)
-    ax.set_xlabel("Attempt number")
-    ax.set_ylabel("Cumulative success rate")
+    ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
+    ax.set_xlabel("Attempt Number")
+    ax.set_ylabel("Cumulative Success Rate")
     ax.set_title("Cumulative Attempt Success Rate")
-    ax.grid(True, axis="y", linestyle="--", alpha=0.3)
-    ax.legend(loc="best")
+    target_line = ax.axhline(
+        0.9,
+        color="#555555",
+        linestyle=(0, (3.5, 2.5)),
+        linewidth=1.4,
+        zorder=1,
+    )
+    handles.append(target_line)
+    labels.append("90% target")
+    ax.legend(handles, labels, loc="lower right", frameon=False, fontsize=11, handlelength=1.4)
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=200, bbox_inches="tight", transparent=True)
