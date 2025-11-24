@@ -16,7 +16,7 @@ Examples
 
 Using the :class:`IBBPressureController`::
 
-    from holypipette.devices.pressurecontroller import IBBPressureController
+    from patcherbot.devices.pressurecontroller import IBBPressureController
     import serial
 
     port = serial.Serial('COM5', 9600, timeout=0)
@@ -27,7 +27,7 @@ Using the :class:`IBBPressureController`::
 The :class:`MoscowPressureController` uses separate ports for commands and
 sensor readings::
 
-    from holypipette.devices.pressurecontroller import MoscowPressureController
+    from patcherbot.devices.pressurecontroller import MoscowPressureController
     import serial
 
     ctrl_serial = serial.Serial('COM5', 9600, timeout=0)

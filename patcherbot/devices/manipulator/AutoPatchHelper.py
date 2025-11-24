@@ -345,7 +345,7 @@ class AutoPatchHelper:
         # print(f"pipette finder payload prepared {type(model_payload)}")
         # print(f"model pip payload:{pip_px}")
         # print(f"model stage payload:{stage_px}")
-        # save_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\holypipette\temp\test_image"
+        # save_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\temp\test_image"
         # plot and save image
         # plt.imshow(img)
         # plt.savefig(save_path)

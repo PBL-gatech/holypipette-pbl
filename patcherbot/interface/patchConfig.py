@@ -1,4 +1,4 @@
-﻿from hpatcherbotutils.config import Config, NumberWithUnit, Number, Boolean ,Selector
+﻿from patcherbot.utils.config import Config, NumberWithUnit, Number, Boolean ,Selector
 import logging
 
 class PatchConfig(Config):

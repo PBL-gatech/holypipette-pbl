@@ -596,7 +596,7 @@ class CameraGui(QtWidgets.QMainWindow):
         # Display error messages directly in the status bar
         handler = LogNotifyHandler(self.log_signal)
         handler.setLevel(logging.ERROR)
-        logging.getLogger('holypipette').addHandler(handler)
+        logging.getLogger('patcherbot').addHandler(handler)
         self.log_signal.connect(self.error_status)
 
     def _update_switch_button_text(self):
