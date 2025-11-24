@@ -2,14 +2,14 @@
 "Fake setup" for GUI development on a computer without access to a rig
 '''
 import numpy as np
-from holypipette.devices.amplifier.amplifier import FakeAmplifier
-from holypipette.devices.amplifier.DAQ import FakeDAQ
-from holypipette.devices.camera.pcocamera import PcoCamera
-from holypipette.devices.pressurecontroller.BasePressureController import FakePressureController
-from holypipette.devices.camera.camera import FakeCamera
-from holypipette.devices.camera import FakeCalCamera, FakePipetteManipulator
-from holypipette.devices.manipulator import *
-from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
+from patcherbot.devices.amplifier.amplifier import FakeAmplifier
+from patcherbot.devices.amplifier.DAQ import FakeDAQ
+from patcherbot.devices.camera.pcocamera import PcoCamera
+from patcherbot.devices.pressurecontroller.BasePressureController import FakePressureController
+from patcherbot.devices.camera.camera import FakeCamera
+from patcherbot.devices.camera import FakeCalCamera, FakePipetteManipulator
+from patcherbot.devices.manipulator import *
+from patcherbot.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
 
 controller = FakeManipulator(min=[-240000, 50000, 280000],
                              max=[-230000, 60000, 290000])

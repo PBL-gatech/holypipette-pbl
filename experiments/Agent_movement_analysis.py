@@ -9,7 +9,7 @@ if str(_VISUALIZER_DIR) not in sys.path:
 from AgentVisualizer import AgentVisualizer  # type: ignore
 
 # --- USER CONFIGURATION ---
-INPUT_FOLDER = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\GAv0_400_2")
+INPUT_FOLDER = Path(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\GAv0_400_2")
 FPS = 30.0
 RED_THRESHOLDS = (150, 100, 100)
 AXIS_LIMIT = 85

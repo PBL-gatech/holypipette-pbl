@@ -1,17 +1,17 @@
 '''
 "Fake setup" for GUI development on a computer without access to a rig
 '''
-from holypipette.devices.amplifier.multiclamp import MultiClampChannel
-from holypipette.devices.amplifier.amplifier import FakeAmplifier
-from holypipette.devices.amplifier.DAQ import NiDAQ
-from holypipette.devices.camera.pcocamera import PcoCamera
-from holypipette.devices.camera.PipetteCamera import PipetteCamera
-from holypipette.devices.manipulator import SensapexManip, ScientificaSerialNoEncoder
-from holypipette.devices.pressurecontroller.IBBPressureController import IBBPressureController
-from holypipette.devices.manipulator import *
-from holypipette.devices.cellsorter import CellSorterController, CellSorterManip, FakeCellSorterManip
+from patcherbot.devices.amplifier.multiclamp import MultiClampChannel
+from patcherbot.devices.amplifier.amplifier import FakeAmplifier
+from patcherbot.devices.amplifier.DAQ import NiDAQ
+from patcherbot.devices.camera.pcocamera import PcoCamera
+from patcherbot.devices.camera.PipetteCamera import PipetteCamera
+from patcherbot.devices.manipulator import SensapexManip, ScientificaSerialNoEncoder
+from patcherbot.devices.pressurecontroller.IBBPressureController import IBBPressureController
+from patcherbot.devices.manipulator import *
+from patcherbot.devices.cellsorter import CellSorterController, CellSorterManip, FakeCellSorterManip
 import serial
-from holypipette.devices.lamp import Lumencore
+from patcherbot.devices.lamp import Lumencore
 
 stageSerial = serial.Serial(port='COM7', baudrate=9600, timeout=1)
 # zAxisEncoderComms = serial.Serial(port='COM19', baudrate=115200, timeout=1)

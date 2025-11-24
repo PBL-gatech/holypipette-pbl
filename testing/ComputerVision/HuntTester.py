@@ -809,8 +809,8 @@ class ModelAnalyzer:
 
 
 if __name__ == "__main__":
-    model_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\models\\HEKHUNTERv0_201.onnx"
-    data_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\test_data\\HEKHUNTER_inference_set_goal.hdf5"
+    model_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\PatcherBot-Agent\\patcherbot\\deepLearning\\patchModel\\models\\HEKHUNTERv0_201.onnx"
+    data_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\PatcherBot-Agent\\patcherbot\\deepLearning\\patchModel\\test_data\\HEKHUNTER_inference_set_goal.hdf5"
     analyzer = ModelAnalyzer(
         model_path=model_path,
         data_path=data_path

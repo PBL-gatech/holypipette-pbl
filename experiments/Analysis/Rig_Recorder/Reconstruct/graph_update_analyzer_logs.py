@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Analysis\Rig_Recorder'
+directory = r'C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Analysis\Rig_Recorder'
 new_file_path = directory + '\logs.csv'
 new_data = pd.read_csv(new_file_path, on_bad_lines='skip')
 

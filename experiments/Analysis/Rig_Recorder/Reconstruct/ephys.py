@@ -45,8 +45,8 @@ def extract_data_and_plot(file_path, output_path):
     print("Done writing to:", output_path)
 
 # Example usage:
-file_path =r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_08_06-18_11\graph_recording.csv"
-output_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_08_06-18_11\current_frames"
-# file_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\graph_recording.csv"
-# output_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2024_06_19-18_45\current_frames"
+file_path =r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\rig_recorder_data\2024_08_06-18_11\graph_recording.csv"
+output_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\rig_recorder_data\2024_08_06-18_11\current_frames"
+# file_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\rig_recorder_data\2024_06_19-18_45\graph_recording.csv"
+# output_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\rig_recorder_data\2024_06_19-18_45\current_frames"
 extract_data_and_plot(file_path, output_path)

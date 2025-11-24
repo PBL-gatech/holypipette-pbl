@@ -22,8 +22,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from holypipette.deepLearning.pipetteDetector import PipetteDetector1, PipetteDetector2
-from holypipette.deepLearning.pipetteFocuser import PipetteFocuser
+from patcherbot.deepLearning.pipetteDetector import PipetteDetector1, PipetteDetector2
+from patcherbot.deepLearning.pipetteFocuser import PipetteFocuser
 
 
 from experiments.DatasetBuilder2 import DatasetBuilder2, _read_csv_with_fallback

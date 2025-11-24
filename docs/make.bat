@@ -9,7 +9,7 @@ if "%SPHINXBUILD%" == "" (
 )
 set SOURCEDIR=.
 set BUILDDIR=_build
-set SPHINXPROJ=holypipette
+set SPHINXPROJ=PatcherBot-Agent
 
 if "%1" == "" goto help
 

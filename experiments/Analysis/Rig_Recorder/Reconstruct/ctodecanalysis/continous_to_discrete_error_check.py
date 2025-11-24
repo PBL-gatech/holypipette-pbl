@@ -551,10 +551,10 @@ class PipetteDisplacementAnalyzer:
 # Example Usage
 if __name__ == "__main__":
     # Define file paths
-    sinusoid_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal.csv"
-    chirp_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\chirp_signal.csv"
-    exponential_path  = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\exponential_position_signal.csv"
-    ramp_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\ramp_signal.csv"
+    sinusoid_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\sinusoid_signal.csv"
+    chirp_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\chirp_signal.csv"
+    exponential_path  = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\exponential_position_signal.csv"
+    ramp_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\ramp_signal.csv"
     
     # Choose the first dataset (uncomment as needed)
     # file_path1 = sinusoid_path
@@ -562,10 +562,10 @@ if __name__ == "__main__":
     file_path1 = exponential_path
     # file_path1 = ramp_path
     
-    file_path2 = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_20-16_57\movement_recording_truncated.csv" # exponential signal
-    # file_path2 = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_21-12_47\movement_recording_truncated.csv" # linear signal at 10 um/s
-    # file_path2 = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_21-13_05\movement_recording_truncated.csv" # linear signal at 5 um/s
-    # file_path2 = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\TEST_rig_recorder_data\2024_11_21-13_11\movement_recording_truncated.csv" # linear signal at 2.5 um/s
+    file_path2 = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\TEST_rig_recorder_data\2024_11_20-16_57\movement_recording_truncated.csv" # exponential signal
+    # file_path2 = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\TEST_rig_recorder_data\2024_11_21-12_47\movement_recording_truncated.csv" # linear signal at 10 um/s
+    # file_path2 = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\TEST_rig_recorder_data\2024_11_21-13_05\movement_recording_truncated.csv" # linear signal at 5 um/s
+    # file_path2 = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\TEST_rig_recorder_data\2024_11_21-13_11\movement_recording_truncated.csv" # linear signal at 2.5 um/s
     
     # Initialize the analyzer
     analyzer = PipetteDisplacementAnalyzer(file_path1=file_path1, file_path2=file_path2,fit = 'quadratic')

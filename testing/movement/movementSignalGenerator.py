@@ -236,7 +236,7 @@ if __name__ == "__main__":
     # generator.plot_signal(t_chirp, chirp_signal, "Chirp Signal")
 
     # Save the chirp signal to a CSV
-    # generator.save_to_csv(t_chirp, chirp_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\chirp_signal.csv")
+    # generator.save_to_csv(t_chirp, chirp_signal, r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\chirp_signal.csv")
 
     # # Generate an exponential position curve
     # initial_speed = 1.0  # um per second
@@ -246,7 +246,7 @@ if __name__ == "__main__":
     # generator.plot_signal(t_exp, exp_position, "Exponential Position Signal")
 
     # # Save the exponential signal to a CSV
-    # generator.save_to_csv(t_exp, exp_position, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\exponential_position_signal.csv")
+    # generator.save_to_csv(t_exp, exp_position, r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\exponential_position_signal.csv")
 
     # Generate a step signal
     # duration =  30      # seconds
@@ -259,7 +259,7 @@ if __name__ == "__main__":
     # generator.plot_signal(t_step, step_signal, "Step Signal")
 
     # # Save the step signal to a CSV
-    # generator.save_to_csv(t_step, step_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\step_signal.csv")
+    # generator.save_to_csv(t_step, step_signal, r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\step_signal.csv")
 
 # Example Usage:
 # Create an instance of the SignalGenerator
@@ -277,14 +277,14 @@ generator.plot_signal(t_sin, sinusoid, "Original Sinusoidal Signal")
 
 
 # # # Save the sinusoidal signal to a CSV
-generator.save_to_csv(t_sin, sinusoid, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\sinusoid_signal_1.csv")
+generator.save_to_csv(t_sin, sinusoid, r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\sinusoid_signal_1.csv")
 
 # # # Generate a chirp signal
 # t_chirp, chirp_signal = generator.generate_chirp(f_start=0.01, f_end=0.5, duration=15)
 # generator.plot_signal(t_chirp, chirp_signal, "Chirp Signal")
 
 # # Save the chirp signal to a CSV
-# generator.save_to_csv(t_chirp, chirp_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\chirp_signal.csv")
+# generator.save_to_csv(t_chirp, chirp_signal, r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\chirp_signal.csv")
 
 # # Generate a ramp signal
 # initial_value = 0
@@ -294,4 +294,4 @@ generator.save_to_csv(t_sin, sinusoid, r"C:\Users\sa-forest\Documents\GitHub\hol
 # generator.plot_signal(t_ramp, ramp_signal, "Ramp Signal")
 
 # # Save the ramp signal to a CSV
-# generator.save_to_csv(t_ramp, ramp_signal, r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\testing\movement\ramp_signal.csv")
+# generator.save_to_csv(t_ramp, ramp_signal, r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\testing\movement\ramp_signal.csv")

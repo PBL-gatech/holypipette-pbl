@@ -1,4 +1,4 @@
-"""Setup script for the HolyPipette-PBL package."""
+"""Setup script for the PatcherBot-Agent package."""
 
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ def parse_requirements(filename: str) -> list[str]:
 
 
 setup(
-    name="HolyPipette-PBL",
+    name="PatcherBot-Agent",
     version="0.1",
     description="Deep Learning guided Automated Patch Clamp Electrophysiology System",
-    url="https://github.com/PBL-gatech/holypipette-pbl",
+    url="https://github.com/PBL-gatech/PatcherBot-Agent",
     author="Benjamin Magondu, Nathan Malta, Kaden StillWagon, Victor Guyard",
     author_email="bmagondu3@gatech.edu",
     classifiers=[

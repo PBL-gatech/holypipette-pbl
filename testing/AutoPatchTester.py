@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from holypipette.deepLearning.autoPatcher import CellHunter, PipetteFinder
+from patcherbot.deepLearning.autoPatcher import CellHunter, PipetteFinder
 
 
 def _load_hdf5_sequence(
@@ -823,7 +823,7 @@ class AutoPatchTester:
 
 DEFAULT_MODEL_PATH = (
     Path(__file__).resolve().parents[1]
-    / "holypipette"
+    / "patcherbot"
     / "deepLearning"
     / "patchModel"
     / "models"
@@ -832,17 +832,17 @@ DEFAULT_MODEL_PATH = (
 
 DEFAULT_DATA_PATH = Path(__file__).resolve().parents[1] / "testing" / "data" / "autopatch_demo.h5"
 
-# model_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\models\\HEKHUNTERv0_201.onnx"
-# data_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\holypipette-pbl\\holypipette\\deepLearning\\patchModel\\test_data\\HEKHUNTER_inference_set_goal.hdf5"
-# model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\NeuronHunter\models\bc_HEKHunter_v0_300.onnx"
-# data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_006\PatcherBot_test_dataset_v0_006_hunt_cell.hdf5"
+# model_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\PatcherBot-Agent\\patcherbot\\deepLearning\\patchModel\\models\\HEKHUNTERv0_201.onnx"
+# data_path = r"C:\\Users\\sa-forest\\Documents\\GitHub\\PatcherBot-Agent\\patcherbot\\deepLearning\\patchModel\\test_data\\HEKHUNTER_inference_set_goal.hdf5"
+# model_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\deepLearning\patchModel\NeuronHunter\models\bc_HEKHunter_v0_300.onnx"
+# data_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Datasets\PatcherBot_test_dataset_v0_006\PatcherBot_test_dataset_v0_006_hunt_cell.hdf5"
 
-model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\NeuronHunter\models\bc_CellHunter_v0_140.onnx"
-# model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_120.onnx"
-# model_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\holypipette\deepLearning\patchModel\PipetteFinder\models\df_PipetteFinder_v0_004.onnx"
-# data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_005\PatcherBot_test_dataset_v0_005_find_pipette.hdf5"
-# data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_120\PatcherBot_test_dataset_v0_120_find_pipette.hdf5"
-data_path = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_test_dataset_v0_140\PatcherBot_test_dataset_v0_140_hunt_cell.hdf5"
+model_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\deepLearning\patchModel\NeuronHunter\models\bc_CellHunter_v0_140.onnx"
+# model_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\deepLearning\patchModel\PipetteFinder\models\bc_PipetteFinder_v0_120.onnx"
+# model_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\deepLearning\patchModel\PipetteFinder\models\df_PipetteFinder_v0_004.onnx"
+# data_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Datasets\PatcherBot_test_dataset_v0_005\PatcherBot_test_dataset_v0_005_find_pipette.hdf5"
+# data_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Datasets\PatcherBot_test_dataset_v0_120\PatcherBot_test_dataset_v0_120_find_pipette.hdf5"
+data_path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Datasets\PatcherBot_test_dataset_v0_140\PatcherBot_test_dataset_v0_140_hunt_cell.hdf5"
 
 
 def main() -> None:

@@ -18,7 +18,7 @@ experiments/Datasets
 /testing/testpatchconfig
 
 
-/holypipette/experiments/Data
+/patcherbot/experiments/Data
 /experiments/Analysis/Patch_Clamp/rowanexample
 /experiments/Analysis/Patch_Clamp/testCCdata
 *.log
@@ -27,29 +27,29 @@ experiments/Datasets
 /experiments/Data/state_recorder_data
 /.continue
 /testing/ComputerVision/holypipette_pipette_detection
-/holypipette/deepLearning/patchModel/oldmodels
-/holypipette/deepLearning/cellModel/example pictures
-/holypipette/deepLearning/cellModel
-/holypipette/deepLearning/patchModel/models
-/holypipette/deepLearning/patchModel/test_data
-/holypipette/deepLearning/pipetteModel
+/patcherbot/deepLearning/patchModel/oldmodels
+/patcherbot/deepLearning/cellModel/example pictures
+/patcherbot/deepLearning/cellModel
+/patcherbot/deepLearning/patchModel/models
+/patcherbot/deepLearning/patchModel/test_data
+/patcherbot/deepLearning/pipetteModel
 /experiments/Analysis/Results
-/holypipette/deepLearning/patchModel/PipetteFinder/models
-/holypipette/deepLearning/patchModel/PipetteFinder/models
-holypipette/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
-holypipette/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
-/holypipette/deepLearning/patchModel/NeuronHunter/models
-/holypipette/deepLearning/patchModel/NeuronHunter/oldmodels
-/holypipette/deepLearning/patchModel/NeuronHunter/test_data
-/holypipette/deepLearning/patchModel/test_data
-/holypipette/temp
+/patcherbot/deepLearning/patchModel/PipetteFinder/models
+/patcherbot/deepLearning/patchModel/PipetteFinder/models
+patcherbot/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
+patcherbot/deepLearning/patchModel/PipetteFinder/models/pipette_trajectory.gif
+/patcherbot/deepLearning/patchModel/NeuronHunter/models
+/patcherbot/deepLearning/patchModel/NeuronHunter/oldmodels
+/patcherbot/deepLearning/patchModel/NeuronHunter/test_data
+/patcherbot/deepLearning/patchModel/test_data
+/patcherbot/temp
 /.codex_tmp/_yaml
 /.codex_tmp
-/holypipette/deepLearning/patchModel/Agents
-/holypipette/deepLearning/patchModel/deprecated
-/holypipette/deepLearning/patchModel/legacy
-holypipette/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
-holypipette/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
+/patcherbot/deepLearning/patchModel/Agents
+/patcherbot/deepLearning/patchModel/deprecated
+/patcherbot/deepLearning/patchModel/legacy
+patcherbot/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
+patcherbot/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.onnx
 /testing/AgentPath
 /testing/AgentPath2
 /testing/AgentPath3

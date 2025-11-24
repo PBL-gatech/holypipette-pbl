@@ -20,7 +20,7 @@ IMAGE_PATH = Path(
 OUT_OVERLAY = CSV_DIR / "overlay_dots_white_target_large.png"
 OUT_ERROR = CSV_DIR / "error_dot_plot_twilight.png"
 CALIBRATION_PATH = Path(
-    r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\Calibration_data\2025_11_10-13_19\calibration.json"
+    r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\Calibration_data\2025_11_10-13_19\calibration.json"
 )
 MAX_SAMPLES = 50
 GRID_SIZE = 85.0

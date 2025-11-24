@@ -40,4 +40,4 @@ def plot_csv_folder(folder_path):
     print(f"All plots saved in: {out_dir}")
 
 # Example usage:
-plot_csv_folder(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\patch_clamp_data\2025_10_19-16_46\VoltageProtocol")
+plot_csv_folder(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2025_10_19-16_46\VoltageProtocol")

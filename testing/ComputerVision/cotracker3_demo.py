@@ -216,7 +216,7 @@ class Player:
 
 def main():
     # >>> set your defaults here <<<
-    folder = r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\rig_recorder_data\2025_07_31-17_11\camera_frames"   # use an absolute path
+    folder = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\rig_recorder_data\2025_07_31-17_11\camera_frames"   # use an absolute path
     resize_long_edge = 256               # 0 = keep original resolution
     add_support_grid = True
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<

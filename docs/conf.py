@@ -19,9 +19,9 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'HolyPipette-PBL'
-copyright = u'2024, holypipette authors'
-author = u'holypipette authors'
+project = 'PatcherBot-Agent'
+copyright = u'2024, PatcherBot Agent authors'
+author = u'PatcherBot-Agent authors'
 
 # The short X.Y version
 version = u'0.1'
@@ -123,7 +123,7 @@ html_static_path = ['_static']
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'holypipettedoc'
+htmlhelp_basename = 'PatcherBotAgentdoc'
 
 
 # -- Options for LaTeX output ------------------------------------------------
@@ -150,7 +150,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'holypipette.tex', u'holypipette Documentation',
+    (master_doc, 'patcherbot.tex', u'patcherbot Documentation',
      u'holypipette authors', 'manual'),
 ]
 
@@ -227,13 +227,13 @@ def run_apidoc(_):
         import sphinx.apidoc as apidoc
     except ImportError:
         import sphinx.ext.apidoc as apidoc  # newer Sphinx versions
-    holypipette_dir = os.path.abspath(os.path.join(os.path.dirname(__file__),
-                                                   '..', 'holypipette'))
+    patcherbot_dir = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                                   '..', 'patcherbot'))
     reference_dir = os.path.abspath(os.path.join(os.path.dirname(__file__),
                                                  'reference'))
     if not os.path.exists(reference_dir):
         os.mkdir(reference_dir)
-    apidoc.main(argv=['-F', '-e', '-M', '-o', reference_dir, holypipette_dir])
+    apidoc.main(argv=['-F', '-e', '-M', '-o', reference_dir, patcherbot_dir])
 
 
 def setup(app):

@@ -2,14 +2,14 @@
 This script sets up the Moscow rig. It is used to set up the devices and their connections. The devices are then used in the main script.
 '''
 import serial
-from holypipette.devices.amplifier.multiclamp import MultiClampChannel
-from holypipette.devices.amplifier.DAQ import  NiDAQ
-from holypipette.devices.camera.pcocamera import PcoCamera
-from holypipette.devices.camera.PipetteCamera import PipetteCamera
-from holypipette.devices.pressurecontroller import MoscowPressureController
-from holypipette.devices.manipulator import *
-from holypipette.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
-from holypipette.devices.lamp import OlympusLamp, FakeLamp
+from patcherbot.devices.amplifier.multiclamp import MultiClampChannel
+from patcherbot.devices.amplifier.DAQ import  NiDAQ
+from patcherbot.devices.camera.pcocamera import PcoCamera
+from patcherbot.devices.camera.PipetteCamera import PipetteCamera
+from patcherbot.devices.pressurecontroller import MoscowPressureController
+from patcherbot.devices.manipulator import *
+from patcherbot.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
+from patcherbot.devices.lamp import OlympusLamp, FakeLamp
 
 
 # set up Camera

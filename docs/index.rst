@@ -1,4 +1,4 @@
-HolyPipette-PBL
+PatcherBot-Agent
 ===============
 
 Contents
@@ -21,4 +21,4 @@ API reference
    :maxdepth: 2
    :titlesonly:
 
-   reference/holypipette
+   reference/PatcherBot-Agent

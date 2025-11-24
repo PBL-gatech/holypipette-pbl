@@ -34,10 +34,10 @@ plot_pipette_animation = False    # Animated scatter (Plot 5)
 animation_speed_multiplier = 1   # ~6 × faster than real-time
 base_animation_fps = 60          # logical FPS before speed-up
 save_animation = False           # Export GIF (requires Pillow)
-animation_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\pipette_paths.gif")
+animation_path = Path(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Datasets\pipette_paths.gif")
 # ===========================================================================
 
-file_path = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Datasets\PatcherBot_dataset_v0_300\PatcherBot_dataset_v0_300_find_pipette.hdf5")
+file_path = Path(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Datasets\PatcherBot_dataset_v0_300\PatcherBot_dataset_v0_300_find_pipette.hdf5")
 
 pipette_positions_data: dict[str, np.ndarray] = {}
 resistance_data: dict[str, np.ndarray] = {}

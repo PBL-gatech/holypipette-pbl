@@ -74,7 +74,7 @@ def plot_fps_data_with_markers(data, title, program_start_time, recording_starts
     plt.show()
 
 def main():
-    directory = r'C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Analysis\Rig_Recorder'
+    directory = r'C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Analysis\Rig_Recorder'
     filepath = directory + '\logs.csv'
 
     data = load_and_prepare_data(filepath)
