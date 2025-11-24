@@ -193,7 +193,11 @@ class AutoPatcher(TaskController):
                 self.info(f" Goal error:{gerr}")
 
                 if goal_needed and camera is not None:
-                    camera.show_circle(point=goal_display_tuple, color=(255, 255, 255), show_center=False)
+                    camera.show_circle(
+                        point=goal_display_tuple,
+                        color=(255, 255, 255),
+                        show_center=False,
+                    )
 
                 if gerr <= 20:
                     done = True
@@ -322,7 +326,12 @@ class AutoPatcher(TaskController):
             self.info(f" Goal error:{gerr}")
 
             if goal_needed and camera is not None:
-                camera.show_circle(point=goal_display_tuple, color=(255, 255, 255), show_center=False)
+                camera.show_circle(
+                    point=goal_display_tuple,
+                    color=(255, 255, 255),
+                    radius=15,
+                    show_center=False,
+                )
 
             if gerr <= 20:
                 self.success_requested = True

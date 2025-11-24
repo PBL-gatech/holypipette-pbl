@@ -419,7 +419,7 @@ def draw_average_attempt_gantt(
     out_path: Path,
     method_palette: dict,
 ):
-    """Single-row Gantt showing the mean start time and duration of each method."""
+    """Single-row Gantt showing the mean timing and annotating per-method duration SD."""
     left_sec = (data["__start_ts__"] - data["__attempt_start__"]).dt.total_seconds()
     right_sec = (data["__end_ts__"] - data["__attempt_start__"]).dt.total_seconds()
     data = data.assign(__left_sec__=left_sec, __width_sec__=(right_sec - left_sec))
@@ -433,12 +433,17 @@ def draw_average_attempt_gantt(
 
     summary = (
         complete.groupby("__method_display__", dropna=False)[["__left_sec__", "__width_sec__"]]
-        .agg(avg_left=("__left_sec__", "mean"), avg_width=("__width_sec__", "mean"))
+        .agg(
+            avg_left=("__left_sec__", "mean"),
+            avg_width=("__width_sec__", "mean"),
+            std_width=("__width_sec__", "std"),
+        )
         .reset_index()
         .sort_values("avg_left", kind="mergesort")
     )
     if summary.empty:
         raise RuntimeError("Average Gantt summary is empty after grouping by method.")
+    summary["std_width"] = summary["std_width"].fillna(0.0)
 
     fig, ax = plt.subplots(figsize=(7.0, 1.8))
     fig.patch.set_alpha(0)
@@ -464,12 +469,25 @@ def draw_average_attempt_gantt(
             **bar_kwargs,
         )
 
+        std_width = float(row["std_width"])
+        label = f"SD={std_width:.1f}s"
+        ax.annotate(
+            label,
+            xy=(row["avg_left"] + row["avg_width"] / 2.0, y_value),
+            xytext=(0, 12),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color="#111111",
+        )
+
     ax.set_yticks([])
     pad = max(0.05, avg_bar_height / 2.0)
     ax.set_ylim(-avg_bar_height - pad, avg_bar_height + pad)
     ax.set_ylabel("")
     ax.set_xlabel("Time since start (s)")
-    ax.set_title("Mean Succesful Method Attempt Timing")
+    ax.set_title("Mean Durations for Successful Attempts")
     avg_finish = summary["avg_left"] + summary["avg_width"]
     max_seconds = max(30.0, float(avg_finish.max()))
     tick_step = 30.0

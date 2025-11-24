@@ -4,22 +4,85 @@ import argparse
 import csv
 import re
 import sys
+from collections import Counter
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
 # --- USER CONFIGURATION DEFAULTS ---
-DEFAULT_INPUT_DIR = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\agent_movement_data\2025_10_20-21_35")
+DEFAULT_INPUT_DIR = Path(r"C:\Users\sa-forest\Documents\GitHub\holypipette-pbl\experiments\Data\agent_movement_data\2025_11_07-18_31")
 DEFAULT_FPS = 30.0
 DEFAULT_RED_THRESHOLDS = (150, 100, 100)  # (r_min, g_max, b_max)
 DEFAULT_AXIS_LIMIT = 85
+LOCK_WHITE_MODE = True  # Set to True to lock white-dot coordinates to the modal position.
+CSV_FIELDNAMES = ["filename", "red_x", "red_y", "white_x", "white_y"]
 
 
 def natural_sort_key(path: Path) -> List[object]:
     return [int(chunk) if chunk.isdigit() else chunk.lower() for chunk in re.split(r"(\d+)", path.name)]
+
+
+def detect_white_dot(bgr: np.ndarray, edge_margin: int = 2) -> Optional[Tuple[float, float]]:
+    """
+    Detect the small bright dot while ignoring the red square and edge glints.
+    Uses white top-hat to emphasize small bright features on bright backgrounds.
+    """
+
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    red1 = cv2.inRange(hsv, (0, 80, 80), (8, 255, 255))
+    red2 = cv2.inRange(hsv, (170, 80, 80), (180, 255, 255))
+    red_mask = cv2.dilate(cv2.bitwise_or(red1, red2), np.ones((5, 5), np.uint8), iterations=1)
+
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    gray_blur = cv2.GaussianBlur(gray, (3, 3), 0)
+
+    se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    opened = cv2.morphologyEx(gray_blur, cv2.MORPH_OPEN, se)
+    tophat = cv2.subtract(gray_blur, opened)
+    tophat[red_mask > 0] = 0
+
+    thr = max(5, int(np.percentile(tophat, 98)))
+    _, mask = cv2.threshold(tophat, thr, 255, cv2.THRESH_BINARY)
+
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    if num_labels <= 1:
+        return None
+
+    height, width = mask.shape
+    best: Optional[Tuple[float, float]] = None
+    best_score = float("-inf")
+
+    for label in range(1, num_labels):
+        x, y, w, h, area = stats[label]
+        cx, cy = centroids[label]
+
+        if not (3 <= area <= 100 and w <= 12 and h <= 12):
+            continue
+        if (
+            x <= edge_margin
+            or y <= edge_margin
+            or (x + w) >= (width - edge_margin)
+            or (y + h) >= (height - edge_margin)
+        ):
+            continue
+
+        comp_mask = labels == label
+        score = float(tophat[comp_mask].mean()) + 0.05 * area
+        if score > best_score:
+            best_score = score
+            best = (float(cx), float(cy))
+
+    return best
+
+
+def euclidean_err(ax: np.ndarray, bx: np.ndarray, ay: np.ndarray, by: np.ndarray) -> np.ndarray:
+    """Vectorized Euclidean distance that gracefully propagates NaNs."""
+
+    return np.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
 
 
 class AgentVisualizer:
@@ -33,11 +96,13 @@ class AgentVisualizer:
         fps: float = DEFAULT_FPS,
         red_thresholds: Sequence[int] = DEFAULT_RED_THRESHOLDS,
         axis_limit: int = DEFAULT_AXIS_LIMIT,
+        lock_white_to_mode: bool = False,
     ) -> None:
         self.input_dir = Path(input_dir).expanduser().resolve()
         self.fps = fps
         self.r_min, self.g_max, self.b_max = red_thresholds
         self.axis_limit = axis_limit
+        self.lock_white_to_mode = lock_white_to_mode
 
         self.base_name = self.input_dir.name
         self.output_dir = self.input_dir
@@ -59,44 +124,93 @@ class AgentVisualizer:
         y, x = coords.mean(axis=0)
         return int(round(x)), int(round(y))
 
-    def save_csv(self, rows: Sequence[Sequence[object]]) -> None:
+    def _compute_white_mode(
+        self, rows: Sequence[Dict[str, object]]
+    ) -> Optional[Tuple[Tuple[int, int], int]]:
+        counter: Counter[Tuple[int, int]] = Counter()
+        for row in rows:
+            wx = row.get("white_x")
+            wy = row.get("white_y")
+            if wx is None or wy is None:
+                continue
+            if isinstance(wx, float) and np.isnan(wx):
+                continue
+            if isinstance(wy, float) and np.isnan(wy):
+                continue
+            counter[(int(round(float(wx))), int(round(float(wy))))] += 1
+        if not counter:
+            return None
+        position, count = counter.most_common(1)[0]
+        return position, count
+
+    def _apply_white_mode(self, rows: Sequence[Dict[str, object]], position: Tuple[int, int]) -> None:
+        mode_x, mode_y = position
+        for row in rows:
+            row["white_x"] = mode_x
+            row["white_y"] = mode_y
+
+    @staticmethod
+    def _sanitize_row(row: Dict[str, object], fieldnames: Sequence[str]) -> Dict[str, object]:
+        sanitized: Dict[str, object] = {}
+        for key in fieldnames:
+            value = row.get(key)
+            if value is None:
+                sanitized[key] = ""
+            elif isinstance(value, float) and np.isnan(value):
+                sanitized[key] = ""
+            else:
+                sanitized[key] = value
+        return sanitized
+
+    def save_csv(self, rows: Sequence[Dict[str, object]], fieldnames: Sequence[str]) -> None:
+        sanitized_rows = [self._sanitize_row(row, fieldnames) for row in rows]
         with open(self.output_csv, "w", newline="") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["filename", "x", "y"])
-            writer.writerows(rows)
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(sanitized_rows)
         print(f"Saved CSV with coordinates to: {self.output_csv}")
 
-    def save_plot(self, trajectory: Sequence[Tuple[int, int]]) -> None:
+    def save_plot(
+        self,
+        trajectory: Sequence[Tuple[int, int]],
+        frame_rows: Sequence[Dict[str, object]],
+    ) -> None:
         if not trajectory:
-            print("No red dot detections found; trajectory plot skipped.")
-            return
+            print("No red dot detections found; red-specific plots will show 'Not enough data'.")
 
-        xs, ys = zip(*trajectory)
-        xs_arr = np.asarray(xs, dtype=float)
-        ys_arr = np.asarray(ys, dtype=float)
+        xs_arr = np.asarray([pt[0] for pt in trajectory], dtype=float) if trajectory else np.asarray([], dtype=float)
+        ys_arr = np.asarray([pt[1] for pt in trajectory], dtype=float) if trajectory else np.asarray([], dtype=float)
 
         dx = np.diff(xs_arr)
         dy = np.diff(ys_arr)
 
-        r = np.hypot(xs_arr, ys_arr)
-        theta_rad = np.arctan2(ys_arr, xs_arr)
-        theta_unwrapped = np.unwrap(theta_rad)
+        if xs_arr.size > 0:
+            r = np.hypot(xs_arr, ys_arr)
+            theta_rad = np.arctan2(ys_arr, xs_arr)
+            theta_unwrapped = np.unwrap(theta_rad)
+        else:
+            r = np.asarray([], dtype=float)
+            theta_unwrapped = np.asarray([], dtype=float)
         dr = np.diff(r)
         dtheta = np.diff(theta_unwrapped)
 
-        fig, axes = plt.subplots(2, 3, figsize=(14, 8), dpi=100)
+        fig, axes_grid = plt.subplots(4, 2, figsize=(14, 18), dpi=100)
+        axes = axes_grid.ravel()
 
-        # Top-left (1,1): XY trajectory
-        ax_traj = axes[0, 0]
-        ax_traj.plot(xs_arr, ys_arr, marker="o")
+        # XY trajectory
+        ax_traj = axes[0]
+        if xs_arr.size > 0:
+            ax_traj.plot(xs_arr, ys_arr, marker="o")
+        else:
+            ax_traj.text(0.5, 0.5, "No red detections", ha="center", va="center", transform=ax_traj.transAxes)
         ax_traj.set_title(f"Agent trajectory ({self.base_name})")
         ax_traj.set_xlabel("X coordinate (pixels)")
         ax_traj.set_ylabel("Y coordinate (pixels)")
         ax_traj.set_xlim(0, self.axis_limit)
         ax_traj.set_ylim(self.axis_limit, 0)
 
-        # Top-center (1,2): Histogram of delta X
-        ax_hist_dx = axes[0, 1]
+        # Histogram of delta X
+        ax_hist_dx = axes[1]
         if dx.size > 0:
             ax_hist_dx.hist(dx, bins="auto", color="tab:blue", alpha=0.8)
             ax_hist_dx.set_xlim(-4, 4)
@@ -106,8 +220,8 @@ class AgentVisualizer:
         ax_hist_dx.set_xlabel("delta X (pixels)")
         ax_hist_dx.set_ylabel("Count")
 
-        # Top-right (1,3): Histogram of delta Y
-        ax_hist_dy = axes[0, 2]
+        # Histogram of delta Y
+        ax_hist_dy = axes[2]
         if dy.size > 0:
             ax_hist_dy.hist(dy, bins="auto", color="tab:orange", alpha=0.8)
             ax_hist_dy.set_xlim(-4, 4)
@@ -117,8 +231,8 @@ class AgentVisualizer:
         ax_hist_dy.set_xlabel("delta Y (pixels)")
         ax_hist_dy.set_ylabel("Count")
 
-        # Bottom-left (2,1): Histogram of delta r
-        ax_hist_dr = axes[1, 0]
+        # Histogram of delta r
+        ax_hist_dr = axes[3]
         if dr.size > 0:
             ax_hist_dr.hist(dr, bins="auto", color="tab:green", alpha=0.8)
             ax_hist_dr.set_xlim(-4, 4)
@@ -128,8 +242,8 @@ class AgentVisualizer:
         ax_hist_dr.set_xlabel("delta r (pixels)")
         ax_hist_dr.set_ylabel("Count")
 
-        # Bottom-center (2,2): Histogram of delta theta
-        ax_hist_dtheta = axes[1, 1]
+        # Histogram of delta theta
+        ax_hist_dtheta = axes[4]
         if dtheta.size > 0:
             ax_hist_dtheta.hist(dtheta, bins="auto", color="tab:red", alpha=0.8)
             theta_extent = np.max(np.abs(dtheta))
@@ -140,8 +254,8 @@ class AgentVisualizer:
         ax_hist_dtheta.set_xlabel("delta theta (radians)")
         ax_hist_dtheta.set_ylabel("Count")
 
-        # Bottom-right (2,3): FFT magnitude of delta X and delta Y
-        ax_fft = axes[1, 2]
+        # FFT magnitude of delta X and delta Y
+        ax_fft = axes[5]
         sample_spacing = 1.0 / self.fps if self.fps > 0 else 1.0
         if dx.size > 0:
             freq_dx = np.fft.rfftfreq(dx.size, d=sample_spacing)
@@ -158,8 +272,55 @@ class AgentVisualizer:
         ax_fft.set_ylabel("Magnitude")
         if (dx.size > 0) or (dy.size > 0):
             ax_fft.set_xlim(left=0)
-        if (dx.size > 0) or (dy.size > 0):
             ax_fft.legend()
+
+        # Error subplot
+        ax_err = axes[6]
+
+        def column_to_array(key: str) -> np.ndarray:
+            if not frame_rows:
+                return np.asarray([], dtype=float)
+            values = []
+            for row in frame_rows:
+                value = row.get(key)
+                if value is None:
+                    values.append(np.nan)
+                else:
+                    values.append(float(value))
+            return np.asarray(values, dtype=float)
+
+        frames = np.arange(len(frame_rows), dtype=int)
+        red_x_series = column_to_array("red_x")
+        red_y_series = column_to_array("red_y")
+        white_x_series = column_to_array("white_x")
+        white_y_series = column_to_array("white_y")
+        err = euclidean_err(white_x_series, red_x_series, white_y_series, red_y_series)
+        err_label = "Distance white ↔ red (px)"
+
+        if frames.size == 0 or not np.isfinite(err).any():
+            ax_err.text(0.5, 0.5, "Not enough data", ha="center", va="center", transform=ax_err.transAxes)
+        else:
+            ax_err.plot(frames, err, color="tab:purple", label=err_label)
+
+        if frames.size > 0:
+            white_missing = (~np.isfinite(white_x_series)) | (~np.isfinite(white_y_series))
+            if white_missing.any():
+                ax_err.scatter(
+                    frames[white_missing],
+                    np.zeros(int(white_missing.sum()), dtype=float),
+                    marker="x",
+                    color="tab:red",
+                    label="white detection missing",
+                )
+
+        ax_err.set_title("7) Error")
+        ax_err.set_xlabel("Frame")
+        ax_err.set_ylabel(err_label)
+        ax_err.grid(True, alpha=0.3)
+        if ax_err.lines or ax_err.collections:
+            ax_err.legend()
+
+        axes[7].axis("off")
 
         fig.tight_layout()
         fig.savefig(self.output_plot, dpi=100)
@@ -200,7 +361,7 @@ class AgentVisualizer:
         if not image_paths:
             raise FileNotFoundError(f"No supported images found in {self.input_dir}")
 
-        rows = []
+        rows: List[Dict[str, object]] = []
         trajectory: List[Tuple[int, int]] = []
         frames: List[Image.Image] = []
 
@@ -211,12 +372,29 @@ class AgentVisualizer:
                     arr = np.array(rgb_img)
                     centroid = self.find_red_centroid(arr)
 
+                    red_x: Optional[int] = None
+                    red_y: Optional[int] = None
                     if centroid:
-                        x, y = centroid
-                        rows.append([path.name, x, y])
-                        trajectory.append((x, y))
-                    else:
-                        rows.append([path.name, "", ""])
+                        red_x, red_y = centroid
+                        trajectory.append((red_x, red_y))
+
+                    bgr_arr = np.ascontiguousarray(arr[:, :, ::-1])
+                    white_detection = detect_white_dot(bgr_arr)
+                    white_x: Optional[int] = None
+                    white_y: Optional[int] = None
+                    if white_detection is not None:
+                        wx, wy = white_detection
+                        white_x, white_y = int(round(wx)), int(round(wy))
+
+                    rows.append(
+                        {
+                            "filename": path.name,
+                            "red_x": red_x,
+                            "red_y": red_y,
+                            "white_x": white_x,
+                            "white_y": white_y,
+                        }
+                    )
 
                     frames.append(rgb_img.convert("RGBA"))
             except UnidentifiedImageError:
@@ -227,12 +405,27 @@ class AgentVisualizer:
         if not rows and not frames:
             raise RuntimeError("No valid image data available after processing.")
 
+        if self.lock_white_to_mode:
+            mode_result = self._compute_white_mode(rows)
+            if mode_result:
+                position, count = mode_result
+                self._apply_white_mode(rows, position)
+                print(
+                    f"White dot mode override enabled: locked to ({position[0]}, {position[1]}) "
+                    f"based on {count} detections."
+                )
+            else:
+                print(
+                    "White dot mode override requested, but no white dot detections were available to compute the mode.",
+                    file=sys.stderr,
+                )
+
         if rows:
-            self.save_csv(rows)
+            self.save_csv(rows, CSV_FIELDNAMES)
         else:
             print("No coordinate data to write; CSV skipped.")
 
-        self.save_plot(trajectory)
+        self.save_plot(trajectory, rows)
         self.save_gif(frames)
 
 
@@ -276,6 +469,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         fps=args.fps,
         red_thresholds=(args.r_min, args.g_max, args.b_max),
         axis_limit=args.axis_limit,
+        lock_white_to_mode=LOCK_WHITE_MODE,
     )
     visualizer.run()
 
