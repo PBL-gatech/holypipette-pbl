@@ -3,9 +3,9 @@ import faulthandler
 faulthandler.enable()
 # faulthandler.dump_traceback_later(5)
 
-import atexit
 import sys
-from PyQt5.QtWidgets import QApplication
+import atexit
+from PyQt5.QtWidgets import QApplication, QMessageBox
 import traceback
 from patcherbot.utils.exception_handler import set_global_exception_hook
 
@@ -20,18 +20,47 @@ from patcherbot.interface.pipettes import PipetteInterface
 from patcherbot.interface.graph import GraphInterface
 from patcherbot.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, LeakSubtractionGraph, HoldingProtocolGraph
 from patcherbot.gui.patch import PatchGui
-
-
-# 
-from rig_setup.setup_Moscow_rig import *  
-# from rig_setup.setup_fake_rig import * 
-# from rig_setup.setup_Moscow_rig_camera import *    
-# from rig_setup.setup_Moscow_Pressuretest import *
+from rig_setup.rig_config import RigConfigError, RigConfigManager
+from rig_setup.rig_selector import RigSelectorDialog
+from patcherbot.devices.camera.FakeCalCamera import FakeCalCamera
 
 setup_logging()  # Log to the standard console as well
 
 def main():
     app = QApplication(sys.argv)
+    manager = RigConfigManager()
+    manager.ensure_default_config()
+
+    selector = RigSelectorDialog(manager)
+    if selector.exec_() != selector.Accepted:
+        return
+    config_path = selector.selected_path or manager.default_config_path()
+
+    try:
+        rig_devices = manager.build_devices_from_file(config_path)
+    except RigConfigError as exc:
+        QMessageBox.critical(None, "Rig configuration error", str(exc))
+        return
+    except Exception:
+        QMessageBox.critical(None, "Rig initialization failed", traceback.format_exc())
+        return
+
+    stage = rig_devices["stage"]
+    microscope = rig_devices["microscope"]
+    camera = rig_devices["camera"]
+    # Ensure camera has refs if it needs them
+    if isinstance(camera, FakeCalCamera):
+        camera.stageManip = rig_devices["stage_controller"]
+        camera.pipetteManip = rig_devices["pipette_controller"]
+        camera.cellSorterManip = rig_devices["cell_sorter_manipulator"]
+    pipette_camera = rig_devices["pipette_camera"]
+    unit = rig_devices["pipette_unit"]
+    cellSorterManip = rig_devices["cell_sorter_manipulator"]
+    cellSorterController = rig_devices["cell_sorter_controller"]
+    amplifier = rig_devices["amplifier"]
+    daq = rig_devices["daq"]
+    pressure = rig_devices["pressure"]
+    lamp = rig_devices["lamp"]
 
     recording_state_manager = RecordingStateManager()
 

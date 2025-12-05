@@ -1,0 +1,56 @@
+{
+  "name": "Fake Rig",
+  "schema_version": 2,
+  "devices": {
+    "stage_controller": {
+      "class": "patcherbot.devices.manipulator.fakemanipulator.FakeManipulator",
+      "params": {
+        "min": [-240000, 50000, 280000],
+        "max": [-230000, 60000, 290000],
+        "x": [-235000, 55000, 285000]
+      }
+    },
+    "pipette_controller": {
+      "class": "patcherbot.devices.manipulator.fakemanipulator.FakeManipulator",
+      "params": {
+        "min": [0, 0, 0],
+        "max": [4000, 20000, 20000],
+        "x": [200, 300, 400]
+      }
+    },
+    "camera": {
+      "class": "patcherbot.devices.camera.FakeCalCamera.FakeCalCamera",
+      "params": {
+        "image_z": 100
+      }
+    },
+    "pipette_camera": {
+      "class": "patcherbot.devices.camera.camera.FakeCamera",
+      "params": {}
+    },
+    "cell_sorter_controller": {
+      "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterController",
+      "params": {}
+    },
+    "cell_sorter_manipulator": {
+      "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterManip",
+      "params": {}
+    },
+    "daq": {
+      "class": "patcherbot.devices.amplifier.DAQ.FakeDAQ",
+      "params": {}
+    },
+    "amplifier": {
+      "class": "patcherbot.devices.amplifier.amplifier.FakeAmplifier",
+      "params": {}
+    },
+    "pressure": {
+      "class": "patcherbot.devices.pressurecontroller.BasePressureController.FakePressureController",
+      "params": {}
+    },
+    "lamp": {
+      "class": "patcherbot.devices.lamp.lamp.FakeLamp",
+      "params": {}
+    }
+  }
+}

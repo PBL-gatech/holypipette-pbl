@@ -1,0 +1,81 @@
+{
+  "name": "setup_test_rig",
+  "schema_version": 2,
+  "devices": {
+    "stage_controller": {
+      "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
+      "params": {
+        "serial": {
+          "baudrate": 9600,
+          "port": "COM6",
+          "timeout": 1.0
+        }
+      }
+    },
+    "pipette_controller": {
+      "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
+      "params": {
+        "serial": {
+          "baudrate": 9600,
+          "port": "COM3",
+          "timeout": 1.0
+        }
+      }
+    },
+    "camera": {
+      "class": "patcherbot.devices.camera.pcocamera.PcoCamera",
+      "params": {}
+    },
+    "pipette_camera": {
+      "class": "patcherbot.devices.camera.PipetteCamera.PipetteCamera",
+      "params": {}
+    },
+    "cell_sorter_controller": {
+      "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterController",
+      "params": {}
+    },
+    "cell_sorter_manipulator": {
+      "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterManip",
+      "params": {}
+    },
+    "daq": {
+      "class": "patcherbot.devices.amplifier.DAQ.NiDAQ",
+      "params": {
+        "cmdChannel": "ao0",
+        "cmdDev": "cDaq1Mod4",
+        "readChannel": "ai0",
+        "readDev": "cDAQ1Mod1",
+        "respChannel": "ai3",
+        "respDev": "cDaq1Mod1"
+      }
+    },
+    "amplifier": {
+      "class": "patcherbot.devices.amplifier.multiclamp.MultiClampChannel",
+      "params": {
+        "channel": 1
+      }
+    },
+    "pressure": {
+      "class": "patcherbot.devices.pressurecontroller.MoscowPressureController.MoscowPressureController",
+      "params": {
+        "channel": 4,
+        "controllerSerial": {
+          "baudrate": 9600,
+          "port": "COM5",
+          "timeout": 0
+        },
+        "readerSerial": {
+          "baudrate": 9600,
+          "port": "COM9",
+          "timeout": 0
+        }
+      }
+    },
+    "lamp": {
+      "class": "patcherbot.devices.lamp.olympus.OlympusLamp",
+      "params": {
+        "port": "COM21"
+      }
+    }
+  }
+}

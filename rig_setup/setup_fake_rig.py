@@ -10,6 +10,7 @@ from patcherbot.devices.camera.camera import FakeCamera
 from patcherbot.devices.camera import FakeCalCamera, FakePipetteManipulator
 from patcherbot.devices.manipulator import *
 from patcherbot.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
+from patcherbot.devices.lamp import FakeLamp
 
 controller = FakeManipulator(min=[-240000, 50000, 280000],
                              max=[-230000, 60000, 290000])
@@ -33,3 +34,5 @@ unit = ManipulatorUnit(pipetteManip, [1, 2, 3])
 daq = FakeDAQ()
 amplifier = FakeAmplifier()
 pressure = FakePressureController()
+
+lamp = FakeLamp()

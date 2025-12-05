@@ -1,0 +1,508 @@
+"""
+Rig configuration schema and loader utilities.
+
+Schema (schema_version=2):
+{
+  "name": "<friendly name>",
+  "schema_version": 2,
+  "devices": {
+    "<slot>": {
+      "class": "module.ClassName",
+      "params": { ... }   # simple kwargs; extra keys are applied as attributes
+    }
+  }
+}
+
+Special value helpers allowed in args/kwargs/post_init:
+- "$ref:<slot_name>" or {"__ref__": "<slot_name>"} : injects another device instance.
+- Lists of numbers auto-convert to numpy arrays when numpy is available.
+- {"__type__": "serial", ...} : creates serial.Serial(**params) (optional, only needed for serial ports).
+"""
+from __future__ import annotations
+
+import importlib
+import json
+import logging
+import re
+from pathlib import Path
+import inspect
+from typing import Any, Dict, List, Tuple
+
+LOGGER = logging.getLogger(__name__)
+
+SCHEMA_VERSION = 2
+CONFIG_DIR = Path(__file__).parent / "rig_configs"
+DEFAULT_CONFIG_NAME = "fake_rig.json"
+
+# Core device slots only; derived pieces (stage, pipette_unit, microscope) are built automatically.
+DEVICE_SLOTS: List[str] = [
+    "stage_controller",
+    "pipette_controller",
+    "camera",
+    "pipette_camera",
+    "cell_sorter_controller",
+    "cell_sorter_manipulator",
+    "daq",
+    "amplifier",
+    "pressure",
+    "lamp",
+]
+
+
+class RigConfigError(Exception):
+    """Raised when a configuration cannot be loaded or instantiated."""
+
+
+def _slugify(text: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", text).strip("_")
+    return slug or "rig_config"
+
+
+def _default_devices() -> Dict[str, Dict[str, Any]]:
+    """Default fake rig mirrors rig_setup/setup_fake_rig.py."""
+    return {
+        "stage_controller": {
+            "class": "patcherbot.devices.manipulator.fakemanipulator.FakeManipulator",
+            "params": {"min": [-240000, 50000, 280000], "max": [-230000, 60000, 290000], "x": [-235000, 55000, 285000]},
+        },
+        "pipette_controller": {
+            "class": "patcherbot.devices.manipulator.fakemanipulator.FakeManipulator",
+            "params": {"min": [0, 0, 0], "max": [4000, 20000, 20000], "x": [200, 300, 400]},
+        },
+        "cell_sorter_controller": {
+            "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterController",
+        },
+        "cell_sorter_manipulator": {
+            "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterManip",
+        },
+        "camera": {
+            "class": "patcherbot.devices.camera.FakeCalCamera.FakeCalCamera",
+            "params": {"image_z": 100},
+        },
+        "pipette_camera": {
+            "class": "patcherbot.devices.camera.camera.FakeCamera",
+            "params": {},
+        },
+        "daq": {
+            "class": "patcherbot.devices.amplifier.DAQ.FakeDAQ",
+            "params": {},
+        },
+        "amplifier": {
+            "class": "patcherbot.devices.amplifier.amplifier.FakeAmplifier",
+            "params": {},
+        },
+        "pressure": {
+            "class": "patcherbot.devices.pressurecontroller.BasePressureController.FakePressureController",
+            "params": {},
+        },
+        "lamp": {
+            "class": "patcherbot.devices.lamp.lamp.FakeLamp",
+            "params": {},
+        },
+    }
+
+
+# Available device options (used by the builder UI).
+DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
+    "stage_controller": [
+        {
+            "label": "FakeManipulator (stage)",
+            "class": "patcherbot.devices.manipulator.fakemanipulator.FakeManipulator",
+            "params": {"min": [-240000, 50000, 280000], "max": [-230000, 60000, 290000], "x": [-235000, 55000, 285000]},
+            "fields": [],
+        },
+        {
+            "label": "ScientificaSerialNoEncoder",
+            "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
+            "params": {"serial": {"port": "COM6", "baudrate": 9600}},
+            "fields": [
+                {"key": "serial.port", "label": "Port", "type": "str"},
+                {"key": "serial.baudrate", "label": "Baudrate", "type": "int"},
+                {"key": "serial.timeout", "label": "Timeout", "type": "float", "optional": True},
+            ],
+        },
+    ],
+    "pipette_controller": [
+        {
+            "label": "FakeManipulator (pipette)",
+            "class": "patcherbot.devices.manipulator.fakemanipulator.FakeManipulator",
+            "params": {"min": [0, 0, 0], "max": [4000, 20000, 20000], "x": [200, 300, 400]},
+            "fields": [],
+        },
+        {
+            "label": "ScientificaSerialNoEncoder",
+            "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
+            "params": {"serial": {"port": "COM3", "baudrate": 9600}},
+            "fields": [
+                {"key": "serial.port", "label": "Port", "type": "str"},
+                {"key": "serial.baudrate", "label": "Baudrate", "type": "int"},
+                {"key": "serial.timeout", "label": "Timeout", "type": "float", "optional": True},
+            ],
+        },
+        {
+            "label": "SensapexManip",
+            "class": "patcherbot.devices.manipulator.sensapexWrapper.SensapexManip",
+            "params": {},
+            "fields": [],
+        },
+    ],
+    "cell_sorter_controller": [
+        {
+            "label": "FakeCellSorterController",
+            "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterController",
+            "params": {},
+            "fields": [],
+        },
+        {
+            "label": "CellSorterController (serial)",
+            "class": "patcherbot.devices.cellsorter.CellSorter.CellSorterController",
+            "params": {"comPort": {"port": "COM12", "baudrate": 115200, "timeout": 2, "write_timeout": 1}},
+            "fields": [
+                {"key": "comPort.port", "label": "Port", "type": "str"},
+                {"key": "comPort.baudrate", "label": "Baudrate", "type": "int"},
+                {"key": "comPort.timeout", "label": "Timeout", "type": "float"},
+                {"key": "comPort.write_timeout", "label": "Write Timeout", "type": "float", "optional": True},
+            ],
+        },
+    ],
+    "cell_sorter_manipulator": [
+        {
+            "label": "FakeCellSorterManip",
+            "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterManip",
+            "params": {},
+            "fields": [],
+        },
+        {
+            "label": "CellSorterManip (serial)",
+            "class": "patcherbot.devices.cellsorter.CellSorter.CellSorterManip",
+            "params": {
+                "comPort": {
+                    "port": "COM10",
+                    "baudrate": 57600,
+                    "timeout": 2,
+                    "write_timeout": 1,
+                    "stopbits": 2,
+                }
+            },
+            "fields": [
+                {"key": "comPort.port", "label": "Port", "type": "str"},
+                {"key": "comPort.baudrate", "label": "Baudrate", "type": "int"},
+                {"key": "comPort.timeout", "label": "Timeout", "type": "float"},
+                {"key": "comPort.write_timeout", "label": "Write Timeout", "type": "float", "optional": True},
+                {"key": "comPort.stopbits", "label": "Stop Bits", "type": "int", "optional": True},
+            ],
+        },
+    ],
+    "camera": [
+        {
+            "label": "FakeCalCamera",
+            "class": "patcherbot.devices.camera.FakeCalCamera.FakeCalCamera",
+            "params": {"image_z": 100},
+            "fields": [
+                {"key": "image_z", "label": "Image Z", "type": "float"},
+            ],
+        },
+        {
+            "label": "PcoCamera",
+            "class": "patcherbot.devices.camera.pcocamera.PcoCamera",
+            "params": {},
+            "fields": [],
+        },
+    ],
+    "pipette_camera": [
+        {
+            "label": "FakeCamera",
+            "class": "patcherbot.devices.camera.camera.FakeCamera",
+            "params": {},
+            "fields": [],
+        },
+        {
+            "label": "PipetteCamera",
+            "class": "patcherbot.devices.camera.PipetteCamera.PipetteCamera",
+            "params": {},
+            "fields": [],
+        },
+    ],
+    "daq": [
+        {
+            "label": "FakeDAQ",
+            "class": "patcherbot.devices.amplifier.DAQ.FakeDAQ",
+            "params": {},
+            "fields": [],
+        },
+        {
+            "label": "NiDAQ (Moscow example)",
+            "class": "patcherbot.devices.amplifier.DAQ.NiDAQ",
+            "params": {"readDev": "cDAQ1Mod1", "readChannel": "ai0", "cmdDev": "cDaq1Mod4", "cmdChannel": "ao0", "respDev": "cDaq1Mod1", "respChannel": "ai3"},
+            "fields": [
+                {"key": "readDev", "label": "Read Dev", "type": "str"},
+                {"key": "readChannel", "label": "Read Channel", "type": "str"},
+                {"key": "cmdDev", "label": "Command Dev", "type": "str"},
+                {"key": "cmdChannel", "label": "Command Channel", "type": "str"},
+                {"key": "respDev", "label": "Response Dev", "type": "str"},
+                {"key": "respChannel", "label": "Response Channel", "type": "str"},
+            ],
+        },
+        {
+            "label": "NiDAQ (IBB example)",
+            "class": "patcherbot.devices.amplifier.DAQ.NiDAQ",
+            "params": {"readDev": "cDAQ1Mod3", "readChannel": "ai0", "cmdDev": "cDaq1Mod1", "cmdChannel": "ao1", "respDev": "cDaq1Mod3", "respChannel": "ai1"},
+            "fields": [
+                {"key": "readDev", "label": "Read Dev", "type": "str"},
+                {"key": "readChannel", "label": "Read Channel", "type": "str"},
+                {"key": "cmdDev", "label": "Command Dev", "type": "str"},
+                {"key": "cmdChannel", "label": "Command Channel", "type": "str"},
+                {"key": "respDev", "label": "Response Dev", "type": "str"},
+                {"key": "respChannel", "label": "Response Channel", "type": "str"},
+            ],
+        },
+    ],
+    "amplifier": [
+        {
+            "label": "FakeAmplifier",
+            "class": "patcherbot.devices.amplifier.amplifier.FakeAmplifier",
+            "params": {},
+            "fields": [],
+        },
+        {
+            "label": "MultiClampChannel (channel 1)",
+            "class": "patcherbot.devices.amplifier.multiclamp.MultiClampChannel",
+            "params": {"channel": 1},
+            "fields": [
+                {"key": "channel", "label": "Channel", "type": "int"},
+            ],
+        },
+    ],
+    "pressure": [
+        {
+            "label": "FakePressureController",
+            "class": "patcherbot.devices.pressurecontroller.BasePressureController.FakePressureController",
+            "params": {},
+            "fields": [],
+        },
+        {
+            "label": "MoscowPressureController",
+            "class": "patcherbot.devices.pressurecontroller.MoscowPressureController.MoscowPressureController",
+            "params": {
+                "channel": 4,
+                "controllerSerial": {"port": "COM5", "baudrate": 9600, "timeout": 0},
+                "readerSerial": {"port": "COM9", "baudrate": 9600, "timeout": 0},
+            },
+            "fields": [
+                {"key": "channel", "label": "Channel", "type": "int"},
+                {"key": "controllerSerial.port", "label": "Controller Port", "type": "str"},
+                {"key": "controllerSerial.baudrate", "label": "Controller Baud", "type": "int"},
+                {"key": "controllerSerial.timeout", "label": "Controller Timeout", "type": "float", "optional": True},
+                {"key": "readerSerial.port", "label": "Reader Port", "type": "str"},
+                {"key": "readerSerial.baudrate", "label": "Reader Baud", "type": "int"},
+                {"key": "readerSerial.timeout", "label": "Reader Timeout", "type": "float", "optional": True},
+            ],
+        },
+        {
+            "label": "IBBPressureController",
+            "class": "patcherbot.devices.pressurecontroller.IBBPressureController.IBBPressureController",
+            "params": {"channel": 1, "arduinoSerial": {"port": "COM5", "baudrate": 9600, "timeout": 0}},
+            "fields": [
+                {"key": "channel", "label": "Channel", "type": "int"},
+                {"key": "arduinoSerial.port", "label": "Arduino Port", "type": "str"},
+                {"key": "arduinoSerial.baudrate", "label": "Arduino Baud", "type": "int"},
+                {"key": "arduinoSerial.timeout", "label": "Arduino Timeout", "type": "float", "optional": True},
+            ],
+        },
+    ],
+    "lamp": [
+        {
+            "label": "FakeLamp",
+            "class": "patcherbot.devices.lamp.lamp.FakeLamp",
+            "params": {},
+            "fields": [],
+        },
+        {
+            "label": "OlympusLamp",
+            "class": "patcherbot.devices.lamp.olympus.OlympusLamp",
+            "params": {"port": "COM21"},
+            "fields": [
+                {"key": "port", "label": "Port", "type": "str"},
+            ],
+        },
+        {
+            "label": "Lumencore",
+            "class": "patcherbot.devices.lamp.lumencor.Lumencore",
+            "params": {"com": {"port": "COM6", "baudrate": 9600, "timeout": 1}},
+            "fields": [
+                {"key": "com.port", "label": "Port", "type": "str"},
+                {"key": "com.baudrate", "label": "Baudrate", "type": "int"},
+                {"key": "com.timeout", "label": "Timeout", "type": "float", "optional": True},
+            ],
+        },
+    ],
+}
+
+
+class RigConfigManager:
+    def __init__(self, config_dir: Path | None = None):
+        self.config_dir = config_dir or CONFIG_DIR
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+
+    def default_config_path(self) -> Path:
+        return self.config_dir / DEFAULT_CONFIG_NAME
+
+    def ensure_default_config(self) -> Path:
+        path = self.default_config_path()
+        if not path.exists():
+            self.save_config(path, {"name": "Fake Rig", "schema_version": SCHEMA_VERSION, "devices": _default_devices()})
+        return path
+
+    def list_configs(self) -> List[Path]:
+        return sorted(self.config_dir.glob("*.json"))
+
+    def save_config(self, path: Path, data: Dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    def load_config(self, path: Path) -> Dict[str, Any]:
+        if not path.exists():
+            raise RigConfigError(f"Configuration file not found: {path}")
+        with path.open("r", encoding="utf-8") as f:
+            config = json.load(f)
+        self._validate_config(config)
+        return config
+
+    def build_devices_from_file(self, path: Path) -> Dict[str, Any]:
+        config = self.load_config(path)
+        return self.build_devices(config)
+
+    def build_devices(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        devices_cfg = config.get("devices", {})
+        base_instances: Dict[str, Any] = {}
+        for slot in DEVICE_SLOTS:
+            if slot not in devices_cfg:
+                raise RigConfigError(f"Missing device slot '{slot}' in configuration.")
+            base_instances[slot] = self._instantiate_slot(slot, devices_cfg[slot], base_instances)
+
+        # Auto-wire derived components
+        from patcherbot.devices.manipulator.manipulatorunit import ManipulatorUnit
+        from patcherbot.devices.manipulator.microscope import Microscope
+
+        stage_controller = base_instances["stage_controller"]
+        pipette_controller = base_instances["pipette_controller"]
+
+        derived = {
+            "stage": ManipulatorUnit(stage_controller, [1, 2]),
+            "pipette_unit": ManipulatorUnit(pipette_controller, [1, 2, 3]),
+            "microscope": Microscope(stage_controller, 3),
+        }
+        derived["microscope"].up_direction = 1.0
+
+        # Inject refs into cameras if they declare matching kwargs
+        camera = base_instances.get("camera")
+        if camera and hasattr(camera, "__dict__"):
+            if hasattr(camera, "stageManip"):
+                camera.stageManip = stage_controller
+            if hasattr(camera, "pipetteManip"):
+                camera.pipetteManip = pipette_controller
+            if hasattr(camera, "cellSorterManip") and "cell_sorter_manipulator" in base_instances:
+                camera.cellSorterManip = base_instances["cell_sorter_manipulator"]
+
+        all_devices = {**base_instances, **derived}
+        LOGGER.info("Initialized devices: %s", ", ".join(sorted(all_devices.keys())))
+        return all_devices
+
+    def _instantiate_slot(self, slot: str, cfg: Dict[str, Any], instances: Dict[str, Any]) -> Any:
+        class_path = cfg.get("class") or cfg.get("class_path")
+        if not class_path or "." not in class_path:
+            raise RigConfigError(f"Invalid class for slot '{slot}'.")
+        module_name, class_name = class_path.rsplit(".", 1)
+        try:
+            module = importlib.import_module(module_name)
+            cls = getattr(module, class_name)
+        except Exception as exc:
+            raise RigConfigError(f"Failed to import {class_path} for slot '{slot}': {exc}") from exc
+
+        params_cfg = cfg.get("params", {}) or {}
+        ctor_kwargs, post_attrs = self._split_ctor_params(cls, params_cfg, instances)
+        try:
+            instance = cls(**ctor_kwargs)
+        except Exception as exc:
+            raise RigConfigError(f"Failed to instantiate {class_path} for slot '{slot}': {exc}") from exc
+
+        for attr, value in post_attrs.items():
+            try:
+                setattr(instance, attr, value)
+            except Exception as exc:
+                raise RigConfigError(f"Failed to set attribute '{attr}' for slot '{slot}': {exc}") from exc
+
+        LOGGER.info("Initialized slot %s with %s", slot, class_path)
+        return instance
+
+    def _split_ctor_params(self, cls: Any, params_cfg: Dict[str, Any], instances: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        resolved = {k: self._resolve_value(v, instances) for k, v in (params_cfg or {}).items()}
+        sig = inspect.signature(cls.__init__)
+        has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+
+        # Auto-map common aliases (e.g., serial -> comPort) to match ctor signatures.
+        if "serial" in resolved and "comPort" in sig.parameters and "comPort" not in resolved:
+            resolved["comPort"] = resolved.pop("serial")
+
+        ctor_kwargs: Dict[str, Any] = {}
+        post_attrs: Dict[str, Any] = {}
+        for key, val in resolved.items():
+            if has_kwargs or key in sig.parameters:
+                ctor_kwargs[key] = val
+            else:
+                post_attrs[key] = val
+        return ctor_kwargs, post_attrs
+
+    def _resolve_value(self, value: Any, instances: Dict[str, Any]) -> Any:
+        if isinstance(value, str):
+            if value.startswith("$ref:"):
+                ref = value.split(":", 1)[1]
+                if ref not in instances:
+                    raise RigConfigError(f"Reference '{ref}' not available yet.")
+                return instances[ref]
+            return value
+        if isinstance(value, list):
+            # Auto-convert flat numeric lists to numpy arrays (keeps JSON simple).
+            if value and all(isinstance(v, (int, float)) for v in value):
+                try:
+                    import numpy as np  # type: ignore
+                    return np.array(value, dtype=float)
+                except Exception:
+                    pass
+            return [self._resolve_value(v, instances) for v in value]
+        if isinstance(value, dict):
+            if "__ref__" in value:
+                ref = value["__ref__"]
+                if ref not in instances:
+                    raise RigConfigError(f"Reference '{ref}' not available yet.")
+                return instances[ref]
+            # Detect serial configs (simple dict with port + baudrate)
+            if "port" in value and ("baudrate" in value or "baud" in value):
+                try:
+                    import serial  # type: ignore
+                    serial_kwargs = {k: v for k, v in value.items()}
+                    return serial.Serial(**serial_kwargs)
+                except Exception as exc:  # pragma: no cover
+                    raise RigConfigError(f"pyserial is required for serial configs: {exc}") from exc
+            return {k: self._resolve_value(v, instances) for k, v in value.items()}
+        return value
+
+    def _validate_config(self, config: Dict[str, Any]) -> None:
+        if config.get("schema_version") not in (None, SCHEMA_VERSION):
+            raise RigConfigError("Unsupported schema_version in rig configuration.")
+        devices = config.get("devices")
+        if not isinstance(devices, dict):
+            raise RigConfigError("Configuration must contain a 'devices' mapping.")
+        for slot in DEVICE_SLOTS:
+            if slot not in devices:
+                raise RigConfigError(f"Configuration missing required slot '{slot}'.")
+
+    def make_config_path(self, name: str) -> Path:
+        return self.config_dir / f"{_slugify(name)}.json"
+
+    def get_device_options(self) -> Dict[str, List[Dict[str, Any]]]:
+        return DEVICE_OPTIONS
+
+    def build_empty_template(self) -> Dict[str, Any]:
+        return {"name": "New Rig", "schema_version": SCHEMA_VERSION, "devices": {slot: {} for slot in DEVICE_SLOTS}}

@@ -9,7 +9,7 @@ from patcherbot.devices.camera.PipetteCamera import PipetteCamera
 from patcherbot.devices.pressurecontroller import MoscowPressureController
 from patcherbot.devices.manipulator import *
 from patcherbot.devices.cellsorter import FakeCellSorterController, FakeCellSorterManip
-from patcherbot.devices.lamp import OlympusLamp, FakeLamp
+from patcherbot.devices.lamp import OlympusLamp, FakeLamp, lumencor
 
 
 # set up Camera

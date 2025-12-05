@@ -96,7 +96,11 @@ class ScientificaSerialEncoder(Manipulator):
         self._sendCmd(SerialCommands.SET_MAX_ACCEL.format(int(accel)))
 
     def __del__(self):
-        self.comPort.close()
+        try:
+            if hasattr(self, "comPort") and self.comPort:
+                self.comPort.close()
+        except Exception:
+            pass
 
     def _sendCmd(self, cmd):
         '''Sends a command to the stage and returns the response
