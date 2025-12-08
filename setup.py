@@ -29,6 +29,6 @@ setup(
         "Programming Language :: Python :: 3",
     ],
     packages=find_packages(),
-    install_requires=parse_requirements("requirements_optimized.txt"),
+    install_requires=parse_requirements("requirements_runtime.txt"),
 )
 
