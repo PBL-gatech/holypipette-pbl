@@ -26,12 +26,50 @@ class Lumencore(Lamp):
        Documentation can be found here: https://cms.lumencor.com/system/uploads/fae/file/asset/150/57-10035_Spectra_X_Command_Reference.pdf
     '''
     def __init__(self, com: serial.Serial):
+        # Order used for cube-slot style selection (1-based)
+        self._color_order = [
+            LightColor.RED,
+            LightColor.GREEN,
+            LightColor.CYAN,
+            LightColor.UV,
+            LightColor.BLUE,
+            LightColor.TEAL,
+        ]
+        self._default_slot = 2  # Matches PatchConfig default ("2" -> GREEN)
         self.com = com
         self.current_light = LightColor.OFF
         self.current_excitation_filter = ExcitationFilter.GREEN
         self.shutter_state = "closed"
         self._power_levels = {}
         super().__init__()
+
+    def _slot_to_color(self, slot: int | None):
+        """Map a 1-based cube slot to a LightColor, cycling through the list."""
+        if slot is None:
+            return None
+        if slot <= 0:
+            slot = 1
+        idx = (slot - 1) % len(self._color_order)
+        return self._color_order[idx]
+
+    def _color_to_slot(self, color: LightColor | None):
+        """Return the 1-based slot index for a LightColor (or None if unknown)."""
+        if color in self._color_order:
+            return self._color_order.index(color) + 1
+        return None
+
+    def _coerce_light(self, value):
+        """Accept LightColor, int, or str digits and return a LightColor."""
+        if value is None:
+            return None
+        if isinstance(value, LightColor):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            value = int(value)
+        if isinstance(value, int):
+            return self._slot_to_color(value)
+        self.warning(f"Lumencore: Unsupported filter value {value!r}")
+        return None
 
     def _initialize(self):
         """Send hardware init commands to the Lumencore controller."""
@@ -114,19 +152,19 @@ class Lumencore(Lamp):
         return temp
 
     def open_shutter(self):
-        """Treat shutter as binary power control for the selected light."""
-        if self.current_light == LightColor.OFF:
-            self.info("Lumencore: No light selected; skipping open_shutter.")
-            self.shutter_state = "closed"
-            return
-        power = self._power_levels.get(self.current_light, 100)
-        self.set_power(power, self.current_light)
+        """Treat shutter as binary power control for the selected light (0%/100%)."""
+        if self.current_light == LightColor.OFF or self.current_light is None:
+            # Default to the configured slot (maps to GREEN by default).
+            self.set_filter(self._default_slot)
+        # Force full power when opening
+        self.set_power(100, self.current_light)
         self.enable(self.current_light, self.current_excitation_filter)
         self.shutter_state = "open"
 
     def close_shutter(self):
-        """Disable all light output."""
-        self.enable(LightColor.OFF, self.current_excitation_filter)
+        """Disable light output by setting power to 0% on the selected light."""
+        if self.current_light != LightColor.OFF and self.current_light is not None:
+            self.set_power(0, self.current_light)
         self.shutter_state = "closed"
 
     def get_shutter_state(self):
@@ -134,25 +172,34 @@ class Lumencore(Lamp):
         return self.shutter_state
 
     def set_filter(self, filter: LightColor | None = None, excitation_filter: ExcitationFilter | None = None):
-        """Set the desired light color (acts like a filter wheel selection)."""
-        if filter is None:
+        """
+        Set the desired light color (acts like a filter wheel selection).
+        Accepts LightColor or a 1-based slot number (int/str); slots cycle through _color_order.
+        """
+        color = self._coerce_light(filter)
+        if color is None:
             self.info("Lumencore: No filter specified, skipping set_filter.")
             return
-        self.current_light = filter
+        if color == LightColor.OFF:
+            self.current_light = LightColor.OFF
+            if excitation_filter is not None:
+                self.current_excitation_filter = excitation_filter
+            return
+
+        self.current_light = color
         if excitation_filter is not None:
             self.current_excitation_filter = excitation_filter
 
         if self.shutter_state == "open":
-            if filter == LightColor.OFF:
-                self.close_shutter()
-            else:
-                power = self._power_levels.get(filter, 100)
-                self.set_power(power, filter)
-                self.enable(filter, self.current_excitation_filter)
+            power = self._power_levels.get(color, 100)
+            self.set_power(power, color)
+            self.enable(color, self.current_excitation_filter)
 
-    def get_filter(self) -> LightColor:
-        """Return the currently selected light color."""
-        return self.current_light
+    def get_filter(self):
+        """Return the current filter as a 1-based slot number (for cube controls)."""
+        if self.current_light is None or self.current_light == LightColor.OFF:
+            return None
+        return self._color_to_slot(self.current_light)
 
 if __name__ == '__main__':
     lampCom = serial.Serial('COM6', 9600, timeout=1, stopbits=serial.STOPBITS_ONE, parity=serial.PARITY_NONE, bytesize=serial.EIGHTBITS)
