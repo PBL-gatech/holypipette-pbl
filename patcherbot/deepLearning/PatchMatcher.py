@@ -7,9 +7,9 @@ from typing import Dict, Optional, Tuple, Union
 import torch
 
 try:
-    from .cellModel.LightGlue.PointMatcher import PointMatcher
+    from .PointMatcher import PointMatcher
 except ImportError:  # pragma: no cover - allow running as a script
-    from cellModel.LightGlue.PointMatcher import PointMatcher
+    from PointMatcher import PointMatcher
 
 ImageInput = Union[str, Path, torch.Tensor]
 MatcherConfig = Dict[str, object]
