@@ -1,0 +1,65 @@
+{
+  "name": "IBB Rig",
+  "schema_version": 2,
+  "devices": {
+    "stage_controller": {
+      "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
+      "params": { "serial": { "port": "COM7", "baudrate": 9600, "timeout": 1 } }
+    },
+    "pipette_controller": {
+      "class": "patcherbot.devices.manipulator.sensapexWrapper.SensapexManip",
+      "params": {}
+    },
+    "camera": {
+      "class": "patcherbot.devices.camera.pcocamera.PcoCamera",
+      "params": {}
+    },
+    "pipette_camera": {
+      "class": "patcherbot.devices.camera.camera.FakeCamera",
+      "params": {}
+    },
+    "cell_sorter_controller": {
+      "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterController",
+      "params": {}
+    },
+    "cell_sorter_manipulator": {
+      "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterManip",
+      "params": {}
+    },
+    "daq": {
+      "class": "patcherbot.devices.amplifier.DAQ.NiDAQ",
+      "params": {
+        "readDev": "cDAQ1Mod3",
+        "readChannel": "ai0",
+        "cmdDev": "cDaq1Mod1",
+        "cmdChannel": "ao1",
+        "respDev": "cDaq1Mod3",
+        "respChannel": "ai1"
+      }
+    },
+    "amplifier": {
+      "class": "patcherbot.devices.amplifier.multiclamp.MultiClampChannel",
+      "params": { "channel": 1 }
+    },
+    "pressure": {
+      "class": "patcherbot.devices.pressurecontroller.IBBPressureController.IBBPressureController",
+      "params": {
+        "channel": 1,
+        "arduinoSerial": { "port": "COM5", "baudrate": 9600, "timeout": 0 }
+      }
+    },
+    "lamp": {
+      "class": "patcherbot.devices.lamp.lumencor.Lumencore",
+      "params": {
+        "com": {
+          "port": "COM6",
+          "baudrate": 9600,
+          "timeout": 1,
+          "stopbits": 1,
+          "parity": "N",
+          "bytesize": 8
+        }
+      }
+    }
+  }
+}

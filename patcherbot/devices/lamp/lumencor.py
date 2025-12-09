@@ -1,7 +1,7 @@
 from enum import Enum
 import serial
 import time
-import logging
+from .lamp import Lamp
 
 class LightColor(Enum):
     '''An enum to represent the colors the Lumencore can output
@@ -21,20 +21,27 @@ class ExcitationFilter(Enum):
     YELLOW = 0
     GREEN = 1
 
-class Lumencore:
+class Lumencore(Lamp):
     '''A class to control the Lumencore Spectra X Light engine
        Documentation can be found here: https://cms.lumencor.com/system/uploads/fae/file/asset/150/57-10035_Spectra_X_Command_Reference.pdf
     '''
     def __init__(self, com: serial.Serial):
         self.com = com
-        #send init commands
+        self.current_light = LightColor.OFF
+        self.current_excitation_filter = ExcitationFilter.GREEN
+        self.shutter_state = "closed"
+        self._power_levels = {}
+        super().__init__()
+
+    def _initialize(self):
+        """Send hardware init commands to the Lumencore controller."""
         self.com.write(bytearray([0x57, 0x02, 0xFF, 0x50])) #init cmd 1
         self.com.write(bytearray([0x57, 0x03, 0xAB, 0x50])) #init cmd 2
-
-        self.logger = logging.getLogger(__name__)
-        self.logger.info("Lumencore initialized")
+        self.info("Lumencore initialized")
 
     def enable(self, light : LightColor, excitation_filter : ExcitationFilter = ExcitationFilter.GREEN):
+        self.current_light = light
+        self.current_excitation_filter = excitation_filter
 
         if light == LightColor.OFF:
             cmd = bytearray([0x4F, 0x7F, 0x50])
@@ -53,7 +60,7 @@ class Lumencore:
         cmd = bytearray([0x4F, light_index, 0x50])
 
         self.com.write(cmd)
-        logging.info("Lumencore color {} enabled ({} Filter)".format(light.name, excitation_filter.name))
+        self.info("Lumencore color {} enabled ({} Filter)".format(light.name, excitation_filter.name))
 
     
     def set_power(self, power_percent : float, light : LightColor):
@@ -90,7 +97,8 @@ class Lumencore:
 
         #send command to DAC
         self.com.write(cmd)
-        logging.info("Lumencore color {} set to {}%".format(light.name, power_percent))
+        self._power_levels[light] = power_percent
+        self.info("Lumencore color {} set to {}%".format(light.name, power_percent))
 
     def get_IIC_temp(self):
         '''Gets the temperature of the IIC in degrees C
@@ -104,6 +112,47 @@ class Lumencore:
         #convert to degrees C
         temp = temp * 0.125
         return temp
+
+    def open_shutter(self):
+        """Treat shutter as binary power control for the selected light."""
+        if self.current_light == LightColor.OFF:
+            self.info("Lumencore: No light selected; skipping open_shutter.")
+            self.shutter_state = "closed"
+            return
+        power = self._power_levels.get(self.current_light, 100)
+        self.set_power(power, self.current_light)
+        self.enable(self.current_light, self.current_excitation_filter)
+        self.shutter_state = "open"
+
+    def close_shutter(self):
+        """Disable all light output."""
+        self.enable(LightColor.OFF, self.current_excitation_filter)
+        self.shutter_state = "closed"
+
+    def get_shutter_state(self):
+        """Return cached shutter state."""
+        return self.shutter_state
+
+    def set_filter(self, filter: LightColor | None = None, excitation_filter: ExcitationFilter | None = None):
+        """Set the desired light color (acts like a filter wheel selection)."""
+        if filter is None:
+            self.info("Lumencore: No filter specified, skipping set_filter.")
+            return
+        self.current_light = filter
+        if excitation_filter is not None:
+            self.current_excitation_filter = excitation_filter
+
+        if self.shutter_state == "open":
+            if filter == LightColor.OFF:
+                self.close_shutter()
+            else:
+                power = self._power_levels.get(filter, 100)
+                self.set_power(power, filter)
+                self.enable(filter, self.current_excitation_filter)
+
+    def get_filter(self) -> LightColor:
+        """Return the currently selected light color."""
+        return self.current_light
 
 if __name__ == '__main__':
     lampCom = serial.Serial('COM6', 9600, timeout=1, stopbits=serial.STOPBITS_ONE, parity=serial.PARITY_NONE, bytesize=serial.EIGHTBITS)

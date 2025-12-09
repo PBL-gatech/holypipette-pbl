@@ -44,5 +44,5 @@ cellSorterController = CellSorterController(controllerSerial)
 # cellSorterManip = CellSorterManip(manipulatorSerial)
 
 lampCom = serial.Serial('COM6', 9600, timeout=1, stopbits=serial.STOPBITS_ONE, parity=serial.PARITY_NONE, bytesize=serial.EIGHTBITS)
-lumencore = Lumencore(lampCom)
+lamp = Lumencore(lampCom)
 cellSorterManip = FakeCellSorterManip()
