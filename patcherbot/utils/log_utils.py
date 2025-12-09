@@ -65,6 +65,12 @@ class LoggingObject(object):
 
 def setup_logging():
     root_logger = logging.getLogger()
+
+    # Prevent adding duplicate handlers if setup_logging is called multiple times.
+    if getattr(root_logger, "_pb_logging_configured", False):
+        return
+    root_logger._pb_logging_configured = True
+
     root_logger.setLevel(logging.DEBUG)
     
     # Console handler
