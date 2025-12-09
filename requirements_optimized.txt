@@ -25,4 +25,4 @@ transformers==4.41.2
 diffusers==0.11.1
 imageio-ffmpeg
 egl_probe>=1.0.1
-robomimic @ git+https://github.com/PBL-gatech/robomimic.git
+# robomimic installed into patcherbot/deepLearning via scripts/install_vendored_models.py
