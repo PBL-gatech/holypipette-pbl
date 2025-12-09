@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 VENDORED = {
@@ -39,10 +40,25 @@ def install_target(name: str, target: Path, source: str) -> None:
     subprocess.check_call(cmd)
 
 
+def persist_vendor_paths(targets: list[Path]) -> Path:
+    """Drop a .pth file into site-packages so vendored modules are importable."""
+    site_packages = Path(sysconfig.get_paths()["purelib"])
+    site_packages.mkdir(parents=True, exist_ok=True)
+    pth_path = site_packages / "patcherbot_vendored.pth"
+    resolved = [str(path.resolve()) for path in targets]
+    pth_path.write_text("\n".join(resolved) + "\n", encoding="utf-8")
+    return pth_path
+
+
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
+    installed_targets = []
     for name, (rel_target, src) in VENDORED.items():
-        install_target(name, repo_root / rel_target, src)
+        target_dir = repo_root / rel_target
+        install_target(name, target_dir, src)
+        installed_targets.append(target_dir)
+    pth_file = persist_vendor_paths(installed_targets)
+    print(f"Wrote import helper: {pth_file}")
     print("Done.")
 
 
