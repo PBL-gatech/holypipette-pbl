@@ -23,6 +23,29 @@ VENDORED = {
 }
 
 
+def _lightglue_package_data(repo_root: Path) -> list[str]:
+    """Collect vendored LightGlue files relative to patcherbot package root."""
+    package_root = repo_root / "patcherbot"
+    lightglue_root = package_root / "deepLearning" / "cellModel" / "LightGlue"
+    if not lightglue_root.exists():
+        return []
+    return [
+        str(path.relative_to(package_root)).replace("\\", "/")
+        for path in lightglue_root.rglob("*")
+        if path.is_file()
+    ]
+
+
+def persist_lightglue_manifest(repo_root: Path) -> Path | None:
+    """Write a manifest of LightGlue files for packaging or verification."""
+    entries = _lightglue_package_data(repo_root)
+    if not entries:
+        return None
+    manifest_path = repo_root / "patcherbot" / "deepLearning" / "cellModel" / "LightGlue" / "_package_data.txt"
+    manifest_path.write_text("\n".join(entries) + "\n", encoding="utf-8")
+    return manifest_path
+
+
 def install_target(name: str, target: Path, source: str) -> None:
     target.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -58,7 +81,10 @@ def main() -> None:
         install_target(name, target_dir, src)
         installed_targets.append(target_dir)
     pth_file = persist_vendor_paths(installed_targets)
+    manifest = persist_lightglue_manifest(repo_root)
     print(f"Wrote import helper: {pth_file}")
+    if manifest:
+        print(f"Wrote LightGlue package manifest: {manifest}")
     print("Done.")
 
 
