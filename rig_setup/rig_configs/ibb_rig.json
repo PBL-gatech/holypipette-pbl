@@ -42,10 +42,11 @@
       "params": { "channel": 1 }
     },
     "pressure": {
-      "class": "patcherbot.devices.pressurecontroller.IBBPressureController.IBBPressureController",
+      "class": "patcherbot.devices.pressurecontroller.WaynesboroPressureController.WaynesBoroPressureController",
       "params": {
         "channel": 1,
-        "arduinoSerial": { "port": "COM5", "baudrate": 9600, "timeout": 0 }
+        "controllerSerial": { "port": "COM5", "baudrate": 9600, "timeout": 0 },
+        "readerSerial": { "port": "COM4", "baudrate": 9600, "timeout": 0 }
       }
     },
     "lamp": {
