@@ -8,7 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
-from patcherbot.deepLearning.PatcherBotAgent import (
+from patcherbot.deepLearning.PatcherBotAgentR import (
     Burglar,
     CellHunter,
     DemoReplayAgent,

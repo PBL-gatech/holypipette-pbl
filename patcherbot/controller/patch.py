@@ -281,23 +281,9 @@ class AutoPatcher(TaskController):
                 self.info(f" target converted distance in um: {target_point_microns_absolute} um")
 
                 self.info(f"acting...")
-                
-                # self.calibrated_unit.absolute_move(np.array(target_point_microns))
                 self.calibrated_unit.relative_move(np.array(target_point_microns_relative))
 
-                # self.calibrated_unit.absolute_move(target_point_microns)
-                # # intstead, divide the values by 33ms of time, the rough recording frequency and command themn to move at that velocity
-                # target_point_microns_velocity = (
-                #     ((pred_offset[0]))/0.033,
-                #     ((pred_offset[1]))/0.033,
-                #     0
-                # )
-
-                # target_point_microns_velocity = list(target_point_microns_velocity)
-                # self.info(f"velocity: {target_point_microns_velocity} um/s")
-                # self.calibrated_unit.absolute_move_group_velocity(target_point_microns_velocity)
-                
-
+            
                 width = getattr(camera, "width", None)
                 height = getattr(camera, "height", None)
 
@@ -311,14 +297,6 @@ class AutoPatcher(TaskController):
                         continue
 
                 target_point = target_point_pixels
-
-            # pipette_action = np.asarray(action[:3], dtype=float)
-            # # if pipette_action.size < 3:
-            # #     pipette_action = np.pad(pipette_action, (0, 3 - pipette_action.size), constant_values=0.0)
-            # # if np.linalg.norm(pipette_action) < 0.1:
-            # #     count += 1
-            # #     if count >= 5:
-            # #         done = True
 
             xgerr = goal_error_target[0] - curr_point_np[0]  # switch
             ygerr = goal_error_target[1] - curr_point_np[1]
