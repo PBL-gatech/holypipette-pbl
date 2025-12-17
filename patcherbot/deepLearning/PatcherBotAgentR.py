@@ -221,6 +221,11 @@ class ModelImporter:
                 cfg_stack = getattr(cfg.train, "frame_stack", None)
                 if cfg_stack is not None:
                     policy_frame_stack = int(cfg_stack)
+            if policy_frame_stack is None and policy_impl is not None:
+                try:
+                    policy_frame_stack = int(policy_impl.algo_config.horizon.observation_horizon)
+                except Exception:
+                    policy_frame_stack = None
             frame_stack = policy_frame_stack
         self.frame_stack = max(int(frame_stack or 1), 1)
 
@@ -288,6 +293,7 @@ class ModelInferencer:
         self.goal_required = bool(self.importer.goal_required)
         self.goal = None
         self._started = False
+        self._last_obs: Optional[Dict[str, Any]] = None
         self.using_robomimic = True
         self.image_key = getattr(self.importer, "image_key", None) or "camera_image"
         self.pipette_key = getattr(self.importer, "pipette_key", None) or "pipette_positions"
@@ -516,15 +522,34 @@ class ModelInferencer:
             resistance=resistance_payload,
             extra=extra_payload,
         )
+        obs_ready: Dict[str, Any]
         if not self._started:
-            self.env.reset()
+            obs_ready = self.env.reset()
+            if hasattr(self.policy, "start_episode"):
+                self.policy.start_episode()
             self._started = True
-        obs_ready = self.env.get_observation()
+        else:
+            # If frame stacking is enabled, maintain wrapper history with the latest push
+            try:
+                from robomimic.envs.wrappers import FrameStackWrapper
+                if isinstance(self.env, FrameStackWrapper):
+                    latest = self.env.env.get_observation()
+                    if self.env.obs_history is None:
+                        self.env.obs_history = self.env._get_initial_obs_history(latest)
+                    else:
+                        for k in latest:
+                            self.env.obs_history[k].append(latest[k][None])
+                    obs_ready = self.env._get_stacked_obs_from_history()
+                else:
+                    obs_ready = self.env.get_observation()
+            except Exception:
+                obs_ready = self.env.get_observation()
+        self._last_obs = obs_ready
         goal_payload = self._format_goal(goal) or self._format_goal(self.goal)
         act_raw = self.policy(ob=obs_ready, goal=goal_payload)
         action = ModelImporter._extract_policy_action(act_raw)
         processed_action = self._process_action(action)
-        self.env.step(processed_action)
+        self._last_obs, _, _, _ = self.env.step(processed_action)
         return processed_action.astype(np.float32, copy=False)
 
 
