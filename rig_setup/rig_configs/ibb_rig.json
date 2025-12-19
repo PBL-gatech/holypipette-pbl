@@ -30,11 +30,11 @@
       "class": "patcherbot.devices.amplifier.DAQ.NiDAQ",
       "params": {
         "readDev": "cDAQ1Mod3",
-        "readChannel": "ai0",
+        "readChannel": "ai7",
         "cmdDev": "cDaq1Mod1",
         "cmdChannel": "ao1",
         "respDev": "cDaq1Mod3",
-        "respChannel": "ai1"
+        "respChannel": "ai0"
       }
     },
     "amplifier": {

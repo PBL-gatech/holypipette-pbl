@@ -282,7 +282,7 @@ class PressureReaderApp(QWidget):
     def handle_new_data(self, timestamp, value):
         """ Handle new data received from the serial port """
         # Display data
-        value = float((value - 516.72)/0.3923) # conversion to raw because the seeed is not working
+        # value = float((value - 516.72)/0.3923) # conversion to raw because the seeed is not working
         self.data_display.append(f"time: {timestamp:.2f}s, pressure: {value:.2f}mbar")
 
         # Update plot data buffer
