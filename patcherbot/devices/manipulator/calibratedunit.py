@@ -64,6 +64,9 @@ class CalibrationConfig(Config):
     pipette_y_rotation = NumberWithUnit(25, unit = 'degrees',
                                 doc='Rotation of the pipette in the xz plane (degrees)',
                                 bounds=(-90, 90))
+    pipette_k_scale = Number(-0.79,
+                                doc='Scaling factor for pipette movement',
+                                bounds=(-10.0, 10.0))
     
     home_position =  Tuple((0, 0, 0), doc='Home position of the pipette in um')
     home_position_stage =  Tuple((0, 0, 0), doc='Home position of the stage in um')
@@ -78,6 +81,7 @@ class CalibrationConfig(Config):
                   ('Stage y-axis flip?', ['stage_y_axis_flip']),
                   ('Pipette z-axis rotation', ['pipette_z_rotation']),
                   ('Pipette y-axis rotation', ['pipette_y_rotation']),
+                  ('Pipette k scale', ['pipette_k_scale']),
                   ('Display', ['position_update']),
                   ('Positions', ['home_position', 'home_position_stage','safe_position','safe_position_stage','bath_position']),
                  ]
@@ -290,26 +294,28 @@ class CalibratedUnit(ManipulatorUnit):
         '''
         if coordinates is None:
             return None
+        k_scale = float(self.config.pipette_k_scale) if hasattr(self.config, 'pipette_k_scale') else 1.0
         # if the stage coordinates need to be flipped do so
         if self.config.stage_x_axis_flip:
             coordinates[0] = -coordinates[0]
         if self.config.stage_y_axis_flip:
             coordinates[1] = -coordinates[1]
         if axis == 0:
+            theta = 0
             # Rotation matrix around the X-axis.
-            R = np.array([[1, 0, 0],
+            R = k_scale*np.array([[1, 0, 0],
                           [0, np.cos(theta), -np.sin(theta)],
                           [0, np.sin(theta),  np.cos(theta)]])
         elif axis == 1:
             # Rotation matrix around the Y-axis.
             theta = self.config.pipette_y_rotation * np.pi / 180
-            R = np.array([[np.cos(theta), 0, np.sin(theta)],
+            R = k_scale*np.array([[np.cos(theta), 0, np.sin(theta)],
                           [0, 1, 0],
                           [-np.sin(theta), 0, np.cos(theta)]])
         elif axis == 2:
             theta = self.config.pipette_z_rotation * np.pi / 180
             # Rotation matrix around the Z-axis.
-            R = np.array([[np.cos(theta), -np.sin(theta), 0],
+            R = k_scale*np.array([[np.cos(theta), -np.sin(theta), 0],
                           [np.sin(theta),  np.cos(theta), 0],
                           [0, 0, 1]])
         else:

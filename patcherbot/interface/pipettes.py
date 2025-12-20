@@ -217,7 +217,7 @@ class PipetteInterface(TaskInterface):
         
     @command(category='Microscope',
              description='Move microscope by {:.0f}μm',
-             default_arg=-7000) # waynesboro rig specific
+             default_arg=-1000) 
     def move_microscope(self, distance):
         # self.info(f'Moving microscope by {distance}μm')
         self.microscope.relative_move(distance)
