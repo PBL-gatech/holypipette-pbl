@@ -25,16 +25,41 @@ class SensapexManip(Manipulator):
         self.max_speed = 5000 # "feels good" default value
         self.max_acceleration = 1 # "feels good" default value
         self.armAngle = math.radians(-self._get_axis_angle())
+        self.constant_z_enabled = False
+        self._constant_z_anchor = None
+        self._constant_z_gain = None
 
     def position(self, axis=None):
         raw_pos = self.raw_position()
+        pos = raw_pos
+        if self.constant_z_enabled:
+            if self._constant_z_anchor is None:
+                self._constant_z_anchor = list(raw_pos)
+            gain = self._constant_z_gain
+            if gain is None:
+                gain = math.tan(self.armAngle)
+                self._constant_z_gain = gain
+            dx = raw_pos[0] - self._constant_z_anchor[0]
+            corrected_z = raw_pos[2] - gain * dx
+            pos = [raw_pos[0], raw_pos[1], corrected_z]
         if axis == None:
-            return raw_pos
+            return pos
         else:
-            return raw_pos[axis-1]
+            return pos[axis-1]
 
     def raw_position(self, axis=None):
         return self.ump.get_pos(self.deviceID, timeout=1)
+
+    def enable_constant_z_readback(self, enabled=True, gain=None):
+        """Optionally report a Z value that ignores virtual-axis induced Z drift."""
+        self.constant_z_enabled = bool(enabled)
+        if not self.constant_z_enabled:
+            return
+        if gain is not None:
+            self._constant_z_gain = gain
+        elif self._constant_z_gain is None:
+            self._constant_z_gain = math.tan(self.armAngle)
+        self._constant_z_anchor = list(self.raw_position())
 
     def absolute_move(self, x, axis, speed=None):
         setpoint = np.nan * np.ones(3)
