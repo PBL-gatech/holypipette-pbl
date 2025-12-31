@@ -1,7 +1,6 @@
-
 '''
 Pressure Controller classes to communicate with the Pressure Controller Box made by the IBB.
-Additionally, redesigning a closed loop pressure controller for the Moscow Rig
+Additionally, redesigning a closed loop pressure controller for a generic serial-based rig
 '''
 import logging
 from .BasePressureController import PressureController
@@ -11,11 +10,12 @@ import time
 import collections
 
 
-all = ['MoscowPressureController']
+all = ['SerialPressureController']
 
-class MoscowPressureController(PressureController):
+
+class SerialPressureController(PressureController):
     '''A PressureController child class that handles serial communication between the PC and
-       the Arduino controlling the Moscow Pressure box
+       a serial-based Pressure box
     '''
     DEFAULT_VALID_PRODUCTS = ["USB Serial"]  # TODO: move to a constants or json file?
     DEFAULT_VALID_VIDS = [0x1a86, 0x403]
@@ -25,7 +25,7 @@ class MoscowPressureController(PressureController):
     DEFAULT_READER_OFFSET = 516.72               # Reader-specific offset before scaling to raw units
     DEFAULT_READER_SCALE = 0.3923                # Reader-specific scale factor to convert to raw units
 
-    def __init__(self, channel, controllerSerial = None, readerSerial = None,
+    def __init__(self, channel, controllerSerial=None, readerSerial=None,
                  validProducts=None, validVIDs=None,
                  nativeZero=None, nativePerMbar=None,
                  readerOffset=None, readerScale=None,
@@ -155,4 +155,3 @@ class MoscowPressureController(PressureController):
         self.controllerSerial.write(bytes(cmd, 'ascii'))
         self.controllerSerial.flush()
         self.state = atm
-

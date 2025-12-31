@@ -34,11 +34,11 @@ class SerialCommands():
 
 class ScientificaSerialEncoder(Manipulator):
 
-    def __init__(self, comPort: serial.Serial, zAxisComPort):
+    def __init__(self, comPort: serial.Serial, zAxisComPort, stageUnitsPerEncoderPulse=None):
         self.comPort : serial.Serial = comPort
 
         self.zAxisComPort : serial.Serial = zAxisComPort
-        self.stageUnitsPerEncoderPulse = 1.45
+        self.stageUnitsPerEncoderPulse = stageUnitsPerEncoderPulse if stageUnitsPerEncoderPulse is not None else 1.45
         self.encoderZ = 0
 
         self._lock = threading.Lock()

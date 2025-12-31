@@ -17,13 +17,19 @@ class WaynesBoroPressureController(PressureController):
     '''A PressureController child class that handles serial communication between the PC and
        the Arduino controlling the WaynesBoro Pressure box
     '''
-    validProducts = ["USB Serial"] # TODO: move to a constants or json file?
-    validVIDs = [0x1a86, 0x403]
-    nativeZero = float(1997) # The native units at a 0 pressure (y-intercept)
-    nativePerMbar = float(49208/10000) # The number of native pressure transducer units from the DAC (0 to 4095) in a millibar of pressure (-400 to 700)
-    serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
+    DEFAULT_VALID_PRODUCTS = ["USB Serial"]
+    DEFAULT_VALID_VIDS = [0x1a86, 0x403]
+    DEFAULT_NATIVE_ZERO = float(1997)           # The native units at a 0 pressure (y-intercept)
+    DEFAULT_NATIVE_PER_MBAR = float(49208 / 10000)  # Native pressure transducer units per mbar (-400 to 700)
+    DEFAULT_SERIAL_CMD_TIMEOUT = 1              # (in sec) max time allowed between sending a serial command and expecting a response
+    DEFAULT_READER_OFFSET = 512.64              # Reader-specific offset before scaling to raw units
+    DEFAULT_READER_SCALE = 0.3925               # Reader-specific scale factor to convert to raw units
 
-    def __init__(self, channel, controllerSerial = None, readerSerial = None):
+    def __init__(self, channel, controllerSerial = None, readerSerial = None,
+                 validProducts=None, validVIDs=None,
+                 nativeZero=None, nativePerMbar=None,
+                 readerOffset=None, readerScale=None,
+                 serialCmdTimeout=None):
         super().__init__()
         # time.sleep(2) # wait for arduino to boot up
 
@@ -46,6 +52,15 @@ class WaynesBoroPressureController(PressureController):
         self.setpoint_raw = None
         self.lastVal = 0.0
 
+        # Rig-specific calibration constants (override via rig JSON params)
+        self.validProducts = validProducts or self.DEFAULT_VALID_PRODUCTS
+        self.validVIDs = validVIDs or self.DEFAULT_VALID_VIDS
+        self.nativeZero = float(nativeZero) if nativeZero is not None else self.DEFAULT_NATIVE_ZERO
+        self.nativePerMbar = float(nativePerMbar) if nativePerMbar is not None else self.DEFAULT_NATIVE_PER_MBAR
+        self.readerOffset = float(readerOffset) if readerOffset is not None else self.DEFAULT_READER_OFFSET
+        self.readerScale = float(readerScale) if readerScale is not None else self.DEFAULT_READER_SCALE
+        self.serialCmdTimeout = float(serialCmdTimeout) if serialCmdTimeout is not None else self.DEFAULT_SERIAL_CMD_TIMEOUT
+
         # set initial configuration of pressure controller
         self.set_ATM(False)
         self.set_pressure(0) # set initial pressure to 0 mbar
@@ -64,15 +79,15 @@ class WaynesBoroPressureController(PressureController):
         '''
         Comvert from a pressure in mBar to native units
         '''
-        raw_pressure = int((pressure * WaynesBoroPressureController.nativePerMbar + WaynesBoroPressureController.nativeZero))
-        return min(max(raw_pressure, 0), WaynesBoroPressureController.nativeZero*2) # clamp native units to 0-3924
+        raw_pressure = int((pressure * self.nativePerMbar + self.nativeZero))
+        return min(max(raw_pressure, 0), self.nativeZero * 2) # clamp native units to 0-3924
 
 
     def nativeToMbar(self, raw_pressure) -> float:
         '''
         Comvert from native units to a pressure in mBar
         '''
-        pressure = (raw_pressure - WaynesBoroPressureController.nativeZero) / WaynesBoroPressureController.nativePerMbar
+        pressure = (raw_pressure - self.nativeZero) / self.nativePerMbar
         return pressure
 
     def set_pressure_raw(self, raw_pressure: int):
@@ -109,7 +124,7 @@ class WaynesBoroPressureController(PressureController):
                 pressure_str = reading[1:-1]
                 try:
                     pressureVal = float(pressure_str)
-                    pressureVal = float((pressureVal - 512.64)/0.3925) # conversion to raw because the seeed is not working
+                    pressureVal = float((pressureVal - self.readerOffset) / self.readerScale) # conversion to raw because the seeed is not working
                     self.lastVal = pressureVal
                 except ValueError:
                     self.warning("Invalid pressure data received")

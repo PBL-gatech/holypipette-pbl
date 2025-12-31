@@ -21,12 +21,13 @@
     "camera": {
       "class": "patcherbot.devices.camera.FakeCalCamera.FakeCalCamera",
       "params": {
-        "image_z": 100
+        "image_z": 100,
+        "targetFramerate": 40
       }
     },
     "pipette_camera": {
       "class": "patcherbot.devices.camera.camera.FakeCamera",
-      "params": {}
+      "params": { "image_z": 0, "paramecium": false }
     },
     "cell_sorter_controller": {
       "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterController",

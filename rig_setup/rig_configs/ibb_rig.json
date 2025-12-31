@@ -8,15 +8,15 @@
     },
     "pipette_controller": {
       "class": "patcherbot.devices.manipulator.sensapexWrapper.SensapexManip",
-      "params": {}
+      "params": { "poll_hz": 100.0 }
     },
     "camera": {
       "class": "patcherbot.devices.camera.pcocamera.PcoCamera",
-      "params": {}
+      "params": { "width": 1280, "height": 1280 }
     },
     "pipette_camera": {
       "class": "patcherbot.devices.camera.camera.FakeCamera",
-      "params": {}
+      "params": { "image_z": 0, "paramecium": false }
     },
     "cell_sorter_controller": {
       "class": "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterController",
@@ -46,7 +46,14 @@
       "params": {
         "channel": 1,
         "controllerSerial": { "port": "COM5", "baudrate": 9600, "timeout": 0 },
-        "readerSerial": { "port": "COM4", "baudrate": 9600, "timeout": 0 }
+        "readerSerial": { "port": "COM4", "baudrate": 9600, "timeout": 0 },
+        "validProducts": ["USB Serial"],
+        "validVIDs": [6790, 1027],
+        "nativeZero": 1997.0,
+        "nativePerMbar": 4.9208,
+        "readerOffset": 512.64,
+        "readerScale": 0.3925,
+        "serialCmdTimeout": 1.0
       }
     },
     "lamp": {
