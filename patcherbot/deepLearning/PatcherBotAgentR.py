@@ -14,6 +14,7 @@ if str(ROBO_ROOT) not in os.sys.path:
 
 from robomimic.envs.env_patcher_online import EnvPatcherOnline
 from robomimic.envs.wrappers import FrameStackWrapper
+from robomimic.utils import obs_utils as ObsUtils
 from robomimic.utils.file_utils import config_from_checkpoint, policy_from_checkpoint
 from robomimic.utils.torch_utils import get_torch_device
 
@@ -322,6 +323,120 @@ class ModelInferencer:
                 self.image_resize = (int(target_width), int(target_height))
         self.image_resize = (int(self.image_resize[0]), int(self.image_resize[1]))
 
+    def _get_required_obs_keys(self) -> Sequence[str]:
+        policy_impl = getattr(self.policy, "policy", None)
+        cfg = getattr(policy_impl, "global_config", None)
+        keys = getattr(cfg, "all_obs_keys", None)
+        if keys:
+            return list(keys)
+        return list(self.obs_keys) if self.obs_keys else []
+
+    def _infer_stack_dim(self, reference_obs: Optional[Mapping[str, Any]]) -> Optional[int]:
+        if self.importer.frame_stack <= 1 or not reference_obs:
+            return None
+        for value in reference_obs.values():
+            arr = np.asarray(value)
+            if arr.ndim >= 1 and arr.shape[0] == self.importer.frame_stack:
+                return int(self.importer.frame_stack)
+        return None
+
+    def _key_is_image(self, key: str) -> bool:
+        if key == self.image_key:
+            return True
+        if ObsUtils.OBS_KEYS_TO_MODALITIES is not None:
+            modality = ObsUtils.OBS_KEYS_TO_MODALITIES.get(key)
+            if modality in ("rgb", "depth"):
+                return True
+        return "image" in key.lower()
+
+    @staticmethod
+    def _raw_image_shape_from_processed(shape: Tuple[int, ...]) -> Tuple[int, ...]:
+        if len(shape) == 3:
+            if shape[0] in (1, 3) and shape[-1] not in (1, 3):
+                return (shape[1], shape[2], shape[0])
+            if shape[-1] in (1, 3):
+                return shape
+        return shape
+
+    def _placeholder_for_key(
+        self,
+        key: str,
+        *,
+        reference_obs: Optional[Mapping[str, Any]] = None,
+    ) -> np.ndarray:
+        if reference_obs is not None:
+            if key in reference_obs:
+                return np.zeros_like(reference_obs[key])
+            if self._key_is_image(key):
+                for ref_key in (self.image_key, "camera_image"):
+                    if ref_key in reference_obs:
+                        return np.zeros_like(reference_obs[ref_key], dtype=np.uint8)
+
+        shape_meta = self.importer.obs_shapes.get(key) if self.importer.obs_shapes else None
+        if shape_meta is not None:
+            try:
+                shape = tuple(int(s) for s in shape_meta)
+            except Exception:
+                shape = None
+        else:
+            shape = None
+
+        if self._key_is_image(key):
+            if shape is not None:
+                shape = self._raw_image_shape_from_processed(shape)
+            else:
+                height = int(self.image_resize[1])
+                width = int(self.image_resize[0])
+                shape = (height, width, 3)
+            dtype = np.uint8
+        else:
+            if shape is None:
+                shape = (1,)
+            dtype = np.float32
+
+        stack_dim = self._infer_stack_dim(reference_obs)
+        if stack_dim is not None and shape and shape[0] != stack_dim:
+            shape = (stack_dim,) + tuple(shape)
+        return np.zeros(shape, dtype=dtype)
+
+    def _complete_obs_dict(
+        self,
+        obs: Mapping[str, Any],
+        *,
+        reference_obs: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        required_keys = self._get_required_obs_keys()
+        if not required_keys:
+            return dict(obs)
+        missing = [k for k in required_keys if k not in obs]
+        if missing:
+            raise RuntimeError(
+                f"Observation missing required keys {missing}. "
+                "Provide these fields instead of relying on zero placeholders."
+            )
+        return dict(obs)
+
+    @staticmethod
+    def _assemble_obs_dict(
+        image_payload: Optional[np.ndarray],
+        pipette_payload: Optional[np.ndarray],
+        stage_payload: Optional[np.ndarray],
+        resistance_payload: Optional[np.ndarray],
+        extra_payload: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        obs_dict: Dict[str, Any] = {}
+        if image_payload is not None:
+            obs_dict["camera_image"] = image_payload
+        if pipette_payload is not None:
+            obs_dict["pipette_positions"] = pipette_payload
+        if stage_payload is not None:
+            obs_dict["stage_positions"] = stage_payload
+        if resistance_payload is not None:
+            obs_dict["resistance"] = resistance_payload
+        if extra_payload:
+            obs_dict.update(extra_payload)
+        return obs_dict
+
     def set_goal(self, goal: Any) -> None:
         self.goal = goal if self.goal_required else None
 
@@ -433,19 +548,39 @@ class ModelInferencer:
 
     def _prepare_observation(
         self,
-        observation: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        observation: Union[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], Mapping[str, Any]],
         *,
         is_demo: bool = False,
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[Dict[str, Any]]]:
-        pipette, stage, image, resistance = observation
+        extras: Dict[str, Any] = {}
+        if isinstance(observation, Mapping):
+            obs_map = dict(observation)
+            pipette = obs_map.get(self.pipette_key, obs_map.get("pipette_positions"))
+            stage = obs_map.get(self.stage_key, obs_map.get("stage_positions"))
+            image = obs_map.get(self.image_key, obs_map.get("camera_image"))
+            resistance = obs_map.get(self.resistance_key, obs_map.get("resistance"))
+            reserved = {
+                self.pipette_key,
+                "pipette_positions",
+                self.stage_key,
+                "stage_positions",
+                self.image_key,
+                "camera_image",
+                self.resistance_key,
+                "resistance",
+            }
+            extras.update({k: v for k, v in obs_map.items() if k not in reserved})
+        else:
+            pipette, stage, image, resistance = observation
         frame_params: Optional[Dict[str, float]] = None
         self._last_frame_params = None
-        extras: Dict[str, Any] = {}
+        required_keys = set(self._get_required_obs_keys())
+        uses_image = self.image_key in required_keys
 
         image_payload: Optional[np.ndarray] = None
         image_arr = None if image is None else np.asarray(image)
         if image_arr is not None:
-            if not is_demo:
+            if not is_demo and uses_image:
                 frame_params = self._compute_frame_params(image_arr.shape[:2])
                 prepared_image = self._prepare_image(image_arr, frame_params) if frame_params else image_arr
                 self._last_frame_params = frame_params
@@ -499,17 +634,34 @@ class ModelInferencer:
                 arr[pip_slice] = restored.reshape(pip_dim)
         return arr.astype(np.float32, copy=False)
 
-    def _format_goal(self, goal: Any) -> Optional[Dict[str, Any]]:
-        if not self.goal_required:
+    def _format_goal(
+        self,
+        goal: Any,
+        *,
+        reference_obs: Optional[Mapping[str, Any]] = None,
+        is_demo: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        if not self.goal_required or goal is None:
             return None
-        if goal is None:
-            return None
+        goal_dict: Optional[Dict[str, Any]] = None
         if isinstance(goal, Mapping):
-            return dict(goal)
-        arr = np.asarray(goal, dtype=np.float32).reshape(-1)
-        if arr.size >= 3:
-            return {"pipette_positions": arr}
-        return {"pipette_positions": arr}
+            goal_dict = dict(goal)
+        elif isinstance(goal, (tuple, list)) and len(goal) == 4:
+            image_payload, pipette_payload, stage_payload, resistance_payload, extra_payload = self._prepare_observation(
+                goal, is_demo=is_demo
+            )
+            goal_dict = self._assemble_obs_dict(
+                image_payload,
+                pipette_payload,
+                stage_payload,
+                resistance_payload,
+                extra_payload,
+            )
+        else:
+            arr = np.asarray(goal, dtype=np.float32).reshape(-1)
+            key = self.pipette_key or "pipette_positions"
+            goal_dict = {key: arr}
+        return self._complete_obs_dict(goal_dict, reference_obs=reference_obs)
 
     def inference(self, observation, goal=None, is_demo: bool = False):
         image_payload, pipette_payload, stage_payload, resistance_payload, extra_payload = self._prepare_observation(
@@ -544,8 +696,13 @@ class ModelInferencer:
                     obs_ready = self.env.get_observation()
             except Exception:
                 obs_ready = self.env.get_observation()
+        obs_ready = self._complete_obs_dict(obs_ready, reference_obs=obs_ready)
         self._last_obs = obs_ready
-        goal_payload = self._format_goal(goal) or self._format_goal(self.goal)
+        goal_payload = self._format_goal(goal, reference_obs=obs_ready, is_demo=is_demo)
+        if goal_payload is None:
+            goal_payload = self._format_goal(self.goal, reference_obs=obs_ready, is_demo=is_demo)
+        if self.goal_required and goal_payload is None:
+            raise RuntimeError("Goal is required by the loaded policy. Call set_goal() or pass goal to inference().")
         act_raw = self.policy(ob=obs_ready, goal=goal_payload)
         action = ModelImporter._extract_policy_action(act_raw)
         processed_action = self._process_action(action)
