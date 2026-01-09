@@ -359,11 +359,18 @@ class CellSegmentor1(BaseSegmentor):
 
 # ================= SAM2 SEGMENTOR (CellSegmentor2) =================
 class CellSegmentor2(BaseSegmentor):
-    """Segmentor powered by SAM2 (Transformers Sam2Model)."""
+    """Segmentor powered by SAM2 via Transformers.
+
+    Note: Meta's public SAM2 checkpoints on the Hugging Face Hub are `sam2_video` models. For single-image
+    segmentation we run `Sam2VideoModel._single_frame_forward(...)` under the hood (same prompts / outputs),
+    which matches the behavior of the upstream SAM2 repo for interactive image segmentation.
+    """
 
     def __init__(self, sam_checkpoint=None, model_cfg=None, device=None, cache_image_embeddings: bool = True):
         # Keep signature for compatibility.
         # sam_checkpoint now means "HF model id or local HF-exported folder".
+        # The official Facebook/Meta checkpoints are `sam2_video`, but they support single-image interactive
+        # segmentation as well (we call the model's single-frame forward).
         self.model_id_or_path = sam_checkpoint or "facebook/sam2.1-hiera-tiny"
 
         # model_cfg kept only so existing callers don't break; not used by Transformers loader.
@@ -373,10 +380,26 @@ class CellSegmentor2(BaseSegmentor):
         super().__init__(device=device, cache_image_embeddings=cache_image_embeddings)
 
     def _load_model(self):
-        from transformers import Sam2Model, Sam2Processor
+        from transformers import AutoConfig, Sam2Model, Sam2Processor, Sam2VideoModel, Sam2VideoProcessor
 
-        self.model = Sam2Model.from_pretrained(self.model_id_or_path).to(self.device)
-        self.processor = Sam2Processor.from_pretrained(self.model_id_or_path)
+        cfg = AutoConfig.from_pretrained(self.model_id_or_path)
+        model_type = getattr(cfg, "model_type", None)
+
+        if model_type == "sam2_video":
+            self.model = Sam2VideoModel.from_pretrained(self.model_id_or_path).to(self.device)
+            try:
+                self.processor = Sam2VideoProcessor.from_pretrained(self.model_id_or_path, use_fast=True)
+            except OSError:
+                self.processor = Sam2VideoProcessor.from_pretrained("facebook/sam2.1-hiera-tiny", use_fast=True)
+        else:
+            self.model = Sam2Model.from_pretrained(self.model_id_or_path).to(self.device)
+            try:
+                self.processor = Sam2Processor.from_pretrained(self.model_id_or_path, use_fast=True)
+            except OSError:
+                # Some exported checkpoints ship weights/config only (no processor files). Fall back to a
+                # compatible processor from the official checkpoint hub.
+                self.processor = Sam2Processor.from_pretrained("facebook/sam2.1-hiera-tiny", use_fast=True)
+
         self.model.eval()
 
     @staticmethod
@@ -419,29 +442,30 @@ class CellSegmentor2(BaseSegmentor):
 
     def _forward(self, inputs, multimask_output):
         with torch.inference_mode():
-            outputs = self.model(**inputs, multimask_output=multimask_output)
+            if hasattr(self.model, "_single_frame_forward"):
+                outputs = self.model._single_frame_forward(**inputs, multimask_output=multimask_output)
+            else:
+                outputs = self.model(**inputs, multimask_output=multimask_output)
         return outputs.pred_masks, outputs.iou_scores
 
     def _post_process(self, pred_masks: torch.Tensor, inputs: dict):
         original_sizes = inputs.get("original_sizes", None)
-        reshaped_input_sizes = inputs.get("reshaped_input_sizes", None)
 
         if isinstance(original_sizes, torch.Tensor):
             original_sizes = original_sizes.detach().cpu()
-        if isinstance(reshaped_input_sizes, torch.Tensor):
-            reshaped_input_sizes = reshaped_input_sizes.detach().cpu()
 
         pred_masks = pred_masks.detach().cpu()
+        # The SAM2 image post-processor expects a 5D tensor: (B, point_batch, num_masks, H, W).
+        # Sam2VideoModel single-frame output is 4D (B, point_batch, H, W), so add the singleton mask dim.
+        if pred_masks.ndim == 4:
+            pred_masks = pred_masks.unsqueeze(2)
 
         if hasattr(self.processor, "post_process_masks"):
-            try:
-                if reshaped_input_sizes is not None:
-                    return self.processor.post_process_masks(pred_masks, original_sizes, reshaped_input_sizes)
-                return self.processor.post_process_masks(pred_masks, original_sizes)
-            except TypeError:
-                return self.processor.post_process_masks(pred_masks, original_sizes, reshaped_input_sizes)
+            # Sam2Processor.post_process_masks signature is (masks, original_sizes, mask_threshold=...),
+            # so passing reshaped_input_sizes positionally will break.
+            return self.processor.post_process_masks(pred_masks, original_sizes)
 
-        return self.processor.image_processor.post_process_masks(pred_masks, original_sizes, reshaped_input_sizes)
+        return self.processor.image_processor.post_process_masks(pred_masks, original_sizes)
 
     @staticmethod
     def _normalize_masks(masks):
