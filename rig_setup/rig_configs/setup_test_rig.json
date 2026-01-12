@@ -1,6 +1,12 @@
 {
   "name": "setup_test_rig",
   "schema_version": 2,
+  "calibration_file": "setup_test_cal.yaml",
+  "patch_file": "setup_test_patch.yaml",
+  "calibration": {
+    "pipette_detector_model": null,
+    "pipette_focuser_model": null
+  },
   "devices": {
     "stage_controller": {
       "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
@@ -9,7 +15,10 @@
           "baudrate": 9600,
           "port": "COM6",
           "timeout": 1.0
-        }
+        },
+        "max_speed": 100000,
+        "max_accel": 1000,
+        "polling_freq": 100
       }
     },
     "pipette_controller": {
@@ -19,7 +28,10 @@
           "baudrate": 9600,
           "port": "COM3",
           "timeout": 1.0
-        }
+        },
+        "max_speed": 100000,
+        "max_accel": 1000,
+        "polling_freq": 100
       }
     },
     "camera": {
@@ -71,10 +83,6 @@
         },
         "validProducts": ["USB Serial"],
         "validVIDs": [6790, 1027],
-        "nativeZero": 1962,
-        "nativePerMbar": 2.7836,
-        "readerOffset": 516.72,
-        "readerScale": 0.3923,
         "serialCmdTimeout": 1.0
       }
     },

@@ -33,21 +33,39 @@ class SerialCommands():
     STOP = 'STOP\r'
 
 class ScientificaSerialEncoder(Manipulator):
+    DEFAULT_STAGE_UNITS_PER_ENCODER_PULSE = 1.45
+    DEFAULT_MAX_SPEED = 10000
+    DEFAULT_MAX_ACCEL = 100
+    DEFAULT_POLLING_FREQ = 10
 
     def __init__(self, comPort: serial.Serial, zAxisComPort, stageUnitsPerEncoderPulse=None):
         self.comPort : serial.Serial = comPort
 
         self.zAxisComPort : serial.Serial = zAxisComPort
         self.stageUnitsPerEncoderPulse = stageUnitsPerEncoderPulse if stageUnitsPerEncoderPulse is not None else 1.45
+    def __init__(self, comPort: serial.Serial, zAxisComPort,
+                 stage_units_per_encoder_pulse=None,
+                 max_speed=None,
+                 max_accel=None,
+                 polling_freq=None):
+        self.comPort : serial.Serial = comPort
+
+        self.zAxisComPort : serial.Serial = zAxisComPort
+        self.stageUnitsPerEncoderPulse = (
+            self.DEFAULT_STAGE_UNITS_PER_ENCODER_PULSE
+            if stage_units_per_encoder_pulse is None
+            else stage_units_per_encoder_pulse
+        )
         self.encoderZ = 0
 
         self._lock = threading.Lock()
         self.current_pos = [0, 0, 0]
+        self._polling_freq = self.DEFAULT_POLLING_FREQ if polling_freq is None else polling_freq
 
         # self.info(f"Baud Rate: {self.get_baud_rate()}")
 
-        self.set_max_accel(100)
-        self.set_max_speed(10000)
+        self.set_max_accel(self.DEFAULT_MAX_ACCEL if max_accel is None else max_accel)
+        self.set_max_speed(self.DEFAULT_MAX_SPEED if max_speed is None else max_speed)
         
 
         #start constantly polling position in a new thread
@@ -124,9 +142,11 @@ class ScientificaSerialEncoder(Manipulator):
         if axis == None:
             return self.current_pos
         
-    def update_pos_continuous(self, freq=10):
+    def update_pos_continuous(self, freq=None):
         '''constantly polls the device's position and updates the current_pos variable
         '''
+        if freq is None:
+            freq = self._polling_freq
         while True:
             startTime = time.time()
             self.zAxisComPort.read_all()
@@ -239,14 +259,21 @@ class ScientificaSerialEncoder(Manipulator):
         self._sendCmd(SerialCommands.STOP)
 
 class ScientificaSerialNoEncoder(Manipulator):
+    DEFAULT_MAX_SPEED = 100000
+    DEFAULT_MAX_ACCEL = 1000
+    DEFAULT_POLLING_FREQ = 100
 
-    def __init__(self, comPort: serial.Serial):
+    def __init__(self, comPort: serial.Serial,
+                 max_speed=None,
+                 max_accel=None,
+                 polling_freq=None):
         self.comPort : serial.Serial = comPort
         self._lock = threading.Lock()
         self.current_pos = [0, 0, 0]
+        self._polling_freq = self.DEFAULT_POLLING_FREQ if polling_freq is None else polling_freq
 
-        self.set_max_accel(1000)
-        self.set_max_speed(100000)
+        self.set_max_accel(self.DEFAULT_MAX_ACCEL if max_accel is None else max_accel)
+        self.set_max_speed(self.DEFAULT_MAX_SPEED if max_speed is None else max_speed)
 
         #start constantly polling position in a new thread
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
@@ -312,9 +339,11 @@ class ScientificaSerialNoEncoder(Manipulator):
         if axis == None:
             return self.current_pos
         
-    def update_pos_continuous(self, freq=100):
+    def update_pos_continuous(self, freq=None):
         '''constantly polls the device's position and updates the current_pos variable
         '''
+        if freq is None:
+            freq = self._polling_freq
         while True:
             startTime = time.time()
             xyz = self._sendCmd(SerialCommands.GET_X_Y_Z)

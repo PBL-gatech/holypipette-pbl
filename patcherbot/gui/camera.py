@@ -1252,6 +1252,11 @@ class ConfigGui(QtWidgets.QWidget):
                         value_widget.setCurrentIndex(param_obj.objects.index(current))
                     value_widget.currentIndexChanged.connect(
                         functools.partial(self.set_selector_value, param_name, param_obj.objects))
+                elif isinstance(param_obj, param.String):
+                    value_widget = QtWidgets.QLineEdit()
+                    value_widget.setText(str(getattr(config, param_name)))
+                    value_widget.textChanged.connect(
+                        functools.partial(self.set_string_value, param_name))
                 elif isinstance(param_obj, param.Tuple):         
                     value_widget = QtWidgets.QLineEdit()          
                     value_widget.setReadOnly(True)                
@@ -1310,7 +1315,7 @@ class ConfigGui(QtWidgets.QWidget):
             return                                             # (unchanged)
 
         line = self.findChild(QtWidgets.QLineEdit, key)        
-        if line is not None and line.isReadOnly():             
+        if line is not None:             
             line.blockSignals(True)                            
             line.setText(str(value))                           
             line.blockSignals(False)                           
@@ -1328,6 +1333,9 @@ class ConfigGui(QtWidgets.QWidget):
     def set_selector_value(self, name, options, index):
         if 0 <= index < len(options):
             setattr(self.config, name, options[index])
+
+    def set_string_value(self, name, value):
+        setattr(self.config, name, value)
 
 
     def save_config(self):

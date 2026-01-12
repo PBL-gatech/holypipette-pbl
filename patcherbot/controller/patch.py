@@ -64,6 +64,10 @@ class AutoPatcher(TaskController):
         self.ninput = None
         self.done = False
 
+    def _microscope_z_um(self) -> float:
+        scale = self.calibrated_unit.config.microscope_units_per_um
+        return float(self.microscope.position() / scale)
+
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
             self.attempt_counter += 1
@@ -622,7 +626,7 @@ class AutoPatcher(TaskController):
 
         self.microscope.move_to_floor()
         self.microscope.wait_until_still()
-        z_pos = self.microscope.position()/5.0
+        z_pos = self._microscope_z_um()
         zdistleft = z_pos - cell_pos[2]
         self.microscope.relative_move(-zdistleft)
         self.microscope.wait_until_still()
@@ -1497,7 +1501,7 @@ class AutoPatcher(TaskController):
         pi = self.calibrated_unit.position()
         # self.info(f"pipette position: '{pi}' ")
         st = self.calibrated_stage.position()[:2]
-        stz = self.calibrated_unit.microscope.position() / 5
+        stz = self._microscope_z_um()
         st= np.append(st, stz)
         # self.info(f"stage position: '{st}' ")
         res = self.resistanceRamp()

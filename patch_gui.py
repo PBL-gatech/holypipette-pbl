@@ -37,7 +37,8 @@ def main():
     config_path = selector.selected_path or manager.default_config_path()
 
     try:
-        rig_devices = manager.build_devices_from_file(config_path)
+        config_data = manager.load_config(config_path)
+        rig_devices = manager.build_devices(config_data)
     except RigConfigError as exc:
         QMessageBox.critical(None, "Rig configuration error", str(exc))
         return
@@ -64,8 +65,17 @@ def main():
 
     recording_state_manager = RecordingStateManager()
 
-    pipette_controller = PipetteInterface(stage, microscope, camera, unit, cellSorterManip, cellSorterController)
-    patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller, recording_state_manager, lamp)
+    calibration_data = config_data.get("calibration") if isinstance(config_data, dict) else None
+    patch_data = config_data.get("patch") if isinstance(config_data, dict) else None
+
+    pipette_controller = PipetteInterface(
+        stage, microscope, camera, unit, cellSorterManip, cellSorterController,
+        calibration_data=calibration_data,
+    )
+    patch_controller = AutoPatchInterface(
+        amplifier, daq, pressure, pipette_controller, recording_state_manager, lamp,
+        config_data=patch_data,
+    )
     graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager)
     gui = PatchGui(camera, pipette_camera, pipette_controller, patch_controller, recording_state_manager)
     graphs = EPhysGraph(graph_interface, recording_state_manager)

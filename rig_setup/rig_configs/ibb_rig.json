@@ -1,14 +1,25 @@
 {
   "name": "IBB Rig",
   "schema_version": 2,
+  "calibration_file": "ibb_cal.yaml",
+  "patch_file": "ibb_patch.yaml",
+  "calibration": {
+    "pipette_detector_model": "pipette-small.onnx",
+    "pipette_focuser_model": "regression_model2.onnx"
+  },
   "devices": {
     "stage_controller": {
       "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
-      "params": { "serial": { "port": "COM7", "baudrate": 9600, "timeout": 1 } }
+      "params": {
+        "serial": { "port": "COM7", "baudrate": 9600, "timeout": 1 },
+        "max_speed": 100000,
+        "max_accel": 1000,
+        "polling_freq": 100
+      }
     },
     "pipette_controller": {
       "class": "patcherbot.devices.manipulator.sensapexWrapper.SensapexManip",
-      "params": { "poll_hz": 100.0 }
+      "params": { "deviceID": null, "max_speed": 5000, "max_acceleration": 1, "poll_hz": 100.0 }
     },
     "camera": {
       "class": "patcherbot.devices.camera.pcocamera.PcoCamera",
@@ -49,10 +60,6 @@
         "readerSerial": { "port": "COM4", "baudrate": 9600, "timeout": 0 },
         "validProducts": ["USB Serial"],
         "validVIDs": [6790, 1027],
-        "nativeZero": 1997.0,
-        "nativePerMbar": 4.9208,
-        "readerOffset": 512.64,
-        "readerScale": 0.3925,
         "serialCmdTimeout": 1.0
       }
     },

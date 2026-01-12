@@ -8,16 +8,16 @@ from pathlib import Path
 import logging
 
 class PipetteFocuser:
-    def __init__(self):
-        # Set the scale factor as an instance attribute
-   
-        
+    def __init__(self, model_path=None):
         # Determine the model path
         cur_dir = Path(__file__).parent.absolute()
-        model_path = os.path.join(cur_dir, 'pipetteModel', 'regression_model2.onnx')
-        
+        default_model = cur_dir / "pipetteModel" / "regression_model2.onnx"
+        if isinstance(model_path, str) and not model_path.strip():
+            model_path = None
+        self.model_path = Path(model_path) if model_path is not None else default_model
+
         # Initialize ONNX Runtime session
-        self.session = ort.InferenceSession(model_path)
+        self.session = ort.InferenceSession(str(self.model_path))
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
         

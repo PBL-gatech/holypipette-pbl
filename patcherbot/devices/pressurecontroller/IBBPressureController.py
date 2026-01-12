@@ -19,11 +19,15 @@ class IBBPressureController(PressureController):
     '''
 
                     
-    nativePerMbar = 0.75 # The number of native pressure transucer units from the DAC (0 to 4095) in a millibar of pressure (-700 to 700)
-    nativeZero = 2048 # The native units at a 0 pressure (y-intercept)
+    DEFAULT_NATIVE_PER_MBAR = 0.75  # native pressure units per mbar
+    DEFAULT_NATIVE_ZERO = 2048      # native units at 0 pressure (y-intercept)
+    DEFAULT_SERIAL_CMD_TIMEOUT = 1
+    DEFAULT_STARTUP_PRESSURE = 20
 
 
-    def __init__(self, channel, arduinoSerial=None):
+    def __init__(self, channel, arduinoSerial=None,
+                 native_zero=None, native_per_mbar=None,
+                 serial_cmd_timeout=None, startup_pressure=None):
         super().__init__()
 
         self.serial = arduinoSerial
@@ -32,12 +36,15 @@ class IBBPressureController(PressureController):
         self.isATM = None
         self.setpoint_raw = None
 
-        self.serialCmdTimeout = 1 # (in sec) max time allowed between sending a serial command and expecting a response
+        self.nativeZero = self.DEFAULT_NATIVE_ZERO if native_zero is None else native_zero
+        self.nativePerMbar = self.DEFAULT_NATIVE_PER_MBAR if native_per_mbar is None else native_per_mbar
+        self.serialCmdTimeout = self.DEFAULT_SERIAL_CMD_TIMEOUT if serial_cmd_timeout is None else serial_cmd_timeout
+        self.startup_pressure = self.DEFAULT_STARTUP_PRESSURE if startup_pressure is None else startup_pressure
         time.sleep(2) #wait for arduino to boot up
 
         #set initial configuration of pressure controller
         self.set_ATM(False)
-        self.set_pressure(20)
+        self.set_pressure(self.startup_pressure)
 
     def set_pressure(self, pressure):
         '''Tell pressure controller to go to a given setpoint pressure in mbar
@@ -48,13 +55,13 @@ class IBBPressureController(PressureController):
     def mbarToNative(self, pressure):
         '''Comvert from a pressure in mBar to native units
         '''
-        raw_pressure = int(pressure * IBBPressureController.nativePerMbar + IBBPressureController.nativeZero)
+        raw_pressure = int(pressure * self.nativePerMbar + self.nativeZero)
         return min(max(raw_pressure, 0), 4095) #clamp native units to 0-4095
 
     def nativeToMbar(self, raw_pressure):
         '''Comvert from native units to a pressure in mBar
         '''
-        pressure = (raw_pressure - IBBPressureController.nativeZero) / IBBPressureController.nativePerMbar
+        pressure = (raw_pressure - self.nativeZero) / self.nativePerMbar
         return pressure
 
     def set_pressure_raw(self, raw_pressure):

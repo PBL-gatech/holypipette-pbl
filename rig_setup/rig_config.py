@@ -32,6 +32,8 @@ LOGGER = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2
 CONFIG_DIR = Path(__file__).parent / "rig_configs"
+CAL_CONFIG_DIR = Path(__file__).parent / "cal_configs"
+PATCH_CONFIG_DIR = Path(__file__).parent / "patch_configs"
 DEFAULT_CONFIG_NAME = "fake_rig.json"
 
 # Core device slots only; derived pieces (stage, pipette_unit, microscope) are built automatically.
@@ -102,6 +104,13 @@ def _default_devices() -> Dict[str, Dict[str, Any]]:
     }
 
 
+def _empty_calibration() -> Dict[str, Any]:
+    return {
+        "pipette_detector_model": None,
+        "pipette_focuser_model": None,
+    }
+
+
 # Available device options (used by the builder UI).
 DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
     "stage_controller": [
@@ -114,11 +123,19 @@ DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
         {
             "label": "ScientificaSerialNoEncoder",
             "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
-            "params": {"serial": {"port": "COM6", "baudrate": 9600}},
+            "params": {
+                "serial": {"port": "COM6", "baudrate": 9600},
+                "max_speed": 100000,
+                "max_accel": 1000,
+                "polling_freq": 100,
+            },
             "fields": [
                 {"key": "serial.port", "label": "Port", "type": "str"},
                 {"key": "serial.baudrate", "label": "Baudrate", "type": "int"},
                 {"key": "serial.timeout", "label": "Timeout", "type": "float", "optional": True},
+                {"key": "max_speed", "label": "Max Speed", "type": "int", "optional": True},
+                {"key": "max_accel", "label": "Max Accel", "type": "int", "optional": True},
+                {"key": "polling_freq", "label": "Polling Hz", "type": "int", "optional": True},
             ],
         },
     ],
@@ -132,18 +149,30 @@ DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
         {
             "label": "ScientificaSerialNoEncoder",
             "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
-            "params": {"serial": {"port": "COM3", "baudrate": 9600}},
+            "params": {
+                "serial": {"port": "COM3", "baudrate": 9600},
+                "max_speed": 100000,
+                "max_accel": 1000,
+                "polling_freq": 100,
+            },
             "fields": [
                 {"key": "serial.port", "label": "Port", "type": "str"},
                 {"key": "serial.baudrate", "label": "Baudrate", "type": "int"},
                 {"key": "serial.timeout", "label": "Timeout", "type": "float", "optional": True},
+                {"key": "max_speed", "label": "Max Speed", "type": "int", "optional": True},
+                {"key": "max_accel", "label": "Max Accel", "type": "int", "optional": True},
+                {"key": "polling_freq", "label": "Polling Hz", "type": "int", "optional": True},
             ],
         },
         {
             "label": "SensapexManip",
             "class": "patcherbot.devices.manipulator.sensapexWrapper.SensapexManip",
-            "params": {},
-            "fields": [],
+            "params": {"deviceID": None, "max_speed": 5000, "max_acceleration": 1},
+            "fields": [
+                {"key": "deviceID", "label": "Device ID", "type": "int", "optional": True},
+                {"key": "max_speed", "label": "Max Speed", "type": "int", "optional": True},
+                {"key": "max_acceleration", "label": "Max Accel", "type": "float", "optional": True},
+            ],
         },
     ],
     "cell_sorter_controller": [
@@ -287,6 +316,7 @@ DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
                 "channel": 4,
                 "controllerSerial": {"port": "COM5", "baudrate": 9600, "timeout": 0},
                 "readerSerial": {"port": "COM9", "baudrate": 9600, "timeout": 0},
+                "serial_cmd_timeout": 1,
             },
             "fields": [
                 {"key": "channel", "label": "Channel", "type": "int"},
@@ -296,17 +326,45 @@ DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
                 {"key": "readerSerial.port", "label": "Reader Port", "type": "str"},
                 {"key": "readerSerial.baudrate", "label": "Reader Baud", "type": "int"},
                 {"key": "readerSerial.timeout", "label": "Reader Timeout", "type": "float", "optional": True},
+                {"key": "serial_cmd_timeout", "label": "Command Timeout", "type": "float", "optional": True},
+            ],
+        },
+        {
+            "label": "WaynesBoroPressureController",
+            "class": "patcherbot.devices.pressurecontroller.WaynesboroPressureController.WaynesBoroPressureController",
+            "params": {
+                "channel": 1,
+                "controllerSerial": {"port": "COM5", "baudrate": 9600, "timeout": 0},
+                "readerSerial": {"port": "COM4", "baudrate": 9600, "timeout": 0},
+                "serial_cmd_timeout": 1,
+            },
+            "fields": [
+                {"key": "channel", "label": "Channel", "type": "int"},
+                {"key": "controllerSerial.port", "label": "Controller Port", "type": "str"},
+                {"key": "controllerSerial.baudrate", "label": "Controller Baud", "type": "int"},
+                {"key": "controllerSerial.timeout", "label": "Controller Timeout", "type": "float", "optional": True},
+                {"key": "readerSerial.port", "label": "Reader Port", "type": "str"},
+                {"key": "readerSerial.baudrate", "label": "Reader Baud", "type": "int"},
+                {"key": "readerSerial.timeout", "label": "Reader Timeout", "type": "float", "optional": True},
+                {"key": "serial_cmd_timeout", "label": "Command Timeout", "type": "float", "optional": True},
             ],
         },
         {
             "label": "IBBPressureController",
             "class": "patcherbot.devices.pressurecontroller.IBBPressureController.IBBPressureController",
-            "params": {"channel": 1, "arduinoSerial": {"port": "COM5", "baudrate": 9600, "timeout": 0}},
+            "params": {
+                "channel": 1,
+                "arduinoSerial": {"port": "COM5", "baudrate": 9600, "timeout": 0},
+                "serial_cmd_timeout": 1,
+                "startup_pressure": 20,
+            },
             "fields": [
                 {"key": "channel", "label": "Channel", "type": "int"},
                 {"key": "arduinoSerial.port", "label": "Arduino Port", "type": "str"},
                 {"key": "arduinoSerial.baudrate", "label": "Arduino Baud", "type": "int"},
                 {"key": "arduinoSerial.timeout", "label": "Arduino Timeout", "type": "float", "optional": True},
+                {"key": "serial_cmd_timeout", "label": "Command Timeout", "type": "float", "optional": True},
+                {"key": "startup_pressure", "label": "Startup Pressure", "type": "float", "optional": True},
             ],
         },
     ],
@@ -340,9 +398,15 @@ DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
 
 
 class RigConfigManager:
-    def __init__(self, config_dir: Path | None = None):
+    def __init__(self, config_dir: Path | None = None,
+                 cal_config_dir: Path | None = None,
+                 patch_config_dir: Path | None = None):
         self.config_dir = config_dir or CONFIG_DIR
+        self.cal_config_dir = cal_config_dir or CAL_CONFIG_DIR
+        self.patch_config_dir = patch_config_dir or PATCH_CONFIG_DIR
         self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.cal_config_dir.mkdir(parents=True, exist_ok=True)
+        self.patch_config_dir.mkdir(parents=True, exist_ok=True)
 
     def default_config_path(self) -> Path:
         return self.config_dir / DEFAULT_CONFIG_NAME
@@ -350,7 +414,17 @@ class RigConfigManager:
     def ensure_default_config(self) -> Path:
         path = self.default_config_path()
         if not path.exists():
-            self.save_config(path, {"name": "Fake Rig", "schema_version": SCHEMA_VERSION, "devices": _default_devices()})
+            self.save_config(
+                path,
+                {
+                    "name": "Fake Rig",
+                    "schema_version": SCHEMA_VERSION,
+                    "calibration_file": "fake_cal.yaml",
+                    "patch_file": "fake_patch.yaml",
+                    "calibration": _empty_calibration(),
+                    "devices": _default_devices(),
+                },
+            )
         return path
 
     def list_configs(self) -> List[Path]:
@@ -367,6 +441,7 @@ class RigConfigManager:
         with path.open("r", encoding="utf-8") as f:
             config = json.load(f)
         self._validate_config(config)
+        self._load_overlay_configs(config)
         return config
 
     def build_devices_from_file(self, path: Path) -> Dict[str, Any]:
@@ -375,6 +450,7 @@ class RigConfigManager:
 
     def build_devices(self, config: Dict[str, Any]) -> Dict[str, Any]:
         devices_cfg = config.get("devices", {})
+        self._apply_pressure_calibration(config, devices_cfg)
         base_instances: Dict[str, Any] = {}
         for slot in DEVICE_SLOTS:
             if slot not in devices_cfg:
@@ -505,4 +581,84 @@ class RigConfigManager:
         return DEVICE_OPTIONS
 
     def build_empty_template(self) -> Dict[str, Any]:
-        return {"name": "New Rig", "schema_version": SCHEMA_VERSION, "devices": {slot: {} for slot in DEVICE_SLOTS}}
+        return {
+            "name": "New Rig",
+            "schema_version": SCHEMA_VERSION,
+            "calibration_file": None,
+            "patch_file": None,
+            "calibration": _empty_calibration(),
+            "devices": {slot: {} for slot in DEVICE_SLOTS},
+        }
+
+    def _load_overlay_configs(self, config: Dict[str, Any]) -> None:
+        from patcherbot.devices.manipulator.CalibrationConfig import CalibrationConfig
+        from patcherbot.interface.patchConfig import PatchConfig
+
+        calibration = CalibrationConfig(name="Calibration")
+        cal_file = config.get("calibration_file")
+        if cal_file:
+            cal_path = self.cal_config_dir / cal_file
+            if cal_path.exists():
+                try:
+                    calibration.from_file(str(cal_path))
+                except Exception as exc:
+                    LOGGER.warning("Failed to load calibration file %s: %s", cal_path, exc)
+            else:
+                LOGGER.warning("Calibration file not found: %s (using defaults)", cal_path)
+        else:
+            LOGGER.warning("No calibration_file specified; using defaults")
+
+        inline_cal = config.get("calibration")
+        if isinstance(inline_cal, dict):
+            cleaned = {k: v for k, v in inline_cal.items() if v is not None}
+            calibration.from_dict(cleaned)
+
+        patch = PatchConfig(name="Patch")
+        patch_file = config.get("patch_file")
+        if patch_file:
+            patch_path = self.patch_config_dir / patch_file
+            if patch_path.exists():
+                try:
+                    patch.from_file(str(patch_path))
+                except Exception as exc:
+                    LOGGER.warning("Failed to load patch file %s: %s", patch_path, exc)
+            else:
+                LOGGER.warning("Patch file not found: %s (using defaults)", patch_path)
+        else:
+            LOGGER.warning("No patch_file specified; using defaults")
+
+        inline_patch = config.get("patch")
+        if isinstance(inline_patch, dict):
+            cleaned = {k: v for k, v in inline_patch.items() if v is not None}
+            patch.from_dict(cleaned)
+
+        config["calibration"] = calibration.to_dict()
+        config["patch"] = patch.to_dict()
+
+    def _apply_pressure_calibration(self, config: Dict[str, Any], devices_cfg: Dict[str, Any]) -> None:
+        calibration = config.get("calibration")
+        if not isinstance(calibration, dict):
+            return
+        pressure_cfg = devices_cfg.get("pressure")
+        if not isinstance(pressure_cfg, dict):
+            return
+        params = pressure_cfg.get("params") or {}
+        if not isinstance(params, dict):
+            params = {}
+        class_path = pressure_cfg.get("class") or pressure_cfg.get("class_path") or ""
+
+        updates: Dict[str, Any] = {}
+        if calibration.get("native_zero") is not None:
+            updates["native_zero"] = calibration["native_zero"]
+        if calibration.get("native_per_mbar") is not None:
+            updates["native_per_mbar"] = calibration["native_per_mbar"]
+        if "IBBPressureController" not in str(class_path):
+            if calibration.get("reader_offset") is not None:
+                updates["sensor_offset"] = calibration["reader_offset"]
+            if calibration.get("reader_scale") is not None:
+                updates["sensor_scale"] = calibration["reader_scale"]
+
+        if updates:
+            merged = dict(params)
+            merged.update(updates)
+            pressure_cfg["params"] = merged

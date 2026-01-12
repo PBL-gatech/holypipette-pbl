@@ -29,7 +29,11 @@ class WaynesBoroPressureController(PressureController):
                  validProducts=None, validVIDs=None,
                  nativeZero=None, nativePerMbar=None,
                  readerOffset=None, readerScale=None,
-                 serialCmdTimeout=None):
+                 serialCmdTimeout=None,
+                 valid_products=None, valid_vids=None,
+                 native_zero=None, native_per_mbar=None,
+                 sensor_offset=None, sensor_scale=None,
+                 serial_cmd_timeout=None):
         super().__init__()
         # time.sleep(2) # wait for arduino to boot up
 
@@ -47,19 +51,34 @@ class WaynesBoroPressureController(PressureController):
             self.readerSerial = None
             self.error("No reader serial port available")
 
+        if valid_products is None:
+            valid_products = validProducts
+        if valid_vids is None:
+            valid_vids = validVIDs
+        if native_zero is None:
+            native_zero = nativeZero
+        if native_per_mbar is None:
+            native_per_mbar = nativePerMbar
+        if sensor_offset is None:
+            sensor_offset = readerOffset
+        if sensor_scale is None:
+            sensor_scale = readerScale
+        if serial_cmd_timeout is None:
+            serial_cmd_timeout = serialCmdTimeout
+
         self.channel = channel
+        self.validProducts = list(valid_products) if valid_products is not None else list(self.DEFAULT_VALID_PRODUCTS)
+        self.validVIDs = list(valid_vids) if valid_vids is not None else list(self.DEFAULT_VALID_VIDS)
+        self.nativeZero = float(native_zero) if native_zero is not None else self.DEFAULT_NATIVE_ZERO
+        self.nativePerMbar = float(native_per_mbar) if native_per_mbar is not None else self.DEFAULT_NATIVE_PER_MBAR
+        self.readerOffset = float(sensor_offset) if sensor_offset is not None else self.DEFAULT_READER_OFFSET
+        self.readerScale = float(sensor_scale) if sensor_scale is not None else self.DEFAULT_READER_SCALE
+        self.serialCmdTimeout = float(serial_cmd_timeout) if serial_cmd_timeout is not None else self.DEFAULT_SERIAL_CMD_TIMEOUT
+        self.sensor_offset = self.readerOffset
+        self.sensor_scale = self.readerScale
         self.state = None
         self.setpoint_raw = None
         self.lastVal = 0.0
-
-        # Rig-specific calibration constants (override via rig JSON params)
-        self.validProducts = validProducts or self.DEFAULT_VALID_PRODUCTS
-        self.validVIDs = validVIDs or self.DEFAULT_VALID_VIDS
-        self.nativeZero = float(nativeZero) if nativeZero is not None else self.DEFAULT_NATIVE_ZERO
-        self.nativePerMbar = float(nativePerMbar) if nativePerMbar is not None else self.DEFAULT_NATIVE_PER_MBAR
-        self.readerOffset = float(readerOffset) if readerOffset is not None else self.DEFAULT_READER_OFFSET
-        self.readerScale = float(readerScale) if readerScale is not None else self.DEFAULT_READER_SCALE
-        self.serialCmdTimeout = float(serialCmdTimeout) if serialCmdTimeout is not None else self.DEFAULT_SERIAL_CMD_TIMEOUT
 
         # set initial configuration of pressure controller
         self.set_ATM(False)
