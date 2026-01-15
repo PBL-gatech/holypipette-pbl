@@ -111,6 +111,12 @@ def _empty_calibration() -> Dict[str, Any]:
     }
 
 
+def _default_ai_features() -> Dict[str, Any]:
+    return {
+        "enabled": True,
+    }
+
+
 # Available device options (used by the builder UI).
 DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
     "stage_controller": [
@@ -422,6 +428,7 @@ class RigConfigManager:
                     "calibration_file": "fake_cal.yaml",
                     "patch_file": "fake_patch.yaml",
                     "calibration": _empty_calibration(),
+                    "ai_features": _default_ai_features(),
                     "devices": _default_devices(),
                 },
             )
@@ -587,6 +594,7 @@ class RigConfigManager:
             "calibration_file": None,
             "patch_file": None,
             "calibration": _empty_calibration(),
+            "ai_features": _default_ai_features(),
             "devices": {slot: {} for slot in DEVICE_SLOTS},
         }
 
@@ -613,6 +621,12 @@ class RigConfigManager:
             cleaned = {k: v for k, v in inline_cal.items() if v is not None}
             calibration.from_dict(cleaned)
 
+        ai_features = config.get("ai_features")
+        if isinstance(ai_features, dict):
+            enabled = ai_features.get("enabled")
+            if enabled is not None:
+                calibration.use_ai_features = bool(enabled)
+
         patch = PatchConfig(name="Patch")
         patch_file = config.get("patch_file")
         if patch_file:
@@ -634,6 +648,9 @@ class RigConfigManager:
 
         config["calibration"] = calibration.to_dict()
         config["patch"] = patch.to_dict()
+        config["ai_features"] = _default_ai_features() | {
+            "enabled": bool(getattr(calibration, "use_ai_features", True))
+        }
 
     def _apply_pressure_calibration(self, config: Dict[str, Any], devices_cfg: Dict[str, Any]) -> None:
         calibration = config.get("calibration")

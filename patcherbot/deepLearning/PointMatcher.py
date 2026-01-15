@@ -16,16 +16,29 @@ _LIGHTGLUE_PARENT = Path(__file__).parent / "cellModel" / "LightGlue"
 if str(_LIGHTGLUE_PARENT) not in sys.path:
     sys.path.insert(0, str(_LIGHTGLUE_PARENT))
 
-from lightglue import ALIKED, DISK, DoGHardNet, LightGlue, SIFT, SuperPoint
-from lightglue.utils import load_image, match_pair
+try:
+    from lightglue import ALIKED, DISK, DoGHardNet, LightGlue, SIFT, SuperPoint
+    from lightglue.utils import load_image, match_pair
+    _LIGHTGLUE_AVAILABLE = True
+    _LIGHTGLUE_IMPORT_ERROR = None
+except Exception as exc:  # pragma: no cover - optional dependency
+    _LIGHTGLUE_AVAILABLE = False
+    _LIGHTGLUE_IMPORT_ERROR = exc
+    ALIKED = DISK = DoGHardNet = LightGlue = SIFT = SuperPoint = None
+    load_image = None
+    match_pair = None
 
-_EXTRACTOR_MAP = {
-    "superpoint": SuperPoint,
-    "disk": DISK,
-    "aliked": ALIKED,
-    "sift": SIFT,
-    "doghardnet": DoGHardNet,
-}
+_EXTRACTOR_MAP = (
+    {
+        "superpoint": SuperPoint,
+        "disk": DISK,
+        "aliked": ALIKED,
+        "sift": SIFT,
+        "doghardnet": DoGHardNet,
+    }
+    if _LIGHTGLUE_AVAILABLE
+    else {}
+)
 
 PathLike = Union[str, Path]
 
@@ -41,6 +54,9 @@ class PointMatcher:
         extractor_conf: Optional[Dict] = None,
         matcher_conf: Optional[Dict] = None,
     ) -> None:
+        if not _LIGHTGLUE_AVAILABLE:
+            detail = f" (import error: {_LIGHTGLUE_IMPORT_ERROR})" if _LIGHTGLUE_IMPORT_ERROR else ""
+            raise NotImplementedError(f"LightGlue is not available{detail}.")
         self.features = features.lower()
         if self.features not in _EXTRACTOR_MAP:
             supported = ", ".join(sorted(_EXTRACTOR_MAP))

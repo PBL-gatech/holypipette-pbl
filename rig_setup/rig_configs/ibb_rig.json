@@ -7,6 +7,9 @@
     "pipette_detector_model": "pipette-small.onnx",
     "pipette_focuser_model": "regression_model2.onnx"
   },
+  "ai_features": {
+    "enabled": true
+  },
   "devices": {
     "stage_controller": {
       "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",

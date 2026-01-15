@@ -28,6 +28,8 @@ class PipetteInterface(TaskInterface):
         if calibration_data:
             cleaned = {k: v for k, v in calibration_data.items() if v is not None}
             self.calibration_config.from_dict(cleaned)
+        if self.camera is not None:
+            self.camera.use_ai_features = bool(getattr(self.calibration_config, "use_ai_features", True))
         self.calibrated_stage = CalibratedStage(stage, None, microscope, camera,
                                                 config=self.calibration_config)
         self.calibrated_unit = CalibratedUnit(unit,

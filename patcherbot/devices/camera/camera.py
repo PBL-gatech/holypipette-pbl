@@ -128,7 +128,8 @@ class Camera(object):
         self.last_frame_time = None
         self.fps = 0
 
-        self.Cellseg = CellSegmentor2()
+        self.Cellseg = None
+        self._cellseg_error = None
         self.pipdetector = PipetteDetector1()
         # testing flag
         
@@ -152,9 +153,25 @@ class Camera(object):
 
 
     def segment(self, img, cell, label):
-
-        mask = self.Cellseg.segment(image = img, input_point = cell, input_label = label)
+        segmentor = self._ensure_cellseg()
+        mask = segmentor.segment(image = img, input_point = cell, input_label = label)
         return mask
+
+    def _ai_features_enabled(self) -> bool:
+        return bool(getattr(self, "use_ai_features", True))
+
+    def _ensure_cellseg(self):
+        if not self._ai_features_enabled():
+            raise NotImplementedError("AI features disabled; SAM2 segmentation unavailable.")
+        if self._cellseg_error is not None:
+            raise NotImplementedError(f"SAM2 is not available: {self._cellseg_error}") from self._cellseg_error
+        if self.Cellseg is None:
+            try:
+                self.Cellseg = CellSegmentor2()
+            except Exception as exc:
+                self._cellseg_error = exc
+                raise NotImplementedError(f"SAM2 is not available: {exc}") from exc
+        return self.Cellseg
     
     def mask_test(self, mask,cell,img):
         if mask is not None:

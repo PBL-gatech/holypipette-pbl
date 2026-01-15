@@ -61,13 +61,23 @@ class CellTrackHelper:
         (0.0, -18.0),
     )
 
-    def __init__(self, stage, camera, **matcher_kwargs: object) -> None:
+    def __init__(
+        self,
+        stage,
+        camera,
+        use_ai_features: bool | None = None,
+        **matcher_kwargs: object,
+    ) -> None:
         self.stage = stage
         self.camera = camera
         self.width = int(getattr(camera, "width", 0) or 0)
         self.height = int(getattr(camera, "height", 0) or 0)
-        self.segmentor = CellSegmentor2()
-        self._matcher = PatchMatcher(**matcher_kwargs)
+        self.use_ai_features = bool(use_ai_features) if use_ai_features is not None else True
+        self.segmentor = None
+        self._segmentor_error = None
+        self._matcher = None
+        self._matcher_error = None
+        self._matcher_kwargs = dict(matcher_kwargs)
 
     # ------------------------------------------------------------------ #
     def find_centroid(
@@ -103,6 +113,8 @@ class CellTrackHelper:
                 this distance (px) from the LightGlue target.
             **preprocess: Forwarded to ``PatchMatcher.find_target``.
         """
+        if not self.use_ai_features:
+            raise NotImplementedError("AI features disabled; LightGlue/SAM2 matching unavailable.")
         tmpl_np = self._ensure_numpy(reference_image)
         curr_np = self._ensure_numpy(image)
         if tmpl_np is None or curr_np is None:
@@ -148,13 +160,16 @@ class CellTrackHelper:
         current_center = np.array([curr_width / 2.0, curr_height / 2.0], dtype=np.float32)
         current_center_tuple = (float(current_center[0]), float(current_center[1]))
         try:
-            match = self._matcher.find_target(
+            matcher = self._ensure_matcher()
+            match = matcher.find_target(
                 self._prepare_match_tensor(tmpl_np),
                 self._prepare_match_tensor(curr_np),
                 current_center=current_center_tuple,
                 load_conf=load_conf,
                 **preprocess,
             )
+        except NotImplementedError:
+            raise
         except Exception as exc:  # pragma: no cover - external dependency
             logging.error("CellTrackHelper: LightGlue matching failed: %s", exc)
             return None
@@ -205,6 +220,32 @@ class CellTrackHelper:
         return final_point.astype(np.float32)
 
     # ------------------------------------------------------------------ #
+    def _ensure_matcher(self) -> PatchMatcher:
+        if not self.use_ai_features:
+            raise NotImplementedError("AI features disabled; LightGlue matching unavailable.")
+        if self._matcher_error is not None:
+            raise NotImplementedError(f"LightGlue is not available: {self._matcher_error}") from self._matcher_error
+        if self._matcher is None:
+            try:
+                self._matcher = PatchMatcher(**self._matcher_kwargs)
+            except Exception as exc:  # pragma: no cover - external dependency
+                self._matcher_error = exc
+                raise NotImplementedError(f"LightGlue is not available: {exc}") from exc
+        return self._matcher
+
+    def _ensure_segmentor(self) -> CellSegmentor2:
+        if not self.use_ai_features:
+            raise NotImplementedError("AI features disabled; SAM2 segmentation unavailable.")
+        if self._segmentor_error is not None:
+            raise NotImplementedError(f"SAM2 is not available: {self._segmentor_error}") from self._segmentor_error
+        if self.segmentor is None:
+            try:
+                self.segmentor = CellSegmentor2()
+            except Exception as exc:  # pragma: no cover - external dependency
+                self._segmentor_error = exc
+                raise NotImplementedError(f"SAM2 is not available: {exc}") from exc
+        return self.segmentor
+
     def _refine_with_segmentation(
         self,
         image: np.ndarray,
@@ -216,6 +257,8 @@ class CellTrackHelper:
         """Try segmentation with jittered seeds and keep the closest valid centroid."""
         try:
             self._prime_segmentor(image)
+        except NotImplementedError:
+            raise
         except Exception as exc:
             logging.error("CellTrackHelper: unable to prepare segmentor: %s", exc)
             return None
@@ -251,6 +294,8 @@ class CellTrackHelper:
         """Convenience wrapper for single-pass segmentation on *image*."""
         try:
             self._prime_segmentor(image)
+        except NotImplementedError:
+            raise
         except Exception as exc:
             logging.error("CellTrackHelper: could not load template for segmentation: %s", exc)
             return None
@@ -258,12 +303,14 @@ class CellTrackHelper:
 
     def _prime_segmentor(self, image: np.ndarray) -> None:
         """Load *image* into the SAM2 predictor."""
+        segmentor = self._ensure_segmentor()
         prepped = self._prepare_for_segmentation(image)
-        self.segmentor.load_image(image=prepped)
-        self.segmentor.set_image()
+        segmentor.load_image(image=prepped)
+        segmentor.set_image()
 
     def _segment_from_seed(self, seed_point: np.ndarray) -> Optional[np.ndarray]:
         """Run SAM2 with a single positive seed and return the centroid."""
+        segmentor = self._ensure_segmentor()
         point = np.asarray(seed_point, dtype=np.float32)
         if point.shape != (2,):
             point = point.reshape(2)
@@ -272,7 +319,7 @@ class CellTrackHelper:
         labels = np.array([1], dtype=np.int32)
 
         try:
-            mask = self.segmentor.single_prediction(
+            mask = segmentor.single_prediction(
                 input_point=pts,
                 input_label=labels,
                 multimask_output=False,
@@ -503,7 +550,8 @@ class CellTrackTester:
 
         current_center = np.array([curr_width / 2.0, curr_height / 2.0], dtype=np.float32)
         current_center_tuple = (float(current_center[0]), float(current_center[1]))
-        match = self.helper._matcher.find_target(
+        matcher = self.helper._ensure_matcher()
+        match = matcher.find_target(
             self.helper._prepare_match_tensor(tmpl_np),
             self.helper._prepare_match_tensor(curr_np),
             current_center=current_center_tuple,
@@ -575,7 +623,8 @@ class CellTrackTester:
         pts = np.array([prompt_point], dtype=np.float32)
         labels = np.array([1], dtype=np.int32)
 
-        mask = self.helper.segmentor.single_prediction(
+        segmentor = self.helper._ensure_segmentor()
+        mask = segmentor.single_prediction(
             input_point=pts,
             input_label=labels,
             multimask_output=False,
@@ -610,7 +659,8 @@ class CellTrackTester:
 
             pts = np.array([seed], dtype=np.float32)
             labels = np.array([1], dtype=np.int32)
-            mask = self.helper.segmentor.single_prediction(
+            segmentor = self.helper._ensure_segmentor()
+            mask = segmentor.single_prediction(
                 input_point=pts,
                 input_label=labels,
                 multimask_output=False,

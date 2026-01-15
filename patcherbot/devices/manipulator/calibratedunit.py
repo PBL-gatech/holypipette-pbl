@@ -513,7 +513,11 @@ class CalibratedStage(CalibratedUnit):
 
         self.focusHelper = FocusHelper(microscope, camera)
         self.stageCalHelper = StageCalHelper(unit, camera, self.config.frame_lag)
-        self.cellTrackHelper = CellTrackHelper(self, camera)
+        self.cellTrackHelper = CellTrackHelper(
+            self,
+            camera,
+            use_ai_features=bool(getattr(self.config, "use_ai_features", True)),
+        )
         self.pipette_cal_position = np.zeros(2)
         self.unit = unit
 
@@ -692,13 +696,17 @@ class CalibratedStage(CalibratedUnit):
         template_prompt = np.array([ref_w / 2.0, ref_h / 2.0], dtype=np.float32)
 
         self.info(f"Centering on cell at approx. {expected_px} px")
-        centroid = self.cellTrackHelper.find_centroid(
-            reference_image,
-            image,
-            use_centroid=use_centroid,
-            prompt_point=template_prompt,
-            expected_point=expected_px,
-        )
+        try:
+            centroid = self.cellTrackHelper.find_centroid(
+                reference_image,
+                image,
+                use_centroid=use_centroid,
+                prompt_point=template_prompt,
+                expected_point=expected_px,
+            )
+        except NotImplementedError as exc:
+            self.warning("Center-on-cell unavailable: %s", exc)
+            return self.wait_until_still
         if centroid is None:
             return self.wait_until_still        # keep call chain consistent
 
@@ -756,13 +764,17 @@ class CalibratedStage(CalibratedUnit):
         template_prompt = np.array([ref_w / 2.0, ref_h / 2.0], dtype=np.float32)
 
         self.info(f"Getting position of cell at approx. {expected_px} px")
-        centroid = self.cellTrackHelper.find_centroid(
-            reference_image,
-            image,
-            use_centroid=use_centroid,
-            prompt_point=template_prompt,
-            expected_point=expected_px,
-        )
+        try:
+            centroid = self.cellTrackHelper.find_centroid(
+                reference_image,
+                image,
+                use_centroid=use_centroid,
+                prompt_point=template_prompt,
+                expected_point=expected_px,
+            )
+        except NotImplementedError as exc:
+            self.warning("Cell position lookup unavailable: %s", exc)
+            return None, None
         if centroid is None:
             return None, None
 
