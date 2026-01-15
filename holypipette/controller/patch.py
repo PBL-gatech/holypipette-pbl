@@ -449,8 +449,7 @@ class AutoPatcher(TaskController):
         stage_pos = self.calibrated_stage.pixels_to_um(self.calibrated_stage.reference_position())
         # print(f"Stage position: {stage_pos}")
 
-        # FOR BO'S RIG - may need to change if a different rig is calibrated with different negatives applied to the axes
-        stage_pos[1]=-stage_pos[1] #invert y axis
+        # Stage sign conventions are handled in calibration; avoid double-inverting here.
 
 
         disp = np.zeros(3)
@@ -1336,5 +1335,4 @@ class AutoPatcher(TaskController):
         '''
          takes in 
         '''
-
 
