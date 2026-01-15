@@ -237,8 +237,6 @@ class CalibratedUnit(ManipulatorUnit):
             self.info(f'desired position: {pos_pixels}')
             self.info(f'Stage reference position: {self.stage.reference_position()}')
             pos_micron = self.pixels_to_um(pos_pixels - self.stage.reference_position()) # position vector (um) in manipulator unit system
-            # FOR BO'S RIG - may need to change if a different rig is calibrated with different negatives applied to the axes
-            pos_micron[1] = -pos_micron[1] # Invert y axis
             self.info(f'Position in um: {pos_micron}')
             self.absolute_move(pos_micron)
             self.wait_until_still()
@@ -247,8 +245,6 @@ class CalibratedUnit(ManipulatorUnit):
             self.info(f'desired position: {pos_pixels}')
             self.info(f'Stage reference position (used for pipette calibration): {self.stage.reference_position()}')
             pos_micron = self.pixels_to_um(pos_pixels - self.stage.reference_position())
-            # FOR BO'S RIG - may need to change if a different rig is calibrated with different negatives applied to the axes
-            pos_micron[1] = -pos_micron[1] # Invert y axis
             self.info(f'Position in um: {pos_micron}')
             self.absolute_move(pos_micron)
             self.wait_until_still()
