@@ -1,11 +1,11 @@
 {
-    "name":  "Moscow Rig",
+    "name":  "IBB Rig Test",
     "schema_version":  2,
-    "calibration_file":  "moscow_cal.yaml",
-    "patch_file":  "moscow_patch.yaml",
+    "calibration_file":  "ibb_cal.yaml",
+    "patch_file":  "ibb_patch.yaml",
     "calibration":  {
-                        "pipette_detector_model":  null,
-                        "pipette_focuser_model":  null
+                        "pipette_detector_model":  "pipette-small.onnx",
+                        "pipette_focuser_model":  "regression_model2.onnx"
                     },
     "ai_features":  {
                         "enabled":  true
@@ -15,8 +15,9 @@
                                              "class":  "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
                                              "params":  {
                                                             "serial":  {
-                                                                           "port":  "COM6",
-                                                                           "baudrate":  9600
+                                                                           "port":  "COM7",
+                                                                           "baudrate":  9600,
+                                                                           "timeout":  1
                                                                        },
                                                             "max_speed":  100000,
                                                             "max_accel":  1000,
@@ -24,15 +25,12 @@
                                                         }
                                          },
                     "pipette_controller":  {
-                                               "class":  "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
+                                               "class":  "patcherbot.devices.manipulator.sensapexWrapper.SensapexManip",
                                                "params":  {
-                                                              "serial":  {
-                                                                             "port":  "COM3",
-                                                                             "baudrate":  9600
-                                                                         },
-                                                              "max_speed":  100000,
-                                                              "max_accel":  1000,
-                                                              "polling_freq":  100
+                                                              "deviceID":  null,
+                                                              "max_speed":  5000,
+                                                              "max_acceleration":  1,
+                                                              "poll_hz":  100.0
                                                           }
                                            },
                     "camera":  {
@@ -43,11 +41,10 @@
                                               }
                                },
                     "pipette_camera":  {
-                                           "class":  "patcherbot.devices.camera.PipetteCamera.PipetteCamera",
+                                           "class":  "patcherbot.devices.camera.camera.FakeCamera",
                                            "params":  {
-                                                          "device_index":  0,
-                                                          "width":  480,
-                                                          "height":  480
+                                                          "image_z":  0,
+                                                          "paramecium":  false
                                                       }
                                        },
                     "cell_sorter_controller":  {
@@ -65,12 +62,12 @@
                     "daq":  {
                                 "class":  "patcherbot.devices.amplifier.DAQ.NiDAQ",
                                 "params":  {
-                                               "readDev":  "cDAQ1Mod1",
-                                               "readChannel":  "ai0",
-                                               "cmdDev":  "cDaq1Mod4",
-                                               "cmdChannel":  "ao0",
-                                               "respDev":  "cDaq1Mod1",
-                                               "respChannel":  "ai3"
+                                               "readDev":  "cDAQ1Mod3",
+                                               "readChannel":  "ai7",
+                                               "cmdDev":  "cDaq1Mod1",
+                                               "cmdChannel":  "ao1",
+                                               "respDev":  "cDaq1Mod3",
+                                               "respChannel":  "ai0"
                                            }
                             },
                     "amplifier":  {
@@ -80,16 +77,16 @@
                                                  }
                                   },
                     "pressure":  {
-                                     "class":  "patcherbot.devices.pressurecontroller.MoscowPressureController.MoscowPressureController",
+                                     "class":  "patcherbot.devices.pressurecontroller.WaynesboroPressureController.WaynesBoroPressureController",
                                      "params":  {
-                                                    "channel":  4,
+                                                    "channel":  1,
                                                     "controllerSerial":  {
                                                                              "port":  "COM5",
                                                                              "baudrate":  9600,
                                                                              "timeout":  0
                                                                          },
                                                     "readerSerial":  {
-                                                                         "port":  "COM9",
+                                                                         "port":  "COM4",
                                                                          "baudrate":  9600,
                                                                          "timeout":  0
                                                                      },
@@ -104,17 +101,29 @@
                                                 }
                                  },
                     "lamp":  {
-                                 "class":  "patcherbot.devices.lamp.olympus.OlympusLamp",
+                                 "class":  "patcherbot.devices.lamp.excelitas.ExcelitasLamp",
                                  "params":  {
-                                                "port":  "COM21",
-                                                "baud":  19200,
-                                                "cube_slots":  6
+                                                "stepcmdChannel":  "Dev1/port0/line0",
+                                                "dircmdChannel":  "Dev1/port0/line1",
+                                                "steps_per_position":  800,
+                                                "time_per_step_ms":  0.5,
+                                                "cube_slots":  6,
+                                                "settle_ms":  100,
+                                                "initial_slot":  1,
+                                                "dir_high_for_increase":  true
                                             }
                              },
                     "laser":  {
-                                  "class":  "patcherbot.devices.laser.laser.FakeLaser",
+                                  "class":  "patcherbot.devices.laser.lumencor.LumencorLaser",
                                   "params":  {
-
+                                                 "com":  {
+                                                             "port":  "COM6",
+                                                             "baudrate":  9600,
+                                                             "timeout":  1,
+                                                             "stopbits":  1,
+                                                             "parity":  "N",
+                                                             "bytesize":  8
+                                                         }
                                              }
                               }
                 }

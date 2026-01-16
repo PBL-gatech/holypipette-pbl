@@ -487,7 +487,8 @@ class CameraGui(QtWidgets.QMainWindow):
         self.record_button.setStyleSheet('QToolButton:checked {background-color: red;}')
 
         self.autoexposure_button = QtWidgets.QToolButton(clicked=self.normalize_active_camera)
-        self.autoexposure_button.setIcon(qta.icon('fa.camera'))
+        self.autoexposure_button.setText('Normalize')
+        self.autoexposure_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.autoexposure_button.setToolTip('Normalize the image')
 
         # create autonormalizatoin checkbox

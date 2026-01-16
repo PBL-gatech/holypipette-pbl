@@ -12,6 +12,7 @@ from patcherbot.devices.amplifier.amplifier import Amplifier
 from patcherbot.interface.pipettes import PipetteInterface
 from patcherbot.devices.amplifier.DAQ import NiDAQ
 from patcherbot.devices.lamp import Lamp
+from patcherbot.devices.laser import Laser
 from .patchConfig import PatchConfig
 from PyQt5 import QtCore
 import time
@@ -23,7 +24,7 @@ class AutoPatchInterface(TaskInterface):
     A class to run automatic patch-clamp
     '''
     def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface,
-                 recording_state_manager: RecordingStateManager, lamp: Lamp, config_data=None):
+                 recording_state_manager: RecordingStateManager, lamp: Lamp, laser: Laser, config_data=None):
         super().__init__()
         self.config = PatchConfig(name='Patch')
         if config_data:
@@ -35,11 +36,13 @@ class AutoPatchInterface(TaskInterface):
         self.pipette_controller = pipette_interface
         self.recording_state_manager = recording_state_manager
         self.lamp = lamp
+        self.laser = laser
         self.ephys_logger = EPhysLogger(recording_state_manager=self.recording_state_manager, ephys_filename="CellMetadata")
         autopatcher = AutoPatcher(amplifier, daq, pressure, self.pipette_controller.calibrated_unit,
                                     self.pipette_controller.calibrated_unit.microscope,
                                     calibrated_stage=self.pipette_controller.calibrated_stage,
                                     lamp=self.lamp,
+                                    laser=self.laser,
                                     config=self.config)
         self.current_autopatcher = autopatcher
 
@@ -459,3 +462,21 @@ class AutoPatchInterface(TaskInterface):
              task_description='Moving filter cube right')
     def move_cube_right(self):
        self.execute(self.current_autopatcher.move_cube_right)
+
+    @blocking_command(category='Laser',
+                      description='Toggle laser output',
+                      task_description='Toggling laser output')
+    def toggle_laser_output(self):
+        self.execute(self.current_autopatcher.toggle_laser_output)
+
+    @blocking_command(category='Laser',
+                      description='Step wavelength down',
+                      task_description='Stepping wavelength down')
+    def wavelength_down(self):
+        self.execute(self.current_autopatcher.wavelength_down)
+
+    @blocking_command(category='Laser',
+                      description='Step wavelength up',
+                      task_description='Stepping wavelength up')
+    def wavelength_up(self):
+        self.execute(self.current_autopatcher.wavelength_up)

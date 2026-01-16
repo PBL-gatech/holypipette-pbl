@@ -48,6 +48,7 @@ DEVICE_SLOTS: List[str] = [
     "amplifier",
     "pressure",
     "lamp",
+    "laser",
 ]
 
 
@@ -99,6 +100,10 @@ def _default_devices() -> Dict[str, Dict[str, Any]]:
         },
         "lamp": {
             "class": "patcherbot.devices.lamp.lamp.FakeLamp",
+            "params": {},
+        },
+        "laser": {
+            "class": "patcherbot.devices.laser.laser.FakeLaser",
             "params": {},
         },
     }
@@ -392,6 +397,24 @@ DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
         {
             "label": "Lumencore",
             "class": "patcherbot.devices.lamp.lumencor.Lumencore",
+            "params": {"com": {"port": "COM6", "baudrate": 9600, "timeout": 1}},
+            "fields": [
+                {"key": "com.port", "label": "Port", "type": "str"},
+                {"key": "com.baudrate", "label": "Baudrate", "type": "int"},
+                {"key": "com.timeout", "label": "Timeout", "type": "float", "optional": True},
+            ],
+        },
+    ],
+    "laser": [
+        {
+            "label": "FakeLaser",
+            "class": "patcherbot.devices.laser.laser.FakeLaser",
+            "params": {},
+            "fields": [],
+        },
+        {
+            "label": "LumencorLaser",
+            "class": "patcherbot.devices.laser.lumencor.LumencorLaser",
             "params": {"com": {"port": "COM6", "baudrate": 9600, "timeout": 1}},
             "fields": [
                 {"key": "com.port", "label": "Port", "type": "str"},

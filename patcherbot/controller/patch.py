@@ -1,5 +1,6 @@
 ﻿import time
 import csv
+from enum import Enum
 import numpy as np
 from patcherbot.devices.amplifier.amplifier import Amplifier
 from patcherbot.devices.amplifier.DAQ import NiDAQ
@@ -7,6 +8,7 @@ from patcherbot.devices.manipulator.calibratedunit import CalibratedUnit, Calibr
 from patcherbot.devices.manipulator.microscope import Microscope
 from patcherbot.devices.pressurecontroller import PressureController
 from patcherbot.devices.lamp import Lamp
+from patcherbot.devices.laser import Laser
 from patcherbot.devices.manipulator.AgentHelper import AgentHelper
 from patcherbot.utils.StateMachineLogger import StateMachineLogger, record_state
 import collections
@@ -31,7 +33,7 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp:Lamp, config: PatchConfig):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp: Lamp, laser: Laser, config: PatchConfig):
         super().__init__()
         self.config = config
         self.amplifier = amplifier
@@ -41,6 +43,7 @@ class AutoPatcher(TaskController):
         self.calibrated_stage = calibrated_stage
         self.microscope = microscope
         self.lamp = lamp
+        self.laser = laser
         self.safe_position = None
         self.safe_stage_position = None
         self.home_position = None
@@ -1489,6 +1492,54 @@ class AutoPatcher(TaskController):
             current = 1
         new_slot = current + 1
         self.lamp.set_filter(new_slot)
+
+    def toggle_laser_output(self):
+        """Toggle laser output using the device's excite logic."""
+        if self.laser is None:
+            self.warning("No laser configured; skipping output toggle.")
+            return
+        try:
+            self.laser.excite()
+            self.info(f"Laser output {self.laser.get_power_state()}.")
+        except Exception as exc:
+            self.error(f"Error toggling laser output: {exc}")
+
+    def _step_laser_wavelength(self, step: int):
+        """Step to the next/previous wavelength channel."""
+        if self.laser is None:
+            self.warning("No laser configured; skipping wavelength change.")
+            return
+
+        current = self.laser.get_wavelength()
+        if current is None:
+            target = 1
+        elif isinstance(current, Enum):
+            channels = [c for c in type(current) if getattr(c, "name", "") != "OFF"]
+            if not channels:
+                self.warning("Laser wavelength enum has no selectable channels.")
+                return
+            try:
+                idx = channels.index(current)
+            except ValueError:
+                idx = 0
+            new_idx = max(0, min(len(channels) - 1, idx + step))
+            target = channels[new_idx]
+        elif isinstance(current, int):
+            target = max(1, current + step)
+        else:
+            self.warning(f"Unsupported laser wavelength type: {type(current)}")
+            return
+
+        self.laser.set_wavelength(target)
+        self.info(f"Laser wavelength set to {self.laser.get_wavelength()}.")
+
+    def wavelength_down(self):
+        """Step to the previous wavelength channel."""
+        self._step_laser_wavelength(-1)
+
+    def wavelength_up(self):
+        """Step to the next wavelength channel."""
+        self._step_laser_wavelength(1)
 
     def observe(self):
         """ collects all inputs required for the models"""

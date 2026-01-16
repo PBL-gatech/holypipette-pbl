@@ -62,6 +62,7 @@ def main():
     daq = rig_devices["daq"]
     pressure = rig_devices["pressure"]
     lamp = rig_devices["lamp"]
+    laser = rig_devices["laser"]
 
     recording_state_manager = RecordingStateManager()
 
@@ -73,7 +74,7 @@ def main():
         calibration_data=calibration_data,
     )
     patch_controller = AutoPatchInterface(
-        amplifier, daq, pressure, pipette_controller, recording_state_manager, lamp,
+        amplifier, daq, pressure, pipette_controller, recording_state_manager, lamp, laser,
         config_data=patch_data,
     )
     graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager)

@@ -45,13 +45,9 @@ class Lamp(TaskController):
         """Enable a specific light channel/color or turn it off."""
         raise NotImplementedError("This method should be implemented by subclasses.")
 
-    def set_power(self, power_percent: float, light=None):
-        """Set the power of a given light channel/color."""
-        raise NotImplementedError("This method should be implemented by subclasses.")
 
-    def get_IIC_temp(self):
-        """Get a temperature reading if supported by the lamp."""
-        raise NotImplementedError("This method should be implemented by subclasses.")
+
+
 
 
 
@@ -111,12 +107,4 @@ class FakeLamp(Lamp):
             self.shutter_status = "open"
         self.info(f"FakeLamp: Light {light} enabled with filter {excitation_filter}.")
 
-    def set_power(self, power_percent: float, light=None):
-        """Fake implementation of setting power for a light channel/color."""
-        clamped = max(0, min(100, power_percent))
-        self.power_levels[light] = clamped
-        self.info(f"FakeLamp: Power for {light} set to {clamped}%.")
 
-    def get_IIC_temp(self):
-        """Fake implementation returning a placeholder temperature."""
-        return 25.0

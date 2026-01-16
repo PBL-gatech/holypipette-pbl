@@ -45,6 +45,9 @@ class CalibrationConfig(Config):
     microscope_units_per_um = Number(5.0,
                                      doc="Microscope controller units per micron",
                                      bounds=(0.001, 1000))
+    home_position_delta_um = NumberWithUnit(-1000, unit="um",
+                                           doc="Vertical offset from stage cell surface to pipette home position",
+                                             bounds=(-100000, 100000))
     safe_position_delta_um = NumberWithUnit(-18000, unit="um",
                                             doc="Offset from home to safe position along pipette axis",
                                             bounds=(-100000, 100000))
@@ -85,5 +88,5 @@ class CalibrationConfig(Config):
                   ("AI Features", ["use_ai_features"]),
                   ("Pressure", ["native_zero", "native_per_mbar", "reader_offset", "reader_scale"]),
                   ("Microscope", ["microscope_units_per_um"]),
-                  ("Positions", ["home_position", "home_position_stage", "safe_position", "safe_position_stage", "bath_position", "safe_position_delta_um"]),
+                  ("Positions", ["home_position", "home_position_stage", "safe_position", "safe_position_stage", "bath_position", "safe_position_delta_um", "home_position_delta_um"]),
                  ]

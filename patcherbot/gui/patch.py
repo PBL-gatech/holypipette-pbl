@@ -492,6 +492,15 @@ class ClassicPatchButtons(ButtonTabWidget):
                 [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
         ]
         self.addButtonList('fluorescence', layout, buttonList, cmds, sequential=True)
+
+        # Add a box for laser commands
+        buttonList = [['toggle laser', 'wavelength -', 'wavelength +']]
+        cmds = [[
+            self.patch_interface.toggle_laser_output,
+            self.patch_interface.wavelength_down,
+            self.patch_interface.wavelength_up,
+        ]]
+        self.addButtonList('laser', layout, buttonList, cmds, sequential=True)
         
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
