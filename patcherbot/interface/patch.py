@@ -14,6 +14,7 @@ from patcherbot.devices.amplifier.DAQ import NiDAQ
 from patcherbot.devices.lamp import Lamp
 from patcherbot.devices.laser import Laser
 from .patchConfig import PatchConfig
+from .protocolConfig import ProtocolConfig
 from PyQt5 import QtCore
 import time
 
@@ -24,12 +25,16 @@ class AutoPatchInterface(TaskInterface):
     A class to run automatic patch-clamp
     '''
     def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface,
-                 recording_state_manager: RecordingStateManager, lamp: Lamp, laser: Laser, config_data=None):
+                 recording_state_manager: RecordingStateManager, lamp: Lamp, laser: Laser, config_data=None, protocol_data=None):
         super().__init__()
         self.config = PatchConfig(name='Patch')
         if config_data:
             cleaned = {k: v for k, v in config_data.items() if v is not None}
             self.config.from_dict(cleaned)
+        self.protocol_config = ProtocolConfig(name='Protocols')
+        if protocol_data:
+            cleaned = {k: v for k, v in protocol_data.items() if v is not None}
+            self.protocol_config.from_dict(cleaned)
         self.amplifier = amplifier
         self.daq = daq
         self.pressure = pressure
@@ -43,7 +48,8 @@ class AutoPatchInterface(TaskInterface):
                                     calibrated_stage=self.pipette_controller.calibrated_stage,
                                     lamp=self.lamp,
                                     laser=self.laser,
-                                    config=self.config)
+                                    config=self.config,
+                                    protocol_config=self.protocol_config)
         self.current_autopatcher = autopatcher
 
         self.is_selecting_cells = False
@@ -61,18 +67,19 @@ class AutoPatchInterface(TaskInterface):
 
     def _protocol_holding_parameters(self):
         config = self.current_autopatcher.config
+        protocol_config = self.current_autopatcher.protocol_config
         voltage_hold = float("nan")
         current_hold = float("nan")
 
-        if getattr(config, "voltage_protocol", False):
+        if getattr(protocol_config, "voltage_protocol", False):
             try:
                 voltage_hold = float(config.Vramp_amplitude) * 1e3
             except (TypeError, ValueError):
                 voltage_hold = float("nan")
 
-        if getattr(config, "current_protocol", False):
+        if getattr(protocol_config, "current_protocol", False):
             try:
-                current_hold = float(config.cclamp_hold)
+                current_hold = float(protocol_config.cclamp_hold)
             except (TypeError, ValueError):
                 current_hold = float("nan")
 

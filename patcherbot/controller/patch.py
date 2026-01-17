@@ -17,6 +17,7 @@ from datetime import datetime
 import pickle
 import os
 from patcherbot.interface.patchConfig import PatchConfig
+from patcherbot.interface.protocolConfig import ProtocolConfig
 
 from .base import TaskController, RequestedSuccessException
 import threading
@@ -33,9 +34,10 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp: Lamp, laser: Laser, config: PatchConfig):
+    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp: Lamp, laser: Laser, config: PatchConfig, protocol_config: ProtocolConfig):
         super().__init__()
         self.config = config
+        self.protocol_config = protocol_config
         self.amplifier = amplifier
         self.daq = daq
         self.pressure = pressure
@@ -82,11 +84,11 @@ class AutoPatcher(TaskController):
 
     def getHolding(self):
         """Get the holding current as measured by the DAQ."""
-        if  self.config.custom_cclamp_protocol:
-            holding_current = self.config.cclamp_hold
+        if  self.protocol_config.custom_cclamp_protocol:
+            holding_current = self.protocol_config.cclamp_hold
             return holding_current
         else:
-            holding_current = self.config.cclamp_hold
+            holding_current = self.protocol_config.cclamp_hold
             # self.amplifier.voltage_clamp()
             # self.sleep(1)
             # self.amplifier.switch_holding(False) 
@@ -366,19 +368,19 @@ class AutoPatcher(TaskController):
     def run_protocols(self):
         self.daq.setCellMode(True)
         holding = self.getHolding()
-        if self.config.voltage_protocol:
+        if self.protocol_config.voltage_protocol:
             self.run_voltage_protocol()
             self.sleep(0.25)
-        if self.config.current_protocol:
+        if self.protocol_config.current_protocol:
             self.daq.setCellMode(False)
             self.iholding = holding
             self.run_current_protocol()
             self.sleep(0.25)
             self.daq.setCellMode(True)
-        if self.config.voltage_sweep_protocol:
+        if self.protocol_config.voltage_sweep_protocol:
             self.run_voltage_sweep_protocol()
             self.sleep(0.25)
-        if self.config.holding_protocol:
+        if self.protocol_config.holding_protocol:
             self.run_holding_protocol()
         self.success_requested = True
         self.success_if_requested()
@@ -422,10 +424,10 @@ class AutoPatcher(TaskController):
         self.info('Running voltage sweep protocol')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        sweep_hold = float(self.config.vclamp_hold)
-        sweep_step = float(self.config.vclamp_step)
-        sweep_start = float(self.config.vclamp_start)
-        sweep_end = float(self.config.vclamp_end)
+        sweep_hold = float(self.protocol_config.vclamp_hold)
+        sweep_step = float(self.protocol_config.vclamp_step)
+        sweep_start = float(self.protocol_config.vclamp_start)
+        sweep_end = float(self.protocol_config.vclamp_end)
         self.amplifier.set_holding(sweep_hold)
         self.info(f'holding at {sweep_hold * 1e3:.1f} mV for voltage sweep')
         self.sleep(0.25)
@@ -477,7 +479,7 @@ class AutoPatcher(TaskController):
         self.amplifier.auto_bridge_balance()
         self.sleep(0.1)
         if self.iholding is None:
-            current = self.config.cclamp_hold
+            current = self.protocol_config.cclamp_hold
 
         else:
             current = (self.iholding)
@@ -489,12 +491,12 @@ class AutoPatcher(TaskController):
         self.amplifier.switch_holding(True)
         self.info('enabled holding')
         self.sleep(0.1)
-        if self.config.custom_cclamp_protocol:
+        if self.protocol_config.custom_cclamp_protocol:
             self.debug('running custom current protocol')
-            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_cclamp_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), recordingTimeMs = 500)                                            
+            self.daq.getDataFromCurrentProtocol(custom=self.protocol_config.custom_cclamp_protocol, factor=1, startCurrentPicoAmp=(self.protocol_config.cclamp_start), endCurrentPicoAmp=(self.protocol_config.cclamp_end), stepCurrentPicoAmp=(self.protocol_config.cclamp_step), recordingTimeMs=500)
         else:
             self.debug('running default current protocol')
-            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_cclamp_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs = 500)
+            self.daq.getDataFromCurrentProtocol(custom=self.protocol_config.custom_cclamp_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs=500)
         self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')
@@ -512,7 +514,7 @@ class AutoPatcher(TaskController):
         self.amplifier.set_holding(holding)
         self.info(f'holding at {holding} mV')
         self.sleep(0.25)
-        self.daq.getDataFromHoldingProtocol(duration_s = self.config.hclamp_duration)
+        self.daq.getDataFromHoldingProtocol(duration_s=self.protocol_config.hclamp_duration)
         self.sleep(0.25)
         # self.amplifier.set_holding(0)
         self.sleep(0.25)
@@ -1137,7 +1139,7 @@ class AutoPatcher(TaskController):
             self.info("Whole-cell achieved, resting for 5 seconds")
             self.sleep(5)
             
-            if not self.config.custom_cclamp_protocol: 
+            if not self.protocol_config.custom_cclamp_protocol: 
                     #! Phase 4: run protocols
                     self.info(f"Running protocol")
                     _run_phase(self.run_protocols)

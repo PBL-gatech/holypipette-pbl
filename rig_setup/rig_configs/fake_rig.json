@@ -3,6 +3,7 @@
     "schema_version":  2,
     "calibration_file":  "fake_cal.yaml",
     "patch_file":  "fake_patch.yaml",
+    "protocol_file":  "fake_protocol.yaml",
     "calibration":  {
                         "pipette_detector_model":  null,
                         "pipette_focuser_model":  null

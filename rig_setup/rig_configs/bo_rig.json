@@ -3,6 +3,7 @@
     "schema_version":  2,
     "calibration_file":  "bo_cal.yaml",
     "patch_file":  "bo_patch.yaml",
+    "protocol_file":  "bo_protocol.yaml",
     "calibration":  {
                         "pipette_detector_model":  null,
                         "pipette_focuser_model":  null

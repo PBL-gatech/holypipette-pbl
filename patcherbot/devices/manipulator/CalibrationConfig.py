@@ -76,17 +76,25 @@ class CalibrationConfig(Config):
     safe_position_stage =  Tuple((0, 0, 0), doc="Safe position of the stage in um")
     bath_position =  Tuple((0, 0, 0), doc="Bath position of the pipette in um")
 
-    categories = [("Stage Calibration", ["autofocus_dist", "stage_diag_move", "frame_lag"]),
-                  ("Pipette Calibration", ["pipette_diag_move"]),
-                  ("Stage x-axis flip?", ["stage_x_axis_flip"]),
-                  ("Stage y-axis flip?", ["stage_y_axis_flip"]),
-                  ("Pipette z-axis rotation", ["pipette_z_rotation"]),
-                  ("Pipette y-axis rotation", ["pipette_y_rotation"]),
-                  ("Pipette k scale", ["pipette_k_scale"]),
-                  ("Display", ["position_update"]),
-                  ("Pipette Detector", ["pipette_detector_model", "pipette_focuser_model"]),
-                  ("AI Features", ["use_ai_features"]),
-                  ("Pressure", ["native_zero", "native_per_mbar", "reader_offset", "reader_scale"]),
-                  ("Microscope", ["microscope_units_per_um"]),
-                  ("Positions", ["home_position", "home_position_stage", "safe_position", "safe_position_stage", "bath_position", "safe_position_delta_um", "home_position_delta_um"]),
-                 ]
+    categories = [
+        ("Stage Calibration", [
+            "autofocus_dist",
+            "stage_diag_move",
+            "frame_lag",
+            "stage_x_axis_flip",
+            "stage_y_axis_flip",
+            "microscope_units_per_um",
+        ]),
+        ("Pipette Calibration", [
+            "pipette_diag_move",
+            "pipette_z_rotation",
+            "pipette_y_rotation",
+            "pipette_k_scale",
+            "pipette_detector_model",
+            "pipette_focuser_model",
+            "use_ai_features",
+        ]),
+        ("Display", ["position_update"]),
+        ("Pressure", ["native_zero", "native_per_mbar", "reader_offset", "reader_scale"]),
+        ("Positions", ["home_position", "home_position_stage", "safe_position", "safe_position_stage", "bath_position", "safe_position_delta_um", "home_position_delta_um"]),
+    ]

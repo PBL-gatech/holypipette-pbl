@@ -5,6 +5,9 @@ Schema (schema_version=2):
 {
   "name": "<friendly name>",
   "schema_version": 2,
+  "calibration_file": "<calibration config file>",
+  "patch_file": "<patch config file>",
+  "protocol_file": "<protocol config file>",
   "devices": {
     "<slot>": {
       "class": "module.ClassName",
@@ -34,6 +37,7 @@ SCHEMA_VERSION = 2
 CONFIG_DIR = Path(__file__).parent / "rig_configs"
 CAL_CONFIG_DIR = Path(__file__).parent / "cal_configs"
 PATCH_CONFIG_DIR = Path(__file__).parent / "patch_configs"
+PROTOCOL_CONFIG_DIR = Path(__file__).parent / "protocol_configs"
 DEFAULT_CONFIG_NAME = "fake_rig.json"
 
 # Core device slots only; derived pieces (stage, pipette_unit, microscope) are built automatically.
@@ -429,13 +433,16 @@ DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
 class RigConfigManager:
     def __init__(self, config_dir: Path | None = None,
                  cal_config_dir: Path | None = None,
-                 patch_config_dir: Path | None = None):
+                 patch_config_dir: Path | None = None,
+                 protocol_config_dir: Path | None = None):
         self.config_dir = config_dir or CONFIG_DIR
         self.cal_config_dir = cal_config_dir or CAL_CONFIG_DIR
         self.patch_config_dir = patch_config_dir or PATCH_CONFIG_DIR
+        self.protocol_config_dir = protocol_config_dir or PROTOCOL_CONFIG_DIR
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.cal_config_dir.mkdir(parents=True, exist_ok=True)
         self.patch_config_dir.mkdir(parents=True, exist_ok=True)
+        self.protocol_config_dir.mkdir(parents=True, exist_ok=True)
 
     def default_config_path(self) -> Path:
         return self.config_dir / DEFAULT_CONFIG_NAME
@@ -450,6 +457,7 @@ class RigConfigManager:
                     "schema_version": SCHEMA_VERSION,
                     "calibration_file": "fake_cal.yaml",
                     "patch_file": "fake_patch.yaml",
+                    "protocol_file": "fake_protocol.yaml",
                     "calibration": _empty_calibration(),
                     "ai_features": _default_ai_features(),
                     "devices": _default_devices(),
@@ -616,6 +624,7 @@ class RigConfigManager:
             "schema_version": SCHEMA_VERSION,
             "calibration_file": None,
             "patch_file": None,
+            "protocol_file": None,
             "calibration": _empty_calibration(),
             "ai_features": _default_ai_features(),
             "devices": {slot: {} for slot in DEVICE_SLOTS},
@@ -624,6 +633,7 @@ class RigConfigManager:
     def _load_overlay_configs(self, config: Dict[str, Any]) -> None:
         from patcherbot.devices.manipulator.CalibrationConfig import CalibrationConfig
         from patcherbot.interface.patchConfig import PatchConfig
+        from patcherbot.interface.protocolConfig import ProtocolConfig
 
         calibration = CalibrationConfig(name="Calibration")
         cal_file = config.get("calibration_file")
@@ -669,8 +679,28 @@ class RigConfigManager:
             cleaned = {k: v for k, v in inline_patch.items() if v is not None}
             patch.from_dict(cleaned)
 
+        protocol = ProtocolConfig(name="Protocols")
+        protocol_file = config.get("protocol_file")
+        if protocol_file:
+            protocol_path = self.protocol_config_dir / protocol_file
+            if protocol_path.exists():
+                try:
+                    protocol.from_file(str(protocol_path))
+                except Exception as exc:
+                    LOGGER.warning("Failed to load protocol file %s: %s", protocol_path, exc)
+            else:
+                LOGGER.warning("Protocol file not found: %s (using defaults)", protocol_path)
+        else:
+            LOGGER.warning("No protocol_file specified; using defaults")
+
+        inline_protocol = config.get("protocol")
+        if isinstance(inline_protocol, dict):
+            cleaned = {k: v for k, v in inline_protocol.items() if v is not None}
+            protocol.from_dict(cleaned)
+
         config["calibration"] = calibration.to_dict()
         config["patch"] = patch.to_dict()
+        config["protocol"] = protocol.to_dict()
         config["ai_features"] = _default_ai_features() | {
             "enabled": bool(getattr(calibration, "use_ai_features", True))
         }

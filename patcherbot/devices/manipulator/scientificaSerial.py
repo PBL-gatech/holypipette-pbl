@@ -33,7 +33,7 @@ class SerialCommands():
     STOP = 'STOP\r'
 
 class ScientificaSerialEncoder(Manipulator):
-    DEFAULT_STAGE_UNITS_PER_ENCODER_PULSE = 1.45
+    DEFAULT_STAGE_UNITS_PER_ENCODER_PULSE = 2.178649
     DEFAULT_MAX_SPEED = 10000
     DEFAULT_MAX_ACCEL = 100
     DEFAULT_POLLING_FREQ = 10

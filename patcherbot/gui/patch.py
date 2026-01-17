@@ -42,6 +42,7 @@ class PatchGui(ManipulatorGui):
         self.interface_signals[self.patch_interface] = (self.patch_command_signal,
                                                         self.patch_reset_signal)
         self.add_config_gui(self.patch_interface.config)
+        self.add_config_gui(self.patch_interface.protocol_config)
         logging.debug("Added config GUI.")
         classic_patching_tab = ClassicPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
         self.add_tab(classic_patching_tab, 'Classic Auto Patching', index = 0)

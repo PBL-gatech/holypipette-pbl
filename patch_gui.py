@@ -68,6 +68,7 @@ def main():
 
     calibration_data = config_data.get("calibration") if isinstance(config_data, dict) else None
     patch_data = config_data.get("patch") if isinstance(config_data, dict) else None
+    protocol_data = config_data.get("protocol") if isinstance(config_data, dict) else None
 
     pipette_controller = PipetteInterface(
         stage, microscope, camera, unit, cellSorterManip, cellSorterController,
@@ -76,6 +77,7 @@ def main():
     patch_controller = AutoPatchInterface(
         amplifier, daq, pressure, pipette_controller, recording_state_manager, lamp, laser,
         config_data=patch_data,
+        protocol_data=protocol_data,
     )
     graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager)
     gui = PatchGui(camera, pipette_camera, pipette_controller, patch_controller, recording_state_manager)
