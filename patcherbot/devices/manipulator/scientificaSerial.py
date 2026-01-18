@@ -32,11 +32,120 @@ class SerialCommands():
 
     STOP = 'STOP\r'
 
+class EncoderCorrectionAcquisitionThread(threading.Thread):
+    """
+    Background acquisition loop for ScientificaSerialEncoder that fuses
+    stage XYZ with external encoder Z counts for slip correction.
+
+    Reads AMT13 series quadrature counts (per the AMT13 datasheet) streamed
+    by an Arduino (UNO R4) as two-line packets:
+      ENC
+      <count>
+    Updates encoderZ and current_pos with corrected Z at a target polling rate.
+    """
+    def __init__(self, parent, z_axis_port, polling_freq):
+        super().__init__(daemon=True, name='encoder_correction_thread')
+        self._parent = parent
+        self._z_axis_port = z_axis_port
+        self._polling_freq = polling_freq
+        self._encoder_seq = 0
+        self._encoder_lock = threading.Lock()
+        self._encoder_buffer = bytearray()
+        self._encoder_expect_value = False
+        self._stage_pos = [0, 0, 0]
+
+    def run(self):
+        self.run_loop()
+
+    def run_loop(self, freq=None):
+        if freq is None:
+            freq = self._polling_freq
+        while True:
+            startTime = time.time()
+            try:
+                self._poll_encoder_stream()
+            except Exception:
+                pass
+
+            try:
+                xyz = self._parent._sendCmd(SerialCommands.GET_X_Y_Z)
+                xyz = xyz.split('\t')
+                xPos = int(xyz[0]) / 10.0
+                yPos = int(xyz[1]) / 10.0
+                zPos = int(xyz[2]) / 10.0
+                self._stage_pos = [xPos, yPos, zPos]
+            except Exception:
+                print('error reading position')
+
+            encoder_z, _ = self.get_encoder_state()
+            self._parent.current_pos = [self._stage_pos[0], self._stage_pos[1], encoder_z]
+
+            sleepTime = 1 / freq - (time.time() - startTime)
+            if sleepTime > 0:
+                time.sleep(sleepTime)
+
+    def get_encoder_state(self):
+        with self._encoder_lock:
+            return self._parent.encoderZ, self._encoder_seq
+
+    def get_stage_z(self):
+        return self._stage_pos[2]
+
+    def wait_for_update(self, last_seq, timeout_s):
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            _, seq = self.get_encoder_state()
+            if seq != last_seq:
+                return True
+            time.sleep(0.01)
+        return False
+
+    def _update_encoder_from_count(self, count):
+        with self._encoder_lock:
+            self._parent.encoderZ = count * self._parent.stageUnitsPerEncoderPulse
+            self._encoder_seq += 1
+
+    def _consume_encoder_bytes(self, data):
+        if not data:
+            return
+        self._encoder_buffer.extend(data)
+        while b'\n' in self._encoder_buffer:
+            line, _, remainder = self._encoder_buffer.partition(b'\n')
+            self._encoder_buffer = remainder
+            line = line.strip()
+            if not line:
+                continue
+            if line == b'ENC':
+                self._encoder_expect_value = True
+                continue
+            if self._encoder_expect_value:
+                self._encoder_expect_value = False
+                try:
+                    count = int(line.decode('ascii', errors='ignore').strip())
+                except ValueError:
+                    continue
+                self._update_encoder_from_count(count)
+
+    def _poll_encoder_stream(self):
+        try:
+            waiting = self._z_axis_port.in_waiting
+        except Exception:
+            return
+        if not waiting:
+            return
+        try:
+            data = self._z_axis_port.read(waiting)
+        except Exception:
+            return
+        self._consume_encoder_bytes(data)
+
 class ScientificaSerialEncoder(Manipulator):
     DEFAULT_STAGE_UNITS_PER_ENCODER_PULSE = 2.178649
     DEFAULT_MAX_SPEED = 10000
     DEFAULT_MAX_ACCEL = 100
     DEFAULT_POLLING_FREQ = 10
+    DEFAULT_Z_CORRECTION_TOLERANCE_UM = 2.0
+    DEFAULT_Z_CORRECTION_MAX_RETRIES = 5
 
     def __init__(self, comPort: serial.Serial, zAxisComPort, stageUnitsPerEncoderPulse=None):
         self.comPort : serial.Serial = comPort
@@ -69,7 +178,12 @@ class ScientificaSerialEncoder(Manipulator):
         
 
         #start constantly polling position in a new thread
-        self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
+        self._encoder_acq = EncoderCorrectionAcquisitionThread(
+            parent=self,
+            z_axis_port=self.zAxisComPort,
+            polling_freq=self._polling_freq
+        )
+        self._polling_thread = self._encoder_acq
         self._polling_thread.start()
         self._polling_thread.deamon = True
 
@@ -138,37 +252,15 @@ class ScientificaSerialEncoder(Manipulator):
         if axis == 2:
             return self.current_pos[1]
         if axis == 3:
-            return self.encoderZ
+            encoder_z, _ = self._encoder_acq.get_encoder_state()
+            return encoder_z
         if axis == None:
             return self.current_pos
         
     def update_pos_continuous(self, freq=None):
         '''constantly polls the device's position and updates the current_pos variable
         '''
-        if freq is None:
-            freq = self._polling_freq
-        while True:
-            startTime = time.time()
-            self.zAxisComPort.read_all()
-            self.zAxisComPort.read_until(b'\r\n')
-            encoderZ = self.zAxisComPort.read_until(b'\r\n').strip()
-            encoderZ = int(encoderZ)
-            self.encoderZ = encoderZ * self.stageUnitsPerEncoderPulse
-
-            xyz = self._sendCmd(SerialCommands.GET_X_Y_Z)
-            xyz = xyz.split('\t')
-            
-            try:
-                xPos = int(xyz[0]) / 10.0
-                yPos = int(xyz[1]) / 10.0
-                zPos = int(xyz[2]) / 10.0
-                self.current_pos = [xPos, yPos, zPos]
-            except:
-                print('error reading position')
-
-            sleepTime = 1 / freq - (time.time() - startTime)
-            if sleepTime > 0:
-                time.sleep(sleepTime)
+        self._encoder_acq.run_loop(freq=freq)
 
     def absolute_move(self, pos, axis):
 
@@ -179,36 +271,50 @@ class ScientificaSerialEncoder(Manipulator):
             xPos = self.position(axis=1)
             self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(pos * 10)))
         if axis == 3:
-            stageZ = self.current_pos[2]
-            setpointStage = stageZ + (pos - self.encoderZ)
-            self._sendCmd(SerialCommands.SET_Z_POS.format(int(setpointStage * 10)))
-            self.wait_until_still()
-            time.sleep(1)
-            print(f'expected encoder: {pos} actual {self.encoderZ}')
-            error = pos - self.encoderZ
-            print(f'error: {error}')
-            if abs(error) > 2:
-                print('retrying')
-                self.absolute_move(pos, axis)
+            max_retries = self.DEFAULT_Z_CORRECTION_MAX_RETRIES
+            tolerance = self.DEFAULT_Z_CORRECTION_TOLERANCE_UM
+            for attempt in range(max_retries):
+                stageZ = self._encoder_acq.get_stage_z()
+                encoder_z, seq = self._encoder_acq.get_encoder_state()
+                setpointStage = stageZ + (pos - encoder_z)
+                self._sendCmd(SerialCommands.SET_Z_POS.format(int(setpointStage * 10)))
+                self.wait_until_still()
+                time.sleep(1)
+                self._encoder_acq.wait_for_update(seq, max(0.1, 2.0 / self._polling_freq))
+                encoder_z, _ = self._encoder_acq.get_encoder_state()
+                print(f'expected encoder: {pos} actual {encoder_z}')
+                error = pos - encoder_z
+                print(f'error: {error}')
+                if abs(error) <= tolerance:
+                    break
+                if attempt < max_retries - 1:
+                    print('retrying')
     
     def absolute_move_group(self, x, axes, speed=None):
         x = list(x)
         axes = list(axes)
 
-        if 1 in axes and 2 in axes:
-            # Move X and Y axes together
-            xPos = x[axes.index(1)]
-            yPos = x[axes.index(2)]
-            print("sent cmd", xPos, yPos)
-            self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
-
-        elif 1 in axes and 2 in axes and 3 in axes:
+        if 1 in axes and 2 in axes and 3 in axes:
             # Move X, Y and Z axes together
             xPos = x[axes.index(1)]
             yPos = x[axes.index(2)]
             zPos = x[axes.index(3)]
             print("sent cmd", xPos, yPos, zPos)
-            self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(int(xPos * 10), int(yPos * 10), int(zPos * 10)))
+            stageZ = self._encoder_acq.get_stage_z()
+            encoder_z, _ = self._encoder_acq.get_encoder_state()
+            setpointStage = stageZ + (zPos - encoder_z)
+            self._sendCmd(SerialCommands.SET_X_Y_Z_POS_ABS.format(
+                int(xPos * 10),
+                int(yPos * 10),
+                int(setpointStage * 10)
+            ))
+
+        elif 1 in axes and 2 in axes:
+            # Move X and Y axes together
+            xPos = x[axes.index(1)]
+            yPos = x[axes.index(2)]
+            print("sent cmd", xPos, yPos)
+            self._sendCmd(SerialCommands.SET_X_Y_POS_ABS.format(int(xPos * 10), int(yPos * 10)))
 
         else:
             print(f'unimplemented move group {x} {axes}')
