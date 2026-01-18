@@ -3,7 +3,7 @@ import csv
 from enum import Enum
 import numpy as np
 from patcherbot.devices.amplifier.amplifier import Amplifier
-from patcherbot.devices.amplifier.DAQ import NiDAQ
+from patcherbot.devices.amplifier.DAQ import DAQ
 from patcherbot.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
 from patcherbot.devices.manipulator.microscope import Microscope
 from patcherbot.devices.pressurecontroller import PressureController
@@ -34,7 +34,7 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp: Lamp, laser: Laser, config: PatchConfig, protocol_config: ProtocolConfig):
+    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp: Lamp, laser: Laser, config: PatchConfig, protocol_config: ProtocolConfig):
         super().__init__()
         self.config = config
         self.protocol_config = protocol_config

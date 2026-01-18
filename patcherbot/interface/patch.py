@@ -10,7 +10,7 @@ from patcherbot.utils import EPhysLogger, RecordingStateManager
 from patcherbot.devices.pressurecontroller.BasePressureController import PressureController
 from patcherbot.devices.amplifier.amplifier import Amplifier
 from patcherbot.interface.pipettes import PipetteInterface
-from patcherbot.devices.amplifier.DAQ import NiDAQ
+from patcherbot.devices.amplifier.DAQ import DAQ
 from patcherbot.devices.lamp import Lamp
 from patcherbot.devices.laser import Laser
 from .patchConfig import PatchConfig
@@ -24,7 +24,7 @@ class AutoPatchInterface(TaskInterface):
     '''
     A class to run automatic patch-clamp
     '''
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface,
+    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, pipette_interface: PipetteInterface,
                  recording_state_manager: RecordingStateManager, lamp: Lamp, laser: Laser, config_data=None, protocol_data=None):
         super().__init__()
         self.config = PatchConfig(name='Patch')

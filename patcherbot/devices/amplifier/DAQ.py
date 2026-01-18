@@ -349,6 +349,13 @@ class DAQ(TaskController):
         """
         raise NotImplementedError("Implement in subclass.")
 
+    def getLeakSubtraction(self, *args, **kwargs):
+        """Run a P/4 leak subtraction sequence.
+
+        Sub-classes **must** implement this.
+        """
+        raise NotImplementedError("Implement in subclass.")
+
     # --------------------------
     # COMMON CALCULATION METHODS
     # --------------------------
@@ -1806,6 +1813,56 @@ class ArduinoDAQ(DAQ):
         # For Arduino, we do not return a task object; simply return None.
         return None
 
+    def getLeakSubtraction(
+            self,
+            *,
+            start_voltage: float,
+            end_voltage: float,
+            holding_voltage: float,
+            step_voltage: float = 20e-3,
+            wave_freq: float = 5.0,
+            samplesPerSec: int = 50_000,
+            dutyCycle: float = 0.5,
+            pulse_recording_time: float = 0.600,
+            repeats: int = 4,
+    ):
+        self.warning("Leak subtraction is not supported on ArduinoDAQ; returning empty result.")
+
+        if step_voltage == 0:
+            raise ValueError("step_voltage must be non-zero")
+        if repeats <= 0:
+            raise ValueError("repeats must be positive")
+
+        span = end_voltage - start_voltage
+        step = abs(step_voltage)
+        if span == 0:
+            targets = np.array([start_voltage], dtype=float)
+        else:
+            step_signed = step if span > 0 else -step
+            targets = np.arange(start_voltage, end_voltage, step_signed, dtype=float)
+            if targets.size == 0 or abs(targets[-1] - end_voltage) > 1e-9:
+                targets = np.append(targets, end_voltage)
+
+        leak_step_values = []
+        leak_target_voltages = []
+        for target in targets:
+            delta = target - holding_voltage
+            leak_step = -delta / 4.0
+            leak_step_values.append(leak_step)
+            leak_target_voltages.append(holding_voltage + leak_step)
+
+        self.leak_subtraction_data = []
+        self.leak_subtraction_meta = {
+            "holding_voltage": holding_voltage,
+            "targets": targets,
+            "leak_target_voltages": np.array(leak_target_voltages, dtype=float),
+            "leak_step_values": np.array(leak_step_values, dtype=float),
+            "repeats": repeats,
+            "wave_freq": float(wave_freq),
+            "pulse_recording_time": float(pulse_recording_time),
+        }
+        return self.leak_subtraction_data
+
 # ========================================================
 #  FakeDAQ Subclass 
 # ========================================================
@@ -1865,4 +1922,54 @@ class FakeDAQ(DAQ):
         response += np.random.normal(0, 0.001, size=numSamples)
 
         return np.array([command, response], dtype=float)
+
+    def getLeakSubtraction(
+            self,
+            *,
+            start_voltage: float,
+            end_voltage: float,
+            holding_voltage: float,
+            step_voltage: float = 20e-3,
+            wave_freq: float = 5.0,
+            samplesPerSec: int = 50_000,
+            dutyCycle: float = 0.5,
+            pulse_recording_time: float = 0.600,
+            repeats: int = 4,
+    ):
+        self.warning("Leak subtraction is not simulated on FakeDAQ; returning empty result.")
+
+        if step_voltage == 0:
+            raise ValueError("step_voltage must be non-zero")
+        if repeats <= 0:
+            raise ValueError("repeats must be positive")
+
+        span = end_voltage - start_voltage
+        step = abs(step_voltage)
+        if span == 0:
+            targets = np.array([start_voltage], dtype=float)
+        else:
+            step_signed = step if span > 0 else -step
+            targets = np.arange(start_voltage, end_voltage, step_signed, dtype=float)
+            if targets.size == 0 or abs(targets[-1] - end_voltage) > 1e-9:
+                targets = np.append(targets, end_voltage)
+
+        leak_step_values = []
+        leak_target_voltages = []
+        for target in targets:
+            delta = target - holding_voltage
+            leak_step = -delta / 4.0
+            leak_step_values.append(leak_step)
+            leak_target_voltages.append(holding_voltage + leak_step)
+
+        self.leak_subtraction_data = []
+        self.leak_subtraction_meta = {
+            "holding_voltage": holding_voltage,
+            "targets": targets,
+            "leak_target_voltages": np.array(leak_target_voltages, dtype=float),
+            "leak_step_values": np.array(leak_step_values, dtype=float),
+            "repeats": repeats,
+            "wave_freq": float(wave_freq),
+            "pulse_recording_time": float(pulse_recording_time),
+        }
+        return self.leak_subtraction_data
 
