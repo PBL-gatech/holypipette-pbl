@@ -24,55 +24,8 @@ class GraphInterface(TaskInterface):
         self.pressure = pressure
         self.recording_state_manager = recording_state_manager
         self.laser = laser
-        self._laser_power_by_wavelength = {}
-        self._last_laser_power = None
+        self._laser_power = 0
         self._last_laser_wavelength = None
-        self._seed_laser_power_cache()
-
-    def _seed_laser_power_cache(self):
-        if self.laser is None:
-            return
-        power_levels = getattr(self.laser, "_power_levels", None)
-        if isinstance(power_levels, dict):
-            for wavelength, power in power_levels.items():
-                self._cache_laser_power(wavelength, power)
-        elif isinstance(power_levels, (int, float)):
-            self._cache_laser_power(self.laser.get_wavelength(), power_levels)
-        fallback_levels = getattr(self.laser, "power_levels", None)
-        if isinstance(fallback_levels, dict):
-            for wavelength, power in fallback_levels.items():
-                self._cache_laser_power(wavelength, power)
-        elif isinstance(fallback_levels, (int, float)):
-            self._cache_laser_power(self.laser.get_wavelength(), fallback_levels)
-
-    def _laser_key(self, wavelength):
-        if wavelength is None:
-            return None
-        if isinstance(wavelength, Enum):
-            return wavelength.name
-        if isinstance(wavelength, str):
-            key = wavelength.strip()
-            return key.lower() if key else None
-        if isinstance(wavelength, (int, float)):
-            return int(wavelength)
-        return str(wavelength)
-
-    def _cache_laser_power(self, wavelength, power_percent):
-        try:
-            power = int(round(float(power_percent)))
-        except (TypeError, ValueError):
-            return
-        power = max(0, min(100, power))
-        key = self._laser_key(wavelength)
-        if key is not None:
-            self._laser_power_by_wavelength[key] = power
-        self._last_laser_power = power
-
-    def _get_cached_laser_power(self, wavelength):
-        key = self._laser_key(wavelength)
-        if key is not None and key in self._laser_power_by_wavelength:
-            return self._laser_power_by_wavelength[key]
-        return self._last_laser_power
 
     @command(category='Pressure', 
               description='obtain current pressure value')
@@ -154,10 +107,7 @@ class GraphInterface(TaskInterface):
     @command(category='Laser',
               description='get cached laser power percent')
     def get_laser_power(self):
-        wavelength = self._last_laser_wavelength
-        if wavelength is None:
-            wavelength = self.get_laser_wavelength()
-        return self._get_cached_laser_power(wavelength)
+        return self._laser_power
 
     @command(category='Laser',
               description='set laser power percent',
@@ -173,8 +123,7 @@ class GraphInterface(TaskInterface):
             return None
         power = max(0, min(100, power))
         self.execute(self.laser.set_power_level, argument=power)
-        wavelength = self.laser.get_wavelength()
-        self._cache_laser_power(wavelength, power)
+        self._laser_power = power
         return power
 
     @command(category='Laser',
@@ -183,6 +132,9 @@ class GraphInterface(TaskInterface):
         if self.laser is None:
             self.warning("No laser configured; skipping output toggle.")
             return None
+        power_state = self.laser.get_power_state()
+        if power_state != "on":
+            self.execute(self.laser.set_power_level, argument=self._laser_power)
         self.execute(self.laser.excite)
         return self.laser.get_power_state()
 
@@ -226,6 +178,7 @@ class GraphInterface(TaskInterface):
 
         self.execute(self.laser.set_wavelength, argument=target)
         self._last_laser_wavelength = target
+        self.execute(self.laser.set_power_level, argument=self._laser_power)
         return target
 
     @command(category='Laser',

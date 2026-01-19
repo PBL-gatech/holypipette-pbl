@@ -486,16 +486,18 @@ class EPhysGraph(QWidget):
         self.graph_interface.set_zap_duration(25e-6)  # Default zap duration in seconds
 
         # Laser controls.
-        self.laserPowerLabel = QLabel("Power:")
+        initial_power = self.graph_interface.get_laser_power()
+        if initial_power is None:
+            initial_power = 0
+        initial_power = int(round(initial_power))
+
+        self.laserPowerLabel = QLabel(f"Power: {initial_power} %")
         bottomBarLayout.addWidget(self.laserPowerLabel)
 
         self.laserPowerBox = QLineEdit()
         self.laserPowerBox.setMaxLength(3)
         self.laserPowerBox.setFixedWidth(80)
         self.laserPowerBox.setValidator(QtGui.QIntValidator(self.laserPowerLowerBound, self.laserPowerUpperBound))
-        initial_power = self.graph_interface.get_laser_power()
-        if initial_power is None:
-            initial_power = 0
         self.laserPowerBox.setPlaceholderText(f"Set to: {initial_power} %")
         self.laserPowerBox.returnPressed.connect(self.laserPowerBoxReturnPressed)
         bottomBarLayout.addWidget(self.laserPowerBox)
@@ -805,7 +807,9 @@ class EPhysGraph(QWidget):
         power = self.graph_interface.get_laser_power()
         if power is None:
             power = 0
-        self.laserPowerBox.setPlaceholderText(f"Set to: {int(round(power))} %")
+        power_value = int(round(power))
+        self.laserPowerBox.setPlaceholderText(f"Set to: {power_value} %")
+        self.laserPowerLabel.setText(f"Power: {power_value} %")
 
         laser_available = power_state is not None or wavelength is not None
         for widget in (self.laserPowerBox, self.laserLeftButton, self.laserToggleButton, self.laserRightButton):
