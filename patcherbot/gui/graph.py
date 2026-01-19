@@ -364,6 +364,16 @@ class OptogeneticProtocolGraph(ProtocolGraph):
 class EPhysGraph(QWidget):
     pressureLowerBound = -450
     pressureUpperBound = 730
+    laserPowerLowerBound = 0
+    laserPowerUpperBound = 100
+    laserColorMap = {
+        "red": ("Red", "#ff3b30"),
+        "green": ("Green", "#34c759"),
+        "cyan": ("Cyan", "#00bcd4"),
+        "uv": ("UV", "#6a5acd"),
+        "blue": ("Blue", "#007aff"),
+        "teal": ("Teal", "#26a69a"),
+    }
 
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
         """
@@ -474,6 +484,38 @@ class EPhysGraph(QWidget):
         self.zapButton.clicked.connect(self.handle_zap_button_press)
         bottomBarLayout.addWidget(self.zapButton)
         self.graph_interface.set_zap_duration(25e-6)  # Default zap duration in seconds
+
+        # Laser controls.
+        self.laserPowerLabel = QLabel("Power:")
+        bottomBarLayout.addWidget(self.laserPowerLabel)
+
+        self.laserPowerBox = QLineEdit()
+        self.laserPowerBox.setMaxLength(3)
+        self.laserPowerBox.setFixedWidth(80)
+        self.laserPowerBox.setValidator(QtGui.QIntValidator(self.laserPowerLowerBound, self.laserPowerUpperBound))
+        initial_power = self.graph_interface.get_laser_power()
+        if initial_power is None:
+            initial_power = 0
+        self.laserPowerBox.setPlaceholderText(f"Set to: {initial_power} %")
+        self.laserPowerBox.returnPressed.connect(self.laserPowerBoxReturnPressed)
+        bottomBarLayout.addWidget(self.laserPowerBox)
+
+        self.laserLeftButton = QToolButton()
+        self.laserLeftButton.setArrowType(QtCore.Qt.LeftArrow)
+        self.laserLeftButton.setFixedWidth(30)
+        self.laserLeftButton.clicked.connect(self.handle_laser_left)
+        bottomBarLayout.addWidget(self.laserLeftButton)
+
+        self.laserToggleButton = QPushButton("Off")
+        self.laserToggleButton.setFixedWidth(70)
+        self.laserToggleButton.clicked.connect(self.handle_laser_toggle)
+        bottomBarLayout.addWidget(self.laserToggleButton)
+
+        self.laserRightButton = QToolButton()
+        self.laserRightButton.setArrowType(QtCore.Qt.RightArrow)
+        self.laserRightButton.setFixedWidth(30)
+        self.laserRightButton.clicked.connect(self.handle_laser_right)
+        bottomBarLayout.addWidget(self.laserRightButton)
 
         bottomBarLayout.addStretch(1)
         self.bottomBar.setMaximumHeight(20)
@@ -592,6 +634,8 @@ class EPhysGraph(QWidget):
                 except Exception as e:
                     logging.error(f"Error writing graph data: {e}")
 
+        self.update_laser_controls()
+
     def pressureCommandSliderChanged(self):
         """
         On slider release, set the pressure via GraphInterface.
@@ -709,3 +753,86 @@ class EPhysGraph(QWidget):
             zap_duration = float(text)
         logging.info(f"Setting zap duration to {zap_duration} seconds")
         self.graph_interface.set_zap_duration(zap_duration)
+
+    def laserPowerBoxReturnPressed(self):
+        """
+        When a laser power value is entered, update the setpoint.
+        """
+        try:
+            text = self.laserPowerBox.text().replace("Set to:", "").replace("%", "").strip()
+            self.laserPowerBox.clear()
+            power = float(text)
+            power = max(self.laserPowerLowerBound, min(self.laserPowerUpperBound, power))
+            applied = self.graph_interface.set_laser_power(power)
+            if applied is None:
+                applied = power
+            self.laserPowerBox.setPlaceholderText(f"Set to: {int(round(applied))} %")
+        except ValueError:
+            logging.warning("Invalid laser power input.")
+        except Exception as e:
+            logging.error(f"Error in laserPowerBoxReturnPressed: {e}")
+
+    def _resolve_laser_label(self, wavelength):
+        if wavelength is None:
+            return "Unknown", "#e0e0e0"
+        if isinstance(wavelength, str):
+            cleaned = wavelength.strip()
+            if cleaned.isdigit():
+                wavelength = int(cleaned)
+            else:
+                key = cleaned.lower()
+                if key in self.laserColorMap:
+                    return self.laserColorMap[key]
+        if isinstance(wavelength, int):
+            options = self.graph_interface.get_laser_wavelength_options()
+            if options:
+                index = max(1, min(len(options), wavelength))
+                return self._resolve_laser_label(options[index - 1])
+            default_keys = list(self.laserColorMap.keys())
+            if default_keys:
+                index = max(1, min(len(default_keys), wavelength))
+                return self.laserColorMap[default_keys[index - 1]]
+            return f"Ch {wavelength}", "#e0e0e0"
+        name = getattr(wavelength, "name", str(wavelength))
+        key = name.strip().lower()
+        if key in self.laserColorMap:
+            return self.laserColorMap[key]
+        return name, "#e0e0e0"
+
+    def update_laser_controls(self):
+        power_state = self.graph_interface.get_laser_power_state()
+        wavelength = self.graph_interface.get_laser_wavelength()
+        power = self.graph_interface.get_laser_power()
+        if power is None:
+            power = 0
+        self.laserPowerBox.setPlaceholderText(f"Set to: {int(round(power))} %")
+
+        laser_available = power_state is not None or wavelength is not None
+        for widget in (self.laserPowerBox, self.laserLeftButton, self.laserToggleButton, self.laserRightButton):
+            widget.setEnabled(laser_available)
+
+        if power_state != "on":
+            self.laserToggleButton.setText("Off")
+            self.laserToggleButton.setStyleSheet(
+                "background-color: white; color: black; border-radius: 5px; padding: 5px;"
+            )
+            return
+
+        label, color = self._resolve_laser_label(wavelength)
+        text_color = "black" if color in ("#ffffff", "#e0e0e0") else "white"
+        self.laserToggleButton.setText(label)
+        self.laserToggleButton.setStyleSheet(
+            f"background-color: {color}; color: {text_color}; border-radius: 5px; padding: 5px;"
+        )
+
+    def handle_laser_left(self):
+        self.graph_interface.wavelength_down()
+        self.update_laser_controls()
+
+    def handle_laser_right(self):
+        self.graph_interface.wavelength_up()
+        self.update_laser_controls()
+
+    def handle_laser_toggle(self):
+        self.graph_interface.toggle_laser_output()
+        self.update_laser_controls()

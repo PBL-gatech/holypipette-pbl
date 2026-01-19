@@ -503,15 +503,17 @@ class CameraGui(QtWidgets.QMainWindow):
 
         self.setexposure_edit = QtWidgets.QLineEdit()
         self.setexposure_edit.setMaximumWidth(200)
-        self.setexposure_edit.setPlaceholderText('Exposure time (ms)')
+
         # convert the text to a float and set the exposure time if the user presses enter and clear the text box
         self.setexposure_edit.returnPressed.connect(self.apply_active_exposure)
 
         self.status_bar.addPermanentWidget(self.switch_view_button)
+ 
+        self.setexposure_edit.setPlaceholderText('Exposure time (ms)')
         self.status_bar.addPermanentWidget(self.setexposure_edit)
         self.status_bar.addPermanentWidget(self.help_button)
-        self.status_bar.addPermanentWidget(self.log_button)
-        self.status_bar.addPermanentWidget(self.record_button)
+        # self.status_bar.addPermanentWidget(self.log_button)
+        # self.status_bar.addPermanentWidget(self.record_button)
         self.status_bar.addPermanentWidget(self.autoexposure_button)
         self.status_bar.addPermanentWidget(self.autonormalize_checkbox)
 

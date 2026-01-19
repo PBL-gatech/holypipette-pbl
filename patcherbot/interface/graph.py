@@ -3,11 +3,13 @@
 Access and control of Acquisition threads for the DAQ, and Pressure controller
 '''
 import numpy as np
+from enum import Enum
 
 from patcherbot.interface import TaskInterface, command, blocking_command
 from patcherbot.devices.pressurecontroller.BasePressureController import PressureController
 from patcherbot.devices.amplifier.amplifier import Amplifier
 from patcherbot.devices.amplifier.DAQ import DAQ
+from patcherbot.devices.laser import Laser
 from PyQt5 import QtCore
 import time
 
@@ -15,12 +17,62 @@ import time
 __all__ = ['GraphInterface']
 
 class GraphInterface(TaskInterface):
-    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, recording_state_manager):
+    def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, recording_state_manager, laser: Laser | None = None):
         super().__init__()
         self.amplifier = amplifier
         self.daq = daq
         self.pressure = pressure
         self.recording_state_manager = recording_state_manager
+        self.laser = laser
+        self._laser_power_by_wavelength = {}
+        self._last_laser_power = None
+        self._last_laser_wavelength = None
+        self._seed_laser_power_cache()
+
+    def _seed_laser_power_cache(self):
+        if self.laser is None:
+            return
+        power_levels = getattr(self.laser, "_power_levels", None)
+        if isinstance(power_levels, dict):
+            for wavelength, power in power_levels.items():
+                self._cache_laser_power(wavelength, power)
+        elif isinstance(power_levels, (int, float)):
+            self._cache_laser_power(self.laser.get_wavelength(), power_levels)
+        fallback_levels = getattr(self.laser, "power_levels", None)
+        if isinstance(fallback_levels, dict):
+            for wavelength, power in fallback_levels.items():
+                self._cache_laser_power(wavelength, power)
+        elif isinstance(fallback_levels, (int, float)):
+            self._cache_laser_power(self.laser.get_wavelength(), fallback_levels)
+
+    def _laser_key(self, wavelength):
+        if wavelength is None:
+            return None
+        if isinstance(wavelength, Enum):
+            return wavelength.name
+        if isinstance(wavelength, str):
+            key = wavelength.strip()
+            return key.lower() if key else None
+        if isinstance(wavelength, (int, float)):
+            return int(wavelength)
+        return str(wavelength)
+
+    def _cache_laser_power(self, wavelength, power_percent):
+        try:
+            power = int(round(float(power_percent)))
+        except (TypeError, ValueError):
+            return
+        power = max(0, min(100, power))
+        key = self._laser_key(wavelength)
+        if key is not None:
+            self._laser_power_by_wavelength[key] = power
+        self._last_laser_power = power
+
+    def _get_cached_laser_power(self, wavelength):
+        key = self._laser_key(wavelength)
+        if key is not None and key in self._laser_power_by_wavelength:
+            return self._laser_power_by_wavelength[key]
+        return self._last_laser_power
 
     @command(category='Pressure', 
               description='obtain current pressure value')
@@ -82,6 +134,109 @@ class GraphInterface(TaskInterface):
 
     def zap(self):
         self.execute(self.amplifier.zap)
+
+    @command(category='Laser',
+              description='get laser power state')
+    def get_laser_power_state(self):
+        if self.laser is None:
+            return None
+        return self.laser.get_power_state()
+
+    @command(category='Laser',
+              description='get current laser wavelength')
+    def get_laser_wavelength(self):
+        if self.laser is None:
+            return None
+        wavelength = self.laser.get_wavelength()
+        self._last_laser_wavelength = wavelength
+        return wavelength
+
+    @command(category='Laser',
+              description='get cached laser power percent')
+    def get_laser_power(self):
+        wavelength = self._last_laser_wavelength
+        if wavelength is None:
+            wavelength = self.get_laser_wavelength()
+        return self._get_cached_laser_power(wavelength)
+
+    @command(category='Laser',
+              description='set laser power percent',
+              default_arg=0)
+    def set_laser_power(self, power_percent):
+        if self.laser is None:
+            self.warning("No laser configured; skipping power update.")
+            return None
+        try:
+            power = int(round(float(power_percent)))
+        except (TypeError, ValueError):
+            self.warning("Invalid laser power input.")
+            return None
+        power = max(0, min(100, power))
+        self.execute(self.laser.set_power_level, argument=power)
+        wavelength = self.laser.get_wavelength()
+        self._cache_laser_power(wavelength, power)
+        return power
+
+    @command(category='Laser',
+              description='toggle laser output')
+    def toggle_laser_output(self):
+        if self.laser is None:
+            self.warning("No laser configured; skipping output toggle.")
+            return None
+        self.execute(self.laser.excite)
+        return self.laser.get_power_state()
+
+    @command(category='Laser',
+              description='get available laser wavelength options')
+    def get_laser_wavelength_options(self):
+        if self.laser is None:
+            return []
+        order = getattr(self.laser, "_wavelength_order", None)
+        if order:
+            return list(order)
+        current = self.laser.get_wavelength()
+        if isinstance(current, Enum):
+            return [c for c in type(current) if getattr(c, "name", "") != "OFF"]
+        return []
+
+    def _step_laser_wavelength(self, step: int):
+        if self.laser is None:
+            self.warning("No laser configured; skipping wavelength change.")
+            return None
+
+        current = self.laser.get_wavelength()
+        if current is None:
+            target = 1
+        elif isinstance(current, Enum):
+            channels = [c for c in type(current) if getattr(c, "name", "") != "OFF"]
+            if not channels:
+                self.warning("Laser wavelength enum has no selectable channels.")
+                return None
+            try:
+                idx = channels.index(current)
+            except ValueError:
+                idx = 0
+            new_idx = max(0, min(len(channels) - 1, idx + step))
+            target = channels[new_idx]
+        elif isinstance(current, int):
+            target = max(1, current + step)
+        else:
+            self.warning(f"Unsupported laser wavelength type: {type(current)}")
+            return None
+
+        self.execute(self.laser.set_wavelength, argument=target)
+        self._last_laser_wavelength = target
+        return target
+
+    @command(category='Laser',
+              description='step wavelength down')
+    def wavelength_down(self):
+        return self._step_laser_wavelength(-1)
+
+    @command(category='Laser',
+              description='step wavelength up')
+    def wavelength_up(self):
+        return self._step_laser_wavelength(1)
 
     
 

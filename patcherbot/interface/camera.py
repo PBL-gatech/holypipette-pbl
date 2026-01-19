@@ -53,7 +53,7 @@ class CameraInterface(TaskInterface):
         self.camera = camera
         if self._is_active:
             self.signal_updated_exposure()
-
+    
     @blocking_command(category='Camera',
                       description='Auto exposure',
                       task_description='Adjusting exposure')
@@ -105,4 +105,5 @@ class CameraInterface(TaskInterface):
     def decrease_exposure(self, decrease):
         self.camera.change_exposure(-decrease)
         self.signal_updated_exposure()
+
 

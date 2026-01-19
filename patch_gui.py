@@ -79,7 +79,7 @@ def main():
         config_data=patch_data,
         protocol_data=protocol_data,
     )
-    graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager)
+    graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager, laser)
     gui = PatchGui(camera, pipette_camera, pipette_controller, patch_controller, recording_state_manager)
     graphs = EPhysGraph(graph_interface, recording_state_manager)
     # graphs.location_on_the_screen()

@@ -47,10 +47,11 @@
                                               }
                                },
                     "pipette_camera":  {
-                                           "class":  "patcherbot.devices.camera.camera.FakeCamera",
+                                           "class":  "patcherbot.devices.camera.PipetteCamera.PipetteCamera",
                                            "params":  {
-                                                          "image_z":  0,
-                                                          "paramecium":  false
+                                                          "device_index":  0,
+                                                          "width":  480,
+                                                          "height":  480
                                                       }
                                        },
                     "cell_sorter_controller":  {
