@@ -372,7 +372,7 @@ class EPhysGraph(QWidget):
         "cyan": ("Cyan", "#00bcd4"),
         "uv": ("UV", "#6a5acd"),
         "blue": ("Blue", "#007aff"),
-        "teal": ("Teal", "#26a69a"),
+        "infrared": ("Infrared", "#000000"),
     }
 
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):

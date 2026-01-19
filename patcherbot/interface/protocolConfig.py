@@ -12,6 +12,8 @@ class ProtocolConfig(Config):
     voltage_sweep_protocol = Boolean(default=False, doc='Run the Voltage Sweep Protocol automatically')
     opto_random_wavelength_protocol = Boolean(default=False, doc='Run randomized wavelength optogenetic protocol')
     opto_random_power_protocol = Boolean(default=False, doc='Run randomized power optogenetic protocol')
+    enable_neutralization_capacitance = Boolean(default=True, doc='Enable pipette neutralization capacitance for current clamp')
+    enable_bridge_balance = Boolean(default=True, doc='Enable auto bridge balance for current clamp')
 
     custom_cclamp_protocol = Boolean(default=False, doc='Customize the protocol parameters')
     cclamp_step = NumberWithUnit(30, bounds=(0, 3000), doc='Step Current', unit='pA', magnitude=1)
@@ -31,13 +33,14 @@ class ProtocolConfig(Config):
     opto_wavelength_power = NumberWithUnit(50, bounds=(0, 100), doc='Power for randomized wavelength protocol', unit='%')
     opto_power_wavelength = Selector(
         default="green",
-        objects=["red", "green", "cyan", "uv", "blue"],
+        objects=["red", "green", "cyan", "uv", "blue", "infrared"],
         doc='Wavelength for randomized power protocol',
     )
 
     categories = [
         ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol', 'voltage_sweep_protocol',
                        'opto_random_wavelength_protocol', 'opto_random_power_protocol']),
+        ('Compensation', ['enable_neutralization_capacitance', 'enable_bridge_balance']),
         ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end', 'cclamp_hold',
                             'vclamp_start', 'vclamp_end', 'vclamp_hold', 'hclamp_duration']),
         ('Optogenetic Protocol', ['opto_stabilize_time', 'opto_off_time', 'opto_on_time', 'opto_replicates',

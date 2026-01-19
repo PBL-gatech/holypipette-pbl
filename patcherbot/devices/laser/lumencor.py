@@ -15,7 +15,8 @@ class WavelengthChannel(Enum):
     UV = 3
     # 4th bit is for green/yellow filter (not a wavelength)
     BLUE = 5
-    TEAL = 6
+    INFRARED = 6
+    TEAL = INFRARED
     OFF = 7
 
 
@@ -40,7 +41,7 @@ class LumencorLaser(Laser):
             WavelengthChannel.CYAN,
             WavelengthChannel.UV,
             WavelengthChannel.BLUE,
-            WavelengthChannel.TEAL,
+            WavelengthChannel.INFRARED,
         ]
         self._default_wavelength_index = 2  # Matches PatchConfig default ("2" -> GREEN)
         self.com = com
@@ -73,7 +74,8 @@ class LumencorLaser(Laser):
                 "cyan": WavelengthChannel.CYAN,
                 "uv": WavelengthChannel.UV,
                 "blue": WavelengthChannel.BLUE,
-                "teal": WavelengthChannel.TEAL,
+                "infrared": WavelengthChannel.INFRARED,
+                "teal": WavelengthChannel.INFRARED,
                 "off": WavelengthChannel.OFF,
             }
             if key in color_map:
@@ -199,7 +201,7 @@ class LumencorLaser(Laser):
             WavelengthChannel.GREEN,
             WavelengthChannel.RED,
         ]
-        addr1a_channels = [WavelengthChannel.BLUE, WavelengthChannel.TEAL]
+        addr1a_channels = [WavelengthChannel.BLUE, WavelengthChannel.INFRARED]
         if channel in addr18_channels:
             dac_address = 0x18
             channel_address = channel_address << addr18_channels.index(channel)

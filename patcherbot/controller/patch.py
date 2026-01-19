@@ -473,15 +473,21 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         self.amplifier.current_clamp()
         self.sleep(0.1)
-        self.amplifier.set_neutralization_capacitance(cap)
-        self.info('set neutralization capacitance')
-        self.amplifier.set_neutralization_enable(True)
-        self.info('enabled neutralization')
-        self.sleep(0.1)
-        self.amplifier.set_bridge_balance(True)
-        self.info('auto bridge balance')
-        self.amplifier.auto_bridge_balance()
-        self.sleep(0.1)
+        if self.protocol_config.enable_neutralization_capacitance:
+            self.amplifier.set_neutralization_capacitance(cap)
+            self.info('set neutralization capacitance')
+            self.amplifier.set_neutralization_enable(True)
+            self.info('enabled neutralization')
+            self.sleep(0.1)
+        else:
+            self.info('neutralization capacitance disabled')
+        if self.protocol_config.enable_bridge_balance:
+            self.amplifier.set_bridge_balance(True)
+            self.info('auto bridge balance')
+            self.amplifier.auto_bridge_balance()
+            self.sleep(0.1)
+        else:
+            self.info('bridge balance disabled')
         if self.iholding is None:
             current = self.protocol_config.cclamp_hold
 
@@ -544,7 +550,7 @@ class AutoPatcher(TaskController):
 
         results = []
 
-        color_cycle = ["red", "green", "cyan", "uv", "blue"]
+        color_cycle = ["red", "green", "cyan", "uv", "blue", "infrared"]
 
         def _coerce_wavelength(value):
             if isinstance(value, str):
@@ -593,7 +599,7 @@ class AutoPatcher(TaskController):
             rate_hz = 50_000
 
             if cfg.opto_random_wavelength_protocol:
-                wavelengths = ["red", "green", "cyan", "uv", "blue"]
+                wavelengths = ["red", "green", "cyan", "uv", "blue", "infrared"]
                 powers = [float(cfg.opto_wavelength_power)]
                 steps = self.laser.build_optogenetic_protocol(
                     wavelengths=wavelengths,
