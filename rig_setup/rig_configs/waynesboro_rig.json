@@ -13,18 +13,13 @@
                     },
     "devices":  {
                     "stage_controller":  {
-                                             "class":  "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialEncoder",
+                                             "class":  "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
                                              "params":  {
                                                             "serial":  {
                                                                            "port":  "COM7",
                                                                            "baudrate":  9600,
                                                                            "timeout":  1
                                                                        },
-                                                            "zAxisComPort":  {
-                                                                                 "port":  "COM8",
-                                                                                 "baudrate": 115200,
-                                                                                 "timeout":  1
-                                                                             },
                                                             "max_speed":  100000,
                                                             "max_accel":  1000,
                                                             "polling_freq":  100
