@@ -15,9 +15,6 @@ import threading
 
 import numpy as np
 from collections import deque
-from patcherbot.devices.amplifier import DAQ
-from patcherbot.devices.amplifier.amplifier import Amplifier
-from patcherbot.devices.pressurecontroller import PressureController
 from patcherbot.utils.RecordingStateManager import RecordingStateManager
 from patcherbot.utils import FileLogger
 from patcherbot.utils import EPhysLogger

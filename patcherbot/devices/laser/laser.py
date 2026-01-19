@@ -72,7 +72,6 @@ class Laser(TaskController):
         raise NotImplementedError("This method should be implemented by subclasses.")
 
 
-
 class FakeLaser(Laser):
     """
     Fake Laser that only logs actions.
