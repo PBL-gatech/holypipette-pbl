@@ -2,9 +2,111 @@
 Generic Laser class for optogenetic systems, including on/off and
 wavelength/power-addressable light engines.
 """
-__all__ = ["Laser", "FakeLaser"]
+__all__ = ["Laser", "LaserAcquisitionThread", "FakeLaser"]
+
+import collections
+import random
+import threading
+import time
 
 from patcherbot.controller import TaskController
+
+
+def _is_off_wavelength(value):
+    if value is None:
+        return False
+    if isinstance(value, str) and value.strip().lower() == "off":
+        return True
+    name = getattr(value, "name", None)
+    return isinstance(name, str) and name.upper() == "OFF"
+
+
+class LaserAcquisitionThread(threading.Thread):
+    """
+    A thread that runs a laser protocol sequence with tight timing control.
+    """
+    def __init__(self, laser, steps, start_event=None, stop_event=None, ensure_off=True):
+        super().__init__(daemon=True)
+        self.laser = laser
+        self.steps = steps or []
+        self.start_event = start_event
+        self.stop_event = stop_event if stop_event is not None else threading.Event()
+        self.ensure_off = ensure_off
+        self.running = True
+        self._last_data_queue = collections.deque(maxlen=1)
+
+    def run(self):
+        timeline = []
+        try:
+            if self.start_event is not None:
+                while not self.start_event.is_set():
+                    if self.stop_event.is_set() or not self.running:
+                        return
+                    self.start_event.wait(0.01)
+            if self.stop_event.is_set() or not self.running:
+                return
+
+            t0 = time.perf_counter()
+            with self.laser._protocol_lock:
+                for step in self.steps:
+                    if self.stop_event.is_set() or not self.running:
+                        break
+                    duration = float(step.get("duration_s", 0.0))
+                    if duration <= 0:
+                        continue
+
+                    wavelength = step.get("wavelength")
+                    power_percent = step.get("power_percent")
+                    if wavelength is not None:
+                        self.laser.set_wavelength(wavelength)
+                    if power_percent is not None and not _is_off_wavelength(wavelength):
+                        self.laser.set_power_level(power_percent, wavelength)
+
+                    state = step.get("state", "on")
+                    if state == "on" and _is_off_wavelength(wavelength):
+                        state = "off"
+                        power_percent = 0.0
+
+                    if state == "on":
+                        self.laser.power_on()
+                    else:
+                        self.laser.power_off()
+
+                    step_start = time.perf_counter() - t0
+                    deadline = time.perf_counter() + duration
+                    while self.running and not self.stop_event.is_set():
+                        remaining = deadline - time.perf_counter()
+                        if remaining <= 0:
+                            break
+                        time.sleep(min(0.001, remaining))
+                    step_end = time.perf_counter() - t0
+
+                    entry = dict(step)
+                    entry["state"] = state
+                    if power_percent is not None:
+                        entry["power_percent"] = power_percent
+                    entry["start_s"] = step_start
+                    entry["end_s"] = step_end
+                    timeline.append(entry)
+
+                if self.ensure_off:
+                    self.laser.power_off()
+
+            self._last_data_queue.append(timeline)
+        except Exception as exc:
+            self.laser.error(f"Error in LaserAcquisitionThread: {exc}")
+            if self.ensure_off:
+                try:
+                    self.laser.power_off()
+                except Exception:
+                    pass
+
+    def get_last_data(self):
+        return list(self._last_data_queue[-1]) if self._last_data_queue else None
+
+    def stop(self):
+        self.running = False
+        self.stop_event.set()
 
 class Laser(TaskController):
     """
@@ -15,6 +117,7 @@ class Laser(TaskController):
         Initialize the Laser with any necessary parameters.
         """
         super().__init__(*args, **kwargs)
+        self._protocol_lock = threading.Lock()
         self._initialize()
 
     def _initialize(self):
@@ -70,6 +173,144 @@ class Laser(TaskController):
     def get_laser_temp(self):
         """Get a temperature reading if supported by the Laser."""
         raise NotImplementedError("This method should be implemented by subclasses.")
+
+    def build_optogenetic_protocol(
+        self,
+        *,
+        wavelengths: list[str | int],
+        powers: list[int | float],
+        randomize_target: str,
+        stabilize_time: float,
+        off_time: float,
+        on_time: float,
+        replicates: int,
+        randomize: bool = True,
+        power_divisor: float = 1.0,
+    ):
+        """
+        Build a randomized optogenetic protocol for wavelengths or power levels.
+        """
+        if wavelengths is None or len(wavelengths) == 0:
+            raise ValueError("wavelengths must contain at least one entry")
+        if powers is None or len(powers) == 0:
+            raise ValueError("powers must contain at least one entry")
+        if replicates < 1:
+            raise ValueError("replicates must be >= 1")
+        if power_divisor == 0:
+            raise ValueError("power_divisor must be non-zero")
+
+        target = str(randomize_target).lower()
+        if target not in ("wavelength", "power"):
+            raise ValueError("randomize_target must be 'wavelength' or 'power'")
+
+        if target == "wavelength" and len(powers) > 1:
+            self.warning("Multiple power values provided; using the first value only.")
+        if target == "power" and len(wavelengths) > 1:
+            self.warning("Multiple wavelength values provided; using the first value only.")
+
+        fixed_wavelength = wavelengths[0]
+        fixed_power = powers[0]
+
+        sequence = wavelengths if target == "wavelength" else powers
+        expanded = []
+        for rep in range(int(replicates)):
+            values = list(sequence)
+            if randomize and len(values) > 1:
+                random.shuffle(values)
+            expanded.extend(values)
+        self.info(f"Optogenetic protocol {target} sequence: {expanded}")
+
+        steps = []
+        if stabilize_time > 0:
+            steps.append({
+                "duration_s": float(stabilize_time),
+                "state": "off",
+                "wavelength": "off",
+                "power_percent": 0.0,
+                "replicate": -1,
+                "protocol_type": target,
+            })
+
+        total_count = len(expanded)
+        for idx, value in enumerate(expanded):
+            replicate = idx // len(sequence) if len(sequence) else 0
+            if target == "wavelength":
+                wavelength = value
+                power_percent = float(fixed_power) / power_divisor
+            else:
+                wavelength = fixed_wavelength
+                power_percent = float(value) / power_divisor
+
+            is_off = _is_off_wavelength(wavelength)
+            state = "off" if is_off else "on"
+            if is_off:
+                power_percent = 0.0
+
+            steps.append({
+                "duration_s": float(on_time),
+                "state": state,
+                "wavelength": wavelength,
+                "power_percent": power_percent,
+                "replicate": replicate,
+                "protocol_type": target,
+            })
+
+            if off_time > 0 and idx < (total_count - 1):
+                steps.append({
+                    "duration_s": float(off_time),
+                    "state": "off",
+                    "wavelength": wavelength,
+                    "power_percent": 0.0,
+                    "replicate": replicate,
+                    "protocol_type": target,
+                })
+
+        return steps
+
+    def start_protocol(
+        self,
+        steps: list[dict],
+        *,
+        start_event: threading.Event | None = None,
+        stop_event: threading.Event | None = None,
+        ensure_off: bool = True,
+    ):
+        """
+        Start a laser protocol on a background thread.
+        """
+        if steps is None:
+            return None
+        thread = LaserAcquisitionThread(
+            self,
+            steps,
+            start_event=start_event,
+            stop_event=stop_event,
+            ensure_off=ensure_off,
+        )
+        thread.start()
+        return thread
+
+    def run_protocol(
+        self,
+        steps: list[dict],
+        *,
+        start_event: threading.Event | None = None,
+        stop_event: threading.Event | None = None,
+        ensure_off: bool = True,
+    ):
+        """
+        Execute a laser protocol as a blocking sequence.
+        """
+        thread = self.start_protocol(
+            steps,
+            start_event=start_event,
+            stop_event=stop_event,
+            ensure_off=ensure_off,
+        )
+        if thread is None:
+            return None
+        thread.join()
+        return thread.get_last_data()
 
 
 class FakeLaser(Laser):

@@ -18,7 +18,7 @@ from patcherbot.utils.RecordingStateManager import RecordingStateManager
 from patcherbot.interface import AutoPatchInterface
 from patcherbot.interface.pipettes import PipetteInterface
 from patcherbot.interface.graph import GraphInterface
-from patcherbot.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, LeakSubtractionGraph, HoldingProtocolGraph
+from patcherbot.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, LeakSubtractionGraph, HoldingProtocolGraph, OptogeneticProtocolGraph
 from patcherbot.gui.patch import PatchGui
 from rig_setup.rig_config import RigConfigError, RigConfigManager
 from rig_setup.rig_selector import RigSelectorDialog
@@ -89,6 +89,7 @@ def main():
     voltageProtocolGraph = VoltageProtocolGraph(graph_interface, recording_state_manager)
     leakSubtractionGraph = LeakSubtractionGraph(graph_interface, recording_state_manager)
     holdingProtocolGraph = HoldingProtocolGraph(graph_interface, recording_state_manager)
+    optogeneticProtocolGraph = OptogeneticProtocolGraph(graph_interface, recording_state_manager)
 
 
     gui.initialize()

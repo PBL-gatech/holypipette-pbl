@@ -142,6 +142,13 @@ class AutoPatchInterface(TaskInterface):
                 current_hold=current_hold,
             )
         self.execute(self.current_autopatcher.run_protocols)
+
+    @blocking_command(category='DAQ',
+            description='Run Optogenetic Protocol',
+            task_description='Running Optogenetic Protocol')
+    def run_optogenetic_protocol(self, protocol_params=None):
+        self.recording_state_manager.increment_sample_number()
+        self.execute(self.current_autopatcher.run_optogenetic_protocol, argument=protocol_params)
     
 
     @command(category='Patch', description='Add a mouse position to the list of cells to patch')

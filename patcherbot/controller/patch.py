@@ -382,6 +382,10 @@ class AutoPatcher(TaskController):
             self.sleep(0.25)
         if self.protocol_config.holding_protocol:
             self.run_holding_protocol()
+            self.sleep(0.25)
+        if self.protocol_config.opto_random_wavelength_protocol or self.protocol_config.opto_random_power_protocol:
+            self.run_optogenetic_protocol()
+            self.sleep(0.25)
         self.success_requested = True
         self.success_if_requested()
 
@@ -520,6 +524,112 @@ class AutoPatcher(TaskController):
         self.sleep(0.25)
         self.amplifier.voltage_clamp()
         self.info('finished running holding protocol (E/I PSC test)')
+
+    def run_optogenetic_protocol(self, protocol_params: dict | None = None):
+        """
+        Run optogenetic protocols based on configuration or explicit parameters.
+        """
+        if self.laser is None:
+            raise RuntimeError("Laser device not available")
+
+        self.info("Running optogenetic protocol")
+        self.amplifier.voltage_clamp()
+        self.sleep(0.25)
+        holding = self.amplifier.get_holding()
+        if holding is None:
+            holding = -0.070
+        self.amplifier.set_holding(holding)
+        self.info(f'holding at {holding} mV')
+        self.sleep(0.25)
+
+        results = []
+
+        color_cycle = ["red", "green", "cyan", "uv", "blue"]
+
+        def _coerce_wavelength(value):
+            if isinstance(value, str):
+                return value.strip().lower()
+            try:
+                idx = int(value)
+            except (TypeError, ValueError):
+                return value
+            if idx == 7:
+                return "off"
+            if idx <= 0:
+                idx = 1
+            return color_cycle[(idx - 1) % len(color_cycle)]
+
+        def _run_steps(steps, rate_hz):
+            result = self.daq.getDataFromOptogeneticProtocol(
+                laser=self.laser,
+                protocol_steps=steps,
+                rate_hz=rate_hz,
+            )
+            results.append(result)
+            self.sleep(0.25)
+
+        if protocol_params is not None:
+            randomize_target = protocol_params.get("randomize_target", protocol_params.get("mode", "wavelength"))
+            raw_wavelengths = list(protocol_params.get("wavelengths", ["green"]))
+            wavelengths = [_coerce_wavelength(value) for value in raw_wavelengths]
+            steps = self.laser.build_optogenetic_protocol(
+                wavelengths=wavelengths,
+                powers=list(protocol_params.get("powers", [50])),
+                randomize_target=randomize_target,
+                stabilize_time=float(protocol_params.get("stabilize_time", 1.0)),
+                off_time=float(protocol_params.get("off_time", 0.1)),
+                on_time=float(protocol_params.get("on_time", 0.01)),
+                replicates=int(protocol_params.get("replicates", 1)),
+                randomize=bool(protocol_params.get("randomize", True)),
+                power_divisor=float(protocol_params.get("power_divisor", 1.0)),
+            )
+            _run_steps(steps, int(protocol_params.get("rate_hz", 50_000)))
+        else:
+            cfg = self.protocol_config
+            stabilize_time = float(cfg.opto_stabilize_time)
+            off_time = float(cfg.opto_off_time)
+            on_time = float(cfg.opto_on_time)
+            replicates = int(cfg.opto_replicates)
+            rate_hz = 50_000
+
+            if cfg.opto_random_wavelength_protocol:
+                wavelengths = ["red", "green", "cyan", "uv", "blue"]
+                powers = [float(cfg.opto_wavelength_power)]
+                steps = self.laser.build_optogenetic_protocol(
+                    wavelengths=wavelengths,
+                    powers=powers,
+                    randomize_target="wavelength",
+                    stabilize_time=stabilize_time,
+                    off_time=off_time,
+                    on_time=on_time,
+                    replicates=replicates,
+                    randomize=True,
+                )
+                _run_steps(steps, rate_hz)
+
+            if cfg.opto_random_power_protocol:
+                wavelengths = [_coerce_wavelength(cfg.opto_power_wavelength)]
+                powers = list(range(0, 101, 20))
+                steps = self.laser.build_optogenetic_protocol(
+                    wavelengths=wavelengths,
+                    powers=powers,
+                    randomize_target="power",
+                    stabilize_time=stabilize_time,
+                    off_time=off_time,
+                    on_time=on_time,
+                    replicates=replicates,
+                    randomize=True,
+                )
+                _run_steps(steps, rate_hz)
+
+        if not results:
+            self.warning("No optogenetic protocol flags enabled")
+
+        self.amplifier.voltage_clamp()
+        self.info("finished running optogenetic protocol")
+        if len(results) == 1:
+            return results[0]
+        return results
     
     def isrigready(self):
         try:

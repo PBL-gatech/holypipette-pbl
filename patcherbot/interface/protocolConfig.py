@@ -1,4 +1,4 @@
-from patcherbot.utils.config import Config, NumberWithUnit, Boolean
+from patcherbot.utils.config import Config, NumberWithUnit, Boolean, Selector
 import logging
 
 
@@ -10,6 +10,8 @@ class ProtocolConfig(Config):
     current_protocol = Boolean(default=True, doc='Run the Current Protocol automatically')
     holding_protocol = Boolean(default=False, doc='Run the Holding Protocol automatically')
     voltage_sweep_protocol = Boolean(default=False, doc='Run the Voltage Sweep Protocol automatically')
+    opto_random_wavelength_protocol = Boolean(default=False, doc='Run randomized wavelength optogenetic protocol')
+    opto_random_power_protocol = Boolean(default=False, doc='Run randomized power optogenetic protocol')
 
     custom_cclamp_protocol = Boolean(default=False, doc='Customize the protocol parameters')
     cclamp_step = NumberWithUnit(30, bounds=(0, 3000), doc='Step Current', unit='pA', magnitude=1)
@@ -22,10 +24,24 @@ class ProtocolConfig(Config):
     vclamp_step = NumberWithUnit(20e-3, bounds=(0, 100e-3), doc='Voltage-clamp sweep step', unit='mV', magnitude=1e-3)
     vclamp_end = NumberWithUnit(50e-3, bounds=(0, 200e-3), doc='Voltage-clamp sweep end', unit='mV', magnitude=1e-3)
     vclamp_hold = NumberWithUnit(-110e-3, bounds=(-200e-3, 0), doc='Voltage-clamp sweep holding potential', unit='mV', magnitude=1e-3)
+    opto_stabilize_time = NumberWithUnit(1.0, bounds=(0, 60), doc='Optogenetic stabilize time', unit='s')
+    opto_off_time = NumberWithUnit(1, bounds=(0.001, 60), doc='Optogenetic off time', unit='s')
+    opto_on_time = NumberWithUnit(0.005, bounds=(0.001, 2), doc='Optogenetic on time', unit='s')
+    opto_replicates = NumberWithUnit(1, bounds=(1, 10), doc='Optogenetic replicates', unit='x')
+    opto_wavelength_power = NumberWithUnit(50, bounds=(0, 100), doc='Power for randomized wavelength protocol', unit='%')
+    opto_power_wavelength = Selector(
+        default="green",
+        objects=["red", "green", "cyan", "uv", "blue"],
+        doc='Wavelength for randomized power protocol',
+    )
 
     categories = [
-        ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol', 'voltage_sweep_protocol']),
-        ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end', 'cclamp_hold', 'vclamp_start', 'vclamp_end', 'vclamp_hold', 'hclamp_duration']),
+        ('Protocols', ['voltage_protocol', 'current_protocol', 'holding_protocol', 'voltage_sweep_protocol',
+                       'opto_random_wavelength_protocol', 'opto_random_power_protocol']),
+        ('Protocol Param', ['custom_cclamp_protocol', 'cclamp_step', 'cclamp_start', 'cclamp_end', 'cclamp_hold',
+                            'vclamp_start', 'vclamp_end', 'vclamp_hold', 'hclamp_duration']),
+        ('Optogenetic Protocol', ['opto_stabilize_time', 'opto_off_time', 'opto_on_time', 'opto_replicates',
+                                  'opto_wavelength_power', 'opto_power_wavelength']),
     ]
 
     logging.info("ProtocolConfig initialized successfully.")

@@ -53,6 +53,11 @@ class GraphInterface(TaskInterface):
             return self.daq.get_last_acquisition()
         else:
             return None
+
+    @command(category='DAQ',
+                description='get last optogenetic protocol data')
+    def get_last_optogenetic_data(self):
+        return getattr(self.daq, "optogenetic_protocol_data", None)
         
     @command(category='DAQ',
                 description='obtain acquision mode')

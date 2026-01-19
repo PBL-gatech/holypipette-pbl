@@ -172,6 +172,9 @@ class DAQ(TaskController):
         self.leak_subtraction_data = None
         self.leak_subtraction_meta = None
         self.holding_protocol_data = None
+        self.optogenetic_protocol_data = None
+        self.optogenetic_stim_data = None
+        self.optogenetic_protocol_type = None
         self._deviceLock = threading.Lock()
         self.isRunningProtocol = False
         self.totalResistance = None
@@ -330,6 +333,13 @@ class DAQ(TaskController):
 
     def getDataFromHoldingProtocol(self, *args, **kwargs):
         """Acquire baseline holding data (no command output).
+
+        Sub-classes **must** implement this.
+        """
+        raise NotImplementedError("Implement in subclass.")
+
+    def getDataFromOptogeneticProtocol(self, *args, **kwargs):
+        """Acquire holding data while running a laser protocol.
 
         Sub-classes **must** implement this.
         """
@@ -947,6 +957,52 @@ class NiDAQ(DAQ):
         self.ao_task.write(wave, auto_start=False)
         self.ao_task.start()
         self.ai_task.start()
+
+    def _build_optogenetic_timeline(self, protocol_steps: list[dict]):
+        stim_timeline: list[dict] = []
+        cursor = 0.0
+        for step in protocol_steps:
+            duration = float(step.get("duration_s", 0.0))
+            if duration <= 0:
+                continue
+            entry = dict(step)
+            entry["start_s"] = cursor
+            cursor += duration
+            entry["end_s"] = cursor
+            stim_timeline.append(entry)
+
+        if not stim_timeline:
+            raise ValueError("protocol_steps must contain positive durations")
+
+        protocol_type = stim_timeline[0].get("protocol_type")
+        return stim_timeline, cursor, protocol_type
+
+    def _setup_optogenetic_ai_task(self, rate_hz: int, num_samples: int):
+        ai = nidaqmx.Task()
+        ai.ai_channels.add_ai_voltage_chan(
+            f"{self.readDev}/{self.readChannel}",
+            terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF,
+            min_val=-10.0, max_val=10.0)
+        ai.ai_channels.add_ai_voltage_chan(
+            f"{self.respDev}/{self.respChannel}",
+            terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF,
+            min_val=-10.0, max_val=10.0)
+        ai.timing.cfg_samp_clk_timing(
+            rate=rate_hz,
+            sample_mode=nidaqmx.constants.AcquisitionType.FINITE,
+            samps_per_chan=num_samples)
+        return ai
+
+    def _read_optogenetic_ai(self, ai_task, num_samples: int, duration_s: float, start_event=None):
+        ai_task.start()
+        if start_event is not None:
+            start_event.set()
+        raw = ai_task.read(
+            number_of_samples_per_channel=num_samples,
+            timeout=duration_s + 2.0)
+        ai_task.stop()
+        ai_task.close()
+        return np.asarray(raw, dtype=float)
 
     def _setupAcquisitionVoltage(self,
                                  *,
@@ -1639,6 +1695,91 @@ class NiDAQ(DAQ):
 
         finally:
             # ---------------------------------------------- 3. resume stream
+            self.resume_acquisition()
+
+    def getDataFromOptogeneticProtocol(
+        self,
+        *,
+        laser,
+        protocol_steps: list[dict],
+        rate_hz: int = 50_000,
+    ):
+        """
+        Modified holding protocol that records during optogenetic stimulation.
+
+        Returns
+        -------
+        (np.ndarray, list[dict])
+            [time_s, resp_V, read_V] and the stimulation timeline.
+        """
+        if laser is None:
+            raise ValueError("laser is required")
+        if protocol_steps is None or len(protocol_steps) == 0:
+            raise ValueError("protocol_steps must contain at least one step")
+
+        stim_timeline, duration_s, protocol_type = self._build_optogenetic_timeline(protocol_steps)
+        num_samples = int(rate_hz * duration_s)
+        if num_samples <= 0:
+            raise ValueError("Optogenetic protocol duration too short")
+
+        self.pause_acquisition()
+
+        start_evt = threading.Event()
+        stop_evt = threading.Event()
+        laser_thread = None
+        ai = None
+
+        try:
+            try:
+                laser.power_off()
+            except Exception:
+                pass
+
+            laser_thread = laser.start_protocol(
+                stim_timeline,
+                start_event=start_evt,
+                stop_event=stop_evt,
+                ensure_off=True,
+            )
+
+            ai = self._setup_optogenetic_ai_task(rate_hz, num_samples)
+            raw = self._read_optogenetic_ai(ai, num_samples, duration_s, start_evt)
+            ai = None
+
+            stop_evt.set()
+            if laser_thread is not None and laser_thread.is_alive():
+                laser_thread.join(timeout=2.0)
+
+            resp = raw[1]
+            read = raw[0]
+            t = np.linspace(0, duration_s, num_samples, dtype=float)
+
+            self.optogenetic_protocol_data = np.array([t, resp, read])
+            actual_timeline = None
+            if laser_thread is not None:
+                actual_timeline = laser_thread.get_last_data()
+            self.optogenetic_stim_data = actual_timeline or stim_timeline
+            if protocol_type is None and self.optogenetic_stim_data:
+                protocol_type = self.optogenetic_stim_data[0].get("protocol_type")
+            self.optogenetic_protocol_type = protocol_type
+            return self.optogenetic_protocol_data, self.optogenetic_stim_data
+
+        finally:
+            stop_evt.set()
+            try:
+                if laser_thread is not None and laser_thread.is_alive():
+                    laser_thread.join(timeout=2.0)
+            except Exception:
+                pass
+            try:
+                laser.power_off()
+            except Exception:
+                pass
+            try:
+                if ai is not None:
+                    ai.stop(); ai.close()
+            except Exception:
+                pass
             self.resume_acquisition()
 
     def getDataFromVoltageProtocol(

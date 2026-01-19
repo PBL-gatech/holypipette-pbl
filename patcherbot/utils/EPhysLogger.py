@@ -99,6 +99,53 @@ class EPhysLogger(threading.Thread):
         else:
             logging.error("Failed to save plot to %s", image_path)
 
+    def _optogenetic_basename(self, index, protocol_type):
+        protocol_type = self._normalize_protocol_type(protocol_type)
+        return f"OptogeneticProtocol_{index}_{protocol_type}"
+
+    def write_optogenetic_data(self, index, timeData, readData, respData, protocol_type):
+        basename = self._optogenetic_basename(index, protocol_type)
+        self.write_ephys_data(index, timeData, readData, respData, "k", filename_override=basename)
+
+    def write_optogenetic_stim_data(self, index, stim_data, protocol_type):
+        if not stim_data:
+            return
+        self.create_folder()
+        basename = self._optogenetic_basename(index, protocol_type)
+        target_path = os.path.join(self.folder_path, f"{basename}_stim.csv")
+        header = "start_s,end_s,state,wavelength,power_percent,replicate\n"
+        write_header = not os.path.exists(target_path)
+        with open(target_path, "a+", encoding="utf-8") as f:
+            if write_header:
+                f.write(header)
+            for step in stim_data:
+                start_s = self._format_metadata_value(step.get("start_s"))
+                end_s = self._format_metadata_value(step.get("end_s"))
+                state = step.get("state", "unknown")
+                wavelength = self._format_optogenetic_value(step.get("wavelength"))
+                power = self._format_metadata_value(step.get("power_percent"))
+                replicate = self._format_metadata_value(step.get("replicate"))
+                f.write(f"{start_s},{end_s},{state},{wavelength},{power},{replicate}\n")
+
+    def save_optogenetic_plot(self, index, plot, protocol_type):
+        self.create_folder()
+        basename = self._optogenetic_basename(index, protocol_type)
+        image_path = os.path.join(self.folder_path, f"{basename}.webp")
+        exporter = QtGui.QImage(plot.width(), plot.height(), QtGui.QImage.Format_ARGB32)
+        painter = QtGui.QPainter(exporter)
+        plot.render(painter)
+        painter.end()
+
+        if exporter.save(image_path):
+            logging.info("Saved plot to %s", image_path)
+            return
+
+        fallback_path = os.path.join(self.folder_path, f"{basename}.png")
+        if exporter.save(fallback_path):
+            logging.info("Saved plot to %s", fallback_path)
+        else:
+            logging.error("Failed to save plot to %s", fallback_path)
+
     def _normalize_image(self, image):
             """Return an 8-bit version of ``image`` suitable for saving."""
             if image is None:
@@ -118,6 +165,25 @@ class EPhysLogger(threading.Thread):
         if math.isnan(value):
             return "NaN"
         return f"{value:.6g}"
+
+    def _normalize_protocol_type(self, protocol_type):
+        if protocol_type is None:
+            return "unknown"
+        name = getattr(protocol_type, "name", None)
+        if isinstance(name, str):
+            return name.lower()
+        text = str(protocol_type).strip().lower()
+        return text if text else "unknown"
+
+    def _format_optogenetic_value(self, value):
+        if value is None:
+            return "NaN"
+        if isinstance(value, str):
+            return value.strip() or "NaN"
+        name = getattr(value, "name", None)
+        if isinstance(name, str):
+            return name.lower()
+        return self._format_metadata_value(value)
 
     def _append_metadata_row(self, target_path, header, row):
         write_header = not os.path.exists(target_path)

@@ -60,13 +60,26 @@ class LumencorLaser(Laser):
         return self._wavelength_order[idx]
 
     def _resolve_wavelength(self, value):
-        """Accept WavelengthChannel, int, or str digits and return a WavelengthChannel."""
+        """Accept WavelengthChannel, color names, or int/str indices and return a WavelengthChannel."""
         if value is None:
             return None
         if isinstance(value, WavelengthChannel):
             return value
-        if isinstance(value, str) and value.isdigit():
-            value = int(value)
+        if isinstance(value, str):
+            key = value.strip().lower()
+            color_map = {
+                "red": WavelengthChannel.RED,
+                "green": WavelengthChannel.GREEN,
+                "cyan": WavelengthChannel.CYAN,
+                "uv": WavelengthChannel.UV,
+                "blue": WavelengthChannel.BLUE,
+                "teal": WavelengthChannel.TEAL,
+                "off": WavelengthChannel.OFF,
+            }
+            if key in color_map:
+                return color_map[key]
+            if key.isdigit():
+                value = int(key)
         if isinstance(value, int):
             return self._index_to_wavelength(value)
         self.warning(f"Lumencor: Unsupported wavelength value {value!r}")

@@ -26,7 +26,7 @@ from datetime import datetime
 
 from patcherbot.interface.graph import GraphInterface
 
-__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "LeakSubtractionGraph", "HoldingProtocolGraph"]
+__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "LeakSubtractionGraph", "HoldingProtocolGraph", "OptogeneticProtocolGraph"]
 
 
 class ProtocolGraph(QWidget):
@@ -319,6 +319,48 @@ class HoldingProtocolGraph(ProtocolGraph):
 
         self.latestDisplayedData = self.graph_interface.daq.holding_protocol_data.copy()
         self.graph_interface.daq.holding_protocol_data = None  # Reset after plotting
+
+class OptogeneticProtocolGraph(ProtocolGraph):
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        super().__init__(graph_interface, recording_state_manager,
+                         window_title="Optogenetic Protocol",
+                         y_label="PicoAmps", y_unit="A",
+                         x_label="Time", x_unit="s",
+                         ephys_filename="OptogeneticProtocol")
+
+    def update_plot(self):
+        daq = self.graph_interface.daq
+        if daq.optogenetic_protocol_data is None:
+            return
+
+        index = self.recording_state_manager.sample_number
+
+        if self.isHidden():
+            self.setHidden(False)
+
+        self.plotWidget.clear()
+        data = daq.optogenetic_protocol_data
+        stim_data = daq.optogenetic_stim_data
+        protocol_type = daq.optogenetic_protocol_type
+        if protocol_type is None and stim_data:
+            protocol_type = stim_data[0].get("protocol_type")
+
+        self.plotWidget.plot(data[0, :], data[1, :], pen="k")
+        self.ephys_logger.write_optogenetic_data(
+            index,
+            data[0, :],
+            data[1, :],
+            data[2, :],
+            protocol_type,
+        )
+        if stim_data:
+            self.ephys_logger.write_optogenetic_stim_data(index, stim_data, protocol_type)
+        self.ephys_logger.save_optogenetic_plot(index, self.plotWidget, protocol_type)
+
+        self.latestDisplayedData = data.copy()
+        daq.optogenetic_protocol_data = None
+        daq.optogenetic_stim_data = None
+        daq.optogenetic_protocol_type = None
 class EPhysGraph(QWidget):
     pressureLowerBound = -450
     pressureUpperBound = 730
