@@ -453,13 +453,14 @@ class ClassicPatchButtons(ButtonTabWidget):
 
         self.stage_calibration = [self.pipette_interface.set_floor, self.pipette_interface.calibrate_stage, self.pipette_interface.move_microscope]
         self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_calibration_positions, self.patch_interface.move_to_safe_space]
+        self.pipette_calibration_no_move = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_calibration_positions]
         self.pipette_cleaning_calibration = [self.patch_interface.store_cleaning_position,self.patch_interface.move_pipette_up,self.patch_interface.move_to_safe_space]
 
 
         # Add a box for calibration setup
         # buttonList = [['Calibrate Stage','Calibrate Pipette'],['set home space','set safe space'],['Store Cleaning Position'],['Clear Calibration']]
         buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Load Calibration','Clear Calibration']]
-        cmds = [[self.stage_calibration, self.pipette_calibration],
+        cmds = [[self.stage_calibration, self.pipette_calibration_no_move],
                 # [self.patch_interface.store_home_position, self.patch_interface.store_safe_position],
                 [self.pipette_cleaning_calibration],
                 [self.load_calibration, self.patch_interface.clear_positions]
@@ -478,13 +479,13 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
         # self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.rest,self.start_recording,self.patch_interface.find_pipette]
-        self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
+        # self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
         # self.pipette_location = [self.patch_interface.find_pipette]
         # add a box for testing controllability of the pipette and stage
-        buttonList = [['Follow Stage','Move Pipette Random','Find Pipette']]
-        cmds = [[self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
-                ]
-        self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
+        # buttonList = [['Follow Stage','Move Pipette Random','Find Pipette']]
+        # cmds = [[self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
+        #         ]
+        # self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
 
         # # Add a box for lamp commands
         buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
@@ -625,7 +626,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         zPos = self.pipette_interface.microscope.position()
         self.currz_stage_pos = [0, 0, zPos]
         # update pipette controller stage tare at z position as a numpy array
-        self.pipette_interface.tare_stage[2] = zPos/5  # divide by 5 to account for z-axis gear ratio
+        self.pipette_interface.tare_stage[2] = zPos  # divide by 5 to account for z-axis gear ratio
         print("Tare stage z: ", self.currz_stage_pos)
         self.pipette_interface.write_tare()
 
@@ -643,6 +644,6 @@ class ClassicPatchButtons(ButtonTabWidget):
                 label.setText(f'{label.text().split(":")[0]}: {xyPos[i]:.2f}')
             else:
                 # Note: divide by 5 here to account for z-axis gear ratio
-                label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}')
+                label.setText(f'{label.text().split(":")[0]}: {zPos:.2f}')
 
 
