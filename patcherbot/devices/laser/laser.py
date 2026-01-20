@@ -2,12 +2,9 @@
 Generic Laser class for optogenetic systems, including on/off and
 wavelength/power-addressable light engines.
 """
-__all__ = ["Laser", "LaserAcquisitionThread", "FakeLaser"]
+__all__ = ["Laser", "FakeLaser"]
 
-import collections
 import random
-import threading
-import time
 
 from patcherbot.controller import TaskController
 
@@ -21,93 +18,6 @@ def _is_off_wavelength(value):
     return isinstance(name, str) and name.upper() == "OFF"
 
 
-class LaserAcquisitionThread(threading.Thread):
-    """
-    A thread that runs a laser protocol sequence with tight timing control.
-    """
-    def __init__(self, laser, steps, start_event=None, stop_event=None, ensure_off=True):
-        super().__init__(daemon=True)
-        self.laser = laser
-        self.steps = steps or []
-        self.start_event = start_event
-        self.stop_event = stop_event if stop_event is not None else threading.Event()
-        self.ensure_off = ensure_off
-        self.running = True
-        self._last_data_queue = collections.deque(maxlen=1)
-
-    def run(self):
-        timeline = []
-        try:
-            if self.start_event is not None:
-                while not self.start_event.is_set():
-                    if self.stop_event.is_set() or not self.running:
-                        return
-                    self.start_event.wait(0.01)
-            if self.stop_event.is_set() or not self.running:
-                return
-
-            t0 = time.perf_counter()
-            with self.laser._protocol_lock:
-                for step in self.steps:
-                    if self.stop_event.is_set() or not self.running:
-                        break
-                    duration = float(step.get("duration_s", 0.0))
-                    if duration <= 0:
-                        continue
-
-                    wavelength = step.get("wavelength")
-                    power_percent = step.get("power_percent")
-                    if wavelength is not None:
-                        self.laser.set_wavelength(wavelength)
-                    if power_percent is not None and not _is_off_wavelength(wavelength):
-                        self.laser.set_power_level(power_percent, wavelength)
-
-                    state = step.get("state", "on")
-                    if state == "on" and _is_off_wavelength(wavelength):
-                        state = "off"
-                        power_percent = 0.0
-
-                    if state == "on":
-                        self.laser.power_on()
-                    else:
-                        self.laser.power_off()
-
-                    step_start = time.perf_counter() - t0
-                    deadline = time.perf_counter() + duration
-                    while self.running and not self.stop_event.is_set():
-                        remaining = deadline - time.perf_counter()
-                        if remaining <= 0:
-                            break
-                        time.sleep(min(0.001, remaining))
-                    step_end = time.perf_counter() - t0
-
-                    entry = dict(step)
-                    entry["state"] = state
-                    if power_percent is not None:
-                        entry["power_percent"] = power_percent
-                    entry["start_s"] = step_start
-                    entry["end_s"] = step_end
-                    timeline.append(entry)
-
-                if self.ensure_off:
-                    self.laser.power_off()
-
-            self._last_data_queue.append(timeline)
-        except Exception as exc:
-            self.laser.error(f"Error in LaserAcquisitionThread: {exc}")
-            if self.ensure_off:
-                try:
-                    self.laser.power_off()
-                except Exception:
-                    pass
-
-    def get_last_data(self):
-        return list(self._last_data_queue[-1]) if self._last_data_queue else None
-
-    def stop(self):
-        self.running = False
-        self.stop_event.set()
-
 class Laser(TaskController):
     """
     Base class for Lasers used in Optogenetic Systems.
@@ -117,7 +27,6 @@ class Laser(TaskController):
         Initialize the Laser with any necessary parameters.
         """
         super().__init__(*args, **kwargs)
-        self._protocol_lock = threading.Lock()
         self._initialize()
 
     def _initialize(self):
@@ -139,9 +48,20 @@ class Laser(TaskController):
     def set_wavelength(self, wavelength=None):
         """Set the excitation wavelength for the Laser."""
         raise NotImplementedError("This method should be implemented by subclasses.")
+    
     def get_wavelength(self):
         """Get the current excitation wavelength of the Laser."""
         raise NotImplementedError("This method should be implemented by subclasses.")
+
+    def set_power_level(self, power_percent: float, wavelength=None):
+        """Set the power level of a given excitation wavelength."""
+        raise NotImplementedError("This method should be implemented by subclasses.")
+
+    def get_laser_temp(self):
+        """Get a temperature reading if supported by the Laser."""
+        raise NotImplementedError("This method should be implemented by subclasses.")
+
+
 
     def get_laser_state(self):
         """Get the current state of the Laser (power level, wavelength, temperature)."""
@@ -166,14 +86,6 @@ class Laser(TaskController):
             self.power_on()
         return self.get_laser_state()
     
-    def set_power_level(self, power_percent: float, wavelength=None):
-        """Set the power level of a given excitation wavelength."""
-        raise NotImplementedError("This method should be implemented by subclasses.")
-
-    def get_laser_temp(self):
-        """Get a temperature reading if supported by the Laser."""
-        raise NotImplementedError("This method should be implemented by subclasses.")
-
     def build_optogenetic_protocol(
         self,
         *,
@@ -266,52 +178,6 @@ class Laser(TaskController):
                 })
 
         return steps
-
-    def start_protocol(
-        self,
-        steps: list[dict],
-        *,
-        start_event: threading.Event | None = None,
-        stop_event: threading.Event | None = None,
-        ensure_off: bool = True,
-    ):
-        """
-        Start a laser protocol on a background thread.
-        """
-        if steps is None:
-            return None
-        thread = LaserAcquisitionThread(
-            self,
-            steps,
-            start_event=start_event,
-            stop_event=stop_event,
-            ensure_off=ensure_off,
-        )
-        thread.start()
-        return thread
-
-    def run_protocol(
-        self,
-        steps: list[dict],
-        *,
-        start_event: threading.Event | None = None,
-        stop_event: threading.Event | None = None,
-        ensure_off: bool = True,
-    ):
-        """
-        Execute a laser protocol as a blocking sequence.
-        """
-        thread = self.start_protocol(
-            steps,
-            start_event=start_event,
-            stop_event=stop_event,
-            ensure_off=ensure_off,
-        )
-        if thread is None:
-            return None
-        thread.join()
-        return thread.get_last_data()
-
 
 class FakeLaser(Laser):
     """

@@ -119,8 +119,8 @@ class EPhysLogger(threading.Thread):
             if write_header:
                 f.write(header)
             for step in stim_data:
-                start_s = self._format_metadata_value(step.get("start_s"))
-                end_s = self._format_metadata_value(step.get("end_s"))
+                start_s = self._format_stim_time_value(step.get("start_s"))
+                end_s = self._format_stim_time_value(step.get("end_s"))
                 state = step.get("state", "unknown")
                 wavelength = self._format_optogenetic_value(step.get("wavelength"))
                 power = self._format_metadata_value(step.get("power_percent"))
@@ -165,6 +165,17 @@ class EPhysLogger(threading.Thread):
         if math.isnan(value):
             return "NaN"
         return f"{value:.6g}"
+
+    def _format_stim_time_value(self, value):
+        if value is None:
+            return "NaN"
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return "NaN"
+        if math.isnan(value):
+            return "NaN"
+        return f"{value:.17g}"
 
     def _normalize_protocol_type(self, protocol_type):
         if protocol_type is None:

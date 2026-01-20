@@ -49,6 +49,8 @@ class LumencorLaser(Laser):
         self.current_excitation_filter = ExcitationFilter.GREEN
         self.power_state = "off"
         self._power_levels = {}
+        self._output_enabled_channel = None
+        self._output_enabled_filter = None
         super().__init__()
 
     def _index_to_wavelength(self, index: int | None):
@@ -112,12 +114,22 @@ class LumencorLaser(Laser):
         self,
         wavelength: WavelengthChannel,
         excitation_filter: ExcitationFilter = ExcitationFilter.GREEN,
+        *,
+        force: bool = False,
     ):
         """Apply output selection to the controller."""
+        if (
+            not force
+            and self._output_enabled_channel == wavelength
+            and self._output_enabled_filter == excitation_filter
+        ):
+            return
         if wavelength == WavelengthChannel.OFF:
             cmd = bytearray([0x4F, 0x7F, 0x50])
             self.com.write(cmd)
             self.info("Lumencor: Output disabled.")
+            self._output_enabled_channel = wavelength
+            self._output_enabled_filter = excitation_filter
             return
 
         channel_index = 0x00
@@ -136,6 +148,8 @@ class LumencorLaser(Laser):
                 wavelength.name, excitation_filter.name
             )
         )
+        self._output_enabled_channel = wavelength
+        self._output_enabled_filter = excitation_filter
 
     def power_on(self):
         """Enable output for the selected wavelength."""
@@ -177,7 +191,11 @@ class LumencorLaser(Laser):
         return self.current_wavelength
 
     def set_power_level(
-        self, power_percent: float, wavelength: WavelengthChannel | int | str | None = None
+        self,
+        power_percent: float,
+        wavelength: WavelengthChannel | int | str | None = None,
+        *,
+        force: bool = False,
     ):
         """Set output power for a wavelength channel (0-100)."""
         if wavelength is None:
@@ -191,6 +209,8 @@ class LumencorLaser(Laser):
             return
 
         clamped = int(max(0, min(100, round(power_percent))))
+        if not force and self._power_levels.get(channel) == clamped:
+            return
 
         # calculate address of the DAC given wavelength channel
         dac_address = None

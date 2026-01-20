@@ -977,6 +977,70 @@ class NiDAQ(DAQ):
         protocol_type = stim_timeline[0].get("protocol_type")
         return stim_timeline, cursor, protocol_type
 
+    def _wait_until(self, deadline_s: float, *, tight_timing: bool = True) -> None:
+        """
+        Sleep until deadline_s; optionally spin for the last few ms to reduce jitter.
+        """
+        while True:
+            remaining = deadline_s - time.perf_counter()
+            if remaining <= 0:
+                return
+            if not tight_timing or remaining > 0.005:
+                time.sleep(min(0.001, max(0.0, remaining - 0.002)))
+                continue
+            while time.perf_counter() < deadline_s:
+                pass
+
+    def _run_optogenetic_timeline(
+        self,
+        laser,
+        stim_timeline: list[dict],
+        *,
+        t0: float | None = None,
+        tight_timing: bool = True,
+    ) -> list[dict]:
+        if laser is None:
+            raise ValueError("laser is required")
+        if t0 is None:
+            t0 = time.perf_counter()
+        actual = []
+        for step in stim_timeline:
+            start_s = float(step.get("start_s", 0.0))
+            end_s = float(step.get("end_s", start_s))
+            if end_s <= start_s:
+                continue
+            self._wait_until(t0 + start_s, tight_timing=tight_timing)
+            state = step.get("state", "on")
+            wavelength = step.get("wavelength")
+            power_percent = step.get("power_percent")
+            if state == "on":
+                if isinstance(wavelength, str) and wavelength.strip().lower() == "off":
+                    state = "off"
+                else:
+                    name = getattr(wavelength, "name", None)
+                    if isinstance(name, str) and name.upper() == "OFF":
+                        state = "off"
+            step_start = time.perf_counter() - t0
+            if state == "on":
+                if wavelength is not None:
+                    laser.set_wavelength(wavelength)
+                if power_percent is not None:
+                    laser.set_power_level(power_percent, wavelength)
+                laser.power_on()
+            else:
+                laser.power_off()
+            self._wait_until(t0 + end_s, tight_timing=tight_timing)
+            step_end = time.perf_counter() - t0
+
+            entry = dict(step)
+            entry["state"] = state
+            if power_percent is not None:
+                entry["power_percent"] = power_percent
+            entry["start_s"] = step_start
+            entry["end_s"] = step_end
+            actual.append(entry)
+        return actual
+
     def _setup_optogenetic_ai_task(self, rate_hz: int, num_samples: int):
         ai = nidaqmx.Task()
         ai.ai_channels.add_ai_voltage_chan(
@@ -993,10 +1057,7 @@ class NiDAQ(DAQ):
             samps_per_chan=num_samples)
         return ai
 
-    def _read_optogenetic_ai(self, ai_task, num_samples: int, duration_s: float, start_event=None):
-        ai_task.start()
-        if start_event is not None:
-            start_event.set()
+    def _read_optogenetic_ai(self, ai_task, num_samples: int, duration_s: float):
         raw = ai_task.read(
             number_of_samples_per_channel=num_samples,
             timeout=duration_s + 2.0)
@@ -1723,41 +1784,31 @@ class NiDAQ(DAQ):
             raise ValueError("Optogenetic protocol duration too short")
 
         self.pause_acquisition()
-
-        start_evt = threading.Event()
-        stop_evt = threading.Event()
-        laser_thread = None
         ai = None
+        actual_timeline = None
 
         try:
             try:
                 laser.power_off()
             except Exception:
                 pass
-
-            laser_thread = laser.start_protocol(
-                stim_timeline,
-                start_event=start_evt,
-                stop_event=stop_evt,
-                ensure_off=True,
-            )
-
             ai = self._setup_optogenetic_ai_task(rate_hz, num_samples)
-            raw = self._read_optogenetic_ai(ai, num_samples, duration_s, start_evt)
+            ai.start()
+            t0 = time.perf_counter()
+            actual_timeline = self._run_optogenetic_timeline(
+                laser,
+                stim_timeline,
+                t0=t0,
+                tight_timing=True,
+            )
+            raw = self._read_optogenetic_ai(ai, num_samples, duration_s)
             ai = None
-
-            stop_evt.set()
-            if laser_thread is not None and laser_thread.is_alive():
-                laser_thread.join(timeout=2.0)
 
             resp = raw[1]
             read = raw[0]
             t = np.linspace(0, duration_s, num_samples, dtype=float)
 
             self.optogenetic_protocol_data = np.array([t, resp, read])
-            actual_timeline = None
-            if laser_thread is not None:
-                actual_timeline = laser_thread.get_last_data()
             self.optogenetic_stim_data = actual_timeline or stim_timeline
             if protocol_type is None and self.optogenetic_stim_data:
                 protocol_type = self.optogenetic_stim_data[0].get("protocol_type")
@@ -1765,12 +1816,6 @@ class NiDAQ(DAQ):
             return self.optogenetic_protocol_data, self.optogenetic_stim_data
 
         finally:
-            stop_evt.set()
-            try:
-                if laser_thread is not None and laser_thread.is_alive():
-                    laser_thread.join(timeout=2.0)
-            except Exception:
-                pass
             try:
                 laser.power_off()
             except Exception:
