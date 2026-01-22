@@ -15,7 +15,7 @@ import pandas as pd
 from scipy.signal import bessel, filtfilt
 
 DEFAULT_FOLDER = Path(
-    r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2026_01_22-12_15\OptogeneticProtocol"
+    r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2026_01_22-16_16\OptogeneticProtocol"
 )
 OUTPUT_NAME = "opto_plot.webp"
 OUTPUT_PREFIX = "opto_plot"
@@ -141,7 +141,9 @@ def load_wavelength_trace(
     )
 
 
-def load_stim_windows(path: Path, active_state: str) -> List[Tuple[float, float, str]]:
+def load_stim_windows(
+    path: Path, active_state: str
+) -> List[Tuple[float, float, str, Optional[float]]]:
     df = pd.read_csv(path)
     if df.empty:
         return []
@@ -151,6 +153,7 @@ def load_stim_windows(path: Path, active_state: str) -> List[Tuple[float, float,
     end_col = columns.get("end_s") or columns.get("end") or df.columns[1]
     state_col = columns.get("state") or (df.columns[2] if len(df.columns) > 2 else None)
     wavelength_col = columns.get("wavelength") or (df.columns[3] if len(df.columns) > 3 else None)
+    power_col = columns.get("power_percent") or columns.get("power")
 
     starts = pd.to_numeric(df[start_col], errors="coerce")
     ends = pd.to_numeric(df[end_col], errors="coerce")
@@ -162,20 +165,25 @@ def load_stim_windows(path: Path, active_state: str) -> List[Tuple[float, float,
         wavelengths = df[wavelength_col].astype(str).str.lower()
     else:
         wavelengths = pd.Series(["stim"] * len(df), index=df.index)
+    if power_col:
+        powers = pd.to_numeric(df[power_col], errors="coerce")
+    else:
+        powers = pd.Series([np.nan] * len(df), index=df.index)
 
     keep = states == active_state.lower()
     windows_df = pd.DataFrame(
-        {"start": starts, "end": ends, "wavelength": wavelengths}
+        {"start": starts, "end": ends, "wavelength": wavelengths, "power": powers}
     ).loc[keep]
     windows_df = windows_df.dropna(subset=["start", "end"])
 
-    windows: List[Tuple[float, float, str]] = []
+    windows: List[Tuple[float, float, str, Optional[float]]] = []
     for row in windows_df.itertuples(index=False):
         start = float(row.start)
         end = float(row.end)
         if end < start:
             start, end = end, start
-        windows.append((start, end, str(row.wavelength)))
+        power = None if pd.isna(row.power) else float(row.power)
+        windows.append((start, end, str(row.wavelength), power))
 
     return windows
 
@@ -219,7 +227,7 @@ def wavelength_sort_key(name: str) -> int:
     return len(COLOR_ORDER)
 
 
-Segment = Tuple[Path, np.ndarray, np.ndarray, np.ndarray, float, str]
+Segment = Tuple[Path, np.ndarray, np.ndarray, np.ndarray, float, str, Optional[float]]
 
 
 def segment_trace(
@@ -227,13 +235,13 @@ def segment_trace(
     time_s: np.ndarray,
     command_v: np.ndarray,
     response_a: np.ndarray,
-    stim_windows: List[Tuple[float, float, str]],
+    stim_windows: List[Tuple[float, float, str, Optional[float]]],
     apply_filter: bool,
     cutoff_hz: float,
     order: int,
 ) -> List[Segment]:
     segments: List[Segment] = []
-    for start, end, wavelength in stim_windows:
+    for start, end, wavelength, power in stim_windows:
         window_start = start - PRE_STIM_S
         window_end = end + POST_STIM_S
         mask = (time_s >= window_start) & (time_s <= window_end)
@@ -266,6 +274,7 @@ def segment_trace(
                 resp_segment - resp_baseline,
                 end - start,
                 wavelength,
+                power,
             )
         )
     return segments
@@ -313,7 +322,13 @@ def gather_trace_pairs(
         )
         if not segments:
             continue
-        if order_by_color:
+        has_power = any(seg[6] is not None for seg in segments)
+        if has_power:
+            segments = sorted(
+                segments,
+                key=lambda seg: (float("inf") if seg[6] is None else seg[6]),
+            )
+        elif order_by_color:
             segments = sorted(segments, key=lambda seg: wavelength_sort_key(seg[5]))
         pairs.append((data_path, segments))
 
@@ -340,14 +355,14 @@ def plot_opto(
     xmin = None
     xmax = None
 
-    for _, time_s, _, _, _, _ in traces:
+    for _, time_s, _, _, _, _, _ in traces:
         if time_s.size:
             local_min = float(np.nanmin(time_s))
             local_max = float(np.nanmax(time_s))
             xmin = local_min if xmin is None else min(xmin, local_min)
             xmax = local_max if xmax is None else max(xmax, local_max)
 
-    for idx, (_, time_s, command_v, response, duration_s, wavelength) in enumerate(traces):
+    for idx, (_, time_s, command_v, response, duration_s, wavelength, power) in enumerate(traces):
         ax_cmd = axes[idx, 0]
         ax_resp = axes[idx, 1]
         stim_color = wavelength_color(wavelength)
@@ -361,6 +376,8 @@ def plot_opto(
             axis.axvline(duration_s, color=stim_color, alpha=0.6, linewidth=1.0)
 
         label = f"Stim {wavelength}"
+        if power is not None:
+            label = f"{label} ({power:g}%)"
         if duration_s > 0:
             label = f"{label} ({duration_s:.4g} s)"
         ax_cmd.set_title(label, fontsize=9)
