@@ -177,6 +177,19 @@ class Laser(TaskController):
                     "protocol_type": target,
                 })
 
+        if off_time > 0 and steps:
+            last_step = steps[-1]
+            last_state = str(last_step.get("state", "on")).lower()
+            if last_state != "off":
+                steps.append({
+                    "duration_s": float(off_time),
+                    "state": "off",
+                    "wavelength": last_step.get("wavelength"),
+                    "power_percent": 0.0,
+                    "replicate": last_step.get("replicate", -1),
+                    "protocol_type": target,
+                })
+
         return steps
 
 class FakeLaser(Laser):

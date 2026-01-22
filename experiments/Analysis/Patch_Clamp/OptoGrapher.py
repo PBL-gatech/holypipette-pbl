@@ -7,12 +7,12 @@ One plot is saved per data/stim CSV pair.
 
 from pathlib import Path
 import re
-import sys
 from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy.signal import bessel, filtfilt
 
 DEFAULT_FOLDER = Path(
     r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2026_01_22-12_15\OptogeneticProtocol"
@@ -25,6 +25,19 @@ PRE_STIM_S = 1.0
 POST_STIM_S = 1.0
 DOWN_SAMPLE: Optional[int] = None
 CHUNK_ROWS = 1_000_000
+BESSEL_CUTOFF_HZ = 3000.0
+BESSEL_ORDER = 8
+COLOR_ORDER = (
+    ("uv", "ultraviolet"),
+    ("violet", "purple"),
+    ("blue",),
+    ("cyan",),
+    ("green",),
+    ("yellow", "amber"),
+    ("orange",),
+    ("red",),
+    ("infra", "ir"),
+)
 # Column mapping for this dataset: time, response, command.
 TIME_COL = 0
 COMMAND_COL = 2
@@ -53,6 +66,38 @@ def resolve_downsample(path: Path, requested: Optional[int]) -> int:
     if size_mb <= 100:
         return 1
     return max(1, int(round(size_mb / 100)))
+
+
+def apply_bessel_filter(
+    time_s: np.ndarray,
+    signal: np.ndarray,
+    cutoff_hz: float,
+    order: int,
+) -> np.ndarray:
+    if signal.size < order * 3:
+        return signal
+
+    diffs = np.diff(time_s)
+    if diffs.size == 0:
+        return signal
+    dt = float(np.nanmedian(diffs))
+    if not np.isfinite(dt) or dt <= 0:
+        return signal
+
+    fs = 1.0 / dt
+    nyquist = 0.5 * fs
+    if not np.isfinite(nyquist) or nyquist <= 0:
+        return signal
+
+    norm_cutoff = cutoff_hz / nyquist
+    if not np.isfinite(norm_cutoff) or norm_cutoff >= 1.0 or norm_cutoff <= 0:
+        return signal
+
+    try:
+        b, a = bessel(order, norm_cutoff, btype="low", norm="phase")
+        return filtfilt(b, a, signal)
+    except Exception:
+        return signal
 
 
 def load_wavelength_trace(
@@ -137,6 +182,8 @@ def load_stim_windows(path: Path, active_state: str) -> List[Tuple[float, float,
 
 def wavelength_color(name: str) -> str:
     name = name.lower()
+    if "uv" in name or "ultraviolet" in name:
+        return "#9467bd"
     if "red" in name:
         return "#d62728"
     if "infra" in name or "ir" in name:
@@ -145,6 +192,8 @@ def wavelength_color(name: str) -> str:
         return "#1f77b4"
     if "green" in name:
         return "#2ca02c"
+    if "cyan" in name:
+        return "#7ec9f1"
     return "#7f7f7f"
 
 
@@ -162,6 +211,14 @@ def sanitize_filename(name: str) -> str:
     return cleaned.strip("_") or "protocol"
 
 
+def wavelength_sort_key(name: str) -> int:
+    name = name.lower()
+    for idx, tokens in enumerate(COLOR_ORDER):
+        if any(token in name for token in tokens):
+            return idx
+    return len(COLOR_ORDER)
+
+
 Segment = Tuple[Path, np.ndarray, np.ndarray, np.ndarray, float, str]
 
 
@@ -171,6 +228,9 @@ def segment_trace(
     command_v: np.ndarray,
     response_a: np.ndarray,
     stim_windows: List[Tuple[float, float, str]],
+    apply_filter: bool,
+    cutoff_hz: float,
+    order: int,
 ) -> List[Segment]:
     segments: List[Segment] = []
     for start, end, wavelength in stim_windows:
@@ -180,8 +240,16 @@ def segment_trace(
         if not np.any(mask):
             continue
         time_rel = time_s[mask] - start
-        cmd_segment = command_v[mask]
-        resp_segment = response_a[mask]
+        if apply_filter:
+            cmd_segment = apply_bessel_filter(
+                time_s[mask], command_v[mask], cutoff_hz, order
+            )
+            resp_segment = apply_bessel_filter(
+                time_s[mask], response_a[mask], cutoff_hz, order
+            )
+        else:
+            cmd_segment = command_v[mask]
+            resp_segment = response_a[mask]
         baseline_mask = time_rel < 0
         if np.any(baseline_mask):
             cmd_baseline = float(np.nanmean(cmd_segment[baseline_mask]))
@@ -203,7 +271,13 @@ def segment_trace(
     return segments
 
 
-def gather_trace_pairs(folder: Path) -> List[Tuple[Path, List[Segment]]]:
+def gather_trace_pairs(
+    folder: Path,
+    apply_filter: bool,
+    cutoff_hz: float,
+    order: int,
+    order_by_color: bool,
+) -> List[Tuple[Path, List[Segment]]]:
     data_files = sorted(path for path in folder.glob("*.csv") if is_data_csv(path))
     if not data_files:
         raise FileNotFoundError(f"No data CSV files found in {folder}")
@@ -227,9 +301,20 @@ def gather_trace_pairs(folder: Path) -> List[Tuple[Path, List[Segment]]]:
         if not stim_windows:
             continue
 
-        segments = segment_trace(data_path, time_s, command_v, response, stim_windows)
+        segments = segment_trace(
+            data_path,
+            time_s,
+            command_v,
+            response,
+            stim_windows,
+            apply_filter,
+            cutoff_hz,
+            order,
+        )
         if not segments:
             continue
+        if order_by_color:
+            segments = sorted(segments, key=lambda seg: wavelength_sort_key(seg[5]))
         pairs.append((data_path, segments))
 
     return pairs
@@ -317,8 +402,16 @@ def save_figure(fig: plt.Figure, output_path: Path) -> None:
     print(f"Saved: {output_path}")
 
 
-def process_folder(folder: Path) -> None:
-    trace_pairs = gather_trace_pairs(folder)
+def process_folder(
+    folder: Path,
+    apply_filter: bool,
+    cutoff_hz: float,
+    order: int,
+    order_by_color: bool,
+) -> None:
+    trace_pairs = gather_trace_pairs(
+        folder, apply_filter, cutoff_hz, order, order_by_color
+    )
     multi_pair = len(trace_pairs) > 1
 
     for data_path, traces in trace_pairs:
@@ -333,7 +426,13 @@ def process_folder(folder: Path) -> None:
         plt.close(fig)
 
 
-def main(folder: Path) -> None:
+def main(
+    folder: Path,
+    apply_filter: bool,
+    cutoff_hz: float,
+    order: int,
+    order_by_color: bool,
+) -> None:
     if not folder.is_dir():
         raise NotADirectoryError(f"{folder} is not a folder.")
 
@@ -342,9 +441,52 @@ def main(folder: Path) -> None:
         raise FileNotFoundError(f"No OptogeneticProtocol CSVs found in {folder}")
 
     for protocol_folder in protocol_folders:
-        process_folder(protocol_folder)
+        process_folder(protocol_folder, apply_filter, cutoff_hz, order, order_by_color)
 
 
 if __name__ == "__main__":
-    folder_arg = Path(sys.argv[1]) if len(sys.argv) >= 2 else DEFAULT_FOLDER
-    main(folder_arg)
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Plot optogenetic traces around each stim window."
+    )
+    parser.add_argument(
+        "folder",
+        nargs="?",
+        default=DEFAULT_FOLDER,
+        type=Path,
+        help="Root folder to search for OptogeneticProtocol CSVs.",
+    )
+    parser.add_argument(
+        "--cutoff-hz",
+        type=float,
+        default=BESSEL_CUTOFF_HZ,
+        help="Bessel low-pass cutoff frequency in Hz.",
+    )
+    parser.add_argument(
+        "--order",
+        type=int,
+        default=BESSEL_ORDER,
+        help="Bessel filter order.",
+    )
+    parser.add_argument(
+        "--no-filter",
+        action="store_true",
+        help="Disable the Bessel low-pass filter.",
+    )
+    parser.add_argument(
+        "--color-order",
+        action="store_true",
+        help="Order stim windows by wavelength color gate instead of stim file order.",
+    )
+    args = parser.parse_args()
+
+    apply_filter = not args.no_filter
+    if apply_filter:
+        print(f"Filtering: {args.cutoff_hz} Hz, order={args.order} (Bessel, filtfilt)")
+    else:
+        print("Filtering disabled.")
+    if args.color_order:
+        print("Ordering traces by color gate.")
+
+    main(args.folder, apply_filter, args.cutoff_hz, args.order, args.color_order)
