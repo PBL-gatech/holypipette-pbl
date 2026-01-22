@@ -508,6 +508,11 @@ class RigConfigManager:
             "microscope": Microscope(stage_controller, 3),
         }
         derived["microscope"].up_direction = 1.0
+        calibration = config.get("calibration")
+        if isinstance(calibration, dict):
+            units = calibration.get("microscope_units_per_um")
+            if units is not None:
+                derived["microscope"].set_units_per_um(units)
 
         # Inject refs into cameras if they declare matching kwargs
         camera = base_instances.get("camera")

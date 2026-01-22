@@ -20,7 +20,7 @@ class Microscope(Manipulator):
     '''
     A microscope Z axis, obtained here from an axis of a Manipulator.
     '''
-    def __init__(self, dev, axis):
+    def __init__(self, dev, axis, microscope_units_per_um=1.0):
         '''
         Parameters
         ----------
@@ -35,9 +35,31 @@ class Microscope(Manipulator):
         # Motor range in um; by default +- one meter
         self.min = -1e6 # This could replace floor_Z
         self.max = 1e6
+        self.microscope_units_per_um = 1.0
+        self.set_units_per_um(microscope_units_per_um)
 
     def set_max_speed(self, speed):
         self.dev.set_max_speed(speed)
+
+    def set_units_per_um(self, units_per_um):
+        if units_per_um is None:
+            return
+        try:
+            units = float(units_per_um)
+        except (TypeError, ValueError):
+            return
+        if units <= 0:
+            return
+        self.microscope_units_per_um = units
+
+    def _scale(self):
+        return self.microscope_units_per_um if self.microscope_units_per_um else 1.0
+
+    def _to_device_units(self, value_um):
+        return float(value_um) * self._scale()
+
+    def _from_device_units(self, value_dev):
+        return float(value_dev) / self._scale()
 
     def position(self):
         '''
@@ -47,7 +69,7 @@ class Microscope(Manipulator):
         -------
         The current position of the device axis in um.
         '''
-        true_position = float(self.dev.position(self.axis))
+        true_position = self._from_device_units(self.dev.position(self.axis))
         
         return true_position
 
@@ -60,7 +82,7 @@ class Microscope(Manipulator):
         x : target position in um.
         '''
         ##self.abort_if_requested()
-        self.dev.absolute_move(x, self.axis)
+        self.dev.absolute_move(self._to_device_units(x), self.axis)
         self.sleep(.05)
 
     def absolute_move_velocity(self, vel):
@@ -72,7 +94,7 @@ class Microscope(Manipulator):
         vel : velocity in um/s.
         '''
         ###self.abort_if_requested()
-        velarr = [0,0,vel]
+        velarr = [0,0,self._to_device_units(vel)]
         self.dev.absolute_move_group_velocity(velarr)
 
         # self.sleep(.05)
@@ -82,7 +104,7 @@ class Microscope(Manipulator):
         Moves the device axis to the floor position.
         '''
         ##self.abort_if_requested()
-        self.dev.absolute_move(self.floor_Z, self.axis)
+        self.dev.absolute_move(self._to_device_units(self.floor_Z), self.axis)
         self.dev.wait_until_still([self.axis])
         print(f"Moved to floor at {self.floor_Z} um")
         # self.dev.absolute_move(self.floor_Z, self.axis)
@@ -109,7 +131,7 @@ class Microscope(Manipulator):
         x : position shift in um.
         '''
         ##self.abort_if_requested()
-        self.dev.relative_move(x, self.axis)
+        self.dev.relative_move(self._to_device_units(x), self.axis)
         self.sleep(.05)
 
     def step_move(self, distance):
@@ -120,7 +142,7 @@ class Microscope(Manipulator):
         distance : step size in um.
         '''
         ###self.abort_if_requested()
-        self.dev.step_move(distance, self.axis)
+        self.dev.step_move(self._to_device_units(distance), self.axis)
 
     def stop(self):
         """

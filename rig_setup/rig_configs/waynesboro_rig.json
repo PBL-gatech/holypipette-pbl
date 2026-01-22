@@ -5,8 +5,8 @@
     "patch_file":  "ibb_patch.yaml",
     "protocol_file":  "ibb_protocol.yaml",
     "calibration":  {
-                        "pipette_detector_model":  "pipette-small.onnx",
-                        "pipette_focuser_model":  "regression_model2.onnx"
+                        "pipette_detector_model":  "WBPipetteDetectorNet2.onnx",
+                        "pipette_focuser_model":  "WaynesBoroPipetteFocuserNet.onnx"
                     },
     "ai_features":  {
                         "enabled":  true
@@ -20,7 +20,7 @@
                                                                            "baudrate":  9600,
                                                                            "timeout":  1
                                                                        },
-                                                            "max_speed":  100000,
+                                                            "max_speed":  10000,
                                                             "max_accel":  1000,
                                                             "polling_freq":  100
                                                         }

@@ -147,13 +147,18 @@ class EPhysLogger(threading.Thread):
             logging.error("Failed to save plot to %s", fallback_path)
 
     def _normalize_image(self, image):
-            """Return an 8-bit version of ``image`` suitable for saving."""
+            """Return an 8-bit version of ``image`` without histogram normalization."""
             if image is None:
                 return None
-            if image.dtype != np.uint8:
-                image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
-                image = image.astype(np.uint8)
-            return image
+            if image.dtype == np.uint8:
+                return image
+            if np.issubdtype(image.dtype, np.integer):
+                if image.dtype.itemsize > 1:
+                    shift = max(image.dtype.itemsize * 8 - 8, 0)
+                    if shift:
+                        image = (image.astype(np.uint64) >> shift)
+                return np.clip(image, 0, 255).astype(np.uint8)
+            return np.clip(image, 0, 255).astype(np.uint8)
 
     def _format_metadata_value(self, value):
         if value is None:
@@ -203,7 +208,7 @@ class EPhysLogger(threading.Thread):
                 f.write(header)
             f.write(row)
 
-    def save_cell_metadata(self, index, stage_coords, image=None, *, voltage_hold=None, current_hold=None):
+    def save_cell_metadata(self, index, stage_coords, image=None, *, image_fluo=None, voltage_hold=None, current_hold=None):
         """Save cell image and stage coordinates for a given protocol index."""
         self.create_folder()
 
@@ -215,13 +220,19 @@ class EPhysLogger(threading.Thread):
         image = self._normalize_image(image)
         imageio.imwrite(os.path.join(self.folder_path, img_filename), image)
 
+        img_fluo_filename = "NaN"
+        if image_fluo is not None:
+            img_fluo_filename = f"cell_{index}_fluo.webp"
+            image_fluo = self._normalize_image(image_fluo)
+            imageio.imwrite(os.path.join(self.folder_path, img_fluo_filename), image_fluo)
+
         timestamp = int(datetime.now().timestamp() * 1000)
         voltage_hold_str = self._format_metadata_value(voltage_hold)
         current_hold_str = self._format_metadata_value(current_hold)
-        header = "index;stage_x;stage_y;stage_z;image;timestamp;voltage_hold_mV;current_hold_pA\n"
+        header = "index;stage_x;stage_y;stage_z;image;image_fluo;timestamp;voltage_hold_mV;current_hold_pA\n"
         row = (
             f"{index};{stage_coords[0]};{stage_coords[1]};{stage_coords[2]};"
-            f"{img_filename};{timestamp};{voltage_hold_str};{current_hold_str}\n"
+            f"{img_filename};{img_fluo_filename};{timestamp};{voltage_hold_str};{current_hold_str}\n"
         )
         self._append_metadata_row(self.cell_metadata_file, header, row)
 

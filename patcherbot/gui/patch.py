@@ -451,17 +451,23 @@ class ClassicPatchButtons(ButtonTabWidget):
             tare_func=self.tare_pipette
         )
 
-        self.stage_calibration = [self.pipette_interface.set_floor, self.pipette_interface.calibrate_stage, self.pipette_interface.move_microscope]
+        self.stage_calibration = [
+            self.pipette_interface.set_floor,
+            self.pipette_interface.calibrate_stage,
+            lambda: self.pipette_interface.move_microscope(
+                float(self.pipette_interface.calibrated_unit.config.home_position_delta_um)
+            ),
+        ]
         self.pipette_calibration = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_calibration_positions, self.patch_interface.move_to_safe_space]
         self.pipette_calibration_no_move = [self.pipette_interface.calibrate_manipulator, self.patch_interface.store_calibration_positions]
         self.pipette_cleaning_calibration = [self.patch_interface.store_cleaning_position,self.patch_interface.move_pipette_up,self.patch_interface.move_to_safe_space]
 
 
         # Add a box for calibration setup
-        # buttonList = [['Calibrate Stage','Calibrate Pipette'],['set home space','set safe space'],['Store Cleaning Position'],['Clear Calibration']]
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Load Calibration','Clear Calibration']]
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['set home space','set safe space'],['Store Cleaning Position'],['Clear Calibration']]
+        # buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Load Calibration','Clear Calibration']]
         cmds = [[self.stage_calibration, self.pipette_calibration_no_move],
-                # [self.patch_interface.store_home_position, self.patch_interface.store_safe_position],
+                [self.patch_interface.store_home_position, self.patch_interface.store_safe_position],
                 [self.pipette_cleaning_calibration],
                 [self.load_calibration, self.patch_interface.clear_positions]
         ]
@@ -496,11 +502,16 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.addButtonList('fluorescence', layout, buttonList, cmds, sequential=True)
 
         # Add a box for patching commands
-        buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
+        buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],
+                      ['Locate Cell','Hunt Cell','Gigaseal'],
+                      ['Break-in','Run Protocols'],
+                      ['Patch Cell','Attempt Whole Cell','Escape Cell']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.center_on_cell],
                 [self.patch_interface.locate_cell,[self.start_recording,self.patch_interface.hunt_cell],self.patch_interface.gigaseal],
                 [self.patch_interface.break_in,[self.stop_recording,self.patch_interface.run_protocols]],
-                [[self.start_recording,self.patch_interface.patch,self.stop_recording],[self.stop_recording,self.patch_interface.escape_cell]]
+                [[self.start_recording,self.patch_interface.patch,self.stop_recording],
+                 [self.start_recording,self.patch_interface.whole_cell,self.stop_recording],
+                 [self.stop_recording,self.patch_interface.escape_cell]]
 ]
         self.addButtonList('patching', layout, buttonList, cmds,sequential=True)
 
@@ -626,7 +637,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         zPos = self.pipette_interface.microscope.position()
         self.currz_stage_pos = [0, 0, zPos]
         # update pipette controller stage tare at z position as a numpy array
-        self.pipette_interface.tare_stage[2] = zPos  # divide by 5 to account for z-axis gear ratio
+        self.pipette_interface.tare_stage[2] = zPos
         print("Tare stage z: ", self.currz_stage_pos)
         self.pipette_interface.write_tare()
 
@@ -643,7 +654,6 @@ class ClassicPatchButtons(ButtonTabWidget):
             if i < 2:
                 label.setText(f'{label.text().split(":")[0]}: {xyPos[i]:.2f}')
             else:
-                # Note: divide by 5 here to account for z-axis gear ratio
                 label.setText(f'{label.text().split(":")[0]}: {zPos:.2f}')
 
 

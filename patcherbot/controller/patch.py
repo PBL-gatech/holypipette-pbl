@@ -70,8 +70,7 @@ class AutoPatcher(TaskController):
         self.done = False
 
     def _microscope_z_um(self) -> float:
-        scale = self.calibrated_unit.config.microscope_units_per_um
-        return float(self.microscope.position() / scale)
+        return float(self.microscope.position())
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -1284,6 +1283,72 @@ class AutoPatcher(TaskController):
             self._state_recorder = None
             self._in_patch = False
 
+    @record_state("whole_cell")
+    def whole_cell(self, cell=None):
+        """ method similar to patch, but starts from gigaseal stage
+        """
+        self._in_patch = True
+        self._get_state_recorder()
+
+        def _run_phase(phase_callable, *phase_args, sleep_after=None):
+            """
+            Execute a patching phase while ignoring manual success interrupts so
+            the full sequence can continue. Any other exception still bubbles up.
+            """
+            try:
+                phase_callable(*phase_args)
+            except RequestedSuccessException:
+                return
+            finally:
+                # Reset the flag so follow-up phases do not see a stale request.
+                self.success_requested = False
+            if sleep_after:
+                self.sleep(sleep_after)
+
+        cleanup_performed = False
+
+        try:
+            # ------ rig preparation -------------------------------#
+            self.isrigready()
+            if self.rig_ready is False:
+                raise AutopatchError("Rig not ready for patching")
+
+            if cell is None:
+                raise AutopatchError("No cell given to patch!")
+
+            self.info("Starting patching process")
+
+            #! Phase 2: attempt to form a gigaseal
+            _run_phase(self.gigaseal, sleep_after=3)
+
+            #! Phase 3: break into cell
+            _run_phase(self.break_in)
+            self.info("Whole-cell achieved, resting for 5 seconds")
+            self.sleep(5)
+
+            if not self.protocol_config.custom_cclamp_protocol:
+                    #! Phase 4: run protocols
+                    self.info(f"Running protocol")
+                    _run_phase(self.run_protocols)
+
+            self.success_requested = True
+            cleanup_performed = True
+
+        finally:
+            if not cleanup_performed:
+                try:
+                    self.info("Patch attempt interrupted, running escape cleanup")
+                    if self.config.auto_clean_pipette:
+                        self.escape()
+                except RequestedSuccessException:
+                    # Escape may also set success; clear it so teardown can finish.
+                    self.success_requested = False
+                except Exception as cleanup_error:
+                    self.warning(f"Cleanup escape failed: {cleanup_error}")
+            # ---- teardown so the next call starts a fresh attempt ----
+            self._state_recorder = None
+            self._in_patch = False
+
     def move_to_safe_space(self):
         '''
         Moves the pipette to the safe space.
@@ -1357,7 +1422,7 @@ class AutoPatcher(TaskController):
         finally:
             pass
 
-    def move_group_down(self,dist = 100):
+    def move_group_down(self,dist = 25):
         '''
         Moves the microsope and manipulator down by input distance in the z axis
         '''
@@ -1374,7 +1439,7 @@ class AutoPatcher(TaskController):
         finally:
             pass
     
-    def move_group_up(self,dist = 100):
+    def move_group_up(self,dist = 25):
         '''
         Moves the microscope and manipulator up by input distance in the z axis
         '''
@@ -1405,21 +1470,26 @@ class AutoPatcher(TaskController):
             raise ValueError('Safe position has not been set')
         # TODO: implement an abort mechanism
         try:
+            self.info("Cleaning pipette")
             start_x, start_y, start_z = self.calibrated_unit.position()
             safe_x, safe_y, safe_z = self.safe_position
             # Step 1: Move to the safe space
             self.move_to_safe_space()
             clean_x, clean_y, clean_z = self.cleaning_bath_position
+            self.info(f"Moving pipette to Cleaning bath position: {clean_x}, {clean_y}, {clean_z}")
+
             # Step 2: Move the pipette above the cleaning bath in the x and y directions
             self.calibrated_unit.absolute_move(clean_y, axis=1)
             self.calibrated_unit.wait_until_still(1)
             self.calibrated_unit.absolute_move(clean_x, axis=0)
             self.calibrated_unit.wait_until_still(0)
+            self.info("Pipette positioned above cleaning bath,moving down to clean")
             # Step 3: Move the pipette down to the cleaning bath
             self.calibrated_unit.absolute_move(clean_z, axis=2)
             self.calibrated_unit.wait_until_still(2)
 
             # Step 4: Cleaning
+            self.info("starting cleaning cycle")
             # Fill up with the Alconox
             self.pressure.set_ATM(atm=False)
             self.pressure.set_pressure(-600)
@@ -1433,6 +1503,7 @@ class AutoPatcher(TaskController):
 
             # Step 5: Drying
             # move pipette back to safe space in reverse
+            self.info("Cleaning complete, moving back to safe space for drying")
             self.calibrated_unit.absolute_move(safe_z, axis=2)
             self.calibrated_unit.wait_until_still(2)
             self.calibrated_unit.absolute_move(safe_x, axis=0)
@@ -1451,10 +1522,34 @@ class AutoPatcher(TaskController):
             self.pressure.set_pressure(50)
   
             # Step 6: Move back to start from safespace
+            self.info("Drying complete, moving back to start position")
             self.calibrated_unit.absolute_move_group([start_x,safe_y,start_z], [0,1,2])
             self.calibrated_unit.wait_until_still()
             self.calibrated_unit.absolute_move(start_y, axis=1)
             self.calibrated_unit.wait_until_still() # Ensure movement completes
+        finally:
+            self.info("Pipette clean complete")
+            pass
+
+    def clean_pipette_no_move(self):
+        '''
+        Cleans the pipette without moving to cleaning bath position
+        '''
+        try:
+            # Cleaning
+            # Fill up with the Alconox
+            self.pressure.set_ATM(atm=False)
+            self.pressure.set_pressure(-600)
+            self.sleep(1)
+            # 5 cycles of tip cleaning
+            for i in range(1, 5):
+                self.pressure.set_pressure(-600)
+                self.sleep(0.75)
+                self.pressure.set_pressure(1000)
+                self.sleep(0.75)
+
+            self.pressure.set_pressure(50)
+  
         finally:
             pass
 
@@ -1594,6 +1689,7 @@ class AutoPatcher(TaskController):
             target = fluo
 
         self.lamp.set_filter(target)
+        self.sleep(0.1)
 
     def move_cube_left(self):
         current = self.lamp.get_filter()

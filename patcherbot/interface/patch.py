@@ -62,8 +62,7 @@ class AutoPatchInterface(TaskInterface):
         self.timer.start(50)
 
     def _microscope_z_um(self) -> float:
-        scale = self.pipette_controller.calibrated_unit.config.microscope_units_per_um
-        return float(self.pipette_controller.calibrated_unit.microscope.position() / scale)
+        return float(self.pipette_controller.calibrated_unit.microscope.position())
 
     def _protocol_holding_parameters(self):
         config = self.current_autopatcher.config
@@ -84,6 +83,17 @@ class AutoPatchInterface(TaskInterface):
                 current_hold = float("nan")
 
         return voltage_hold, current_hold
+
+    def _wait_for_filter_slot(self, target_slot, timeout_s=2.0, poll_interval_s=0.05):
+        if target_slot is None:
+            return
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            current_slot = self.current_autopatcher.lamp.get_filter()
+            if current_slot == target_slot:
+                return
+            time.sleep(poll_interval_s)
+        self.warning(f"Timed out waiting for lamp filter to reach slot {target_slot}")
 
     
     @blocking_command(category='Patch', description='Break into the cell',
@@ -132,12 +142,13 @@ class AutoPatchInterface(TaskInterface):
         self.recording_state_manager.increment_sample_number()
         index = self.recording_state_manager.sample_number
         if self.cells_to_patch:
-            stage_coords, img,stage_coords_um = self.cells_to_patch[0]
+            stage_coords, img, stage_coords_um, img_fluo = self.cells_to_patch[0]
             voltage_hold, current_hold = self._protocol_holding_parameters()
             self.ephys_logger.save_cell_metadata(
                 index,
                 stage_coords_um,
                 img,
+                image_fluo=img_fluo,
                 voltage_hold=voltage_hold,
                 current_hold=current_hold,
             )
@@ -186,18 +197,37 @@ class AutoPatchInterface(TaskInterface):
             if img is None or img.shape != (512, 512):
                 raise RuntimeError('Cell too Close to edge!')
             
+            img_fluo = None
+            if self.config.auto_capture_fluo:
+                fluo_slot = int(self.config.lamp)
+                current_slot = self.current_autopatcher.lamp.get_filter()
+                did_toggle = current_slot != fluo_slot
+                if did_toggle:
+                    self.current_autopatcher.toggle_fluorescence()
+                    self._wait_for_filter_slot(fluo_slot)
+                try:
+                    img_fluo = self.current_autopatcher.calibrated_unit.camera.get_16bit_image()
+                    img_fluo = img_fluo[int(position[1]-256):int(position[1]+256), int(position[0]-256):int(position[0]+256)]
+                    if img_fluo is None or img_fluo.shape != (512, 512):
+                        raise RuntimeError('Cell too Close to edge!')
+                finally:
+                    if did_toggle:
+                        self.current_autopatcher.toggle_fluorescence()
+                        if current_slot is not None:
+                            self._wait_for_filter_slot(current_slot)
+
             #save the image
             # img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
             # cv2.imwrite(f'cell_{len(self.cells_to_patch)}.png', img)
-            self.cells_to_patch.append((np.array(stage_pos_pixels), img, stage_pos_um))
+            self.cells_to_patch.append((np.array(stage_pos_pixels), img, stage_pos_um, img_fluo))
             self.is_selecting_cells = False
 
     # Update the cell list to store both cell coordinates and image.
     def update_camera_cell_list(self) -> None:
         self.current_autopatcher.calibrated_unit.camera.cell_list = []
-        for cell, img,pos in self.cells_to_patch:
+        for cell, img, pos, _img_fluo in self.cells_to_patch:
             camera_pos = -cell + self.current_autopatcher.calibrated_stage.reference_position()
-            self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img,pos))
+            self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img, pos))
             
     @command(category='Test', 
              description='Send movement file to the autopatcher', 
@@ -220,7 +250,7 @@ class AutoPatchInterface(TaskInterface):
             self.warning("No cells queued for patching; skipping patch command")
             return
 
-        stage_coords, img, stage_coords_um = self.cells_to_patch[0]
+        stage_coords, img, stage_coords_um, img_fluo = self.cells_to_patch[0]
 
         # Allocate a fresh sample index and persist metadata before protocols run
         self.recording_state_manager.increment_sample_number()
@@ -230,6 +260,7 @@ class AutoPatchInterface(TaskInterface):
             index,
             stage_coords_um,
             img,
+            image_fluo=img_fluo,
             voltage_hold=voltage_hold,
             current_hold=current_hold,
         )
@@ -251,33 +282,74 @@ class AutoPatchInterface(TaskInterface):
             self.info("Patch command completed successfully; escaping cell and cleaning pipette")
             self.remove_last_cell()
 
+    @blocking_command(
+        category='Patch',
+        description='Attempt gigaseal, break in, and run protocols (optional escape)',
+        task_description='Attempting gigaseal, breaking in, running protocols, and optional escape'
+    )
+    def whole_cell(self) -> None:
+        if not self.cells_to_patch:
+            self.warning("No cells queued for patching; skipping whole-cell command")
+            return
+
+        stage_coords, img, stage_coords_um, img_fluo = self.cells_to_patch[0]
+
+        # Allocate a fresh sample index and persist metadata before protocols run
+        self.recording_state_manager.increment_sample_number()
+        index = self.recording_state_manager.sample_number
+        voltage_hold, current_hold = self._protocol_holding_parameters()
+        self.ephys_logger.save_cell_metadata(
+            index,
+            stage_coords_um,
+            img,
+            image_fluo=img_fluo,
+            voltage_hold=voltage_hold,
+            current_hold=current_hold,
+        )
+
+        success = self.execute(
+            self.current_autopatcher.whole_cell,
+            argument=(stage_coords, img, stage_coords_um)
+        )
+        time.sleep(2)
+        if success and not self.current_autopatcher.config.auto_clean_pipette:
+            self.info("Whole-cell command completed successfully, but auto escape not enabled; leaving cell in queue for manual follow-up.")
+        elif not success and self.current_autopatcher.config.auto_clean_pipette:
+            self.error("Whole-cell command did not complete successfully; cleaning pipette and escaping cell")
+            self.remove_last_cell()
+        elif not success and not self.current_autopatcher.config.auto_clean_pipette:
+            self.error("Whole-cell command did not complete and auto escape not enabled; leaving cell in queue for manual follow-up.")
+        else:
+            self.info("Whole-cell command completed successfully; escaping cell and cleaning pipette")
+            self.remove_last_cell()
+
     @blocking_command(category='Patch',
                         description='Locate the cell',
                         task_description='Moving to the cell')
     def locate_cell(self):
-        cell, img,pos = self.cells_to_patch[0]
+        cell, img, pos, img_fluo = self.cells_to_patch[0]
         self.recording_state_manager.increment_sample_number()
         self.execute(self.current_autopatcher.locate_cell,
-                      argument = (cell, img,pos))
+                      argument = (cell, img, pos))
         time.sleep(2)
  
     @blocking_command(category='Stage',
                      description = 'Center the stage on cell',
                       task_description='Centering the stage on cell')
     def center_on_cell(self):
-        cell, img,pos = self.cells_to_patch[0]
+        cell, img, pos, img_fluo = self.cells_to_patch[0]
         # print( f"patch.py: centering on cell {cell} with image {img.shape}")
         self.execute(self.current_autopatcher.calibrated_stage.center_on_cell,
-                      argument = (cell, img,pos))
+                      argument = (cell, img, pos))
 
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
     def hunt_cell(self):
-        cell, img,pos = self.cells_to_patch[0]
+        cell, img, pos, img_fluo = self.cells_to_patch[0]
         self.recording_state_manager.increment_sample_number()
         self.execute(self.current_autopatcher.hunt_cell,
-                      argument = (cell, img,pos))
+                      argument = (cell, img, pos))
         time.sleep(2)
         # self.cells_to_patch = self.cells_to_patch[1:]
 

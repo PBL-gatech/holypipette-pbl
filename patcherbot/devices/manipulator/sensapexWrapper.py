@@ -50,7 +50,7 @@ class SensapexManip(Manipulator):
         self.info(
             f"Sensapex angle {raw_angle_deg:.1f} deg ({self.armAngle:.4f} rad)"
         )
-        self.constant_z_enabled = True
+        self.constant_z_enabled = False
         self._constant_z_anchor = None
         self._constant_z_k_scale = 1.0
         # Empirical coupling from raw dx/dz measurement.
@@ -63,6 +63,7 @@ class SensapexManip(Manipulator):
 
         # Movement tracking
         self._last_move = None
+        self._move_gate = threading.Lock()
 
         # Velocity emulation state
         self._vel = [0.0, 0.0, 0.0]
@@ -246,6 +247,39 @@ class SensapexManip(Manipulator):
             if sleep_time > 0:
                 time.sleep(sleep_time)
 
+    def _get_last_move_event(self):
+        with self._lock:
+            mv = self._last_move
+        if mv is None:
+            return None
+        try:
+            return getattr(mv, "finished_event", None)
+        except Exception:
+            return None
+
+    def _wait_for_last_move_event(self, timeout=None):
+        evt = self._get_last_move_event()
+        if evt is None:
+            return False
+        try:
+            evt.wait(timeout)
+            return evt.is_set()
+        except Exception:
+            return False
+
+    def _issue_move(self, target, speed, gate=True):
+        if gate:
+            with self._move_gate:
+                self._wait_for_last_move_event(None)
+                mv = self.dev.goto_pos(target, speed)
+                with self._lock:
+                    self._last_move = mv
+                return mv
+        mv = self.dev.goto_pos(target, speed)
+        with self._lock:
+            self._last_move = mv
+        return mv
+
     # ---- Motion primitives ----
     def absolute_move(self, pos, axis, speed=None):
         self.absolute_move_group([pos], [axis], speed=speed)
@@ -272,9 +306,7 @@ class SensapexManip(Manipulator):
                 target[ax_i] = float(val)
 
             sp = float(self._max_speed if speed is None else speed)
-            mv = self.dev.goto_pos(target[: len(target)], sp)
-            self._last_move = mv
-            return mv
+            return self._issue_move(target[: len(target)], sp, gate=True)
 
     def relative_move_group(self, x, axes, speed=None):
         """
@@ -340,6 +372,14 @@ class SensapexManip(Manipulator):
             return None
 
         while True:
+            evt = self._get_last_move_event()
+            if evt is not None:
+                try:
+                    if not evt.is_set():
+                        evt.wait(0.01)
+                        continue
+                except Exception:
+                    pass
             # 1) Preferred: explicit busy query (um_is_busy / ump_is_busy)
             busy = _call_any(("um_is_busy", "ump_is_busy"))
             if busy is not None:
@@ -370,6 +410,8 @@ class SensapexManip(Manipulator):
                 continue
 
             # 3) Fallback: wait on the last move handle (older behavior)
+            if evt is not None:
+                return
             with self._lock:
                 mv = self._last_move
             if mv is None:
@@ -424,7 +466,7 @@ class SensapexManip(Manipulator):
             sp = min(max(requested, 1.0), float(self._max_speed))
 
             try:
-                mv = self.absolute_move_group(target, [1, 2, 3], speed=sp)
+                mv = self._issue_move(target, sp, gate=False)
                 try:
                     mv.finished_event.wait(dt)
                 except Exception:

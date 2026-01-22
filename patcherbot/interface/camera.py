@@ -5,8 +5,10 @@ import warnings
 import cv2
 from numpy import *
 from patcherbot.interface import TaskInterface, command, blocking_command
+import os
 import logging
 from patcherbot.utils.RecordingStateManager import RecordingStateManager
+from patcherbot.utils.FileLogger import FileLogger
 
 
 class CameraInterface(TaskInterface):
@@ -17,6 +19,14 @@ class CameraInterface(TaskInterface):
         self.camera = camera
         self.with_tracking = with_tracking
         self.recording_state_manager = RecordingStateManager()
+        self.snap_image_recorder = FileLogger(
+            self.recording_state_manager,
+            folder_path="experiments/Data/snap_image_data/",
+            isVideo=True,
+            filetype="csv",
+            recorder_filename="snap_images",
+            frame_batch_size=2,
+        )
         self.status_category = status_category
         self._is_active = False
 
@@ -88,6 +98,33 @@ class CameraInterface(TaskInterface):
              )
     def normalize(self, param=None):
         self.camera.normalize()
+
+    @command(category='Camera',
+             description='Snap image',
+             )
+    def snap_image(self, param=None):
+        try:
+            frameno, frame_time, _, raw_frame = self.camera.raw_frame_queue[0]
+        except (AttributeError, IndexError, TypeError):
+            return
+        if frameno is None or raw_frame is None or frame_time is None:
+            return
+        frame_to_save = raw_frame.copy() if hasattr(raw_frame, "copy") else raw_frame
+        recorder = self.snap_image_recorder
+        if not recorder.folder_created:
+            try:
+                os.makedirs(recorder.camera_folder_path, exist_ok=True)
+                os.makedirs(recorder.aux_camera_folder_path, exist_ok=True)
+                recorder.folder_created = True
+            except OSError as exc:
+                logging.error("Error creating snap image folder: %s", exc)
+                return
+        time_value = frame_time.timestamp()
+        image_path = os.path.join(
+            recorder.camera_folder_path,
+            f"{frameno}_{time_value}.{recorder.image_type}",
+        )
+        recorder._save_image(frame_to_save, image_path)
 
     @command(category='Camera',
              description='AutoNormalize the image',

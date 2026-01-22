@@ -28,6 +28,8 @@ class PipetteInterface(TaskInterface):
         if calibration_data:
             cleaned = {k: v for k, v in calibration_data.items() if v is not None}
             self.calibration_config.from_dict(cleaned)
+        if self.microscope is not None:
+            self.microscope.set_units_per_um(self.calibration_config.microscope_units_per_um)
         if self.camera is not None:
             self.camera.use_ai_features = bool(getattr(self.calibration_config, "use_ai_features", True))
         self.calibrated_stage = CalibratedStage(stage, None, microscope, camera,
@@ -223,7 +225,7 @@ class PipetteInterface(TaskInterface):
         
     @command(category='Microscope',
              description='Move microscope by {:.0f}μm',
-             default_arg=-1000) 
+             default_arg=-500) 
     def move_microscope(self, distance):
         # self.info(f'Moving microscope by {distance}μm')
         self.microscope.relative_move(distance)
@@ -232,8 +234,7 @@ class PipetteInterface(TaskInterface):
              description='Set the position of the floor (cover slip)',
              success_message='Cover slip position stored')
     def set_floor(self):
-        scale = self.calibrated_unit.config.microscope_units_per_um
-        self.microscope.floor_Z = self.microscope.position() / scale
+        self.microscope.floor_Z = float(self.microscope.position())
         self.info(f'Cell plane position set to {self.microscope.floor_Z}')
 
     @command(category='Stage',
