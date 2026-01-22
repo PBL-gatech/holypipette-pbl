@@ -1771,7 +1771,7 @@ class NiDAQ(DAQ):
         Returns
         -------
         (np.ndarray, list[dict])
-            [time_s, resp_V, read_V] and the stimulation timeline.
+            [time_s, resp_A, read_V] and the stimulation timeline.
         """
         if laser is None:
             raise ValueError("laser is required")
@@ -1804,8 +1804,8 @@ class NiDAQ(DAQ):
             raw = self._read_optogenetic_ai(ai, num_samples, duration_s)
             ai = None
 
-            resp = raw[1]
-            read = raw[0]
+            resp = raw[1] * self.V_CLAMP_VOLT_PER_AMP
+            read = raw[0] * self.V_CLAMP_VOLT_PER_VOLT
             t = np.linspace(0, duration_s, num_samples, dtype=float)
 
             self.optogenetic_protocol_data = np.array([t, resp, read])

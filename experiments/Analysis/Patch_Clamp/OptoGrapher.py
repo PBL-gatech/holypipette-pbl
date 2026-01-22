@@ -2,27 +2,27 @@
 """
 Plot optogenetic traces around each stim window and save WEBP plots.
 Voltage is plotted in mV and current in pA.
+One plot is saved per data/stim CSV pair.
 """
 
 from pathlib import Path
 import re
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 
 DEFAULT_FOLDER = Path(
-    r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2026_01_21-14_05\OptogeneticProtocol"
+    r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2026_01_22-12_15\OptogeneticProtocol"
 )
 OUTPUT_NAME = "opto_plot.webp"
 OUTPUT_PREFIX = "opto_plot"
 DATA_PREFIX = "OptogeneticProtocol"
 ACTIVE_STATE = "on"
-PRE_STIM_S = 0.025
-POST_STIM_S = 0.025
+PRE_STIM_S = 1.0
+POST_STIM_S = 1.0
 DOWN_SAMPLE: Optional[int] = None
 CHUNK_ROWS = 1_000_000
 # Column mapping for this dataset: time, response, command.
@@ -157,21 +157,6 @@ def is_data_csv(path: Path) -> bool:
     )
 
 
-def protocol_key(path: Path) -> str:
-    stem = path.stem
-    stem_lower = stem.lower()
-    if stem_lower.endswith("_stim"):
-        stem = stem[: -len("_stim")]
-        stem_lower = stem.lower()
-
-    if stem_lower.startswith(DATA_PREFIX.lower() + "_"):
-        stem = stem[len(DATA_PREFIX) + 1 :]
-
-    stem = re.sub(r"^\d+_", "", stem)
-    stem = stem.strip("_")
-    return stem or path.stem
-
-
 def sanitize_filename(name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", name.strip())
     return cleaned.strip("_") or "protocol"
@@ -218,12 +203,12 @@ def segment_trace(
     return segments
 
 
-def gather_traces(folder: Path) -> Dict[str, List[Segment]]:
+def gather_trace_pairs(folder: Path) -> List[Tuple[Path, List[Segment]]]:
     data_files = sorted(path for path in folder.glob("*.csv") if is_data_csv(path))
     if not data_files:
         raise FileNotFoundError(f"No data CSV files found in {folder}")
 
-    grouped: Dict[str, List[Segment]] = {}
+    pairs: List[Tuple[Path, List[Segment]]] = []
     for data_path in data_files:
         downsample = resolve_downsample(data_path, DOWN_SAMPLE)
         if DOWN_SAMPLE is None and downsample > 1:
@@ -245,79 +230,75 @@ def gather_traces(folder: Path) -> Dict[str, List[Segment]]:
         segments = segment_trace(data_path, time_s, command_v, response, stim_windows)
         if not segments:
             continue
-        group = protocol_key(data_path)
-        grouped.setdefault(group, []).extend(segments)
+        pairs.append((data_path, segments))
 
-    return grouped
+    return pairs
 
 
 def plot_opto(
     traces: List[Segment],
     title: Optional[str],
 ) -> Tuple[plt.Figure, plt.Axes]:
-    fig, (ax_cmd, ax_resp) = plt.subplots(
-        2, 1, sharex=True, figsize=(11, 7.5), gridspec_kw={"height_ratios": [1, 1]}
+    if not traces:
+        raise ValueError("No traces to plot.")
+
+    trace_count = len(traces)
+    fig_height = max(6.5, trace_count * 2.6)
+    fig, axes = plt.subplots(
+        trace_count,
+        2,
+        sharex=True,
+        figsize=(11, fig_height),
+        gridspec_kw={"width_ratios": [1, 1]},
     )
-
-    cmap = plt.get_cmap("tab10")
-    sources = sorted({trace[0] for trace in traces})
-    denom = max(1, len(sources) - 1)
-    source_colors = {
-        source: cmap(idx / denom) for idx, source in enumerate(sources)
-    }
-
-    cmd_legend_items = []
-    cmd_legend_labels = []
-    stim_legend: Dict[str, str] = {}
-    stim_spans = set()
+    axes = np.atleast_2d(axes)
     xmin = None
     xmax = None
 
-    for path, time_s, command_v, response, duration_s, wavelength in traces:
-        color = source_colors[path]
-        label = path.stem.replace("_", " ")
-        cmd_line, = ax_cmd.plot(
-            time_s, command_v * 1e3, color=color, linewidth=1.0, label=label
-        )
-        resp_line, = ax_resp.plot(
-            time_s, response * 1e12, color=color, linewidth=1.0, linestyle="--", label=label
-        )
-        if label not in cmd_legend_labels:
-            cmd_legend_items.append(cmd_line)
-            cmd_legend_labels.append(label)
-
+    for _, time_s, _, _, _, _ in traces:
         if time_s.size:
             local_min = float(np.nanmin(time_s))
             local_max = float(np.nanmax(time_s))
             xmin = local_min if xmin is None else min(xmin, local_min)
             xmax = local_max if xmax is None else max(xmax, local_max)
 
-        span_key = (round(duration_s, 9), wavelength)
-        if span_key not in stim_spans:
-            stim_spans.add(span_key)
-            stim_color = wavelength_color(wavelength)
-            for axis in (ax_cmd, ax_resp):
-                axis.axvspan(0.0, duration_s, color=stim_color, alpha=0.18, linewidth=0)
-                axis.axvline(0.0, color=stim_color, alpha=0.6, linewidth=1.0)
-                axis.axvline(duration_s, color=stim_color, alpha=0.6, linewidth=1.0)
-            stim_label = f"Stim {wavelength}"
-            stim_legend.setdefault(stim_label, stim_color)
+    for idx, (_, time_s, command_v, response, duration_s, wavelength) in enumerate(traces):
+        ax_cmd = axes[idx, 0]
+        ax_resp = axes[idx, 1]
+        stim_color = wavelength_color(wavelength)
 
-    for stim_label, color in stim_legend.items():
-        cmd_legend_items.append(mpatches.Patch(color=color, alpha=0.25, label=stim_label))
-        cmd_legend_labels.append(stim_label)
+        ax_cmd.plot(time_s, command_v * 1e3, color=stim_color, linewidth=1.0)
+        ax_resp.plot(time_s, response * 1e12, color=stim_color, linewidth=1.0)
 
-    ax_resp.set_xlabel("Time (s)")
-    ax_cmd.set_ylabel("Command voltage (mV)")
-    ax_resp.set_ylabel("Response current (pA)")
-    if title:
-        ax_cmd.set_title(title)
+        for axis in (ax_cmd, ax_resp):
+            axis.axvspan(0.0, duration_s, color=stim_color, alpha=0.18, linewidth=0)
+            axis.axvline(0.0, color=stim_color, alpha=0.6, linewidth=1.0)
+            axis.axvline(duration_s, color=stim_color, alpha=0.6, linewidth=1.0)
+
+        label = f"Stim {wavelength}"
+        if duration_s > 0:
+            label = f"{label} ({duration_s:.4g} s)"
+        ax_cmd.set_title(label, fontsize=9)
+        ax_cmd.set_ylabel("Command voltage (mV)")
+        ax_resp.set_ylabel("Response current (pA)")
+
+        if idx < trace_count - 1:
+            ax_cmd.tick_params(labelbottom=False)
+            ax_resp.tick_params(labelbottom=False)
+
     if xmin is not None and xmax is not None:
-        ax_cmd.set_xlim(xmin, xmax)
+        for row in axes:
+            for axis in row:
+                axis.set_xlim(xmin, xmax)
 
-    ax_cmd.legend(cmd_legend_items, cmd_legend_labels, loc="upper right", frameon=False, fontsize=8)
-    fig.tight_layout()
-    return fig, ax_cmd
+    axes[-1, 0].set_xlabel("Time (s)")
+    axes[-1, 1].set_xlabel("Time (s)")
+    if title:
+        fig.suptitle(title, y=0.995)
+        fig.tight_layout(rect=[0, 0, 1, 0.985])
+    else:
+        fig.tight_layout()
+    return fig, axes[0, 0]
 
 
 def find_protocol_folders(root: Path) -> List[Path]:
@@ -337,14 +318,14 @@ def save_figure(fig: plt.Figure, output_path: Path) -> None:
 
 
 def process_folder(folder: Path) -> None:
-    grouped_traces = gather_traces(folder)
-    multi_group = len(grouped_traces) > 1
+    trace_pairs = gather_trace_pairs(folder)
+    multi_pair = len(trace_pairs) > 1
 
-    for group, traces in grouped_traces.items():
-        title = group if multi_group else None
+    for data_path, traces in trace_pairs:
+        title = data_path.stem if multi_pair else None
         fig, _ = plot_opto(traces, title=title)
-        if multi_group:
-            output_name = f"{OUTPUT_PREFIX}_{sanitize_filename(group)}.webp"
+        if multi_pair:
+            output_name = f"{OUTPUT_PREFIX}_{sanitize_filename(data_path.stem)}.webp"
         else:
             output_name = OUTPUT_NAME
         output_path = folder / output_name
