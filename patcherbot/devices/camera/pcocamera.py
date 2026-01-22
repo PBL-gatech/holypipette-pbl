@@ -114,6 +114,12 @@ class PcoCamera(Camera):
         self.lowerBound = img.min()
         self.upperBound = img.max()
 
+    def unnormalize(self, img = None) -> None:
+        if not self.auto_normalize:
+            print("UNNORMALIZING")
+        self.lowerBound = 0
+        self.upperBound = 255
+
     def autonormalize(self,flag = None):
         self.auto_normalize = flag
         return self.auto_normalize
@@ -161,12 +167,24 @@ class PcoCamera(Camera):
             return None
 
         # apply upper / lower bounds (normalization)
-        span = np.maximum(self.upperBound - self.lowerBound, 1)  # Avoid division by zero
+        # span = np.maximum(self.upperBound - self.lowerBound, 1)  # Avoid division by zero
 
-        img = np.clip((img.astype(np.float32) - self.lowerBound) / span * 255, 0, 255).astype(np.uint8)
-
+        # img = np.clip((img.astype(np.float32) - self.lowerBound) / span * 255, 0, 255).astype(np.uint8)
+        img = self.apply_normalization(img)
         # # resize if needed
         # if self.width != None and self.height != None:
         #     img = cv2.resize(img, (self.width, self.height), interpolation = cv2.INTER_LINEAR)
+
+        return img
+
+
+    def apply_normalization(self, img: np.ndarray) -> np.ndarray:
+        '''Apply normalization to a given image'''
+        if img is None:
+            return None
+
+        span = np.maximum(self.upperBound - self.lowerBound, 1)  # Avoid division by zero
+
+        img = np.clip((img.astype(np.float32) - self.lowerBound) / span * 255, 0, 255).astype(np.uint8)
 
         return img

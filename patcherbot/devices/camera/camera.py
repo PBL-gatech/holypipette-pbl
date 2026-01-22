@@ -341,6 +341,9 @@ class Camera(object):
 
     def normalize(self):
         print('Normalizing not supported for this camera')
+
+    def unnormalize(self):
+        print('Unnormalizing not supported for this camera')
         
     def autonormalize(self, state):
         self.auto_normalize = state

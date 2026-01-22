@@ -491,6 +491,11 @@ class CameraGui(QtWidgets.QMainWindow):
         self.autoexposure_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.autoexposure_button.setToolTip('Normalize the image')
 
+        self.unnormalize_button = QtWidgets.QToolButton(clicked=self.unnormalize_active_camera)
+        self.unnormalize_button.setText('Unnormalize')
+        self.unnormalize_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.unnormalize_button.setToolTip('Unnormalize the image')
+
         self.snap_image_button = QtWidgets.QToolButton(clicked=self.snap_active_camera_image)
         self.snap_image_button.setIcon(qta.icon('fa.camera'))
         self.snap_image_button.setToolTip('Snap image')
@@ -520,6 +525,7 @@ class CameraGui(QtWidgets.QMainWindow):
         # self.status_bar.addPermanentWidget(self.record_button)
         self.status_bar.addPermanentWidget(self.snap_image_button)
         self.status_bar.addPermanentWidget(self.autoexposure_button)
+        self.status_bar.addPermanentWidget(self.unnormalize_button)
         self.status_bar.addPermanentWidget(self.autonormalize_checkbox)
 
         self.status_bar.setSizeGripEnabled(False)
@@ -622,6 +628,11 @@ class CameraGui(QtWidgets.QMainWindow):
         if self.active_interface is None:
             return
         self.active_interface.normalize()
+
+    def unnormalize_active_camera(self):
+        if self.active_interface is None:
+            return
+        self.active_interface.unnormalize()
 
     def snap_active_camera_image(self):
         if self.active_interface is None:

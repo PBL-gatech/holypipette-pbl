@@ -100,6 +100,12 @@ class CameraInterface(TaskInterface):
         self.camera.normalize()
 
     @command(category='Camera',
+             description='Unnormalize the image',
+             )
+    def unnormalize(self, param=None):
+        self.camera.unnormalize()
+
+    @command(category='Camera',
              description='Snap image',
              )
     def snap_image(self, param=None):
