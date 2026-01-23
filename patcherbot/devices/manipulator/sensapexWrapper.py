@@ -44,22 +44,17 @@ class SensapexManip(Manipulator):
         self.max_acceleration = self.DEFAULT_MAX_ACCELERATION if max_acceleration is None else max_acceleration
         self._max_speed = float(self.max_speed)
         self._max_accel = float(self.max_acceleration)
-        raw_angle_deg = float(self._get_axis_angle())
-        # Sensapex SDK reports degrees; convert once to radians for internal use.
-        self.armAngle = -math.radians(raw_angle_deg)
-        self.info(
-            f"Sensapex angle {raw_angle_deg:.1f} deg ({self.armAngle:.4f} rad)"
-        )
-        self.constant_z_enabled = False
-        self._constant_z_anchor = None
-        self._constant_z_k_scale = 1.0
-        # Empirical coupling from raw dx/dz measurement.
-        self._constant_z_gain = -16.41 / 33.77
-        self._constant_z_theta = math.atan(self._constant_z_gain)
-
         # Position cache (um)
         self.current_pos = [0.0, 0.0, 0.0]
+        # Number of axes
+        self.dev.set_n_axes(4)  # force 4-axis mode
+        test = self.dev.n_axes()
+        self.info("Sensapex device has %d axes", test)
+        pos = self.dev.get_pos(1)
+        self.info("Initial position readback: %s", str(pos))
         self._n_axes = 3
+
+
 
         # Movement tracking
         self._last_move = None
@@ -102,20 +97,6 @@ class SensapexManip(Manipulator):
         with self._lock:
             raw_pos = list(self.current_pos)
         pos = raw_pos
-        if self.constant_z_enabled:
-            if self._constant_z_anchor is None:
-                self._constant_z_anchor = list(raw_pos)
-                self.info(f"Set constant Z anchor at: {self._constant_z_anchor}")
-            theta = self._constant_z_theta
-            if theta is not None:
-                anchor = self._constant_z_anchor
-                k_scale = self._constant_z_k_scale
-                dx = raw_pos[0] - anchor[0]
-                dz = raw_pos[2] - anchor[2]
-                z_virtual = anchor[2] + k_scale * (
-                    -math.sin(theta) * dx + math.cos(theta) * dz
-                )
-                pos = [raw_pos[0], raw_pos[1], z_virtual]
         if axis is None:
             return pos
         return pos[axis - 1]
@@ -129,100 +110,6 @@ class SensapexManip(Manipulator):
         if axis is None:
             return pos
         return pos[axis - 1]
-
-    def debug_axes_and_drift(self, sample_s=1.0, hz=50.0):
-        """Print axis count and raw X/Z drift over a short sampling window."""
-        sample_s = float(sample_s)
-        hz = float(hz)
-        if sample_s <= 0 or hz <= 0:
-            print("debug_axes_and_drift: sample_s and hz must be positive.")
-            return
-        try:
-            first = list(self.dev.get_pos(1))
-        except Exception:
-            with self._lock:
-                first = list(self.current_pos)
-        print(f"debug_axes_and_drift: axes={len(first)}")
-        sample_count = max(1, int(sample_s * hz))
-        xs = np.empty(sample_count, dtype=np.float64)
-        zs = np.empty(sample_count, dtype=np.float64)
-        delay = 1.0 / hz
-        for idx in range(sample_count):
-            try:
-                pos = list(self.dev.get_pos(1))
-            except Exception:
-                with self._lock:
-                    pos = list(self.current_pos)
-            if len(pos) < 3:
-                pos.extend([pos[-1] if pos else 0.0] * (3 - len(pos)))
-            xs[idx] = pos[0]
-            zs[idx] = pos[2]
-            time.sleep(delay)
-        dx_range = float(np.max(xs) - np.min(xs))
-        dz_range = float(np.max(zs) - np.min(zs))
-        print(
-            f"debug_axes_and_drift: dx_range={dx_range:.2f} um, "
-            f"dz_range={dz_range:.2f} um"
-        )
-
-    def enable_constant_z_readback(self, enabled=True, gain=None):
-        """Optionally report a Z value that ignores virtual-axis induced Z drift."""
-        self.constant_z_enabled = bool(enabled)
-        if not self.constant_z_enabled:
-            return
-        if gain is not None:
-            gain = float(gain)
-            self._constant_z_gain = gain
-            self._constant_z_theta = math.atan(gain)
-        elif self._constant_z_theta is None and self._constant_z_gain is not None:
-            self._constant_z_theta = math.atan(self._constant_z_gain)
-        self._constant_z_anchor = list(self.raw_position())
-
-    def calibrate_constant_z_gain(self, duration_s=3.0, sample_hz=50.0, min_dx=5.0, reset_anchor=True):
-        """Estimate dz/dx drift from raw positions while moving the X dial."""
-        duration_s = float(duration_s)
-        sample_hz = float(sample_hz)
-        min_dx = float(min_dx)
-        if duration_s <= 0 or sample_hz <= 0:
-            self.warning("Calibration skipped: duration_s and sample_hz must be positive.")
-            return None
-        sample_count = max(2, int(duration_s * sample_hz))
-        xs = np.empty(sample_count, dtype=np.float64)
-        zs = np.empty(sample_count, dtype=np.float64)
-        delay = 1.0 / sample_hz
-
-        for idx in range(sample_count):
-            with self._lock:
-                raw_pos = list(self.current_pos)
-            xs[idx] = raw_pos[0]
-            zs[idx] = raw_pos[2]
-            time.sleep(delay)
-
-        dx_range = float(np.max(xs) - np.min(xs))
-        if abs(dx_range) < min_dx:
-            self.warning(
-                f"Calibration skipped: x range {dx_range:.2f} um is below {min_dx:.2f} um."
-            )
-            return None
-
-        x_centered = xs - xs.mean()
-        z_centered = zs - zs.mean()
-        denom = float(np.dot(x_centered, x_centered))
-        if denom <= 0:
-            self.warning("Calibration skipped: insufficient x variation.")
-            return None
-
-        gain = float(np.dot(x_centered, z_centered) / denom)
-        theta = math.atan(gain)
-        self._constant_z_gain = gain
-        self._constant_z_theta = theta
-        if reset_anchor:
-            self._constant_z_anchor = list(self.raw_position())
-        self.info(
-            f"Calibrated constant Z slope {gain:.6f} -> theta {theta:.6f} rad "
-            f"({math.degrees(theta):.3f} deg), dx range {dx_range:.2f} um."
-        )
-        return gain
 
     def update_pos_continuous(self, freq=100.0):
         """

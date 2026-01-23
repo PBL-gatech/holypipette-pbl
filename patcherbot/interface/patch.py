@@ -504,6 +504,21 @@ class AutoPatchInterface(TaskInterface):
                         task_description='Moving the group up')
     def move_group_up(self):
         self.execute(self.current_autopatcher.move_group_up)
+
+
+    @blocking_command(category='Patch',
+                      description='Move the group in x direction',
+                      task_description='Moving the group in x direction')
+    def move_group_in_x(self):
+        self.execute(self.current_autopatcher.move_group_in_x)
+
+
+    @blocking_command(category='Patch',
+                      description='Move the group in y direction',
+                        task_description='Moving the group in y direction')
+    def move_group_in_y(self):
+        self.execute(self.current_autopatcher.move_group_in_y)
+
     @blocking_command(category='Patch',
                       description='Move the pipette up',
                       task_description='Moving the pipette up')

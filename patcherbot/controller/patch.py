@@ -1451,6 +1451,33 @@ class AutoPatcher(TaskController):
             self.microscope.wait_until_still()
         finally:
             pass
+
+    def move_group_in_x(self,dist = 500):
+        '''
+        Moves the pipette and stage in x axis by input distance
+        '''
+    
+        try:
+            self.calibrated_unit.relative_move(dist, axis=0)
+            self.calibrated_unit.wait_until_still(0)
+            self.calibrated_stage.relative_move(dist, axis=0)
+            self.calibrated_stage.wait_until_still(0)
+        finally:
+            pass
+
+    def move_group_in_y(self,dist = 500):
+        '''
+        Moves the pipette and stage in y axis by input distance
+        '''
+    
+        try:
+            self.calibrated_unit.relative_move(dist, axis=1)
+            self.calibrated_unit.wait_until_still(1)
+            #rotate for pipette motion in around z
+            self.calibrated_stage.relative_move(dist, axis=1)
+            self.calibrated_stage.wait_until_still(1)
+        finally:
+            pass
     
     def move_pipette_up(self, dist = 5000):
         '''
