@@ -1452,7 +1452,7 @@ class AutoPatcher(TaskController):
         finally:
             pass
 
-    def move_group_in_x(self,dist = 500):
+    def move_group_in_x(self,dist = 25):
         '''
         Moves the pipette and stage in x axis by input distance
         '''

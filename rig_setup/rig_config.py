@@ -182,11 +182,12 @@ DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
         {
             "label": "SensapexManip",
             "class": "patcherbot.devices.manipulator.sensapexWrapper.SensapexManip",
-            "params": {"deviceID": None, "max_speed": 5000, "max_acceleration": 1},
+            "params": {"deviceID": None, "max_speed": 5000, "max_acceleration": 1, "tilt_angle_deg": 25.0},
             "fields": [
                 {"key": "deviceID", "label": "Device ID", "type": "int", "optional": True},
                 {"key": "max_speed", "label": "Max Speed", "type": "int", "optional": True},
                 {"key": "max_acceleration", "label": "Max Accel", "type": "float", "optional": True},
+                {"key": "tilt_angle_deg", "label": "Tilt Angle (deg)", "type": "float", "optional": True},
             ],
         },
     ],

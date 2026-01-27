@@ -24,7 +24,7 @@ class SensapexManip(Manipulator):
     DEFAULT_MAX_ACCELERATION = 1
 
     def __init__(self, deviceID=None, ump: UMP = None, poll_hz: float = 100.0,
-                 max_speed=None, max_acceleration=None):
+                 max_speed=None, max_acceleration=None, tilt_angle_deg=-25.0):
         Manipulator.__init__(self)
 
         # UMP connection and device selection
@@ -38,6 +38,7 @@ class SensapexManip(Manipulator):
         self.dev = self.ump.get_device(self.device_id)
 
         self._lock = threading.RLock()
+        self.tilt_angle_deg = float(tilt_angle_deg)
 
         # Tunables stored for API compatibility
         self.max_speed = self.DEFAULT_MAX_SPEED if max_speed is None else max_speed
@@ -92,6 +93,40 @@ class SensapexManip(Manipulator):
         self.max_acceleration = accel
         self._max_accel = float(accel)
 
+    @staticmethod
+    def _convert_coords(xyz, angle, direction):
+        """
+        Convert between Sensapex motor coords and stage/world coords.
+        direction=True: motor -> stage/world
+        direction=False: stage/world -> motor
+        """
+        coords = list(xyz)
+        if len(coords) < 3:
+            coords.extend([coords[-1] if coords else 0.0] * (3 - len(coords)))
+
+        angle_rad = math.radians(float(angle))
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+
+        if direction:
+            mx, my, mz = float(coords[0]), float(coords[1]), float(coords[2])
+            wx = mx * cos_a
+            wy = my
+            wz = mz - mx * sin_a
+            out = [wx, wy, wz]
+        else:
+            wx, wy, wz = float(coords[0]), float(coords[1]), float(coords[2])
+            mx = wx / cos_a
+            my = wy
+            mz = wz + mx * sin_a
+            out = [mx, my, mz]
+
+        if len(coords) > 3:
+            out.extend(coords[3:])
+        return out
+
+    
+
     # ---- Position helpers ----
     def position(self, axis=None):
         with self._lock:
@@ -117,15 +152,18 @@ class SensapexManip(Manipulator):
         Uses device.get_pos(1) which returns micrometers.
         """
         period = 1.0 / float(freq) if freq and freq > 0 else 0.01
+       
         while True:
             t0 = time.time()
             try:
                 pos = list(self.dev.get_pos(1))
+               
                 with self._lock:
                     self._n_axes = len(pos)
                     if len(pos) < 3:
                         pos.extend([pos[-1]] * (3 - len(pos)))
-                    self.current_pos = [float(pos[0]), float(pos[1]), float(pos[2])]
+                    world_pos = self._convert_coords(pos, self.tilt_angle_deg, False)
+                    self.current_pos = [float(world_pos[0]), float(world_pos[1]), float(world_pos[2])]
             except Exception:
                 pass
 
@@ -158,11 +196,13 @@ class SensapexManip(Manipulator):
         if gate:
             with self._move_gate:
                 self._wait_for_last_move_event(None)
-                mv = self.dev.goto_pos(target, speed)
+                motor_target = self._convert_coords(target, self.tilt_angle_deg, True)
+                mv = self.dev.goto_pos(motor_target, speed)
                 with self._lock:
                     self._last_move = mv
                 return mv
-        mv = self.dev.goto_pos(target, speed)
+        motor_target = self._convert_coords(target, self.tilt_angle_deg, True)
+        mv = self.dev.goto_pos(motor_target, speed)
         with self._lock:
             self._last_move = mv
         return mv
@@ -174,6 +214,7 @@ class SensapexManip(Manipulator):
     def absolute_move_group(self, x, axes, speed=None):
         x = list(x)
         axes = list(axes)
+        
         with self._lock:
             try:
                 full_current = list(self.dev.get_pos(1))
@@ -182,6 +223,10 @@ class SensapexManip(Manipulator):
 
             if len(full_current) < 3:
                 full_current.extend([full_current[-1] if full_current else 0.0] * (3 - len(full_current)))
+            world_current = list(self.current_pos)
+            if len(world_current) < 3:
+                world_current.extend([world_current[-1] if world_current else 0.0] * (3 - len(world_current)))
+            full_current[:3] = world_current[:3]
 
             target = list(full_current)
             for val, ax in zip(x, axes):
@@ -193,7 +238,14 @@ class SensapexManip(Manipulator):
                 target[ax_i] = float(val)
 
             sp = float(self._max_speed if speed is None else speed)
-            return self._issue_move(target[: len(target)], sp, gate=True)
+            mv = self._issue_move(target[: len(target)], sp, gate=True)
+            if 1 in [int(ax) for ax in axes]:
+                try:
+                    raw = self.raw_position()
+                    print(f"[Sensapex X move issued] raw_delta={self._raw_offset(raw)}")
+                except Exception:
+                    pass
+            return mv
 
     def relative_move_group(self, x, axes, speed=None):
         """
@@ -208,6 +260,7 @@ class SensapexManip(Manipulator):
 
         x = list(x)
         axes = list(axes)
+       
         with self._lock:
             cur = list(self.current_pos)
         delta = [0.0, 0.0, 0.0]

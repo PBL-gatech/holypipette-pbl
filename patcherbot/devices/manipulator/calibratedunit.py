@@ -469,7 +469,7 @@ class CalibratedUnit(ManipulatorUnit):
         self.stage.relative_move(movement_vector)
         self.stage.wait_until_still()
         #2. rotate movement vector around z then y (yaw then pitch)
-        rotated_vector = self.rotate(movement_vector, [2, 1])
+        rotated_vector = self.rotate(movement_vector, [2])
         #3. move pipette by rotated movement vector
         self.relative_move(rotated_vector)
         self.wait_until_still()
