@@ -388,8 +388,8 @@ class PipetteDetectorYOLO1(PipetteDetector):
 
 
 if __name__ == '__main__':
-    detector = PipetteDetector1()
-    path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
+    detector = PipetteDetectorYOLO1()
+    path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\snap_image_data\2026_01_27-14_57\camera_frames\22276_1769544568.447358.webp"
     img = cv2.imread(path)
 
     start = time.time()

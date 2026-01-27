@@ -5,7 +5,7 @@ from pathlib import Path
 from patcherbot.devices.manipulator.microscope import Microscope
 from patcherbot.devices.manipulator import Manipulator
 from patcherbot.devices.camera import Camera
-from patcherbot.deepLearning.pipetteDetector import PipetteDetector, PipetteDetector1
+from patcherbot.deepLearning.pipetteDetector import PipetteDetector, PipetteDetectorYOLO1
 from patcherbot.deepLearning.pipetteFocuser import PipetteFocuser
 from threading import Thread
 import logging
@@ -53,10 +53,10 @@ class PipetteCalHelper():
         model_name = getattr(self.config, "pipette_detector_model", None) if self.config is not None else None
         model_path = _resolve_model_path(model_name)
         try:
-            self.pipetteDetector: PipetteDetector = PipetteDetector1(model_path=model_path)
+            self.pipetteDetector: PipetteDetector = PipetteDetectorYOLO1(model_path=model_path)
         except Exception as exc:
-            logging.warning("Failed to initialize PipetteDetector1 (%s); using default model path", exc)
-            self.pipetteDetector = PipetteDetector1(model_path=None)
+            logging.warning("Failed to initialize PipetteDetectorYOLO1 (%s); using default model path", exc)
+            self.pipetteDetector = PipetteDetectorYOLO1(model_path=None)
         self.calibrated_stage = calibrated_stage
         # Each calibration point will be a tuple:
         #   (image_x, image_y, encoder_x, encoder_y)
