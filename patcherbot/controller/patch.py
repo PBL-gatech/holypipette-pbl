@@ -123,6 +123,10 @@ class AutoPatcher(TaskController):
         self.agenthelper.prepare_model("find_pipette")
         sleep_time = 0.005 # seconds
 
+        def _log_timing(label: str, duration_s: float) -> None:
+            """Lightweight timing logger for find_pipette stages."""
+            self.info(f"[find_pipette timing] {label}: {duration_s * 1000.0:.1f} ms")
+
         goal_needed = bool(self.goal_needed)
         random = bool(self.goal_random)
 
@@ -160,7 +164,9 @@ class AutoPatcher(TaskController):
         target_point = None
 
         while not done:
+            obs_start = time.perf_counter()
             observation = self.observe()
+            _log_timing("observation", time.perf_counter() - obs_start)
             curr_point = observation[0]
 
             if curr_point is None:
@@ -208,12 +214,15 @@ class AutoPatcher(TaskController):
                 action = None
                 target_point = None
                 err = None
+                act_start = time.perf_counter()
                 self.calibrated_unit.direct_pipette(goal)
+                _log_timing("action_direct_pipette", time.perf_counter() - act_start)
                 self.sleep(sleep_time)
                 continue
 
             if action is None:
                 # preprocess goal by cropping  and rescaling to 85 by 85
+                inf_start = time.perf_counter()
                 agent_goal = goal
                 if goal is not None:
                     agent = getattr(self.agenthelper, "agent", None)
@@ -237,6 +246,7 @@ class AutoPatcher(TaskController):
                         except Exception as exc:
                             self.warning(f"Goal preprocessing failed; using raw goal. Error: {exc}")
                 action = self.agenthelper.run_inference(observation=observation, goal=agent_goal, is_demo=False)
+                _log_timing("inference_block", time.perf_counter() - inf_start)
                 self.info(f"pipette prediction: {action} um")
 
                 if action is None:
@@ -281,7 +291,9 @@ class AutoPatcher(TaskController):
                 self.info(f" target converted distance in um: {target_point_microns_absolute} um")
 
                 self.info(f"acting...")
+                act_start = time.perf_counter()
                 self.calibrated_unit.relative_move(np.array(target_point_microns_relative))
+                _log_timing("action_relative_move", time.perf_counter() - act_start)
 
             
                 width = getattr(camera, "width", None)
