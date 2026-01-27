@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 # Make the vendored robomimic package importable without requiring installation.
 ROBO_ROOT = Path(__file__).resolve().parent / "patchModel" / "robomimic"
@@ -180,10 +182,18 @@ class ModelImporter:
     def load(self) -> "ModelImporter":
         ckpt_path = self.ckpt_path or self._find_default_checkpoint()
         ckpt_path = self._resolve_checkpoint(ckpt_path)
+        self.resolved_ckpt_path = ckpt_path
 
         device = get_torch_device(try_to_use_cuda=True)
         policy, ckpt_dict = policy_from_checkpoint(ckpt_path=str(ckpt_path), device=device, verbose=False)
         cfg, _ = config_from_checkpoint(ckpt_path=str(ckpt_path), ckpt_dict=ckpt_dict)
+        self.policy_class = policy.__class__.__name__
+        self.experiment_name = getattr(getattr(cfg, "experiment", None), "name", None)
+        # Lightweight visibility into which model is in use.
+        print(f"[PatcherBotAgentR] using checkpoint: {ckpt_path}")
+        print(f"[PatcherBotAgentR] policy class: {self.policy_class}")
+        if self.experiment_name:
+            print(f"[PatcherBotAgentR] experiment name: {self.experiment_name}")
 
         obs_modalities = self._extract_obs_modalities(cfg)
         rgb_keys = obs_modalities.get("rgb", [])
@@ -287,6 +297,11 @@ class ModelInferencer:
         self.image_layout = "CHW"
         self._last_frame_params: Optional[Dict[str, float]] = None
         self._pipette_action_dim: Optional[int] = None
+        # Keep a per-run folder name for debugging artifacts (mirrors ONNX agent behavior)
+        self._debug_run_uid = datetime.now().strftime("%Y_%m_%d-%H_%M")
+        # When True, missing goal fields will be auto‑filled from the latest observation
+        # (or zeros shaped like the observation) instead of raising.
+        self.allow_goal_placeholders: bool = True
         self.importer = model_importer.load()
         self.policy = self.importer.policy
         self.env = self.importer.env
@@ -404,16 +419,30 @@ class ModelInferencer:
         obs: Mapping[str, Any],
         *,
         reference_obs: Optional[Mapping[str, Any]] = None,
+        allow_placeholders: bool = False,
     ) -> Dict[str, Any]:
         required_keys = self._get_required_obs_keys()
         if not required_keys:
             return dict(obs)
         missing = [k for k in required_keys if k not in obs]
         if missing:
-            raise RuntimeError(
-                f"Observation missing required keys {missing}. "
-                "Provide these fields instead of relying on zero placeholders."
-            )
+            if not allow_placeholders:
+                raise RuntimeError(
+                    f"Observation missing required keys {missing}. "
+                    "Provide these fields instead of relying on zero placeholders."
+                )
+            completed = dict(obs)
+            # First try to copy values from a reference observation (e.g., the latest live frame).
+            if reference_obs:
+                for key in missing:
+                    if key in reference_obs:
+                        ref_val = reference_obs[key]
+                        completed[key] = ref_val.copy() if isinstance(ref_val, np.ndarray) else ref_val
+            # Fill anything still missing with zero-shaped placeholders.
+            for key in required_keys:
+                if key not in completed:
+                    completed[key] = self._placeholder_for_key(key, reference_obs=reference_obs)
+            return completed
         return dict(obs)
 
     @staticmethod
@@ -540,11 +569,80 @@ class ModelInferencer:
             scale_y = frame_params.get("scale_y", 1.0)
             offset_x = frame_params.get("offset_x", 0.0)
             offset_y = frame_params.get("offset_y", 0.0)
-            if scale_x != 0:
-                restored[..., 0] = restored[..., 0] / scale_x + offset_x
-            if scale_y != 0:
-                restored[..., 1] = restored[..., 1] / scale_y + offset_y
+        if scale_x != 0:
+            restored[..., 0] = restored[..., 0] / scale_x + offset_x
+        if scale_y != 0:
+            restored[..., 1] = restored[..., 1] / scale_y + offset_y
         return restored
+
+    def _save_observation(self, frame_rgb: np.ndarray, pipette_arr: Optional[np.ndarray]) -> None:
+        """Persist the current frame (with pipette overlays) under Agent_movement_data for debugging."""
+        debug_save_dir = Path(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\agent_movement_data")
+        run_dir = debug_save_dir / self._debug_run_uid
+        debug_save_dir.mkdir(parents=True, exist_ok=True)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        config_path = run_dir / "model_config.json"
+        if not config_path.exists():
+            try:
+                importer = getattr(self, "importer", None)
+                model_info = {
+                    "checkpoint_path": str(getattr(importer, "resolved_ckpt_path", None))
+                    if getattr(importer, "resolved_ckpt_path", None) is not None
+                    else None,
+                    "policy_class": getattr(importer, "policy_class", None),
+                    "experiment_name": getattr(importer, "experiment_name", None),
+                    "obs_keys": list(getattr(importer, "obs_keys", []) or []),
+                    "action_dim": getattr(importer, "action_dim", None),
+                    "frame_stack": getattr(importer, "frame_stack", None),
+                    "goal_required": getattr(importer, "goal_required", None),
+                    "image_key": getattr(importer, "image_key", None),
+                    "pipette_key": getattr(importer, "pipette_key", None),
+                    "stage_key": getattr(importer, "stage_key", None),
+                    "resistance_key": getattr(importer, "resistance_key", None),
+                    "obs_shapes": getattr(importer, "obs_shapes", None),
+                    "image_resize": list(self.image_resize) if self.image_resize else None,
+                    "image_layout": self.image_layout,
+                    "crop_size": self.crop_size,
+                    "debug_run_uid": self._debug_run_uid,
+                    "created_at": datetime.now().isoformat(),
+                }
+                config_path.write_text(json.dumps(model_info, indent=2, default=str))
+            except Exception:
+                # Config export is best-effort; failures should not block saving frames.
+                pass
+        debug_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+        save_frame = np.clip(frame_rgb, 0, 255).astype(np.uint8)
+        debug_image = Image.fromarray(save_frame)
+        overlay_points = []
+
+        pipette_debug = pipette_arr
+        if pipette_debug is not None:
+            pipette_debug = np.asarray(pipette_debug, dtype=np.float32)
+            if pipette_debug.size > 0:
+                if pipette_debug.ndim == 1:
+                    pipette_debug = pipette_debug.reshape(1, -1)
+                elif pipette_debug.ndim > 2:
+                    pipette_debug = pipette_debug.reshape(-1, pipette_debug.shape[-1])
+                if pipette_debug.ndim >= 2 and pipette_debug.shape[-1] >= 2:
+                    height, width = save_frame.shape[:2]
+                    max_x = max(width - 1.0, 0.0)
+                    max_y = max(height - 1.0, 0.0)
+                    for point in pipette_debug:
+                        if point.shape[0] < 2 or not np.all(np.isfinite(point[:2])):
+                            continue
+                        x = float(np.clip(point[0], 0.0, max_x))
+                        y = float(np.clip(point[1], 0.0, max_y))
+                        overlay_points.append((x, y))
+
+        if overlay_points:
+            draw = ImageDraw.Draw(debug_image)
+            radius = max(2, int(min(debug_image.size) * 0.02))
+            for x, y in overlay_points:
+                bbox = (x - radius, y - radius, x + radius, y + radius)
+                draw.ellipse(bbox, fill=(255, 0, 0), outline=(255, 255, 255))
+
+        debug_image.save(run_dir / f"camera_image_{debug_timestamp}.png")
 
     def _prepare_observation(
         self,
@@ -604,6 +702,14 @@ class ModelInferencer:
             elif self.pipette_key in self.obs_keys:
                 extras[self.pipette_key] = np.asarray(pipette_arr, dtype=np.float32)
 
+        # Save debug frames with pipette overlays to Agent_movement_data (parity with ONNX agent)
+        if image_arr is not None and not is_demo:
+            try:
+                self._save_observation(frame_rgb, pipette_arr)
+            except Exception:
+                # Debug saving should never break inference flow
+                pass
+
         stage_payload: Optional[np.ndarray] = None
         if stage is not None:
             stage_arr = np.asarray(stage, dtype=np.float32)
@@ -661,7 +767,11 @@ class ModelInferencer:
             arr = np.asarray(goal, dtype=np.float32).reshape(-1)
             key = self.pipette_key or "pipette_positions"
             goal_dict = {key: arr}
-        return self._complete_obs_dict(goal_dict, reference_obs=reference_obs)
+        return self._complete_obs_dict(
+            goal_dict,
+            reference_obs=reference_obs,
+            allow_placeholders=self.allow_goal_placeholders,
+        )
 
     def inference(self, observation, goal=None, is_demo: bool = False):
         image_payload, pipette_payload, stage_payload, resistance_payload, extra_payload = self._prepare_observation(

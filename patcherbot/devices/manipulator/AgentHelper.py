@@ -36,7 +36,7 @@ class AgentHelper:
             },
         }
 
-    def prepare_model(self, model_type):
+    def prepare_model(self, model_type, *, allow_goal_placeholders: bool = False):
         """Instantiate one of the supported agent subclasses."""
         self.model_type = model_type
         if model_type == "find_pipette":
@@ -69,6 +69,8 @@ class AgentHelper:
             image_size = self._infer_image_size(self._last_demo_dataset)
             if image_size is not None:
                 self.agent.set_image_size(image_size)
+        if hasattr(self.agent, "allow_goal_placeholders"):
+            self.agent.allow_goal_placeholders = bool(allow_goal_placeholders)
         self.requires_goal = bool(getattr(self.agent, "goal_required", False))
 
     def load_demo(self, actions: np.ndarray) -> None:

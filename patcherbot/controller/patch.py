@@ -120,7 +120,8 @@ class AutoPatcher(TaskController):
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
-        self.agenthelper.prepare_model("find_pipette")
+        # Allow reusing the live frame as the goal image when the model expects one
+        self.agenthelper.prepare_model("find_pipette", allow_goal_placeholders=True)
         sleep_time = 0.005 # seconds
 
         def _log_timing(label: str, duration_s: float) -> None:
@@ -1477,23 +1478,23 @@ class AutoPatcher(TaskController):
         self.lamp.set_filter(new_slot)
 
     def observe(self):
-        """ collects all inputs required for the models"""
-
+        import time
+        t0 = time.perf_counter()
 
         _, _, _, img = self.calibrated_stage.camera._last_frame_queue[0]
-        
+        t1 = time.perf_counter()
+
         cvpi = self.calibrated_unit.pipetteCalHelper.pipetteDetector.detect_pipette(img)
-        self.info(f"detected pipette position: {cvpi}")
+        t2 = time.perf_counter()
+
         pi = self.calibrated_unit.position()
-        # self.info(f"pipette position: '{pi}' ")
         st = self.calibrated_stage.position()[:2]
         stz = self.calibrated_unit.microscope.position() / 5
-        st= np.append(st, stz)
-        # self.info(f"stage position: '{st}' ")
-        res = self.resistanceRamp()
-        # self.info(f"resistance: {res}")
-        
-        # Return a list instead of trying to create heterogeneous numpy array
-        return [cvpi, st, img, res]
-        
+        st = np.append(st, stz)
+        t3 = time.perf_counter()
 
+        res = self.resistanceRamp(num_measurements=1, interval=0.001)
+        t4 = time.perf_counter()
+
+        self.info(f"[observe timing] frame={ (t1-t0)*1e3:.1f} ms | detect={ (t2-t1)*1e3:.1f} ms | coords={ (t3-t2)*1e3:.1f} ms | resistanceRamp={ (t4-t3):.3f} s | total={ (t4-t0):.3f} s")
+        return [cvpi, st, img, res]

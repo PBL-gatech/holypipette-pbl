@@ -35,7 +35,10 @@ class PipetteCalHelper():
         self.pipette: Manipulator = pipette
         self.microscope: Microscope = microscope
         self.camera = camera
-        self.pipetteDetector: PipetteDetector = PipetteDetectorYOLO1()
+        # Prefer GPU inference if available; allow override via PIPETTE_DETECTOR_DEVICE.
+        import os
+        device = os.getenv("PIPETTE_DETECTOR_DEVICE", "cuda:0")
+        self.pipetteDetector: PipetteDetector = PipetteDetectorYOLO1(device=device)
         self.calibrated_stage = calibrated_stage
         # Each calibration point will be a tuple:
         #   (image_x, image_y, encoder_x, encoder_y)
