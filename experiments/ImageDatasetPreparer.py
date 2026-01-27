@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from patcherbot.deepLearning.pipetteDetector import PipetteDetector1, PipetteDetector2
+from patcherbot.deepLearning.pipetteDetector import PipetteDetectorYOLO1, PipetteDetector2
 from patcherbot.deepLearning.pipetteFocuser import PipetteFocuser
 
 
@@ -146,7 +146,7 @@ class ImageDatasetPreparer:
         else:
             self._filter_helper = None
 
-        self.detector = PipetteDetector1() #if use_detector1 else PipetteDetector2()
+        self.detector = PipetteDetectorYOLO1() #if use_detector1 else PipetteDetector2()
         self.focuser = PipetteFocuser()
 
     def build_csv(

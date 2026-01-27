@@ -4,7 +4,7 @@ import numpy as np
 from patcherbot.devices.manipulator.microscope import Microscope
 from patcherbot.devices.manipulator import Manipulator
 from patcherbot.devices.camera import Camera
-from patcherbot.deepLearning.pipetteDetector import PipetteDetector, PipetteDetector1
+from patcherbot.deepLearning.pipetteDetector import PipetteDetector, PipetteDetectorYOLO1
 from patcherbot.deepLearning.pipetteFocuser import PipetteFocuser
 from threading import Thread
 import logging
@@ -35,7 +35,7 @@ class PipetteCalHelper():
         self.pipette: Manipulator = pipette
         self.microscope: Microscope = microscope
         self.camera = camera
-        self.pipetteDetector: PipetteDetector = PipetteDetector1()
+        self.pipetteDetector: PipetteDetector = PipetteDetectorYOLO1()
         self.calibrated_stage = calibrated_stage
         # Each calibration point will be a tuple:
         #   (image_x, image_y, encoder_x, encoder_y)

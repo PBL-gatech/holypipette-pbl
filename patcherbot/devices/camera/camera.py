@@ -13,7 +13,7 @@ import threading
 import imageio
 import logging
 from patcherbot.deepLearning.cellSegmentor import CellSegmentor2
-from patcherbot.deepLearning.pipetteDetector import PipetteDetector1
+from patcherbot.deepLearning.pipetteDetector import PipetteDetectorYOLO1
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -129,7 +129,7 @@ class Camera(object):
         self.fps = 0
 
         self.Cellseg = CellSegmentor2()
-        self.pipdetector = PipetteDetector1()
+        self.pipdetector = PipetteDetectorYOLO1()
         # testing flag
         
 

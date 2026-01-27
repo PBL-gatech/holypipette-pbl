@@ -3,7 +3,7 @@ import time
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import cv2
 import numpy as np
@@ -52,6 +52,19 @@ class PipetteDetector(ABC):
         if len(img.shape) == 2:
             return img
         return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    def _test_detector(self, img: np.ndarray,repititions: int) -> Tuple[List[float], float]:
+        """Run inference on the same image a certain number of  times and return per-run and average durations (seconds)."""
+        timings: List[float] = []
+        for _ in range(repititions):
+            start = time.perf_counter()
+            _ = self.detect_pipette(img)
+            end = time.perf_counter()
+            timings.append(end - start)
+
+        avg_time = sum(timings) / len(timings) if timings else float("nan")
+        return timings, avg_time
+
 
 
 class PipetteDetector1(PipetteDetector):
@@ -385,12 +398,17 @@ class PipetteDetectorYOLO1(PipetteDetector):
         if not (0 <= x_pix < w and 0 <= y_pix < h):
             return None
         return x_pix, y_pix
+    
+
 
 
 if __name__ == '__main__':
-    detector = PipetteDetector1()
+    detector = PipetteDetectorYOLO1()
     path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
     img = cv2.imread(path)
+
+    values = detector._test_detector(img,10)
+    print(f'Test timings (s): {values[0]}, average: {values[1]}')
 
     start = time.time()
     result = detector.detect_pipette(img)
