@@ -48,7 +48,7 @@ class CalibrationConfig(Config):
     home_position_delta_um = NumberWithUnit(-1000, unit="um",
                                            doc="Vertical offset from stage cell surface to pipette home position",
                                              bounds=(-100000, 100000))
-    safe_position_delta_um = NumberWithUnit(-18000, unit="um",
+    safe_position_delta_um = NumberWithUnit(-8000, unit="um",
                                             doc="Offset from home to safe position along pipette axis",
                                             bounds=(-100000, 100000))
     native_zero = Number(1962,

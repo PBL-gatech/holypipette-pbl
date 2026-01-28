@@ -81,6 +81,7 @@ class PipetteCalHelper():
                 dy = xy_step + np.random.uniform(-5, 5)
                 self.pipette.relative_move([dx, dy, 0])
                 self.pipette.wait_until_still()
+                self.pipette.sleep(0.5)  # Allow time for camera to update
         return len(self.cal_points) >= num_points
 
     def _record_point_with_retries(self, max_retries=5):
@@ -100,7 +101,7 @@ class PipetteCalHelper():
                 0
             ])
             self.pipette.wait_until_still()
-            time.sleep(0.5)
+            time.sleep(1)
         return False
 
     def record_cal_point(self):

@@ -468,7 +468,7 @@ class CalibratedUnit(ManipulatorUnit):
         movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), 0])
         self.stage.relative_move(movement_vector)
         self.stage.wait_until_still()
-        #2. rotate movement vector around z then y (yaw then pitch)
+        #2. rotate movement vector  y (yaw then pitch)
         rotated_vector = self.rotate(movement_vector, [2])
         #3. move pipette by rotated movement vector
         self.relative_move(rotated_vector)

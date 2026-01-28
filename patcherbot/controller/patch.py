@@ -1506,10 +1506,10 @@ class AutoPatcher(TaskController):
             self.info(f"Moving pipette to Cleaning bath position: {clean_x}, {clean_y}, {clean_z}")
 
             # Step 2: Move the pipette above the cleaning bath in the x and y directions
-            self.calibrated_unit.absolute_move(clean_y, axis=1)
-            self.calibrated_unit.wait_until_still(1)
             self.calibrated_unit.absolute_move(clean_x, axis=0)
             self.calibrated_unit.wait_until_still(0)
+            self.calibrated_unit.absolute_move(clean_y, axis=1)
+            self.calibrated_unit.wait_until_still(1)
             self.info("Pipette positioned above cleaning bath,moving down to clean")
             # Step 3: Move the pipette down to the cleaning bath
             self.calibrated_unit.absolute_move(clean_z, axis=2)
@@ -1533,10 +1533,10 @@ class AutoPatcher(TaskController):
             self.info("Cleaning complete, moving back to safe space for drying")
             self.calibrated_unit.absolute_move(safe_z, axis=2)
             self.calibrated_unit.wait_until_still(2)
-            self.calibrated_unit.absolute_move(safe_x, axis=0)
-            self.calibrated_unit.wait_until_still(0)
             self.calibrated_unit.absolute_move(safe_y, axis=1)
             self.calibrated_unit.wait_until_still(1)
+            self.calibrated_unit.absolute_move(safe_x, axis=0)
+            self.calibrated_unit.wait_until_still(0)
 
             self.pressure.set_pressure(-600)
             self.sleep(1)

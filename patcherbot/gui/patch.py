@@ -466,7 +466,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         # Add a box for calibration setup
         buttonList = [['Calibrate Stage','Calibrate Pipette'],['set home space','set safe space'],['Store Cleaning Position'],['Clear Calibration']]
         # buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Load Calibration','Clear Calibration']]
-        cmds = [[self.stage_calibration, self.pipette_calibration_no_move],
+        cmds = [[self.stage_calibration, self.pipette_interface.calibrate_manipulator],
                 [self.patch_interface.store_home_position, self.patch_interface.store_safe_position],
                 [self.pipette_cleaning_calibration],
                 [self.load_calibration, self.patch_interface.clear_positions]

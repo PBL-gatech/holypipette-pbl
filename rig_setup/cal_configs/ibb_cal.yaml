@@ -2,8 +2,8 @@ position_update: 1000
 autofocus_dist: 15
 stage_diag_move: 500
 frame_lag: 4
-pipette_z_rotation: -22.85
-pipette_y_rotation: 25
+pipette_z_rotation: -21.43
+pipette_y_rotation: 0
 pipette_k_scale: 1.0
 stage_x_axis_flip: false
 stage_y_axis_flip: true
