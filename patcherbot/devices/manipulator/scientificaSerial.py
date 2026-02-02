@@ -276,6 +276,12 @@ class ScientificaSerialNoEncoder(Manipulator):
            It seems like the range for this is around (1000, 100000)
         '''
         self._sendCmd(SerialCommands.SET_MAX_SPEED.format(int(speed)))
+    
+    def get_max_speed(self):
+        '''Gets the max speed for the Scientifica Stage.  
+           It seems like the range for this is around (1000, 100000)
+        '''
+        resp = self._sendCmd(SerialCommands.GET_MAX_SPEED)
 
     def set_max_accel(self, accel):
         '''Sets the max acceleration for the Scientifica Stage.

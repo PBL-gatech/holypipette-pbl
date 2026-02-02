@@ -1,32 +1,112 @@
 #!/usr/bin/env python
 import os
+import json
 import time
 import cv2
+import torch
 import numpy as np
 import onnxruntime as ort
 from pathlib import Path
 import logging
 
+
 class PipetteFocuser:
-    def __init__(self):
-        # Set the scale factor as an instance attribute
-   
-        
-        # Determine the model path
-        cur_dir = Path(__file__).parent.absolute()
-        model_path = os.path.join(cur_dir, 'pipetteModel', 'regression_model2.onnx')
-        
-        # Initialize ONNX Runtime session
-        self.session = ort.InferenceSession(model_path)
-        self.input_name = self.session.get_inputs()[0].name
-        self.output_name = self.session.get_outputs()[0].name
-        
+    def __init__(self, model_path=None, device=None, model_factory=None):
+        """
+        model_path: path to an ONNX (.onnx) or PyTorch (.pt/.pth) file.
+                    Defaults to pipetteModel/regression_model2.onnx next to this file.
+        device: optional torch.device override (used only for .pt/.pth inference).
+        model_factory: optional callable returning a torch.nn.Module when the .pt file
+                       is a state_dict (fallback if it is NOT TorchScript). Supply this
+                       from the consuming repository; otherwise expect a TorchScript file.
+        """
+        cur_dir = Path(__file__).parent.resolve()
+        model_path = Path(model_path) if model_path is not None else cur_dir / "pipetteModel" / "PipetteFocuserNet.pt"
+
+        self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
+        self.backend = None
+
         # Input image size (as used in training transforms)
         self.imgSize = 224
-        
-        # Mean and std used in training (from Albumentations normalization)
+
+        # Default to ImageNet statistics; may be overwritten when loading .pt/.pth stats
         self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        self.z_mean = None
+        self.z_std = None
+
+        suffix = model_path.suffix.lower()
+        if suffix == ".onnx":
+            self._load_onnx(model_path)
+        elif suffix in {".pt", ".pth"}:
+            self._load_torch(model_path, model_factory=model_factory)
+        else:
+            raise ValueError(f"Unsupported model file extension: {model_path.suffix}")
+
+    def _load_onnx(self, model_path: Path):
+        """Initialize ONNX Runtime session (keeps legacy behavior)."""
+        self.session = ort.InferenceSession(str(model_path))
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_name = self.session.get_outputs()[0].name
+        self.backend = "onnx"
+
+    def _load_torch(self, model_path: Path, model_factory=None):
+        """
+        Load a PyTorch model.
+        - First tries TorchScript (works when you export scripted/traced .pt).
+        - If that fails and a model_factory is provided, builds the model and loads a state_dict.
+        """
+        self._load_stats(model_path.parent)
+        self.backend = "torch"
+
+        # Try TorchScript first for maximum portability
+        try:
+            self.model = torch.jit.load(str(model_path), map_location=self.device)
+            self.model.eval()
+            return
+        except (RuntimeError, ValueError):
+            pass
+
+        if model_factory is None:
+            raise RuntimeError(
+                "The .pt/.pth file is not TorchScript. Provide a TorchScript export or pass model_factory "
+                "that returns the correct torch.nn.Module to load the state_dict."
+            )
+
+        model = model_factory()
+        checkpoint = torch.load(model_path, map_location=self.device)
+        state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+        model.load_state_dict(state_dict, strict=False)
+        model.to(self.device)
+        model.eval()
+        self.model = model
+
+    def _load_stats(self, stats_dir: Path):
+        """
+        Load channel_norm.json and z_norm.json if they exist beside the model.
+        These are used only for .pt/.pth inference.
+        """
+        channel_path = stats_dir / "channel_norm.json"
+        if channel_path.is_file():
+            try:
+                with open(channel_path, "r", encoding="utf-8") as f:
+                    stats = json.load(f)
+                if "mean" in stats and "std" in stats:
+                    self.mean = np.array(stats["mean"], dtype=np.float32)
+                    self.std = np.array(stats["std"], dtype=np.float32)
+            except Exception as exc:
+                logging.warning(f"Failed to load {channel_path}: {exc}")
+
+        z_path = stats_dir / "z_norm.json"
+        if z_path.is_file():
+            try:
+                with open(z_path, "r", encoding="utf-8") as f:
+                    z_stats = json.load(f)
+                if "z_mean" in z_stats and "z_std" in z_stats:
+                    self.z_mean = float(z_stats["z_mean"])
+                    self.z_std = float(z_stats["z_std"] if z_stats["z_std"] != 0 else 1.0)
+            except Exception as exc:
+                logging.warning(f"Failed to load {z_path}: {exc}")
 
     def preprocess(self, img):
         """
@@ -47,18 +127,29 @@ class PipetteFocuser:
 
     def get_pipette_focus_value(self, img):
         """
-        Runs the ONNX model on a preprocessed image and returns the defocus value in microns.
+        Run the loaded model on a preprocessed image and return the defocus value in microns.
         """
         input_tensor = self.preprocess(img)
         start_time = time.time()
-        outputs = self.session.run([self.output_name], {self.input_name: input_tensor})
+
+        if self.backend == "onnx":
+            outputs = self.session.run([self.output_name], {self.input_name: input_tensor})
+            output_array = outputs[0]
+            norm_pred = float(output_array.flatten()[0])
+        elif self.backend == "torch":
+            torch_input = torch.from_numpy(input_tensor).to(self.device)
+            with torch.no_grad():
+                output = self.model(torch_input)
+            norm_pred = float(output.reshape(-1)[0].item())
+        else:
+            raise RuntimeError("PipetteFocuser backend not initialized.")
+
         inference_time = time.time() - start_time
         # print(f"Inference time: {inference_time:.4f} seconds")
-        output_array = outputs[0]
-        norm_pred = float(output_array.flatten()[0])
-        # print(f"Predicted defocus value: {norm_pred:.2f}")
-        # pred_microns = self.denormalize_z(norm_pred)
+
         pred_microns = norm_pred
+        if self.backend == "torch" and self.z_mean is not None and self.z_std is not None:
+            pred_microns = norm_pred * self.z_std + self.z_mean
         return pred_microns
 
 if __name__ == '__main__':
@@ -81,7 +172,7 @@ if __name__ == '__main__':
     focus_value = focuser.get_pipette_focus_value(img)
     # print(f"Predicted pipette focus value: {focus_value:.2f} microns")
     
-    label = f"Focus: {focus_value:.2f} µm"
+    label = f"Focus: {focus_value:.2f} um"
     cv2.putText(img, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
     cv2.imshow("Pipette Focus Inference", img)
     cv2.waitKey(0)

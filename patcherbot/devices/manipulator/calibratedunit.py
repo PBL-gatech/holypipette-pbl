@@ -507,13 +507,32 @@ class CalibratedUnit(ManipulatorUnit):
         self.wait_until_still()
 
 
-    def move_pipette_random(self, movement = 100):
+    def move_pipette_random(self, movement = 50):
         '''
-        Moves the pipette randomly in xy plane, method used for testing/calibration.
+        Moves the pipette randomly in xy plane, method used for testing/calibration/data collection.
         '''
-        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), 0])
+        orig = self.get_max_speed()
+        self.info(f"Moving pipette randomly for testing/calibration, original speed is: {orig} um/s")
+        self.set_max_speed(25)
+        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5)])
         self.relative_move(movement_vector)
-        self.wait_until_still()
+
+        # the proceeding is for data collection for focusing model.
+        # self.wait_until_still()
+        # movement_z_vector = np.array([0,0,movement/2])
+        # self.relative_move(movement_z_vector)
+        # self.wait_until_still()
+        # self.relative_move(-movement_z_vector)
+        # self.wait_until_still()
+        # self.relative_move(-movement_z_vector)
+        # self.wait_until_still()
+        # self.relative_move(movement_z_vector)
+        # self.wait_until_still()
+        # self.relative_move(-movement_vector)
+        # self.wait_until_still()
+        # self.set_max_speed(orig)
+        self.info("Finished random pipette movement.")
+
 
 
     def save_configuration(self):

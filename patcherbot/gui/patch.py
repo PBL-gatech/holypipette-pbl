@@ -477,11 +477,11 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
         # self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.rest,self.start_recording,self.patch_interface.find_pipette]
-        # self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
-        self.pipette_location = [self.patch_interface.find_pipette]
+        self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
+        # self.pipette_location = [self.patch_interface.find_pipette]
         # add a box for testing controllability of the pipette and stage
-        buttonList = [['Find Pipette']]
-        cmds = [[self.pipette_location]
+        buttonList = [['Find Pipette','Test Pipette Movement']]
+        cmds = [[self.pipette_location,self.pipette_interface.move_pipette_random]
                 ]
         self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
 

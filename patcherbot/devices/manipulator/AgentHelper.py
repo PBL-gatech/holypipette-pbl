@@ -36,7 +36,7 @@ class AgentHelper:
             },
         }
 
-    def prepare_model(self, model_type, *, allow_goal_placeholders: bool = False):
+    def prepare_model(self, model_type, *, allow_goal_placeholders: Optional[bool] = None):
         """Instantiate one of the supported agent subclasses."""
         self.model_type = model_type
         if model_type == "find_pipette":
@@ -69,7 +69,7 @@ class AgentHelper:
             image_size = self._infer_image_size(self._last_demo_dataset)
             if image_size is not None:
                 self.agent.set_image_size(image_size)
-        if hasattr(self.agent, "allow_goal_placeholders"):
+        if allow_goal_placeholders is not None and hasattr(self.agent, "allow_goal_placeholders"):
             self.agent.allow_goal_placeholders = bool(allow_goal_placeholders)
         self.requires_goal = bool(getattr(self.agent, "goal_required", False))
 
@@ -513,7 +513,7 @@ class AgentTester:
         """Run inference over a dataset and collect error/latency metrics."""
         dataset = self.agent_helper.load_demo_from_hdf5(data_path, demo_id=demo_id)
         self.last_dataset = dataset
-        self.agent_helper.prepare_model(model_type)
+        self.agent_helper.prepare_model(model_type, allow_goal_placeholders=True)
 
         goal = None
         if self.agent_helper.requires_goal:
