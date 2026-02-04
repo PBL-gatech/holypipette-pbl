@@ -342,6 +342,17 @@ class AutoPatchInterface(TaskInterface):
         self.execute(self.current_autopatcher.calibrated_stage.center_on_cell,
                       argument = (cell, img, pos))
 
+    @blocking_command(category='Stage',
+                     description='Move stage to cell',
+                      task_description='Moving stage to cell')
+    def move_stage_to_cell(self):
+        if not self.cells_to_patch:
+            self.warning("No cells queued for stage move; skipping command")
+            return
+        cell, img, pos, img_fluo = self.cells_to_patch[0]
+        self.execute(self.current_autopatcher.move_stage_to_cell,
+                      argument=(cell, img, pos))
+
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
@@ -414,7 +425,7 @@ class AutoPatchInterface(TaskInterface):
         angle = np.deg2rad(self.current_autopatcher.calibrated_unit.config.pipette_y_rotation)
         delta = float(self.current_autopatcher.calibrated_unit.config.safe_position_delta_um)
         x_pip, y_pip,z_pip  = self.current_autopatcher.home_position
-        self.current_autopatcher.safe_position = np.array([x_pip + delta*np.cos(angle), y_pip , z_pip +delta*np.sin(angle)])
+        self.current_autopatcher.safe_position = np.array([x_pip, y_pip , z_pip+delta])
         x,y = self.pipette_controller.calibrated_stage.position()
         z = self._microscope_z_um()
         self.current_autopatcher.home_stage_position = [x,y,z]

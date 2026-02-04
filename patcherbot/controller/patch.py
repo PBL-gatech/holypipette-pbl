@@ -658,6 +658,30 @@ class AutoPatcher(TaskController):
             self.rig_ready = False
             raise e
 
+    def move_stage_to_cell(self, cell):
+        '''
+        Moves the stage to the XY position of the target cell.
+        '''
+        if cell is None:
+            raise AutopatchError("No cell given to move stage to")
+        if not self.calibrated_stage.calibrated:
+            raise AutopatchError("Stage not calibrated")
+
+        cell_pos = None
+        cell_array = np.asarray(cell)
+        if cell_array.shape == (3,) and np.issubdtype(cell_array.dtype, np.number):
+            cell_pos = cell_array
+        elif isinstance(cell, (tuple, list)) and len(cell) > 0:
+            cell_pos = np.asarray(cell[0])
+
+        if cell_pos is None or cell_pos.size < 2:
+            raise AutopatchError("Cell position missing XY coordinates")
+
+        self.info(f" Moving to Cell position: {cell_pos}")
+        cell_pos_planar = np.array([cell_pos[0], cell_pos[1], 0])
+        self.calibrated_stage.safe_move(np.array(cell_pos_planar))
+        self.calibrated_stage.wait_until_still()
+
     @record_state("locate_cell") 
     def locate_cell(self, cell):
         '''
@@ -1464,7 +1488,6 @@ class AutoPatcher(TaskController):
             self.calibrated_stage.wait_until_still(0)
         finally:
             pass
-
     def move_group_in_y(self,dist = 500):
         '''
         Moves the pipette and stage in y axis by input distance

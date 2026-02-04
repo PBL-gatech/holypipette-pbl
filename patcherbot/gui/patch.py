@@ -72,7 +72,7 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
             QGroupBox {
                 border: 1px solid lightgray;  /* Light grey border */
                 border-radius: 8px;           /* Rounded corners with 8px radius */
-                margin-top: 10px;             /* Adjust top margin for visual separation */
+                margin-top: 6px;             /* Adjust top margin for visual separation */
                 font-family: Arial, Helvetica, sans-serif;  /* Consistent font family */
                 font-size: 14px;              /* Consistent font size for the group box */
             }
@@ -92,7 +92,7 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
                 background-color: #ffffff;     /* White background for buttons */
                 border: 1px solid lightgray;   /* Light grey border for buttons */
                 border-radius: 6px;            /* Slightly rounded corners for buttons */
-                padding: 6px;                  /* Padding for a better button look */
+                padding: 3px;                  /* Padding for a better button look */
                 font-family: Arial, Helvetica, sans-serif;  /* Consistent font family */
                 font-size: 14px;               /* Adjusted font size for buttons */
                 outline: none;                 /* Remove default focus outline */
@@ -172,6 +172,8 @@ class ButtonTabWidget(QtWidgets.QWidget):
         # Ensure cmds is a list
         if not isinstance(cmds, list):
             cmds = [cmds]
+        else:
+            cmds = self._flatten_sequential_cmds(cmds)
             
         # Have the button immediately lose focus to prevent persistent outline
         if button:
@@ -191,6 +193,15 @@ class ButtonTabWidget(QtWidgets.QWidget):
             self._reset_section_button_colors(section)
         
         self._run_next_seq_command()
+
+    def _flatten_sequential_cmds(self, cmds):
+        flat_cmds = []
+        for cmd in cmds:
+            if isinstance(cmd, list):
+                flat_cmds.extend(self._flatten_sequential_cmds(cmd))
+            else:
+                flat_cmds.append(cmd)
+        return flat_cmds
 
     def _reset_section_button_colors(self, section):
         """Reset colors for all buttons in a section"""
@@ -364,8 +375,8 @@ class ButtonTabWidget(QtWidgets.QWidget):
             for j, button_name in enumerate(buttons_in_row):
                 button = QtWidgets.QPushButton(button_name)
                 button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-                button.setMinimumWidth(50)
-                button.setMinimumHeight(50)
+                button.setMinimumWidth(30)
+                button.setMinimumHeight(30)
                 
                 # Track this button for this section
                 section_buttons.append((button, i, j, button_name))
@@ -464,21 +475,21 @@ class ClassicPatchButtons(ButtonTabWidget):
 
 
         # Add a box for calibration setup
-        buttonList = [['Calibrate Stage','Calibrate Pipette'],['set home space','set safe space'],['Store Cleaning Position'],['Clear Calibration']]
+        buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position','Clear Calibration']]
         # buttonList = [['Calibrate Stage','Calibrate Pipette'],['Store Cleaning Position'],['Load Calibration','Clear Calibration']]
-        cmds = [[self.stage_calibration, self.pipette_interface.calibrate_manipulator],
-                [self.patch_interface.store_home_position, self.patch_interface.store_safe_position],
-                [self.pipette_cleaning_calibration],
-                [self.load_calibration, self.patch_interface.clear_positions]
+        cmds = [[self.stage_calibration, self.pipette_calibration],
+                # [self.patch_interface.store_home_position, self.patch_interface.store_safe_position],
+                [[self.pipette_cleaning_calibration],[self.load_calibration, self.patch_interface.clear_positions]]
         ]
         self.addButtonList('calibration', layout, buttonList, cmds, sequential=True, 
                         change_color_on_complete=True, completion_color="rgba(173, 216, 230, 0.5)")
 
         # Add a box for movement commands 
-        buttonList = [['move group down','move group up'],['move group in x','move group in y'],['Move to Safe Position','Move to Home Position'],['Move to cell plane','Focus Stage'],['Center Pipette','Clean pipette','Focus Pipette']]
+        # buttonList = [['move group down','move group up'],['move group in x','move group in y'],['Move to Safe Position','Move to Home Position'],['Move to cell plane','Focus Stage'],['Center Pipette','Clean pipette','Focus Pipette']]
+        buttonList = [['Move to Safe Position','Move to Home Position'],['Move to Floor','Focus Stage'],['Center Pipette','Clean pipette','Focus Pipette']]
         cmds = [
-            [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
-            [self.patch_interface.move_group_in_x, self.patch_interface.move_group_in_y],
+            # [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
+            # [self.patch_interface.move_group_in_x, self.patch_interface.move_group_in_y],
             [self.patch_interface.move_to_safe_space, self.patch_interface.move_to_home_space],
             [self.pipette_interface.go_to_floor,self.pipette_interface.focus_stage],
             [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
@@ -489,10 +500,10 @@ class ClassicPatchButtons(ButtonTabWidget):
         # self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
         # self.pipette_location = [self.patch_interface.find_pipette]
         # add a box for testing controllability of the pipette and stage
-        buttonList = [['Follow Stage','Move Pipette Random','Find Pipette']]
-        cmds = [[self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
-                ]
-        self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
+        # buttonList = [['Follow Stage','Move Pipette Random','Find Pipette']]
+        # cmds = [[self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
+        #         ]
+        # self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
 
         # # Add a box for lamp commands
         buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
@@ -503,16 +514,18 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.addButtonList('fluorescence', layout, buttonList, cmds, sequential=True)
 
         # Add a box for patching commands
-        buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],
+        buttonList = [['Select Cell','Remove Last Cell','Center on Cell','Move Stage to Cell'],
                       ['Locate Cell','Hunt Cell','Gigaseal'],
-                      ['Break-in','Run Protocols'],
-                      ['Patch Cell','Attempt Whole Cell','Escape Cell']]
-        cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.center_on_cell],
+                      ['Break-in','Escape Cell'],
+                      ['Patch Cell','Attempt Whole Cell','Run Protocols']]
+        cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.center_on_cell, self.patch_interface.move_stage_to_cell],
                 [self.patch_interface.locate_cell,[self.start_recording,self.patch_interface.hunt_cell],self.patch_interface.gigaseal],
-                [self.patch_interface.break_in,[self.stop_recording,self.patch_interface.run_protocols]],
+                [self.patch_interface.break_in,[self.stop_recording,self.patch_interface.escape_cell]],
                 [[self.start_recording,self.patch_interface.patch,self.stop_recording],
                  [self.start_recording,self.patch_interface.whole_cell,self.stop_recording],
-                 [self.stop_recording,self.patch_interface.escape_cell]]
+                 [self.stop_recording,self.patch_interface.run_protocols]]
+
+  
 ]
         self.addButtonList('patching', layout, buttonList, cmds,sequential=True)
 
@@ -520,8 +533,8 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.record_button = QtWidgets.QPushButton("Start Recording")
         self.record_button.clicked.connect(self.toggle_recording)
         self.record_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        self.record_button.setMinimumWidth(50)
-        self.record_button.setMinimumHeight(50)
+        self.record_button.setMinimumWidth(30)
+        self.record_button.setMinimumHeight(30)
         layout.addWidget(self.record_button)
 
         self.setLayout(layout)
