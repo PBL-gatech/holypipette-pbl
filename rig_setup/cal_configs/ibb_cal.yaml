@@ -2,15 +2,39 @@ position_update: 1000
 autofocus_dist: 15
 stage_diag_move: 500
 frame_lag: 4
+pipette_diag_move: 200
+stage_x_axis_flip: false
+stage_y_axis_flip: true
 pipette_z_rotation: -21.43
 pipette_y_rotation: 0
 pipette_k_scale: 1.0
-stage_x_axis_flip: false
-stage_y_axis_flip: true
 microscope_units_per_um: 5.0
-safe_position_delta_um: -6000
 home_position_delta_um: -250
+safe_position_delta_um: -6000
 native_zero: 1997.0
 native_per_mbar: 4.9208
 reader_offset: 512.64
 reader_scale: 0.3925
+pipette_detector_model: pipetteDetectorNet.pt
+pipette_focuser_model: WaynesBoroPipetteFocuserNet.onnx
+use_ai_features: true
+home_position:
+- 0
+- 0
+- 0
+home_position_stage:
+- 0
+- 0
+- 0
+safe_position:
+- 0
+- 0
+- 0
+safe_position_stage:
+- 0
+- 0
+- 0
+bath_position:
+- 0
+- 0
+- 0

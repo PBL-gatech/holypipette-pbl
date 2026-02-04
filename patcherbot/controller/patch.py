@@ -403,7 +403,7 @@ class AutoPatcher(TaskController):
             holding = -0.070
         self.amplifier.set_holding(holding)
         self.info(f'holding at {holding} mV')
-        membrane_hold = float(self.config.Vramp_amplitude)
+        membrane_hold = float(self.protocol_config.vclamp_hold)
         self.amplifier.set_holding(membrane_hold)
         self.info(f'holding at {membrane_hold * 1e3:.1f} mV for membrane test')
         self.sleep(0.25)
@@ -427,7 +427,7 @@ class AutoPatcher(TaskController):
         self.info('Running voltage sweep protocol')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        sweep_hold = float(self.protocol_config.vclamp_hold)
+        sweep_hold = float(self.protocol_config.vclamp_sweep_hold)
         sweep_step = float(self.protocol_config.vclamp_step)
         sweep_start = float(self.protocol_config.vclamp_start)
         sweep_end = float(self.protocol_config.vclamp_end)
@@ -453,7 +453,7 @@ class AutoPatcher(TaskController):
             holding_voltage=sweep_hold
         )
         self.sleep(0.25)
-        self.amplifier.set_holding(self.config.Vramp_amplitude)
+        self.amplifier.set_holding(self.protocol_config.vclamp_hold)
         self.info('finished running voltage sweep protocol')
 
     def run_current_protocol(self):
@@ -502,10 +502,26 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         if self.protocol_config.custom_cclamp_protocol:
             self.debug('running custom current protocol')
-            self.daq.getDataFromCurrentProtocol(custom=self.protocol_config.custom_cclamp_protocol, factor=1, startCurrentPicoAmp=(self.protocol_config.cclamp_start), endCurrentPicoAmp=(self.protocol_config.cclamp_end), stepCurrentPicoAmp=(self.protocol_config.cclamp_step), recordingTimeMs=500)
+            self.daq.getDataFromCurrentProtocol(
+                custom=self.protocol_config.custom_cclamp_protocol,
+                factor=1,
+                startCurrentPicoAmp=(self.protocol_config.cclamp_start),
+                endCurrentPicoAmp=(self.protocol_config.cclamp_end),
+                stepCurrentPicoAmp=(self.protocol_config.cclamp_step),
+                recordingTimeMs=self.protocol_config.cclamp_recording_time_ms,
+                dutyCycle=self.protocol_config.cclamp_duty_cycle,
+            )
         else:
             self.debug('running default current protocol')
-            self.daq.getDataFromCurrentProtocol(custom=self.protocol_config.custom_cclamp_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs=500)
+            self.daq.getDataFromCurrentProtocol(
+                custom=self.protocol_config.custom_cclamp_protocol,
+                factor=1,
+                startCurrentPicoAmp=None,
+                endCurrentPicoAmp=None,
+                stepCurrentPicoAmp=10,
+                recordingTimeMs=self.protocol_config.cclamp_recording_time_ms,
+                dutyCycle=self.protocol_config.cclamp_duty_cycle,
+            )
         self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')
@@ -517,9 +533,7 @@ class AutoPatcher(TaskController):
         self.info('Running holding protocol (E/I PSC test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        holding = self.amplifier.get_holding()
-        if holding is None:
-            holding = -0.070
+        holding = float(self.protocol_config.vclamp_hold)
         self.amplifier.set_holding(holding)
         self.info(f'holding at {holding} mV')
         self.sleep(0.25)
@@ -540,9 +554,7 @@ class AutoPatcher(TaskController):
         self.info("Running optogenetic protocol")
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        holding = self.amplifier.get_holding()
-        if holding is None:
-            holding = -0.070
+        holding = float(self.protocol_config.vclamp_hold)
         self.amplifier.set_holding(holding)
         self.info(f'holding at {holding} mV')
         self.sleep(0.25)
@@ -1007,7 +1019,13 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         self.info("Collecting baseline resistance...")
 
-        avg_resistance = self.resistanceRamp()
+        num_slope_samples = 5
+        sample_interval = self.config.measurement_speed
+
+        avg_resistance = self.resistanceRamp(
+            num_measurements=num_slope_samples,
+            interval=sample_interval,
+        )
         consecutive_success = 0
 
         self.pressure.set_ATM(atm=True)
@@ -1033,10 +1051,13 @@ class AutoPatcher(TaskController):
                 raise AutopatchError(f"Seal attempt failed: resistance did not improve by at least {self.config.gigaseal_min_delta_R} MegaOhms by the {self.config.seal_deadline} second deadline.")
 
             prev_resistance = avg_resistance
-            avg_resistance = self.resistanceRamp()
+            avg_resistance = self.resistanceRamp(
+                num_measurements=num_slope_samples,
+                interval=sample_interval,
+            )
 
             delta_resistance = avg_resistance - prev_resistance
-            rate_mohm_per_sec = delta_resistance / (5 * 0.200)
+            rate_mohm_per_sec = delta_resistance / (num_slope_samples * sample_interval)
 
             if delta_resistance >= self.config.gigaseal_min_delta_R:
                 last_progress_time = time.time()
@@ -1044,14 +1065,20 @@ class AutoPatcher(TaskController):
             # ---------------------- auto-pressure logic ----------------------
             if autoPressure:
                 # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
-                if -(self.config.gigaseal_R / 100) < rate_mohm_per_sec < self.config.gigaseal_R / 3000:
-                    currPressure -= 5; speed = 3; max_pressure = -45
-                elif self.config.gigaseal_R / 3000 <= rate_mohm_per_sec <= self.config.gigaseal_R / 10:
+                increase_gate = self.config.increase_slope_gate
+                constant_gate = self.config.constant_slope_gate
+                decrease_gate = self.config.decrease_slope_gate
+
+                increase_thresh = self.config.gigaseal_R / increase_gate
+                constant_thresh = self.config.gigaseal_R / constant_gate
+                decrease_thresh = self.config.gigaseal_R / decrease_gate
+
+                if rate_mohm_per_sec < increase_thresh:
+                    currPressure -= 5; speed = 3; max_pressure = self.config.pressure_ramp_max
+                elif rate_mohm_per_sec <= constant_thresh:
                     speed = 1  # maintain
-                elif self.config.gigaseal_R / 10 < rate_mohm_per_sec <= self.config.gigaseal_R / 5:
+                elif rate_mohm_per_sec <= decrease_thresh:
                     max_pressure = self.config.pressure_ramp_max; currPressure += 5; speed = 3
-                elif rate_mohm_per_sec <= -(self.config.gigaseal_R / 100):
-                    currPressure += 5; currPressure = max(currPressure, -5); speed = 0.5
 
                 currPressure = min(currPressure, -5.0)
                 currPressure = max(currPressure, self.config.pressure_ramp_max)
@@ -1064,7 +1091,10 @@ class AutoPatcher(TaskController):
                 if currPressure <= max_pressure:
                     self.pressure.set_ATM(True)
                     self.sleep(5)
-                    testresistance = self.resistanceRamp()
+                    testresistance = self.resistanceRamp(
+                        num_measurements=num_slope_samples,
+                        interval=sample_interval,
+                    )
                     difference = testresistance - avg_resistance
                     self.info(f"Test resistance: {testresistance} MΩ; difference: {difference} MΩ")
                     if difference < 0:
@@ -1078,8 +1108,8 @@ class AutoPatcher(TaskController):
             # ---------------------------------------------------------------
 
             # Holding potential switch
-            if avg_resistance >= self.config.gigaseal_R / 12 and not holding_switched:
-                self.amplifier.set_holding(self.config.Vramp_amplitude)
+            if avg_resistance >= self.config.gigaseal_R / self.config.hold_switch and not holding_switched:
+                self.amplifier.set_holding(self.protocol_config.vclamp_hold)
                 self.amplifier.switch_holding(True)
                 holding_switched = True
 

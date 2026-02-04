@@ -2,7 +2,7 @@ voltage_protocol: true
 current_protocol: true
 holding_protocol: false
 voltage_sweep_protocol: false
-opto_random_wavelength_protocol: false
+opto_random_wavelength_protocol: true
 opto_random_power_protocol: false
 enable_neutralization_capacitance: false
 enable_bridge_balance: false
@@ -17,7 +17,7 @@ hclamp_duration: 30
 vclamp_start: -0.11
 vclamp_step: 0.02
 vclamp_end: 0.05
-vclamp_hold: -0.05
+vclamp_hold: -0.07
 vclamp_sweep_hold: -0.11
 opto_stabilize_time: 1.0
 opto_off_time: 1

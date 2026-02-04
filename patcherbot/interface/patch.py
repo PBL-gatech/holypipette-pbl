@@ -72,7 +72,7 @@ class AutoPatchInterface(TaskInterface):
 
         if getattr(protocol_config, "voltage_protocol", False):
             try:
-                voltage_hold = float(config.Vramp_amplitude) * 1e3
+                voltage_hold = float(protocol_config.vclamp_hold) * 1e3
             except (TypeError, ValueError):
                 voltage_hold = float("nan")
 

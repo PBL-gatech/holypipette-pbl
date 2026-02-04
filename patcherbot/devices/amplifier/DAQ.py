@@ -907,7 +907,7 @@ class NiDAQ(DAQ):
         self._cur_wave_amp   = 0.5
         self._cur_wave_rtime = 0.025
 
-    def _setupAcquisitionCurrent(self, recordingTime=500):
+    def _setupAcquisitionCurrent(self, recordingTime=500, dutyCycle=0.5):
         """
         Configure a dedicated continuous AI + AO pair for the
         current-step protocol.  The background stream must be paused first.
@@ -915,9 +915,9 @@ class NiDAQ(DAQ):
         import nidaqmx, nidaqmx.constants as c
 
         samplesPerSec = 100_000
-        dutyCycle     = 0.5
+        dutyCycle     = float(dutyCycle)
         recordingTime = (float(recordingTime) * 1e-3)  # convert ms to seconds
-        wave_freq     = 1.0 / (recordingTime)  # 1 Hz square wave
+        wave_freq     = 1.0 / (recordingTime)  # one period per segment
 
         # ------------------------------------------------------------------
         # 1. prime buffer (0 pA test pulse)
@@ -1595,7 +1595,8 @@ class NiDAQ(DAQ):
                                    startCurrentPicoAmp: float | None = None,
                                    endCurrentPicoAmp: float | None = None,
                                    stepCurrentPicoAmp: float = 10,
-                                   recordingTimeMs: float = 500):
+                                   recordingTimeMs: float = 500,
+                                   dutyCycle: float = 0.5):
         """
         Run an entire I-clamp step protocol on one continuous stream.
         Returns
@@ -1604,10 +1605,10 @@ class NiDAQ(DAQ):
         """
         # ───────── constants ─────────
         samplesPerSec  = 100_000
-        dutyCycle      = 0.5
-        recordingTime  = recordingTimeMs * 1e-3   # 0.25 s / segment
-        wave_freq      = 1.0 / recordingTime      # 4 Hz
-        fullRecTime    = 4 * recordingTime        # 1.0 s / train
+        dutyCycle      = float(dutyCycle)
+        recordingTime  = recordingTimeMs * 1e-3
+        wave_freq      = 1.0 / recordingTime
+        fullRecTime    = 4 * recordingTime
         exp_samples    = int(samplesPerSec * fullRecTime)
 
         # ─ 1. build pulse list ───────
@@ -1651,7 +1652,7 @@ class NiDAQ(DAQ):
                 pass
 
         # ─ 3. start dedicated tasks (prime buffer = 0 pA test) ──────────
-        self._setupAcquisitionCurrent(recordingTime * 1e3)   # expects ms
+        self._setupAcquisitionCurrent(recordingTime * 1e3, dutyCycle=dutyCycle)   # expects ms
 
         # a) queue FIRST real pulse so it will become train #2
         next_amp_V = (pulses[0] * 1e-12) / self.C_CLAMP_AMP_PER_VOLT

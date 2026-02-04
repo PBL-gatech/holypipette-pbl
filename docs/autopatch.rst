@@ -36,7 +36,7 @@ Sealing:
 2. If R is smaller than ``1+cell_R_increase`` times `R`: go back to approach (7). Note that pressure is now released.
 3. Set pressure at ``pressure_sealing`` (<0).
 4. If ``R>gigaseal_R``: success (next stage).
-5. Ramp V down to ``Vramp_amplitude`` (default -70 mV) over duration ``Vramp_duration``.
+5. Ramp V down to ``vclamp_hold`` (default -70 mV) over duration ``Vramp_duration``.
 6. Wait for at least ``seal_min_time``, and until ``R>gigaseal_R`` (success) or time is out (``seal_deadline``) (failure).
 7. Success or failure: release pressure.
 
