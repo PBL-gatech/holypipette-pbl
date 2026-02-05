@@ -505,13 +505,50 @@ class ClassicPatchButtons(ButtonTabWidget):
         #         ]
         # self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
 
-        # # Add a box for lamp commands
-        buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
-        # set a bunch of do nothing commands for now
-        cmds = [[self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
-                [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
-        ]
-        self.addButtonList('fluorescence', layout, buttonList, cmds, sequential=True)
+        # Add a box for light controls
+        light_box = CollapsibleGroupBox('Light')
+        light_layout = QtWidgets.QVBoxLayout()
+
+        light_row = QtWidgets.QHBoxLayout()
+        light_row.setAlignment(Qt.AlignLeft)
+
+        self.cell_sorter_led_button = QtWidgets.QPushButton('toggle Light')
+        self.cell_sorter_led_button.setCheckable(True)
+        self.cell_sorter_led_button.setChecked(False)
+        self.cell_sorter_led_button.clicked.connect(self.toggle_cell_sorter_led)
+        self._update_cell_sorter_led_button_style(False)
+        self.toggle_cell_sorter_led(False)
+        self.cell_sorter_led_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.cell_sorter_led_button.setMinimumWidth(30)
+        self.cell_sorter_led_button.setMinimumHeight(30)
+        light_row.addWidget(self.cell_sorter_led_button)
+
+        toggle_fluorescence_button = QtWidgets.QPushButton('toggle fluorescense')
+        toggle_fluorescence_button.clicked.connect(lambda: self.run_command(self.patch_interface.toggle_fluorescence))
+        toggle_fluorescence_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        toggle_fluorescence_button.setMinimumWidth(30)
+        toggle_fluorescence_button.setMinimumHeight(30)
+        light_row.addWidget(toggle_fluorescence_button)
+        light_layout.addLayout(light_row)
+
+        cube_row = QtWidgets.QHBoxLayout()
+        cube_row.setAlignment(Qt.AlignLeft)
+        move_cube_left_button = QtWidgets.QPushButton('move cube left')
+        move_cube_left_button.clicked.connect(lambda: self.run_command(self.patch_interface.move_cube_left))
+        move_cube_left_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        move_cube_left_button.setMinimumWidth(30)
+        move_cube_left_button.setMinimumHeight(30)
+        cube_row.addWidget(move_cube_left_button)
+        move_cube_right_button = QtWidgets.QPushButton('move cube right')
+        move_cube_right_button.clicked.connect(lambda: self.run_command(self.patch_interface.move_cube_right))
+        move_cube_right_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        move_cube_right_button.setMinimumWidth(30)
+        move_cube_right_button.setMinimumHeight(30)
+        cube_row.addWidget(move_cube_right_button)
+        light_layout.addLayout(cube_row)
+
+        light_box.setContentLayout(light_layout)
+        layout.addWidget(light_box)
 
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell','Move Stage to Cell'],
@@ -586,6 +623,34 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.record_button.setText("Start Recording")
         self.record_button.setStyleSheet("")
         logging.info("Recording stopped")
+
+    def _update_cell_sorter_led_button_style(self, enabled: bool):
+        if enabled:
+            self.cell_sorter_led_button.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(173, 216, 230, 0.5);
+                    border: 1px solid lightgray;
+                    border-radius: 6px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(173, 216, 230, 0.5);
+                    border: 1px solid #87CEEB;
+                }
+                QPushButton:pressed {
+                    background-color: #d1e7ff;
+                }
+                QPushButton:focus {
+                    border: 1px solid lightgray;
+                    outline: none;
+                }
+            """)
+        else:
+            self.cell_sorter_led_button.setStyleSheet("")
+
+    def toggle_cell_sorter_led(self, checked=None):
+        enabled = self.cell_sorter_led_button.isChecked() if checked is None else checked
+        self._update_cell_sorter_led_button_style(enabled)
+        self.pipette_interface.set_cell_sorter_led(enabled, ring=1)
 
 
 

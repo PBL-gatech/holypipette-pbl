@@ -47,6 +47,9 @@ class CalibratedCellSorter(TaskController):
     def get_led_status(self):
         return self.cellsorterController.get_led()
 
+    def set_led_ring_enabled(self, status, ring=1):
+        self.set_led_status(status, ring)
+
 
     def calibrate(self):
         #make sure stage is calibrated

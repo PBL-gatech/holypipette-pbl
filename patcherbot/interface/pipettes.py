@@ -343,6 +343,9 @@ class PipetteInterface(TaskInterface):
     def calibrate_cell_sorter(self):
         self.execute(self.calibrated_cellsorter.calibrate)
 
+    def set_cell_sorter_led(self, enabled: bool, ring: int = 1):
+        self.calibrated_cellsorter.set_led_ring_enabled(enabled, ring)
+
     @blocking_command(category='Manipulators',
                      description='Move stage to position',
                      task_description='Moving stage to position')

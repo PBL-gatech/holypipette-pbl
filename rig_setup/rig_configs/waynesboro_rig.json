@@ -51,9 +51,14 @@
                                                       }
                                        },
                     "cell_sorter_controller":  {
-                                                   "class":  "patcherbot.devices.cellsorter.CellSorter.FakeCellSorterController",
+                                                   "class":  "patcherbot.devices.cellsorter.CellSorter.CellSorterController",
                                                    "params":  {
-
+                                                                  "comPort":  {
+                                                                                  "port":  "COM13",
+                                                                                  "baudrate":  115200,
+                                                                                  "timeout":  2,
+                                                                                  "write_timeout":  1
+                                                                              }
                                                               }
                                                },
                     "cell_sorter_manipulator":  {
