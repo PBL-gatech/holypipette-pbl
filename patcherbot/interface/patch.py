@@ -135,6 +135,16 @@ class AutoPatchInterface(TaskInterface):
         #move cell sorter to cell
         self.execute(self.pipette_controller.calibrated_cellsorter.center_cellsorter_on_point, argument=[cellx, celly, cellz])
 
+    @command(category='Cell Sorter',
+            description='Turn cell sorter LED on')
+    def cell_sorter_led_on(self):
+        self.pipette_controller.set_cell_sorter_led(True, ring=1)
+
+    @command(category='Cell Sorter',
+            description='Turn cell sorter LED off')
+    def cell_sorter_led_off(self):
+        self.pipette_controller.set_cell_sorter_led(False, ring=1)
+
     @blocking_command(category='DAQ',
             description='Run Protocols on the Cell',
             task_description='Run Protocols on the Cell')

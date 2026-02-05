@@ -161,6 +161,8 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self.interface_signals = {}
         self.start_task = None
         self.section_buttons = {}  # Dictionary to store buttons by section
+        self.section_button_map = {}  # section -> {button_name: button}
+        self.active_buttons_by_section = {}  # section -> set(button_name)
         self.color_change_sections = []  # Sections that should change color on completion
         self.section_colors = {}  # Store custom colors for different sections
 
@@ -185,12 +187,20 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self._seq_button = button
         self._seq_section = section
         self._seq_button_name = button_name
+        self._seq_active_style = False
         
         # Special case for reset button in any section (assuming it contains "Clear" or "Reset")
         if (section in self.section_buttons and button and 
             ("Clear" in button_name or "Reset" in button_name)):
             # Reset all section button colors before running the command
             self._reset_section_button_colors(section)
+        elif (
+            button
+            and section in self.active_buttons_by_section
+            and button_name in self.active_buttons_by_section[section]
+        ):
+            self._set_button_active_style(button)
+            self._seq_active_style = True
         
         self._run_next_seq_command()
 
@@ -218,26 +228,9 @@ class ButtonTabWidget(QtWidgets.QWidget):
                 not any(reset_term in self._seq_button_name for reset_term in ["Clear", "Reset"])):
                 # Get the color for this section, or use default blue
                 color = self.section_colors.get(self._seq_section, "rgba(0, 0, 255, 0.3)")
-                
-                # Set completed style while preserving all original behaviors
-                self._seq_button.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {color}; 
-                        border: 1px solid lightgray;
-                        border-radius: 6px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: rgba(173, 216, 230, 0.5);
-                        border: 1px solid #87CEEB;
-                    }}
-                    QPushButton:pressed {{
-                        background-color: #d1e7ff;
-                    }}
-                    QPushButton:focus {{
-                        border: 1px solid lightgray;
-                        outline: none;
-                    }}
-                """)
+                self._set_button_completion_style(self._seq_button, color)
+            elif self._seq_active_style and self._seq_button:
+                self._seq_button.setStyleSheet("")
             return
 
         # Rest of the method implementation unchanged
@@ -253,6 +246,9 @@ class ButtonTabWidget(QtWidgets.QWidget):
                     interface.task_finished.disconnect(on_finished)
                 except Exception:
                     pass
+                if exit_code != 0 and self._seq_active_style and self._seq_button:
+                    self._seq_button.setStyleSheet("")
+                    self._seq_active_style = False
                 # Launch next command after current one finishes
                 self._run_next_seq_command()
             # Connect to the task_finished signal
@@ -293,6 +289,31 @@ class ButtonTabWidget(QtWidgets.QWidget):
                 cmd(None)
         else:
             cmd()
+
+    def _set_button_completion_style(self, button, color="rgba(0, 0, 255, 0.3)"):
+        if button is None:
+            return
+        button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {color}; 
+                border: 1px solid lightgray;
+                border-radius: 6px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(173, 216, 230, 0.5);
+                border: 1px solid #87CEEB;
+            }}
+            QPushButton:pressed {{
+                background-color: #d1e7ff;
+            }}
+            QPushButton:focus {{
+                border: 1px solid lightgray;
+                outline: none;
+            }}
+        """)
+
+    def _set_button_active_style(self, button, color="rgba(173, 216, 230, 0.5)"):
+        self._set_button_completion_style(button, color)
 
     def addPositionBox(self, name: str, layout, update_func, tare_func=None, axes=['x', 'y', 'z']):
         # Use CollapsibleGroupBox instead of QGroupBox
@@ -355,7 +376,8 @@ class ButtonTabWidget(QtWidgets.QWidget):
 
     def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], 
                     cmds, sequential=False, change_color_on_complete=False, 
-                    completion_color="rgba(0, 0, 255, 0.3)"):
+                    completion_color="rgba(0, 0, 255, 0.3)",
+                    change_color_during=None):
         # Use CollapsibleGroupBox instead of QGroupBox
         box = CollapsibleGroupBox(box_name)
         rows = QtWidgets.QVBoxLayout()
@@ -380,6 +402,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
                 
                 # Track this button for this section
                 section_buttons.append((button, i, j, button_name))
+                self.section_button_map.setdefault(box_name, {})[button_name] = button
 
                 # Use a lambda function with default arguments to correctly capture the command
                 if i < len(cmds) and j < len(cmds[i]):
@@ -397,9 +420,19 @@ class ButtonTabWidget(QtWidgets.QWidget):
         
         # Store buttons for this section
         self.section_buttons[box_name] = section_buttons
+        if change_color_during:
+            if change_color_during is True:
+                active_names = {name for row in buttonNames for name in row}
+            else:
+                active_names = set(change_color_during)
+            self.active_buttons_by_section[box_name] = active_names
 
         box.setContentLayout(rows)
         layout.addWidget(box)
+        return section_buttons
+
+    def get_section_button(self, section: str, name: str):
+        return self.section_button_map.get(section, {}).get(name)
 
 
 class FileSelector(QWidget):
@@ -492,7 +525,9 @@ class ClassicPatchButtons(ButtonTabWidget):
             # [self.patch_interface.move_group_in_x, self.patch_interface.move_group_in_y],
             [self.patch_interface.move_to_safe_space, self.patch_interface.move_to_home_space],
             [self.pipette_interface.go_to_floor,self.pipette_interface.focus_stage],
-            [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
+            [self.pipette_interface.center_pipette,
+             [self.cell_sorter_led_on, self.patch_interface.clean_pipette],
+             self.pipette_interface.focus_pipette]
         ]
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
@@ -506,49 +541,18 @@ class ClassicPatchButtons(ButtonTabWidget):
         # self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
 
         # Add a box for light controls
-        light_box = CollapsibleGroupBox('Light')
-        light_layout = QtWidgets.QVBoxLayout()
+        buttonList = [['toggle Light', 'toggle fluorescense'],
+                      ['move cube left', 'move cube right']]
+        cmds = [[self.toggle_cell_sorter_led, self.patch_interface.toggle_fluorescence],
+                [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]]
+        self.addButtonList('Light', layout, buttonList, cmds)
 
-        light_row = QtWidgets.QHBoxLayout()
-        light_row.setAlignment(Qt.AlignLeft)
-
-        self.cell_sorter_led_button = QtWidgets.QPushButton('toggle Light')
-        self.cell_sorter_led_button.setCheckable(True)
-        self.cell_sorter_led_button.setChecked(False)
-        self.cell_sorter_led_button.clicked.connect(self.toggle_cell_sorter_led)
-        self._update_cell_sorter_led_button_style(False)
-        self.toggle_cell_sorter_led(False)
-        self.cell_sorter_led_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        self.cell_sorter_led_button.setMinimumWidth(30)
-        self.cell_sorter_led_button.setMinimumHeight(30)
-        light_row.addWidget(self.cell_sorter_led_button)
-
-        toggle_fluorescence_button = QtWidgets.QPushButton('toggle fluorescense')
-        toggle_fluorescence_button.clicked.connect(lambda: self.run_command(self.patch_interface.toggle_fluorescence))
-        toggle_fluorescence_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        toggle_fluorescence_button.setMinimumWidth(30)
-        toggle_fluorescence_button.setMinimumHeight(30)
-        light_row.addWidget(toggle_fluorescence_button)
-        light_layout.addLayout(light_row)
-
-        cube_row = QtWidgets.QHBoxLayout()
-        cube_row.setAlignment(Qt.AlignLeft)
-        move_cube_left_button = QtWidgets.QPushButton('move cube left')
-        move_cube_left_button.clicked.connect(lambda: self.run_command(self.patch_interface.move_cube_left))
-        move_cube_left_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        move_cube_left_button.setMinimumWidth(30)
-        move_cube_left_button.setMinimumHeight(30)
-        cube_row.addWidget(move_cube_left_button)
-        move_cube_right_button = QtWidgets.QPushButton('move cube right')
-        move_cube_right_button.clicked.connect(lambda: self.run_command(self.patch_interface.move_cube_right))
-        move_cube_right_button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        move_cube_right_button.setMinimumWidth(30)
-        move_cube_right_button.setMinimumHeight(30)
-        cube_row.addWidget(move_cube_right_button)
-        light_layout.addLayout(cube_row)
-
-        light_box.setContentLayout(light_layout)
-        layout.addWidget(light_box)
+        self.cell_sorter_led_button = self.get_section_button('Light', 'toggle Light')
+        if self.cell_sorter_led_button is not None:
+            self.cell_sorter_led_button.setCheckable(True)
+            self.cell_sorter_led_button.setChecked(False)
+            self._update_cell_sorter_led_button_style(False)
+            self.toggle_cell_sorter_led(False)
 
         # Add a box for patching commands
         buttonList = [['Select Cell','Remove Last Cell','Center on Cell','Move Stage to Cell'],
@@ -556,15 +560,34 @@ class ClassicPatchButtons(ButtonTabWidget):
                       ['Break-in','Escape Cell'],
                       ['Patch Cell','Attempt Whole Cell','Run Protocols']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.center_on_cell, self.patch_interface.move_stage_to_cell],
-                [self.patch_interface.locate_cell,[self.start_recording,self.patch_interface.hunt_cell],self.patch_interface.gigaseal],
-                [self.patch_interface.break_in,[self.stop_recording,self.patch_interface.escape_cell]],
-                [[self.start_recording,self.patch_interface.patch,self.stop_recording],
-                 [self.start_recording,self.patch_interface.whole_cell,self.stop_recording],
-                 [self.stop_recording,self.patch_interface.run_protocols]]
+                [self.patch_interface.locate_cell,
+                 [self.start_recording,self.patch_interface.hunt_cell],
+                 [self.cell_sorter_led_off, self.patch_interface.gigaseal]],
+                [[self.cell_sorter_led_off, self.patch_interface.break_in],
+                 [self.stop_recording, self.cell_sorter_led_on, self.patch_interface.escape_cell]],
+                [[self.start_recording, self.cell_sorter_led_off, self.patch_interface.patch, self.stop_recording],
+                 [self.start_recording, self.cell_sorter_led_off, self.patch_interface.whole_cell, self.stop_recording],
+                 [self.stop_recording, self.cell_sorter_led_off, self.patch_interface.run_protocols]]
 
   
 ]
-        self.addButtonList('patching', layout, buttonList, cmds,sequential=True)
+        self.addButtonList(
+            'patching',
+            layout,
+            buttonList,
+            cmds,
+            sequential=True,
+            change_color_during={
+                'Locate Cell',
+                'Hunt Cell',
+                'Gigaseal',
+                'Break-in',
+                'Escape Cell',
+                'Patch Cell',
+                'Attempt Whole Cell',
+                'Run Protocols',
+            },
+        )
 
         # Add a box for Rig Recorder
         self.record_button = QtWidgets.QPushButton("Start Recording")
@@ -647,10 +670,26 @@ class ClassicPatchButtons(ButtonTabWidget):
         else:
             self.cell_sorter_led_button.setStyleSheet("")
 
-    def toggle_cell_sorter_led(self, checked=None):
-        enabled = self.cell_sorter_led_button.isChecked() if checked is None else checked
+    def _set_cell_sorter_led_state(self, enabled: bool):
+        if self.cell_sorter_led_button.isChecked() != enabled:
+            self.cell_sorter_led_button.blockSignals(True)
+            self.cell_sorter_led_button.setChecked(enabled)
+            self.cell_sorter_led_button.blockSignals(False)
         self._update_cell_sorter_led_button_style(enabled)
-        self.pipette_interface.set_cell_sorter_led(enabled, ring=1)
+        if enabled:
+            self.patch_interface.cell_sorter_led_on()
+        else:
+            self.patch_interface.cell_sorter_led_off()
+
+    def cell_sorter_led_off(self):
+        self._set_cell_sorter_led_state(False)
+
+    def cell_sorter_led_on(self):
+        self._set_cell_sorter_led_state(True)
+
+    def toggle_cell_sorter_led(self, checked=None):
+        enabled = self.cell_sorter_led_button.isChecked() if checked is None else bool(checked)
+        self._set_cell_sorter_led_state(enabled)
 
 
 
