@@ -238,6 +238,79 @@ class DAQ(TaskController):
             return self._daq_acq_thread.get_last_data()
         return None
 
+    def compute_noise_metrics(self, timeData=None, respData=None,
+                              window_start=0.004, window_end=0.010,
+                              avg_p2p_window=0.001):
+        """
+        Compute noise metrics from response data within a time window.
+        Returns a dict with windowed data, p2p, std, avg_p2p, and FFT results,
+        or None if inputs are insufficient.
+        """
+        if timeData is None or respData is None:
+            last = self.get_last_acquisition()
+            if last is None:
+                return None
+            if timeData is None:
+                timeData = last.get("timeData")
+            if respData is None:
+                respData = last.get("respData")
+
+        if timeData is None or respData is None:
+            return None
+
+        time_array = np.asarray(timeData)
+        resp_array = np.asarray(respData)
+        if time_array.size < 2 or resp_array.size < 2:
+            return None
+
+        window_mask = (time_array >= window_start) & (time_array <= window_end)
+        if not np.any(window_mask):
+            return None
+
+        window_time = time_array[window_mask]
+        window_resp = resp_array[window_mask]
+        if window_time.size < 2:
+            return None
+
+        dt = float(np.mean(np.diff(window_time)))
+        if not np.isfinite(dt) or dt <= 0:
+            dt = None
+
+        p2p = float(np.max(window_resp) - np.min(window_resp))
+        std = float(np.std(window_resp))
+
+        avg_p2p = p2p
+        if dt is not None:
+            window_samples = int(round(avg_p2p_window / dt))
+            if window_samples < 2:
+                window_samples = 2
+            if window_resp.size >= window_samples:
+                p2p_values = []
+                for start in range(0, window_resp.size - window_samples + 1):
+                    segment = window_resp[start:start + window_samples]
+                    p2p_values.append(float(np.max(segment) - np.min(segment)))
+                if p2p_values:
+                    avg_p2p = float(np.mean(p2p_values))
+
+        freqs = None
+        fft_magnitude = None
+        if dt is not None and window_resp.size >= 2:
+            detrended = window_resp - np.mean(window_resp)
+            fft_vals = np.fft.rfft(detrended)
+            freqs = np.fft.rfftfreq(detrended.size, d=dt)
+            fft_magnitude = np.abs(fft_vals)
+
+        return {
+            "window_time": window_time,
+            "window_resp": window_resp,
+            "dt": dt,
+            "p2p": p2p,
+            "std": std,
+            "avg_p2p": avg_p2p,
+            "freqs": freqs,
+            "fft_magnitude": fft_magnitude
+        }
+
     def stop_acquisition(self):
         """
         Stop the asynchronous DAQ acquisition thread.

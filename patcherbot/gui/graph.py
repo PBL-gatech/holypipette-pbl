@@ -26,7 +26,7 @@ from datetime import datetime
 
 from patcherbot.interface.graph import GraphInterface
 
-__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "LeakSubtractionGraph", "HoldingProtocolGraph", "OptogeneticProtocolGraph"]
+__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "LeakSubtractionGraph", "HoldingProtocolGraph", "OptogeneticProtocolGraph", "NoiseGraph"]
 
 
 class ProtocolGraph(QWidget):
@@ -361,6 +361,91 @@ class OptogeneticProtocolGraph(ProtocolGraph):
         daq.optogenetic_protocol_data = None
         daq.optogenetic_stim_data = None
         daq.optogenetic_protocol_type = None
+
+class NoiseGraph(QWidget):
+    noise_state_changed = pyqtSignal(bool)
+
+    def __init__(self, graph_interface: GraphInterface):
+        super().__init__()
+        self.graph_interface = graph_interface
+        self.setWindowTitle("Noise Graph (4-10 ms)")
+
+        main_layout = QVBoxLayout()
+        plot_layout = QVBoxLayout()
+        stats_layout = QHBoxLayout()
+
+        self.zoomPlot = PlotWidget()
+        self.fftPlot = PlotWidget()
+        for plot in [self.zoomPlot, self.fftPlot]:
+            plot.setBackground("w")
+            plot.getAxis("left").setPen("k")
+            plot.getAxis("bottom").setPen("k")
+
+        self.zoomPlot.setLabel("left", "Current", units="A")
+        self.zoomPlot.setLabel("bottom", "Time", units="ms")
+        self.fftPlot.setLabel("left", "FFT Magnitude", units="A")
+        self.fftPlot.setLabel("bottom", "Frequency", units="Hz")
+
+        plot_layout.addWidget(self.zoomPlot)
+        plot_layout.addWidget(self.fftPlot)
+
+        self.p2pLabel = QLabel("Peak-to-peak: N/A")
+        self.stdLabel = QLabel("Std dev: N/A")
+        self.avgP2pLabel = QLabel("Avg P2P (1 ms): N/A")
+        stats_layout.addWidget(self.p2pLabel)
+        stats_layout.addWidget(self.stdLabel)
+        stats_layout.addWidget(self.avgP2pLabel)
+        stats_layout.addStretch(1)
+
+        main_layout.addLayout(plot_layout)
+        main_layout.addLayout(stats_layout)
+        self.setLayout(main_layout)
+
+        self.updateDt = 42  # ms
+        self.updateTimer = QtCore.QTimer()
+        self.updateTimer.timeout.connect(self.update_plot)
+
+        self.setHidden(True)
+        self.closeEvent = lambda event: (event.ignore(), self.stop())
+
+    def is_active(self):
+        return self.updateTimer.isActive()
+
+    def start(self):
+        if not self.updateTimer.isActive():
+            self.updateTimer.start(self.updateDt)
+        self.setHidden(False)
+        self.raise_()
+        self.noise_state_changed.emit(True)
+
+    def stop(self):
+        if self.updateTimer.isActive():
+            self.updateTimer.stop()
+        self.setHidden(True)
+        self.noise_state_changed.emit(False)
+
+    def update_plot(self):
+        metrics = self.graph_interface.get_noise_metrics()
+        if not metrics:
+            return
+
+        window_time = metrics["window_time"]
+        window_resp = metrics["window_resp"]
+        window_time_ms = window_time * 1000.0
+        self.zoomPlot.clear()
+        self.zoomPlot.plot(window_time_ms, window_resp, pen="k")
+        self.zoomPlot.setXRange(4.0, 10.0, padding=0.0)
+
+        self.p2pLabel.setText(f"Peak-to-peak: {metrics['p2p']:.3e} A")
+        self.stdLabel.setText(f"Std dev: {metrics['std']:.3e} A")
+        self.avgP2pLabel.setText(f"Avg P2P (1 ms): {metrics['avg_p2p']:.3e} A")
+
+        freqs = metrics.get("freqs")
+        fft_magnitude = metrics.get("fft_magnitude")
+        self.fftPlot.clear()
+        if freqs is not None and fft_magnitude is not None:
+            self.fftPlot.plot(freqs, fft_magnitude, pen="k")
+
 class EPhysGraph(QWidget):
     pressureLowerBound = -450
     pressureUpperBound = 730
@@ -469,6 +554,11 @@ class EPhysGraph(QWidget):
         self.atmosphericPressureButton.clicked.connect(self.togglePressure)
         self.atmtoggle = True
 
+        # Noise check toggle.
+        self.noiseButton = QPushButton("Check Noise")
+        bottomBarLayout.addWidget(self.noiseButton)
+        self.noiseButton.clicked.connect(self.toggleNoise)
+
         # Zap controls.
         self.zapLabel = QLabel("Zap Duration:")
         bottomBarLayout.addWidget(self.zapLabel)
@@ -552,6 +642,9 @@ class EPhysGraph(QWidget):
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
 
+        self.noiseGraph = NoiseGraph(self.graph_interface)
+        self.noiseGraph.noise_state_changed.connect(self.updateNoiseButton)
+
         self.show()
         self.raise_()
 
@@ -574,6 +667,11 @@ class EPhysGraph(QWidget):
             pressureX = [i * self.updateDt / 1000 for i in range(len(self.pressureData))]
             self.pressurePlot.clear()
             self.pressurePlot.plot(pressureX, list(self.pressureData))
+            pressure_target = abs(pressure)
+            if pressure_target < 1:
+                pressure_target = 1
+            max_abs_pressure = pressure_target * 2
+            self.pressurePlot.setYRange(-max_abs_pressure, max_abs_pressure, padding=0.0)
             # Update the slider only if the user is not interacting with it.
             if not self.pressureCommandSlider.isSliderDown():
                 self.pressureCommandSlider.setValue(pressure)
@@ -610,6 +708,8 @@ class EPhysGraph(QWidget):
                 x_vals = list(range(len(self.resistanceDeque)))
                 self.resistancePlot.clear()
                 self.resistancePlot.plot(x_vals, list(self.resistanceDeque), pen="k")
+                max_resistance = max(totalResistance * 2, 1)
+                self.resistancePlot.setYRange(0, max_resistance, padding=0.0)
             if accessResistance is not None:
                 self.accessResistanceLabel.setText(f"Access Resistance: {accessResistance:.2f} MΩ")
             if membraneResistance is not None:
@@ -828,6 +928,18 @@ class EPhysGraph(QWidget):
         self.laserToggleButton.setStyleSheet(
             f"background-color: {color}; color: {text_color}; border-radius: 5px; padding: 5px;"
         )
+
+    def updateNoiseButton(self, active):
+        if active:
+            self.noiseButton.setText("Stop Noise Check")
+        else:
+            self.noiseButton.setText("Check Noise")
+
+    def toggleNoise(self):
+        if self.noiseGraph.is_active():
+            self.noiseGraph.stop()
+        else:
+            self.noiseGraph.start()
 
     def handle_laser_left(self):
         self.graph_interface.wavelength_down()

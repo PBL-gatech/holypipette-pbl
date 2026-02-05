@@ -60,6 +60,19 @@ class GraphInterface(TaskInterface):
             return None
 
     @command(category='DAQ',
+                description='compute noise metrics from DAQ response')
+    def get_noise_metrics(self, timeData=None, respData=None,
+                          window_start=0.004, window_end=0.010,
+                          avg_p2p_window=0.001):
+        return self.daq.compute_noise_metrics(
+            timeData=timeData,
+            respData=respData,
+            window_start=window_start,
+            window_end=window_end,
+            avg_p2p_window=avg_p2p_window,
+        )
+
+    @command(category='DAQ',
                 description='get last optogenetic protocol data')
     def get_last_optogenetic_data(self):
         return getattr(self.daq, "optogenetic_protocol_data", None)
