@@ -175,6 +175,10 @@ class DAQ(TaskController):
         self.optogenetic_protocol_data = None
         self.optogenetic_stim_data = None
         self.optogenetic_protocol_type = None
+        self.optogenetic_pulses = None
+        self.optogenetic_pulseRange = None
+        self.optogenetic_protocol_queue = collections.deque()
+        self._optogenetic_queue_lock = threading.Lock()
         self._deviceLock = threading.Lock()
         self.isRunningProtocol = False
         self.totalResistance = None
@@ -197,6 +201,23 @@ class DAQ(TaskController):
 
     def getCellMode(self) -> bool:
         return self.cellMode
+    def _normalize_optogenetic_protocol_key(self, protocol_type):
+        if protocol_type is None:
+            return "unknown"
+        name = getattr(protocol_type, "name", None)
+        if isinstance(name, str) and name.strip():
+            return name.strip().lower()
+        text = str(protocol_type).strip().lower()
+        return text if text else "unknown"
+
+    def pop_optogenetic_entry(self, protocol_key):
+        key = self._normalize_optogenetic_protocol_key(protocol_key)
+        with self._optogenetic_queue_lock:
+            for entry in self.optogenetic_protocol_queue:
+                if entry.get("protocol_key") == key:
+                    self.optogenetic_protocol_queue.remove(entry)
+                    return entry
+        return None
     # --------------------------
     # Acquisition Methods
     # --------------------------
@@ -1840,53 +1861,127 @@ class NiDAQ(DAQ):
         rate_hz: int = 50_000,
     ):
         """
-        Modified holding protocol that records during optogenetic stimulation.
+        Modified holding protocol that records only during optogenetic "on" steps.
 
         Returns
         -------
-        (np.ndarray, list[dict])
-            [time_s, resp_A, read_V] and the stimulation timeline.
+        (list[list[np.ndarray]], list[dict])
+            One trace per on-step plus the stimulation timeline.
         """
         if laser is None:
             raise ValueError("laser is required")
         if protocol_steps is None or len(protocol_steps) == 0:
             raise ValueError("protocol_steps must contain at least one step")
 
-        stim_timeline, duration_s, protocol_type = self._build_optogenetic_timeline(protocol_steps)
-        num_samples = int(rate_hz * duration_s)
-        if num_samples <= 0:
-            raise ValueError("Optogenetic protocol duration too short")
+        stim_timeline, _, protocol_type = self._build_optogenetic_timeline(protocol_steps)
 
         self.pause_acquisition()
         ai = None
-        actual_timeline = None
+        actual_timeline = []
 
         try:
             try:
                 laser.power_off()
             except Exception:
                 pass
-            ai = self._setup_optogenetic_ai_task(rate_hz, num_samples)
-            ai.start()
             t0 = time.perf_counter()
-            actual_timeline = self._run_optogenetic_timeline(
-                laser,
-                stim_timeline,
-                t0=t0,
-                tight_timing=True,
-            )
-            raw = self._read_optogenetic_ai(ai, num_samples, duration_s)
-            ai = None
+            aligned_traces: list[list[np.ndarray]] = []
+            aligned_pulses: list[dict] = []
 
-            resp = raw[1] * self.V_CLAMP_VOLT_PER_AMP
-            read = raw[0] * self.V_CLAMP_VOLT_PER_VOLT
-            t = np.linspace(0, duration_s, num_samples, dtype=float)
+            for step in stim_timeline:
+                duration_s = float(step.get("duration_s", 0.0))
+                if duration_s <= 0:
+                    continue
 
-            self.optogenetic_protocol_data = np.array([t, resp, read])
-            self.optogenetic_stim_data = actual_timeline or stim_timeline
+                planned_start = float(step.get("start_s", 0.0))
+                planned_end = float(step.get("end_s", planned_start + duration_s))
+                self._wait_until(t0 + planned_start, tight_timing=True)
+
+                state = step.get("state", "on")
+                wavelength = step.get("wavelength")
+                power_percent = step.get("power_percent")
+                if state == "on":
+                    if isinstance(wavelength, str) and wavelength.strip().lower() == "off":
+                        state = "off"
+                    else:
+                        name = getattr(wavelength, "name", None)
+                        if isinstance(name, str) and name.upper() == "OFF":
+                            state = "off"
+
+                step_start = time.perf_counter() - t0
+                if state == "on":
+                    if wavelength is not None:
+                        laser.set_wavelength(wavelength)
+                    if power_percent is not None:
+                        laser.set_power_level(power_percent, wavelength)
+                    laser.power_on()
+
+                    num_samples = int(rate_hz * duration_s)
+                    if num_samples <= 0:
+                        laser.power_off()
+                        continue
+
+                    ai = self._setup_optogenetic_ai_task(rate_hz, num_samples)
+                    ai.start()
+                    raw = self._read_optogenetic_ai(ai, num_samples, duration_s)
+                    ai = None
+
+                    resp = raw[1] * self.V_CLAMP_VOLT_PER_AMP
+                    read = raw[0] * self.V_CLAMP_VOLT_PER_VOLT
+                    t = np.linspace(0, duration_s, num_samples, dtype=float)
+
+                    aligned_traces.append([t, resp, read])
+                    aligned_pulses.append({
+                        "wavelength": wavelength,
+                        "power_percent": power_percent,
+                        "replicate": step.get("replicate"),
+                        "protocol_type": step.get("protocol_type"),
+                    })
+                    try:
+                        laser.power_off()
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        laser.power_off()
+                    except Exception:
+                        pass
+
+                self._wait_until(t0 + planned_end, tight_timing=True)
+                step_end = time.perf_counter() - t0
+
+                entry = dict(step)
+                entry["state"] = state
+                if power_percent is not None:
+                    entry["power_percent"] = power_percent
+                entry["start_s"] = step_start
+                entry["end_s"] = step_end
+                actual_timeline.append(entry)
+
+            stim_used = actual_timeline or stim_timeline
+            if not aligned_traces:
+                aligned_traces = []
+                aligned_pulses = []
+
+            self.optogenetic_protocol_data = aligned_traces
+            self.optogenetic_stim_data = stim_used
             if protocol_type is None and self.optogenetic_stim_data:
                 protocol_type = self.optogenetic_stim_data[0].get("protocol_type")
             self.optogenetic_protocol_type = protocol_type
+            self.optogenetic_pulses = aligned_pulses
+            self.optogenetic_pulseRange = len(aligned_pulses)
+
+            protocol_key = self._normalize_optogenetic_protocol_key(protocol_type)
+            entry = {
+                "data": aligned_traces,
+                "pulses": aligned_pulses,
+                "pulse_range": len(aligned_pulses),
+                "stim_data": stim_used,
+                "protocol_type": protocol_type,
+                "protocol_key": protocol_key,
+            }
+            with self._optogenetic_queue_lock:
+                self.optogenetic_protocol_queue.append(entry)
             return self.optogenetic_protocol_data, self.optogenetic_stim_data
 
         finally:

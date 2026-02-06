@@ -147,18 +147,20 @@ class EPhysLogger(threading.Thread):
             logging.error("Failed to save plot to %s", fallback_path)
 
     def _normalize_image(self, image):
-            """Return an 8-bit version of ``image`` without histogram normalization."""
+            """Return an 8-bit version of ``image`` using per-image min/max normalization."""
             if image is None:
                 return None
-            if image.dtype == np.uint8:
-                return image
-            if np.issubdtype(image.dtype, np.integer):
-                if image.dtype.itemsize > 1:
-                    shift = max(image.dtype.itemsize * 8 - 8, 0)
-                    if shift:
-                        image = (image.astype(np.uint64) >> shift)
-                return np.clip(image, 0, 255).astype(np.uint8)
-            return np.clip(image, 0, 255).astype(np.uint8)
+            img = np.asarray(image)
+            if img.size == 0:
+                return np.zeros_like(img, dtype=np.uint8)
+            img = img.astype(np.float32)
+            min_val = float(np.min(img))
+            max_val = float(np.max(img))
+            if max_val > min_val:
+                img = (img - min_val) / (max_val - min_val) * 255.0
+            else:
+                img = np.zeros_like(img, dtype=np.float32)
+            return np.clip(img, 0, 255).astype(np.uint8)
 
     def _format_metadata_value(self, value):
         if value is None:

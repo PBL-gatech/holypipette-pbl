@@ -37,6 +37,16 @@ class PatchGui(ManipulatorGui):
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
         self.recording_state_manager = recording_state_manager
+        self._cell_list_signature = None
+        self.cell_list_window = CellListWindow(self)
+        self.cell_list_window.closed.connect(self._cells_window_closed)
+        self.show_cells_button = QtWidgets.QPushButton("Show Cells")
+        self.show_cells_button.setCheckable(True)
+        self.show_cells_button.clicked.connect(self.toggle_cell_list_window)
+        self.status_bar.insertPermanentWidget(0, self.show_cells_button)
+        self._cell_list_timer = QtCore.QTimer(self)
+        self._cell_list_timer.setInterval(500)
+        self._cell_list_timer.timeout.connect(self._refresh_cell_list_window)
 
         self.patch_interface.moveToThread(pipette_interface.thread())
         self.interface_signals[self.patch_interface] = (self.patch_command_signal,
@@ -61,6 +71,40 @@ class PatchGui(ManipulatorGui):
                                  self.patch_interface.store_rinsing_position)
         self.register_key_action(Qt.Key_F4, None,
                                  self.patch_interface.clean_pipette)
+
+    def toggle_cell_list_window(self, checked=None):
+        if checked is None:
+            checked = self.show_cells_button.isChecked()
+        if checked:
+            self.show_cells_button.setText("Hide Cells")
+            self._refresh_cell_list_window(force=True)
+            self.cell_list_window.show()
+            self.cell_list_window.raise_()
+            self.cell_list_window.activateWindow()
+            self._cell_list_timer.start()
+        else:
+            self.cell_list_window.close()
+
+    def _cells_window_closed(self):
+        self._cell_list_timer.stop()
+        if self.show_cells_button.isChecked():
+            self.show_cells_button.blockSignals(True)
+            self.show_cells_button.setChecked(False)
+            self.show_cells_button.blockSignals(False)
+        self.show_cells_button.setText("Show Cells")
+
+    def _refresh_cell_list_window(self, force=False):
+        if not self.cell_list_window.isVisible():
+            return
+        cells = list(self.patch_interface.cells_to_patch)
+        try:
+            stage_reference = self.patch_interface.current_autopatcher.calibrated_stage.reference_position()
+        except Exception:
+            stage_reference = None
+        signature = tuple(id(cell) for cell in cells)
+        full_refresh = force or (signature != self._cell_list_signature)
+        self.cell_list_window.update_cells(cells, stage_reference, full_refresh=full_refresh)
+        self._cell_list_signature = signature
 
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
     def __init__(self, title="", parent=None):
@@ -152,6 +196,134 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
             if child.widget():
                 child.widget().setParent(None)
         self.content_layout.addLayout(layout)
+
+class CellListWindow(QtWidgets.QDialog):
+    closed = QtCore.pyqtSignal()
+
+    def __init__(self, parent=None, thumbnail_size=96):
+        super().__init__(parent=parent)
+        self.setWindowTitle("Selected Cells")
+        self.setWindowFlags(self.windowFlags() | Qt.Tool)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+
+        self.thumbnail_size = thumbnail_size
+        self.table = QtWidgets.QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels([
+            "Image",
+            "Fluo Image",
+            "Cell",
+            "Stage (px)",
+            "Stage (um)",
+        ])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        self.table.verticalHeader().setDefaultSectionSize(self.thumbnail_size + 12)
+
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self.table)
+        self.setLayout(layout)
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+    def update_cells(self, cells, stage_reference=None, full_refresh=True):
+        if self.table.rowCount() != len(cells):
+            self.table.setRowCount(len(cells))
+            full_refresh = True
+
+        for row, cell in enumerate(cells):
+            stage_px, img, stage_um, img_fluo = self._unpack_cell(cell)
+
+            if full_refresh:
+                self._set_image_cell(row, 0, img)
+                self._set_image_cell(row, 1, img_fluo, empty_text="N/A")
+                self._set_item(row, 2, str(row + 1))
+                self._set_item(row, 3, self._format_vec(stage_px))
+                self._set_item(row, 4, self._format_vec(stage_um))
+
+    def _unpack_cell(self, cell):
+        if cell is None:
+            return None, None, None, None
+        if len(cell) >= 4:
+            return cell[0], cell[1], cell[2], cell[3]
+        if len(cell) == 3:
+            return cell[0], cell[1], cell[2], None
+        return None, None, None, None
+
+    def _set_item(self, row, col, text):
+        item = self.table.item(row, col)
+        if item is None:
+            item = QtWidgets.QTableWidgetItem()
+            item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+            self.table.setItem(row, col, item)
+        item.setText(text)
+
+    def _set_image_cell(self, row, col, image, empty_text=""):
+        if image is None:
+            self.table.removeCellWidget(row, col)
+            item = QtWidgets.QTableWidgetItem(empty_text)
+            item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+            self.table.setItem(row, col, item)
+            return
+
+        pixmap = self._image_to_pixmap(image)
+        label = QtWidgets.QLabel()
+        label.setAlignment(Qt.AlignCenter)
+        if pixmap is not None:
+            label.setPixmap(
+                pixmap.scaled(
+                    self.thumbnail_size,
+                    self.thumbnail_size,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
+        self.table.setCellWidget(row, col, label)
+
+    def _image_to_pixmap(self, image):
+        if image is None:
+            return None
+        img = np.array(image)
+        if img.ndim == 2:
+            img8 = self._normalize_to_uint8(img)
+            q_image = QtGui.QImage(
+                img8.data,
+                img8.shape[1],
+                img8.shape[0],
+                img8.strides[0],
+                QtGui.QImage.Format_Grayscale8,
+            ).copy()
+        else:
+            img8 = self._normalize_to_uint8(img[..., 0])
+            q_image = QtGui.QImage(
+                img8.data,
+                img8.shape[1],
+                img8.shape[0],
+                img8.strides[0],
+                QtGui.QImage.Format_Grayscale8,
+            ).copy()
+        return QtGui.QPixmap.fromImage(q_image)
+
+    def _normalize_to_uint8(self, img):
+        img = img.astype(np.float32)
+        min_val = float(np.min(img))
+        max_val = float(np.max(img))
+        if max_val > min_val:
+            img = (img - min_val) / (max_val - min_val) * 255.0
+        else:
+            img = np.zeros_like(img, dtype=np.float32)
+        return img.astype(np.uint8)
+
+    def _format_vec(self, vec):
+        if vec is None:
+            return "N/A"
+        arr = np.array(vec).astype(float).ravel()
+        return ", ".join(f"{v:.1f}" for v in arr)
 
 class ButtonTabWidget(QtWidgets.QWidget):
     def __init__(self):

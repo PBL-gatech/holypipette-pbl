@@ -26,7 +26,16 @@ from datetime import datetime
 
 from patcherbot.interface.graph import GraphInterface
 
-__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "LeakSubtractionGraph", "HoldingProtocolGraph", "OptogeneticProtocolGraph", "NoiseGraph"]
+__all__ = [
+    "EPhysGraph",
+    "CurrentProtocolGraph",
+    "VoltageProtocolGraph",
+    "LeakSubtractionGraph",
+    "HoldingProtocolGraph",
+    "OptogeneticStimProtocolGraph",
+    "OptogeneticWavelengthProtocolGraph",
+    "NoiseGraph",
+]
 
 
 class ProtocolGraph(QWidget):
@@ -320,17 +329,31 @@ class HoldingProtocolGraph(ProtocolGraph):
         self.latestDisplayedData = self.graph_interface.daq.holding_protocol_data.copy()
         self.graph_interface.daq.holding_protocol_data = None  # Reset after plotting
 
-class OptogeneticProtocolGraph(ProtocolGraph):
-    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
-        super().__init__(graph_interface, recording_state_manager,
-                         window_title="Optogenetic Protocol",
-                         y_label="PicoAmps", y_unit="A",
-                         x_label="Time", x_unit="s",
-                         ephys_filename="OptogeneticProtocol")
+class OptogeneticBaseGraph(ProtocolGraph):
+    def __init__(
+        self,
+        graph_interface: GraphInterface,
+        recording_state_manager: RecordingStateManager,
+        *,
+        window_title: str,
+        protocol_key: str,
+    ):
+        super().__init__(
+            graph_interface,
+            recording_state_manager,
+            window_title=window_title,
+            y_label="PicoAmps",
+            y_unit="A",
+            x_label="Time",
+            x_unit="s",
+            ephys_filename="OptogeneticProtocol",
+        )
+        self.protocol_key = protocol_key
 
     def update_plot(self):
         daq = self.graph_interface.daq
-        if daq.optogenetic_protocol_data is None:
+        entry = daq.pop_optogenetic_entry(self.protocol_key)
+        if entry is None:
             return
 
         index = self.recording_state_manager.sample_number
@@ -339,28 +362,152 @@ class OptogeneticProtocolGraph(ProtocolGraph):
             self.setHidden(False)
 
         self.plotWidget.clear()
-        data = daq.optogenetic_protocol_data
-        stim_data = daq.optogenetic_stim_data
-        protocol_type = daq.optogenetic_protocol_type
+        data = entry.get("data") or []
+        pulses = entry.get("pulses") or []
+        pulse_range = entry.get("pulse_range")
+        stim_data = entry.get("stim_data")
+        protocol_type = entry.get("protocol_type")
         if protocol_type is None and stim_data:
             protocol_type = stim_data[0].get("protocol_type")
 
-        self.plotWidget.plot(data[0, :], data[1, :], pen="k")
-        self.ephys_logger.write_optogenetic_data(
-            index,
-            data[0, :],
-            data[1, :],
-            data[2, :],
-            protocol_type,
-        )
+        if pulse_range is None:
+            pulse_range = len(data)
+
+        if not data:
+            return
+
+        protocol_label = "unknown"
+        if protocol_type is not None:
+            name = getattr(protocol_type, "name", None)
+            if isinstance(name, str) and name.strip():
+                protocol_label = name.strip().lower()
+            else:
+                text = str(protocol_type).strip().lower()
+                if text:
+                    protocol_label = text
+
+        rep_indices = []
+        power_values = []
+        for pulse in pulses:
+            try:
+                rep_indices.append(int(pulse.get("replicate", 0)))
+            except (TypeError, ValueError, AttributeError):
+                rep_indices.append(0)
+            try:
+                power = float(pulse.get("power_percent"))
+            except (TypeError, ValueError, AttributeError):
+                power = None
+            if power is not None and np.isfinite(power):
+                power_values.append(power)
+
+        rep_count = max(rep_indices) + 1 if rep_indices else 1
+        power_keys = []
+        power_rank = {}
+        segment = 1.0
+        if protocol_label == "power":
+            power_keys = sorted({round(p, 6) for p in power_values}, reverse=True)
+            power_rank = {value: idx for idx, value in enumerate(power_keys)}
+            segment = 1.0 / max(len(power_keys), 1)
+
+        color_map = EPhysGraph.laserColorMap
+        for idx, trace in enumerate(data):
+            if trace is None or len(trace) < 3:
+                continue
+            timeData, respData, readData = trace
+            pulse = pulses[idx] if idx < len(pulses) else {}
+            wavelength = pulse.get("wavelength") if isinstance(pulse, dict) else None
+            try:
+                power = float(pulse.get("power_percent")) if isinstance(pulse, dict) else None
+            except (TypeError, ValueError):
+                power = None
+            rep_index = rep_indices[idx] if idx < len(rep_indices) else 0
+
+            color_label = "unknown"
+            base_hex = "#e0e0e0"
+            if wavelength is not None:
+                if isinstance(wavelength, str):
+                    cleaned = wavelength.strip()
+                    if cleaned.isdigit():
+                        wavelength = int(cleaned)
+                    else:
+                        key = cleaned.lower()
+                        if key in color_map:
+                            color_label, base_hex = key, color_map[key][1]
+                if isinstance(wavelength, int):
+                    options = self.graph_interface.get_laser_wavelength_options()
+                    if options:
+                        index = max(1, min(len(options), wavelength))
+                        wavelength = options[index - 1]
+                    else:
+                        default_keys = list(color_map.keys())
+                        if default_keys:
+                            key = default_keys[max(1, min(len(default_keys), wavelength)) - 1]
+                            color_label, base_hex = key, color_map[key][1]
+                            wavelength = None
+                if wavelength is not None and not isinstance(wavelength, int):
+                    name = getattr(wavelength, "name", str(wavelength))
+                    key = name.strip().lower()
+                    if key in color_map:
+                        color_label, base_hex = key, color_map[key][1]
+                    elif key:
+                        color_label = key
+
+            if protocol_label == "power":
+                power_key = round(power, 6) if power is not None and np.isfinite(power) else None
+                rank = power_rank.get(power_key, len(power_keys) - 1 if power_keys else 0)
+                ratio = rank * segment
+                if rep_count > 0:
+                    ratio += (rep_index / rep_count) * segment
+            else:
+                ratio = rep_index / max(rep_count - 1, 1)
+
+            max_whiten_ratio = 0.7
+            ratio = max(0.0, min(max_whiten_ratio, float(ratio)))
+            cmap = LinearSegmentedColormap.from_list("", [base_hex, "#ffffff"])
+            color_hex = to_hex(cmap(ratio))
+            self.plotWidget.plot(timeData, respData, pen=color_hex)
+
+            safe_label = str(color_label).strip().lower().replace(" ", "")
+            rep_tag = f"rep{rep_index}"
+            marker = f"{protocol_label}_{safe_label}_{rep_tag}_{color_hex}"
+            self.ephys_logger.write_ephys_data(
+                index,
+                timeData,
+                readData,
+                respData,
+                marker
+            )
+
+            if idx == pulse_range - 1:
+                self.ephys_logger.save_optogenetic_plot(index, self.plotWidget, protocol_type)
+
         if stim_data:
             self.ephys_logger.write_optogenetic_stim_data(index, stim_data, protocol_type)
-        self.ephys_logger.save_optogenetic_plot(index, self.plotWidget, protocol_type)
 
-        self.latestDisplayedData = data.copy()
+        self.latestDisplayedData = entry
         daq.optogenetic_protocol_data = None
         daq.optogenetic_stim_data = None
         daq.optogenetic_protocol_type = None
+
+
+class OptogeneticStimProtocolGraph(OptogeneticBaseGraph):
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        super().__init__(
+            graph_interface,
+            recording_state_manager,
+            window_title="Optogenetic Stim Protocol",
+            protocol_key="power",
+        )
+
+
+class OptogeneticWavelengthProtocolGraph(OptogeneticBaseGraph):
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        super().__init__(
+            graph_interface,
+            recording_state_manager,
+            window_title="Optogenetic Wavelength Protocol",
+            protocol_key="wavelength",
+        )
 
 class NoiseGraph(QWidget):
     noise_state_changed = pyqtSignal(bool)
