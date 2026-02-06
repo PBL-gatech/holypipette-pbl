@@ -401,6 +401,50 @@ class CalibratedUnit(ManipulatorUnit):
         # self.debug("DEBUG: Centering move complete.")
 
 
+    def direct_pipette_3D(self, desired_px3D):
+        '''
+        Moves the pipette so that its detected position matches the requested 3D image coordinates.
+        '''
+        self.abort_if_requested()
+        #(1) get image from raw frame queue
+        _, _, _, img = self.camera.raw_frame_queue[0]
+        #(2) get detected pipette position from deep learning detector
+        detected_px = np.array(self.pipetteCalHelper.pipetteDetector.detect_pipette(img))
+        #(3) extract planar values from desired_px3D
+        if detected_px is None:
+            self.error("No pipette detected in the current frame.")
+            return
+        detected_px = np.asarray(detected_px, dtype=float)  # expected length 2 (x, y)
+        desired_px3D = np.asarray(desired_px3D, dtype=float)
+        if desired_px3D.size < 3:
+            # goal z defaults to 0 defocus if not provided
+            desired_px3D = np.pad(desired_px3D, (0, 3 - desired_px3D.size), constant_values=0)
+        desired_px = desired_px3D[:2]
+
+        # (4) Compute the pixel error (desired minus detected).
+        error_px = desired_px - detected_px
+        # self.debug("DEBUG: Pixel error (desired - detected):", error_px)
+        
+        # (5) Convert the pixel error into a correction (in microns).
+        # pixels_to_um_relative() expects a 3-element vector.
+        error_um = self.pixels_to_um_relative(np.array([error_px[0], error_px[1], 0]))
+
+        # (5.5) Add z correction from desired_px3D (treat value as defocus to negate)
+        z_correction = -float(desired_px3D[2])
+        error_um_3D = np.array([error_um[0], error_um[1], z_correction])
+
+        # (6) Get the current manipulator (pipette) position (in microns) and compute the target.
+        current_um = self.position()
+        # self.debug("DEBUG: Current manipulator position (um):", current_um)
+        target_um = current_um + error_um_3D
+        # self.debug("DEBUG: Computed target manipulator position (um):", target_um)
+        
+        # (7) Command the move and wait until the unit is still.
+        self.absolute_move(target_um.tolist())
+        self.wait_until_still()
+        # self.debug("DEBUG: Centering move complete.")
+
+
     def record_cal_point(self):
         '''
         records a calibration point for the pipette
@@ -507,30 +551,35 @@ class CalibratedUnit(ManipulatorUnit):
         self.wait_until_still()
 
 
-    def move_pipette_random(self, movement = 50):
+    def move_pipette_random(self, movement = 100):
         '''
         Moves the pipette randomly in xy plane, method used for testing/calibration/data collection.
         '''
         orig = self.get_max_speed()
         self.info(f"Moving pipette randomly for testing/calibration, original speed is: {orig} um/s")
         self.set_max_speed(25)
-        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5)])
-        self.relative_move(movement_vector)
 
-        # the proceeding is for data collection for focusing model.
+        # this section is for testing the find pipette method.
+        # movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5)])
+        # self.relative_move_group(movement_vector)
         # self.wait_until_still()
-        # movement_z_vector = np.array([0,0,movement/2])
-        # self.relative_move(movement_z_vector)
-        # self.wait_until_still()
-        # self.relative_move(-movement_z_vector)
-        # self.wait_until_still()
-        # self.relative_move(-movement_z_vector)
-        # self.wait_until_still()
-        # self.relative_move(movement_z_vector)
-        # self.wait_until_still()
-        # self.relative_move(-movement_vector)
-        # self.wait_until_still()
-        # self.set_max_speed(orig)
+
+        # the proceeding section is for data collection for focusing and detection models.
+        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), 0])
+        self.relative_move(movement_vector)
+        self.wait_until_still()
+        movement_z_vector = np.array([0,0,movement/5])
+        self.relative_move(movement_z_vector)
+        self.wait_until_still()
+        self.relative_move(-movement_z_vector)
+        self.wait_until_still()
+        self.relative_move(-movement_z_vector)
+        self.wait_until_still()
+        self.relative_move(movement_z_vector)
+        self.wait_until_still()
+        self.relative_move(-movement_vector)
+        self.wait_until_still()
+        self.set_max_speed(orig)
         self.info("Finished random pipette movement.")
 
 

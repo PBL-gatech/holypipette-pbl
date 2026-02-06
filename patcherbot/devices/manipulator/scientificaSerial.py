@@ -18,7 +18,7 @@ class SerialCommands():
     SET_X_Y_POS_ABS = 'abs {} {}\r'
     SET_X_Y_POS_REL = 'rel {} {}\r'
     SET_X_Y_Z_POS_ABS = 'abs {} {} {}\r'
-    SET_X_Z_POS_REL = 'rel {} {}\r'
+    SET_X_Y_Z_POS_REL = 'rel {} {} {}\r'
     
 
     SET_Z_POS = 'absz {}\r'
@@ -194,26 +194,32 @@ class ScientificaSerialEncoder(Manipulator):
             print(f'unimplemented move group {x} {axes}')
 
     
-    def relative_move_group(self, pos, axis, speed=None):
-        if axis == 1:
-            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(pos, 0))
-        if axis == 2:
-            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(0, pos))
-        if axis == 3:
-            absZCmd = self.position(3) + pos
-            self.absolute_move(absZCmd, 3)
+    def relative_move_group(self, x, axes, speed=None):
+        """
+        Relative multi‑axis move using Scientifica's `rel` command.
+        Mirrors absolute_move_group but sends deltas instead of targets.
+        """
+        x = list(x)
+        axes = list(axes)
 
-    def relative_move_group(self, x, axes):
-        cmd = [0, 0, 0]
-        for pos, axis in zip(x, axes):
-            cmd[axis  - 1] = pos
-        
-        if cmd[0] != 0 or cmd[1] != 0:
-            print("sent cmd", cmd[0], cmd[1])
-            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] * 10), int(cmd[1] * 10)))
+        # Build delta vector in device order (1=X, 2=Y, 3=Z)
+        dx = dy = dz = 0
+        if 1 in axes:
+            dx = int(x[axes.index(1)] * 10)
+        if 2 in axes:
+            dy = int(x[axes.index(2)] * 10)
+        if 3 in axes:
+            dz = int(x[axes.index(3)] * 10)
 
-        if cmd[2] != 0:
-            self.relative_move(cmd[2], 3)
+        if 1 in axes and 2 in axes and 3 in axes:
+            self._sendCmd(SerialCommands.SET_X_Y_Z_POS_REL.format(dx, dy, dz))
+        elif 1 in axes and 2 in axes:
+            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(dx, dy))
+        elif 3 in axes:
+            # Only Z move; still use the 3‑axis relative command for consistency
+            self._sendCmd(SerialCommands.SET_X_Y_Z_POS_REL.format(0, 0, dz))
+        else:
+            print(f'unimplemented move group {x} {axes}')
 
     def absolute_move_group_velocity(self,vel,axes):   
         try: 
@@ -402,40 +408,30 @@ class ScientificaSerialNoEncoder(Manipulator):
         except Exception as e:
             self.error(f"Error in absolute_move: {e}")
         
-    def relative_move_group(self, pos, axis, speed=None):
-        '''Moves the device axis by relative amount pos in um.
-        Parameters
-        ----------
-        axis : axis number starting at 0; if None, all XYZ axes
-        pos : position shift in um.
-        '''
-        # self.abort_if_requested()
-        if axis == 1:
-            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(pos, 0))
-        if axis == 2:
-            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(0, pos))
-        if axis == 3:
-            absZCmd = self.position(3) + pos
-            self.absolute_move(absZCmd, 3)
-
     def relative_move_group(self, x, axes, speed=None):
-        '''
-        Moves the device group of axes by relative amount x in um.
-        Parameters
-        ----------
-        axes : list of axis numbers
-        x : position shift in um (vector or list).
-        '''
-        # self.abort_if_requested()
-        cmd = [0, 0, 0]
-        for pos, axis in zip(x, axes):
-            cmd[axis  - 1] = pos
-        
-        if cmd[0] != 0 or cmd[1] != 0:
-            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(int(cmd[0] * 10), int(cmd[1] * 10)))
+        """
+        Relative multi‑axis move using the 2‑ or 3‑axis `rel` commands.
+        Mirrors absolute_move_group but sends deltas instead of targets.
+        """
+        x = list(x)
+        axes = list(axes)
 
-        if cmd[2] != 0:
-            self.relative_move(cmd[2], 3)
+        dx = dy = dz = 0
+        if 1 in axes:
+            dx = int(x[axes.index(1)] * 10)
+        if 2 in axes:
+            dy = int(x[axes.index(2)] * 10)
+        if 3 in axes:
+            dz = int(x[axes.index(3)] * 10)
+
+        if 1 in axes and 2 in axes and 3 in axes:
+            self._sendCmd(SerialCommands.SET_X_Y_Z_POS_REL.format(dx, dy, dz))
+        elif 1 in axes and 2 in axes:
+            self._sendCmd(SerialCommands.SET_X_Y_POS_REL.format(dx, dy))
+        elif 3 in axes:
+            self._sendCmd(SerialCommands.SET_X_Y_Z_POS_REL.format(0, 0, dz))
+        else:
+            print(f'unimplemented move group {x} {axes}')
 
     def wait_until_still(self, axes = None, axis = None):
         while True:

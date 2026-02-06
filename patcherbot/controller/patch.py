@@ -120,8 +120,11 @@ class AutoPatcher(TaskController):
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
-        # Allow reusing the live frame as the goal image when the model expects one
-        self.agenthelper.prepare_model("find_pipette", allow_goal_placeholders=True)
+        # Only load the agent policy when running in Agent mode; Classic/Manual should stay model-free
+        if self.config.mode == 'Agent':
+            self.agenthelper.prepare_model("find_pipette", allow_goal_placeholders=True)
+        else:
+            self.info("Classic/Manual mode detected; skipping agent model load for find_pipette")
         sleep_time = 0.005 # seconds
 
         def _log_timing(label: str, duration_s: float) -> None:
@@ -137,14 +140,15 @@ class AutoPatcher(TaskController):
 
         center_x = int(round(width / 2)) if isinstance(width, (int, float)) else 640
         center_y = int(round(height / 2)) if isinstance(height, (int, float)) else 640
-        goal_center = np.array([center_x, center_y], dtype=int)
+        goal_center = np.array([center_x, center_y, 0.0], dtype=float)
+        self.info(f"Using goal center at: {goal_center} (px)")
 
         goal = None
         if goal_needed:
             goal = goal_center.astype(np.float32)
             if random:
                 offsets = np.random.randint(-300, 301, size=2)
-                goal = goal + offsets.astype(np.float32)
+                goal[:2] = goal[:2] + offsets.astype(np.float32)
                 if isinstance(width, (int, float)) and width > 0:
                     max_x = max(int(width) - 1, 0)
                     goal[0] = float(np.clip(goal[0], 0, max_x))
@@ -177,27 +181,34 @@ class AutoPatcher(TaskController):
 
             if isinstance(curr_point, np.ndarray):
                 curr_point = curr_point.tolist()
-            if len(curr_point) < 2 or any(value is None for value in curr_point[:2]):
+            if len(curr_point) < 3 or any(value is None for value in curr_point[:3]):
                 self.warning("Pipette detector returned incomplete coordinates; waiting for next frame")
                 self.sleep(sleep_time)
                 continue
 
-            curr_array = np.asarray(curr_point[:2], dtype=float)
+            curr_array = np.asarray(curr_point[:3], dtype=float)
             if np.isnan(curr_array).any():
                 self.warning("Pipette detector returned NaN coordinates; waiting for next frame")
                 self.sleep(sleep_time)
                 continue
 
-            curr_point = tuple(int(round(coord)) for coord in curr_array)
+            curr_point = tuple(float(coord) for coord in curr_array)
             curr_point_np = np.asarray(curr_point, dtype=float)
             camera = self.calibrated_stage.camera
             should_act = self.config.mode == 'Agent'
+            z_weight = 1.0
+            tol_um = 5.0
+            px_per_um = self.calibrated_unit.pixel_per_um()
 
             if not should_act:
-                xgerr = goal_error_target[0] - curr_point_np[0]
-                ygerr = goal_error_target[1] - curr_point_np[1]
-                gerr = float(np.sqrt((xgerr ** 2 + ygerr ** 2) / 2.0))
-                self.info(f" Goal error:{gerr}")
+                xgerr_px = goal_error_target[0] - curr_point_np[0]
+                ygerr_px = goal_error_target[1] - curr_point_np[1]
+                zerr_um = -curr_point_np[2]  # drive defocus to 0
+
+                dx_um = xgerr_px / px_per_um[0] if px_per_um and px_per_um[0] else np.nan
+                dy_um = ygerr_px / px_per_um[1] if px_per_um and px_per_um[1] else np.nan
+                gerr_um = float(np.sqrt((dx_um ** 2 + dy_um ** 2 + z_weight * (zerr_um ** 2)) / (2 + z_weight)))
+                self.info(f" Goal error (um):{gerr_um}")
 
                 if goal_needed and camera is not None:
                     camera.show_circle(
@@ -206,7 +217,7 @@ class AutoPatcher(TaskController):
                         show_center=False,
                     )
 
-                if gerr <= 20:
+                if gerr_um <= tol_um:
                     done = True
                     self.success_requested = True
                     self.info("Pipette found")
@@ -216,7 +227,10 @@ class AutoPatcher(TaskController):
                 target_point = None
                 err = None
                 act_start = time.perf_counter()
-                self.calibrated_unit.direct_pipette(goal)
+                xy_um = self.calibrated_unit.pixels_to_um_relative([xgerr_px, ygerr_px, 0])
+                target_um = self.calibrated_unit.position() + np.array([xy_um[0], xy_um[1], zerr_um])
+                self.calibrated_unit.absolute_move(target_um.tolist())
+                self.calibrated_unit.wait_until_still()
                 _log_timing("action_direct_pipette", time.perf_counter() - act_start)
                 self.sleep(sleep_time)
                 continue
@@ -242,6 +256,8 @@ class AutoPatcher(TaskController):
                                         offset_y = frame_params.get("offset_y", 0.0)
                                         goal_array[..., 0] = (goal_array[..., 0] - offset_x) * scale_x
                                         goal_array[..., 1] = (goal_array[..., 1] - offset_y) * scale_y
+                                        if goal_array.shape[-1] < 3:
+                                            goal_array = np.pad(goal_array, (0, 3 - goal_array.shape[-1]), constant_values=0)
                                         agent_goal = goal_array
                                         self.info(f"goal scaled: {agent_goal} um")
                         except Exception as exc:
@@ -256,8 +272,8 @@ class AutoPatcher(TaskController):
                     self.sleep(sleep_time)
                     continue
 
-                pred_offset = np.asarray(action[:2], dtype=float)
-                if pred_offset.size < 2:
+                pred_offset_xy = np.asarray(action[:2], dtype=float)
+                if pred_offset_xy.size < 2:
                     self.warning("Predicted offset missing coordinates; retrying inference")
                     action = None
                     target_point = None
@@ -265,7 +281,7 @@ class AutoPatcher(TaskController):
                     self.sleep(sleep_time)
                     continue
 
-                if np.isnan(pred_offset).any():
+                if np.isnan(pred_offset_xy).any():
                     self.warning("Predicted offset contains NaNs; retrying inference")
                     action = None
                     target_point = None
@@ -273,27 +289,29 @@ class AutoPatcher(TaskController):
                     self.sleep(sleep_time)
                     continue
 
-                target_point_float = np.asarray(curr_point, dtype=float) + pred_offset
+                z_offset_um = float(action[2]) if len(action) >= 3 and action[2] is not None else -curr_point_np[2]
+                target_point_float = np.asarray(curr_point[:2], dtype=float) + pred_offset_xy
                 target_point_pixels = (
                     ((target_point_float[0])),
                     ((target_point_float[1]))
                 )
 
                 target_point_microns = (
-                    ((pred_offset[0])),
-                    ((pred_offset[1])),
+                    ((pred_offset_xy[0])),
+                    ((pred_offset_xy[1])),
                     0
                 )
 
-                target_point_microns_relative = self.calibrated_unit.pixels_to_um_relative(target_point_microns) 
-                self.info(f"target converted relative distance: {target_point_microns_relative} um")
-                target_point_microns_absolute = target_point_microns_relative + self.calibrated_unit.position()
+                target_point_microns_relative = self.calibrated_unit.pixels_to_um_relative(target_point_microns)
+                move_um = np.array([target_point_microns_relative[0], target_point_microns_relative[1], z_offset_um])
+                self.info(f"target converted relative distance: {move_um} um")
+                target_point_microns_absolute = move_um + self.calibrated_unit.position()
 
                 self.info(f" target converted distance in um: {target_point_microns_absolute} um")
 
                 self.info(f"acting...")
                 act_start = time.perf_counter()
-                self.calibrated_unit.relative_move(np.array(target_point_microns_relative))
+                self.calibrated_unit.relative_move(move_um)
                 _log_timing("action_relative_move", time.perf_counter() - act_start)
 
             
@@ -311,10 +329,13 @@ class AutoPatcher(TaskController):
 
                 target_point = target_point_pixels
 
-            xgerr = goal_error_target[0] - curr_point_np[0]  # switch
+            xgerr = goal_error_target[0] - curr_point_np[0]
             ygerr = goal_error_target[1] - curr_point_np[1]
-            gerr = float(np.sqrt((xgerr ** 2 + ygerr ** 2) / 2.0))
-            self.info(f" Goal error:{gerr}")
+            zerr_um_goal = -curr_point_np[2]
+            dx_um = xgerr / px_per_um[0] if px_per_um and px_per_um[0] else np.nan
+            dy_um = ygerr / px_per_um[1] if px_per_um and px_per_um[1] else np.nan
+            gerr = float(np.sqrt((dx_um ** 2 + dy_um ** 2 + z_weight * (zerr_um_goal ** 2)) / (2 + z_weight)))
+            self.info(f" Goal error (um):{gerr}")
 
             if goal_needed and camera is not None:
                 camera.show_circle(
@@ -324,7 +345,7 @@ class AutoPatcher(TaskController):
                     show_center=False,
                 )
 
-            if gerr <= 20:
+            if gerr <= tol_um:
                 self.success_requested = True
 
             if self.success_requested:
@@ -334,10 +355,12 @@ class AutoPatcher(TaskController):
             if target_point is not None:
                 xerr = curr_point_np[0] - target_point[0]
                 yerr = curr_point_np[1] - target_point[1]
-                err = float(np.sqrt((xerr ** 2 + yerr ** 2) / 2.0))
-                self.info(f"total pixel error: {err}")
+                dx_um = xerr / px_per_um[0] if px_per_um and px_per_um[0] else np.nan
+                dy_um = yerr / px_per_um[1] if px_per_um and px_per_um[1] else np.nan
+                err = float(np.sqrt((dx_um ** 2 + dy_um ** 2) / 2.0))
+                self.info(f"total XY error (um): {err}")
 
-                if err <= 10:
+                if err <= (tol_um / 2):
                     action = None
                     target_point = None
                     err = None
@@ -1485,6 +1508,9 @@ class AutoPatcher(TaskController):
         t1 = time.perf_counter()
 
         cvpi = self.calibrated_unit.pipetteCalHelper.pipetteDetector.detect_pipette(img)
+        # Pass the current frame to focus estimator (it now requires an image argument)
+        cvpiz = self.calibrated_unit.pipetteFocusHelper.pipetteFocuser.get_pipette_focus_value(img)
+        cvpi = np.append(cvpi, cvpiz)
         t2 = time.perf_counter()
 
         pi = self.calibrated_unit.position()
