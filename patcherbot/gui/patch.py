@@ -167,10 +167,16 @@ class ButtonTabWidget(QtWidgets.QWidget):
     def do_nothing(self):
         pass  # a dummy function for buttons that aren't implemented yet
     
-    def run_sequential_commands(self, cmds, button=None, section=None, button_name=None):
+    def run_sequential_commands(self, cmds, button=None, section=None, button_name=None, repeat=1):
         # Ensure cmds is a list
         if not isinstance(cmds, list):
             cmds = [cmds]
+        try:
+            repeat_count = max(1, int(repeat))
+        except (TypeError, ValueError):
+            repeat_count = 1
+        if repeat_count > 1:
+            cmds = cmds * repeat_count
             
         # Have the button immediately lose focus to prevent persistent outline
         if button:
@@ -258,16 +264,22 @@ class ButtonTabWidget(QtWidgets.QWidget):
             self._run_next_seq_command()
 
 
-    def run_command(self, cmds):
-        if isinstance(cmds, list):
-            for cmd in cmds:
-                if isinstance(cmd, list):
-                    for sub_cmd in cmd:
-                        self.execute_command(sub_cmd)
-                else:
-                    self.execute_command(cmd)
-        else:
-            self.execute_command(cmds)
+    def run_command(self, cmds, repeat=1):
+        try:
+            repeat_count = max(1, int(repeat))
+        except (TypeError, ValueError):
+            repeat_count = 1
+
+        for _ in range(repeat_count):
+            if isinstance(cmds, list):
+                for cmd in cmds:
+                    if isinstance(cmd, list):
+                        for sub_cmd in cmd:
+                            self.execute_command(sub_cmd)
+                    else:
+                        self.execute_command(cmd)
+            else:
+                self.execute_command(cmds)
     
 
     def execute_command(self, cmd):
@@ -342,7 +354,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self.pos_update_timers.append(pos_timer)
 
     def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], 
-                    cmds, sequential=False, change_color_on_complete=False, 
+                    cmds, freq=None, sequential=False, change_color_on_complete=False, 
                     completion_color="rgba(0, 0, 255, 0.3)"):
         # Use CollapsibleGroupBox instead of QGroupBox
         box = CollapsibleGroupBox(box_name)
@@ -365,6 +377,13 @@ class ButtonTabWidget(QtWidgets.QWidget):
                 button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
                 button.setMinimumWidth(50)
                 button.setMinimumHeight(50)
+
+                button_freq = 1
+                if freq is not None and i < len(freq) and j < len(freq[i]):
+                    try:
+                        button_freq = max(1, int(freq[i][j]))
+                    except (TypeError, ValueError):
+                        button_freq = 1
                 
                 # Track this button for this section
                 section_buttons.append((button, i, j, button_name))
@@ -374,9 +393,9 @@ class ButtonTabWidget(QtWidgets.QWidget):
                     button_cmd = cmds[i][j]
                     if sequential:
                         button.clicked.connect(lambda state, cmd=button_cmd, btn=button, section=box_name, 
-                                            name=button_name: self.run_sequential_commands(cmd, btn, section, name))
+                                            name=button_name, repeat=button_freq: self.run_sequential_commands(cmd, btn, section, name, repeat))
                     else:
-                        button.clicked.connect(lambda state, cmd=button_cmd: self.run_command(cmd))
+                        button.clicked.connect(lambda state, cmd=button_cmd, repeat=button_freq: self.run_command(cmd, repeat))
                 else:
                     button.clicked.connect(self.do_nothing)
 
@@ -483,7 +502,8 @@ class ClassicPatchButtons(ButtonTabWidget):
         buttonList = [['Find Pipette','Test Pipette Movement']]
         cmds = [[self.pipette_location,self.pipette_interface.move_pipette_random]
                 ]
-        self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
+        freq = [[100, 1]]
+        self.addButtonList('testing', layout, buttonList, cmds, freq=freq, sequential=True)
 
         # # Add a box for lamp commands
         buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]

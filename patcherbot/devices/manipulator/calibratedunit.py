@@ -560,7 +560,7 @@ class CalibratedUnit(ManipulatorUnit):
         self.set_max_speed(25)
 
         # this section is for testing the find pipette method.
-        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5)])
+        movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), (movement/5) * (np.random.rand() - 0.5)])
         self.relative_move_group(movement_vector)
         self.wait_until_still()
 

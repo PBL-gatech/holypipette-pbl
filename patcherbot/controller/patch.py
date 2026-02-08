@@ -197,7 +197,7 @@ class AutoPatcher(TaskController):
             camera = self.calibrated_stage.camera
             should_act = self.config.mode == 'Agent'
             z_weight = 1.0
-            tol_um = 5.0
+            tol_um = 2.0
             px_per_um = self.calibrated_unit.pixel_per_um()
 
             if not should_act:
