@@ -306,7 +306,7 @@ class PipetteDetectorYOLO1(PipetteDetector):
         from ultralytics import YOLO
 
         cur_file = Path(__file__).parent.absolute()
-        default_model = cur_file / "pipetteModel" / "pipetteDetectorNet.pt"
+        default_model = cur_file / "pipetteModel" / "pipetteDetectorNet5.pt"
         self.model_path = Path(model_path) if model_path is not None else default_model
 
         self.yolo_model = YOLO(str(self.model_path))

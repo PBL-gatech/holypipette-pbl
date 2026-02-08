@@ -26,7 +26,12 @@ from patcherbot.deepLearning.pipetteDetector import PipetteDetectorYOLO1, Pipett
 from patcherbot.deepLearning.pipetteFocuser import PipetteFocuser
 
 
-from experiments.DatasetBuilder2 import DatasetBuilder2, _read_csv_with_fallback
+from experiments.SimpleDatasetBuilder import (
+    ActionSelector,
+    AxisToggle,
+    ObservationSelector,
+    SimpleDatasetBuilder,
+)
 
 
 @dataclass
@@ -36,63 +41,81 @@ class FrameRecord:
     pi_y: float
     pi_z: float
 
-class _DatasetFilterHelper(DatasetBuilder2):
-    """Lightweight DatasetBuilder2 adapter to reuse demo filtering utilities."""
+class _DatasetFilterHelper(SimpleDatasetBuilder):
+    """Lightweight SimpleDatasetBuilder adapter to reuse attempt filtering utilities."""
 
     def __init__(self, rig_data_root: Path) -> None:
         self._rig_data_root = Path(rig_data_root)
-        self._data_root = self._rig_data_root.parent
-        self._log_data_root = self._data_root / "log_data"
+        observation_selector = ObservationSelector(
+            include_pressure=False,
+            include_resistance=False,
+            include_current=False,
+            include_voltage=False,
+            include_stage=False,
+            include_pipette=False,
+            include_camera=False,
+            stage_axes=AxisToggle(False, False, False),
+            pipette_axes=AxisToggle(False, False, False),
+        )
+        action_selector = ActionSelector(
+            include_stage=False,
+            include_pipette=False,
+            include_pressure=False,
+            include_high_level=False,
+            stage_axes=AxisToggle(False, False, False),
+            pipette_axes=AxisToggle(False, False, False),
+        )
         super().__init__(
             dataset_name="ImageDatasetPreparer_filter.hdf5",
             val_ratio=0.0,
             omit_stage_movement=False,
             random_seed=0,
+            observation_selector=observation_selector,
+            action_selector=action_selector,
         )
 
     def _write_metadata_files(self) -> None:  # pragma: no cover - metadata not needed
-        """Skip DatasetBuilder2 metadata emission for filtering adapter."""
-        self._cached_metadata = self._collect_metadata()
+        """Skip metadata emission for filtering adapter."""
+        return None
 
-    def load_graph_values(self, folder: str) -> Optional[pd.DataFrame]:
-        graph_path = self._rig_data_root / folder / "graph_recording.csv"
-        if not graph_path.exists():
-            return None
-        try:
-            return pd.read_csv(graph_path, sep=";")
-        except Exception:
-            return None
-
-    def load_log_values(self, folder: str) -> Optional[pd.DataFrame]:
-        day_token = folder[:10]
-        log_path = self._log_data_root / f"logs_{day_token}.csv"
-        if not log_path.exists():
-            return None
-        try:
-            return _read_csv_with_fallback(log_path, on_bad_lines="skip")
-        except Exception:
-            return None
+    def load_reference_timestamps(self, folder: str) -> Optional[np.ndarray]:
+        demo_root = self._rig_data_root / folder
+        candidates = (
+            demo_root / "graph_recording.csv",
+            demo_root / "cv_movement_recording.csv",
+            demo_root / "movement_recording.csv",
+        )
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                table = pd.read_csv(path, sep=";")
+            except Exception:
+                continue
+            if table.empty:
+                continue
+            first_column = table.columns[0]
+            try:
+                ts = table[first_column].to_numpy(dtype=float)
+            except Exception:
+                continue
+            if ts.size:
+                return ts
+        return None
 
     def compute_attempt_windows(
         self,
         folder: str,
-        log_values: pd.DataFrame,
-        graph_values: pd.DataFrame,
+        reference_timestamps: np.ndarray,
     ) -> List[Tuple[float, float]]:
-        if graph_values.empty:
+        if reference_timestamps.size == 0:
             return []
-        timestamps = graph_values.iloc[:, 0].to_numpy(dtype=float)
-        experiment_first_timestamp = float(timestamps[0] - 1)
-        experiment_last_timestamp = float(timestamps[-1] + 1)
-        recording_ranges = self.get_timestamps_for_all_experiment_recordings(
-            log_values,
-            experiment_first_timestamp,
-            experiment_last_timestamp,
-        )
+        experiment_first_timestamp = float(reference_timestamps[0] - 1)
+        experiment_last_timestamp = float(reference_timestamps[-1] + 1)
         state_attempts = self.get_timestamps_for_all_successful_state_attempts(
             folder,
-            log_values,
-            recording_ranges,
+            experiment_first_timestamp,
+            experiment_last_timestamp,
         )
         all_windows: List[Tuple[float, float]] = []
         for ranges in state_attempts.values():
@@ -121,6 +144,8 @@ class _DatasetFilterHelper(DatasetBuilder2):
 
 
 class ImageDatasetPreparer:
+    _REQUIRED_STAGE_COLUMNS: Tuple[str, ...] = ("timestamp", "st_x", "st_y", "st_z")
+
     def __init__(
         self,
         rig_data_root: Path,
@@ -138,7 +163,7 @@ class ImageDatasetPreparer:
             try:
                 self._filter_helper = _DatasetFilterHelper(self.rig_data_root)
             except Exception as exc:
-                logging.warning("Failed to initialise DatasetBuilder2 filter helper: %s", exc)
+                logging.warning("Failed to initialise SimpleDatasetBuilder filter helper: %s", exc)
                 self._filter_helper = None
                 self.filter_images = False
             else:
@@ -146,7 +171,7 @@ class ImageDatasetPreparer:
         else:
             self._filter_helper = None
 
-        self.detector = PipetteDetectorYOLO1() #if use_detector1 else PipetteDetector2()
+        self.detector = PipetteDetectorYOLO1() if use_detector1 else PipetteDetector2()
         self.focuser = PipetteFocuser()
 
     def build_csv(
@@ -182,12 +207,7 @@ class ImageDatasetPreparer:
             raise RuntimeError("No valid frames remained after inference preprocessing")
         logging.info("Inference complete for %d frames", len(frame_records))
 
-        movement_df = pd.read_csv(movement_path, sep=";")
-        required_columns = {"timestamp", "st_x", "st_y", "st_z"}
-        missing_columns = required_columns - set(movement_df.columns)
-        if missing_columns:
-            raise ValueError(f"movement_recording.csv missing columns: {sorted(missing_columns)}")
-        movement_df = movement_df.sort_values("timestamp").reset_index(drop=True)
+        movement_df = self._load_movement_dataframe(movement_path)
 
         frame_df = pd.DataFrame([record.__dict__ for record in frame_records])
         frame_df = frame_df.sort_values("timestamp").reset_index(drop=True)
@@ -208,6 +228,40 @@ class ImageDatasetPreparer:
         merged.to_csv(output_path, sep=";", index=False, float_format="%.6f")
         logging.info("Wrote %s", output_path)
         return output_path
+
+    def _load_movement_dataframe(self, movement_path: Path) -> pd.DataFrame:
+        """Load movement CSV and require canonical stage headers."""
+
+        try:
+            movement_df = pd.read_csv(movement_path, sep=";")
+        except Exception as exc:
+            raise ValueError(f"Failed to read movement CSV: {movement_path}\n{exc}") from exc
+
+        normalized = [str(col).strip().lower() for col in movement_df.columns]
+        if "time_stamp" in normalized:
+            normalized = ["timestamp" if col == "time_stamp" else col for col in normalized]
+        movement_df.columns = normalized
+
+        missing_columns = set(self._REQUIRED_STAGE_COLUMNS) - set(movement_df.columns)
+        if missing_columns:
+            first_line = movement_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            header_preview = first_line[0] if first_line else "<empty file>"
+            raise ValueError(
+                "movement_recording.csv missing required columns "
+                f"{sorted(missing_columns)}. Expected header columns include "
+                f"{list(self._REQUIRED_STAGE_COLUMNS)}. Found columns: {list(movement_df.columns)}. "
+                f"Header preview: {header_preview}"
+            )
+
+        for col in self._REQUIRED_STAGE_COLUMNS:
+            movement_df[col] = pd.to_numeric(movement_df[col], errors="coerce")
+        movement_df = movement_df.dropna(subset=list(self._REQUIRED_STAGE_COLUMNS))
+        if movement_df.empty:
+            raise ValueError(
+                "movement_recording.csv has no valid numeric rows for required columns "
+                f"{list(self._REQUIRED_STAGE_COLUMNS)}: {movement_path}"
+            )
+        return movement_df.sort_values("timestamp").reset_index(drop=True)
 
     def _resolve_demo_path(self, demo_folder: str) -> Path:
         candidate = Path(demo_folder)
@@ -232,19 +286,14 @@ class ImageDatasetPreparer:
             return list(frame_paths)
 
         helper = self._filter_helper
-        graph_df = helper.load_graph_values(demo_path.name)
-        if graph_df is None:
-            logging.warning("Graph recording missing or unreadable for %s; skipping frame filter", demo_path)
+        timestamps = helper.load_reference_timestamps(demo_path.name)
+        if timestamps is None:
+            logging.warning("Reference timestamps missing or unreadable for %s; skipping frame filter", demo_path)
             return list(frame_paths)
 
-        log_df = helper.load_log_values(demo_path.name)
-        if log_df is None or log_df.empty:
-            logging.warning("Log data missing for %s; skipping frame filter", demo_path)
-            return list(frame_paths)
-
-        windows = helper.compute_attempt_windows(demo_path.name, log_df, graph_df)
+        windows = helper.compute_attempt_windows(demo_path.name, timestamps)
         if not windows:
-            logging.info("No demonstration windows detected for %s; using all frames", demo_path)
+            logging.info("No successful attempt windows detected for %s; using all frames", demo_path)
             return list(frame_paths)
 
         filtered: List[Path] = []

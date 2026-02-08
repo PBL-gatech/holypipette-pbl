@@ -150,6 +150,7 @@ class DatasetBuilderSettings:
     random_seed: int = 0
     freq_mask: int = 1
     load_next_obs: bool = False # set to true for goal conditioning
+    prefer_cv_movement: bool = True # set to true to prefer cv_movement_recording.csv over movement_recording.csv
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
     pipette_final_pos_color_dot: bool = False # set to true if want to add a red dot to image at final pipette position (for pipette finder only)
@@ -392,6 +393,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.omit_stage_movement = settings.omit_stage_movement
         self.rng = np.random.default_rng(settings.random_seed)
         self.load_next_obs = settings.load_next_obs
+        self.prefer_cv_movement = settings.prefer_cv_movement
         self.freq_mask = max(1, int(settings.freq_mask))
         self.observation_selector = settings.observation_selector
         self.action_selector = settings.action_selector
@@ -592,7 +594,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         """Load graph and movement tables for a given experiment folder."""
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder
         movement_path = None
-        for name in ("cv_movement_recording.csv", "movement_recording.csv"):
+        movement_candidates = (
+            ("cv_movement_recording.csv", "movement_recording.csv")
+            if self.prefer_cv_movement
+            else ("movement_recording.csv", "cv_movement_recording.csv")
+        )
+        for name in movement_candidates:
             candidate = base / name
             if candidate.exists():
                 movement_path = candidate
