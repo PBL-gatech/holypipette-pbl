@@ -120,6 +120,14 @@ class Laser(TaskController):
         if target == "power" and len(wavelengths) > 1:
             self.warning("Multiple wavelength values provided; using the first value only.")
 
+        raw_on_time = float(on_time)
+        raw_off_time = float(off_time)
+        raw_stabilize_time = float(stabilize_time)
+        # Laser is on for raw_on_time; recording window is 3x longer.
+        record_time = raw_on_time * 3.0
+        adjusted_off_time = raw_off_time - record_time
+        adjusted_stabilize_time = raw_stabilize_time - record_time
+
         fixed_wavelength = wavelengths[0]
         fixed_power = powers[0]
 
@@ -133,9 +141,9 @@ class Laser(TaskController):
         self.info(f"Optogenetic protocol {target} sequence: {expanded}")
 
         steps = []
-        if stabilize_time > 0:
+        if adjusted_stabilize_time > 0:
             steps.append({
-                "duration_s": float(stabilize_time),
+                "duration_s": float(adjusted_stabilize_time),
                 "state": "off",
                 "wavelength": "off",
                 "power_percent": 0.0,
@@ -159,7 +167,7 @@ class Laser(TaskController):
                 power_percent = 0.0
 
             steps.append({
-                "duration_s": float(on_time),
+                "duration_s": float(record_time),
                 "state": state,
                 "wavelength": wavelength,
                 "power_percent": power_percent,
@@ -167,22 +175,24 @@ class Laser(TaskController):
                 "protocol_type": target,
             })
 
-            if off_time > 0 and idx < (total_count - 1):
-                steps.append({
-                    "duration_s": float(off_time),
-                    "state": "off",
-                    "wavelength": wavelength,
-                    "power_percent": 0.0,
-                    "replicate": replicate,
-                    "protocol_type": target,
-                })
+            if raw_off_time > 0 and idx < (total_count - 1):
+                off_duration = adjusted_off_time
+                if off_duration > 0:
+                    steps.append({
+                        "duration_s": float(off_duration),
+                        "state": "off",
+                        "wavelength": wavelength,
+                        "power_percent": 0.0,
+                        "replicate": replicate,
+                        "protocol_type": target,
+                    })
 
-        if off_time > 0 and steps:
+        if raw_off_time > 0 and steps:
             last_step = steps[-1]
             last_state = str(last_step.get("state", "on")).lower()
             if last_state != "off":
                 steps.append({
-                    "duration_s": float(off_time),
+                    "duration_s": float(raw_off_time),
                     "state": "off",
                     "wavelength": last_step.get("wavelength"),
                     "power_percent": 0.0,
