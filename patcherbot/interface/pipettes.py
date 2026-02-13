@@ -282,6 +282,12 @@ class PipetteInterface(TaskInterface):
     @blocking_command(category='Manipulators and Stage',
                       description='Move pipette randomly in xyz',
                         task_description='displacing pipette randomly in xyz...')
+    def move_pipette_random_velocity(self):
+        self.execute([self.calibrated_unit.move_pipette_random_velocity])
+
+    @blocking_command(category='Manipulators and Stage',
+                      description='Move pipette randomly in xyz',
+                        task_description='displacing pipette randomly in xyz...')
     def move_pipette_random(self):
         self.execute([self.calibrated_unit.move_pipette_random])
 

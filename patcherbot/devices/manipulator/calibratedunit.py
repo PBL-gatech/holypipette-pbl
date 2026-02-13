@@ -551,38 +551,128 @@ class CalibratedUnit(ManipulatorUnit):
         self.wait_until_still()
 
 
-    def move_pipette_random(self, movement = 100):
+    def _velocity_move_by_displacement(self, movement_vector, speed, poll_interval=0.01):
+        """
+        Execute a relative displacement using a continuous velocity command.
+
+        This is used for low-speed motion where firmware clamps can prevent
+        `relative_move` from honoring requested speeds.
+        """
+        movement_vector = np.asarray(movement_vector, dtype=float)
+        distance = float(norm(movement_vector))
+        if distance == 0:
+            return
+
+        speed = abs(float(speed))
+        if speed == 0:
+            raise ValueError("Speed must be non-zero for velocity moves.")
+
+        direction = movement_vector / distance
+        velocity = (direction * speed).tolist()
+        start_pos = np.asarray(self.position(), dtype=float)
+        expected_time = distance / speed
+        timeout = max(2.0, expected_time * 5.0)
+        start_time = time.perf_counter()
+        opposite_direction_warned = False
+
+        self.absolute_move_group_velocity(velocity)
+        try:
+            while not self.abort_requested:
+                curr_pos = np.asarray(self.position(), dtype=float)
+                signed_traveled = float(np.dot(curr_pos - start_pos, direction))
+                # Use absolute progress (same spirit as hunt_cell's abs z-distance check)
+                # so axis sign conventions do not stall the move.
+                traveled = abs(signed_traveled)
+                if traveled >= distance:
+                    break
+                if (signed_traveled < 0) and (not opposite_direction_warned):
+                    self.warning(
+                        "Velocity move is progressing opposite commanded direction; "
+                        "using absolute displacement criterion."
+                    )
+                    opposite_direction_warned = True
+                if (time.perf_counter() - start_time) > timeout:
+                    self.warning(
+                        f"Velocity move timeout after {timeout:.2f}s "
+                        f"(target {distance:.2f} um, traveled {signed_traveled:.2f} um signed)."
+                    )
+                    break
+                self.sleep(poll_interval)
+        finally:
+            self.stop()
+            self.wait_until_still()
+
+    def move_pipette_random_velocity(self, movement = 100, speed = 200):
         '''
         Moves the pipette randomly in xy plane, method used for testing/calibration/data collection.
+        For speeds below 1000 um/s, this uses velocity commands instead of
+        relative moves to avoid firmware speed clamping.
         '''
         orig = self.get_max_speed()
         self.info(f"Moving pipette randomly for testing/calibration, original speed is: {orig} um/s")
-        self.set_max_speed(25)
 
-        # this section is for testing the find pipette method.
+        requested_speed = abs(float(speed))
+        if requested_speed == 0:
+            raise ValueError("Speed must be non-zero.")
+
+        velocity_threshold = 1000.0
+        use_velocity_mode = requested_speed < velocity_threshold
+
+        if use_velocity_mode:
+            self.info(
+                f"Requested pipette speed {requested_speed:.1f} um/s is below "
+                f"{int(velocity_threshold)} um/s; using velocity-command motion."
+            )
+        else:
+            requested_speed_int = int(requested_speed)
+            self.set_max_speed(requested_speed_int)
+            test_speed = self.get_max_speed()
+            if test_speed != requested_speed_int:
+                self.warning(
+                    f"Requested pipette speed {requested_speed_int} um/s, but device readback is {test_speed} um/s. "
+                    "This is likely a Scientifica firmware clamp or device-unit limit."
+                )
+            else:
+                self.info(f"Set pipette speed to {test_speed} um/s for random movement.")
+
+        try:
+            # this section is for testing the find pipette method.
+            # movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), (movement/5) * (np.random.rand() - 0.5)])
+            # self.relative_move_group(movement_vector)
+            # self.wait_until_still()
+
+            # # the proceeding section is for data collection for focusing and detection models.
+            movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), 0], dtype=float)
+            movement_z_vector = np.array([0,0,movement/5], dtype=float)
+            movement_sequence = [
+                movement_vector,
+                movement_z_vector,
+                -movement_z_vector,
+                -movement_z_vector,
+                movement_z_vector,
+                -movement_vector,
+            ]
+
+            for step_vector in movement_sequence:
+                if use_velocity_mode:
+                    self._velocity_move_by_displacement(step_vector, requested_speed)
+                else:
+                    self.relative_move(step_vector)
+                    self.wait_until_still()
+        finally:
+            if (not use_velocity_mode) and (orig is not None):
+                self.set_max_speed(orig)
+            self.info(f"Reset pipette speed to {self.get_max_speed()} um/s after random movement.")
+            self.info("Finished random pipette movement.")
+
+
+    def move_pipette_random(self, movement=100):
+        '''
+        Moves pipette randomly in xyz. This is used for testing find_pipette.
+        '''
         movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), (movement/5) * (np.random.rand() - 0.5)])
         self.relative_move_group(movement_vector)
         self.wait_until_still()
-
-        # # the proceeding section is for data collection for focusing and detection models.
-        # movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), 0])
-        # self.relative_move(movement_vector)
-        # self.wait_until_still()
-        # movement_z_vector = np.array([0,0,movement/5])
-        # self.relative_move(movement_z_vector)
-        # self.wait_until_still()
-        # self.relative_move(-movement_z_vector)
-        # self.wait_until_still()
-        # self.relative_move(-movement_z_vector)
-        # self.wait_until_still()
-        # self.relative_move(movement_z_vector)
-        # self.wait_until_still()
-        # self.relative_move(-movement_vector)
-        # self.wait_until_still()
-        # self.set_max_speed(10000)
-        self.info("Finished random pipette movement.")
-
-
 
     def save_configuration(self):
         '''

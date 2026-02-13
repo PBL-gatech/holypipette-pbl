@@ -120,16 +120,16 @@ class AutoPatcher(TaskController):
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")
-        # Only load the agent policy when running in Agent mode; Classic/Manual should stay model-free
+        # Only load the agent policy when running in Agent mode.
         if self.config.mode == 'Agent':
             self.agenthelper.prepare_model("find_pipette", allow_goal_placeholders=True)
         else:
-            self.info("Classic/Manual mode detected; skipping agent model load for find_pipette")
+            self.info("Classic/Manual/Training mode detected; skipping agent model load for find_pipette")
         sleep_time = 0.005 # seconds
 
         def _log_timing(label: str, duration_s: float) -> None:
             """Lightweight timing logger for find_pipette stages."""
-            self.info(f"[find_pipette timing] {label}: {duration_s * 1000.0:.1f} ms")
+            # self.info(f"[find_pipette timing] {label}: {duration_s * 1000.0:.1f} ms")
 
         goal_needed = bool(self.goal_needed)
         random = bool(self.goal_random)
@@ -163,15 +163,14 @@ class AutoPatcher(TaskController):
         goal_display_tuple = (int(goal_display[0]), int(goal_display[1]))
         goal_error_target = goal.astype(float) if goal is not None else goal_center.astype(float)
 
-        done = False
         err = None
         action = None
         target_point = None
 
-        while not done:
+        while True:
             obs_start = time.perf_counter()
             observation = self.observe()
-            _log_timing("observation", time.perf_counter() - obs_start)
+            # _log_timing("observation", time.perf_counter() - obs_start)
             curr_point = observation[0]
 
             if curr_point is None:
@@ -218,10 +217,13 @@ class AutoPatcher(TaskController):
                     )
 
                 if gerr_um <= tol_um:
-                    done = True
-                    self.success_requested = True
                     self.info("Pipette found")
-                    break
+                    if self.config.mode == "Training":
+                        self.info("Training mode: goal condition reached. Click Success or Abort to finish.")
+                        while True:
+                            self.sleep(0.1)
+                    self.success_requested = True
+                    self.success_if_requested()
 
                 action = None
                 target_point = None
@@ -231,7 +233,7 @@ class AutoPatcher(TaskController):
                 target_um = self.calibrated_unit.position() + np.array([xy_um[0], xy_um[1], zerr_um])
                 self.calibrated_unit.absolute_move(target_um.tolist())
                 self.calibrated_unit.wait_until_still()
-                _log_timing("action_direct_pipette", time.perf_counter() - act_start)
+                # _log_timing("action_direct_pipette", time.perf_counter() - act_start)
                 self.sleep(sleep_time)
                 continue
 
@@ -263,7 +265,7 @@ class AutoPatcher(TaskController):
                         except Exception as exc:
                             self.warning(f"Goal preprocessing failed; using raw goal. Error: {exc}")
                 action = self.agenthelper.run_inference(observation=observation, goal=agent_goal, is_demo=False)
-                _log_timing("inference_block", time.perf_counter() - inf_start)
+                # _log_timing("inference_block", time.perf_counter() - inf_start)
                 self.info(f"pipette prediction: {action} um")
 
                 if action is None:
@@ -303,16 +305,16 @@ class AutoPatcher(TaskController):
                 )
 
                 target_point_microns_relative = self.calibrated_unit.pixels_to_um_relative(target_point_microns)
-                move_um = np.array([target_point_microns_relative[0], target_point_microns_relative[1], z_offset_um])
-                self.info(f"target converted relative distance: {move_um} um")
+                move_um = np.array([target_point_microns_relative[0], target_point_microns_relative[1], -z_offset_um])
+                # self.info(f"target converted relative distance: {move_um} um")
                 target_point_microns_absolute = move_um + self.calibrated_unit.position()
 
-                self.info(f" target converted distance in um: {target_point_microns_absolute} um")
+                # self.info(f" target converted distance in um: {target_point_microns_absolute} um")
 
                 self.info(f"acting...")
                 act_start = time.perf_counter()
                 self.calibrated_unit.relative_move(move_um)
-                _log_timing("action_relative_move", time.perf_counter() - act_start)
+                # _log_timing("action_relative_move", time.perf_counter() - act_start)
 
             
                 width = getattr(camera, "width", None)
@@ -346,10 +348,12 @@ class AutoPatcher(TaskController):
                 )
 
             if gerr <= tol_um:
-                self.success_requested = True
-
-            if self.success_requested:
                 self.info("Pipette found")
+                if self.config.mode == "Training":
+                    self.info("Training mode: goal condition reached. Click Success or Abort to finish.")
+                    while True:
+                        self.sleep(0.1)
+                self.success_requested = True
                 self.success_if_requested()
 
             if target_point is not None:
@@ -358,7 +362,7 @@ class AutoPatcher(TaskController):
                 dx_um = xerr / px_per_um[0] if px_per_um and px_per_um[0] else np.nan
                 dy_um = yerr / px_per_um[1] if px_per_um and px_per_um[1] else np.nan
                 err = float(np.sqrt((dx_um ** 2 + dy_um ** 2) / 2.0))
-                self.info(f"total XY error (um): {err}")
+                # self.info(f"total XY error (um): {err}")
 
                 if err <= (tol_um / 2):
                     action = None
@@ -387,6 +391,10 @@ class AutoPatcher(TaskController):
             self.sleep(0.25)
         if self.config.holding_protocol:
             self.run_holding_protocol()
+        if self.config.mode == "Training":
+            self.info("Training mode: protocol sequence complete. Click Success or Abort to finish.")
+            while True:
+                self.sleep(0.1)
         self.success_requested = True
         self.success_if_requested()
 
@@ -608,10 +616,8 @@ class AutoPatcher(TaskController):
         self.info("Located Cell")
 
         self.amplifier.start_patch()
-
         self.success_requested = True
         self.success_if_requested()
-
 
     def fine_calibrate_pipette(self):
         '''
@@ -751,8 +757,6 @@ class AutoPatcher(TaskController):
                     self.microscope.stop()
 
                 self.info("Cell Detected")
-                self.success_requested = True
-                self.success_if_requested()
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
             if self.config.track_cell:
@@ -771,6 +775,14 @@ class AutoPatcher(TaskController):
         self.calibrated_stage.stop()
         self.calibrated_unit.stop()
         self.microscope.stop()
+        if cell_detected:
+            self.info("Cell Detected")
+            if self.config.mode == "Training":
+                self.info("Training mode: goal condition reached. Click Success or Abort to finish.")
+                while True:
+                    self.sleep(0.1)
+            self.success_requested = True
+            self.success_if_requested()
 
     @record_state("escape")
     def escape(self):
@@ -957,11 +969,13 @@ class AutoPatcher(TaskController):
 
             if consecutive_success >= 3:
                 self.pressure.set_ATM(atm=True)
-                self.success_requested = True
                 self.info("Seal successful!")
+                if self.config.mode == "Training":
+                    self.info("Training mode: goal condition reached. Click Success or Abort to finish.")
+                    while True:
+                        self.sleep(0.1)
                 self.success_requested = True
                 self.success_if_requested()
-                return
 
         # Abort request came in
         raise AutopatchError("Seal attempt failed: gigaseal criteria not met.")
@@ -1062,10 +1076,13 @@ class AutoPatcher(TaskController):
                     raise AutopatchError("Break-in failed")
 
         # ---------- success ----------
-        self.success_requested = True
         self.pressure.set_pressure(0)
         self.info("Successful break-in, Running Avg Access Resistance = "
                 f"{measuredAccessResistance:.2f}")
+        if self.config.mode == "Training":
+            self.info("Training mode: goal condition reached. Click Success or Abort to finish.")
+            while True:
+                self.sleep(0.1)
         self.success_requested = True
         self.success_if_requested()
 
@@ -1091,10 +1108,9 @@ class AutoPatcher(TaskController):
         detected = cellThreshold <= r_delta
         if detected:
             self.info(f"Cell detected: {detected}; resistance: {r_delta}")
-            self.success_requested = True
             self.calibrated_unit.stop()
 
-        return cellThreshold <= r_delta
+        return detected
    
     @record_state("patch")
     def patch(self, cell=None):
@@ -1522,5 +1538,5 @@ class AutoPatcher(TaskController):
         res = self.resistanceRamp(num_measurements=1, interval=0.001)
         t4 = time.perf_counter()
 
-        self.info(f"[observe timing] frame={ (t1-t0)*1e3:.1f} ms | detect={ (t2-t1)*1e3:.1f} ms | coords={ (t3-t2)*1e3:.1f} ms | resistanceRamp={ (t4-t3):.3f} s | total={ (t4-t0):.3f} s")
+        # self.info(f"[observe timing] frame={ (t1-t0)*1e3:.1f} ms | detect={ (t2-t1)*1e3:.1f} ms | coords={ (t3-t2)*1e3:.1f} ms | resistanceRamp={ (t4-t3):.3f} s | total={ (t4-t0):.3f} s")
         return [cvpi, st, img, res]

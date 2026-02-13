@@ -57,7 +57,7 @@ class PatchConfig(Config):
 
     cell_type_toggle = Boolean(default=False, doc='Toggle for automatic cell type protocol selection')
     cell_type = Selector(default='Plate',objects = ['Plate', 'Slice'], doc='Cell type for protocol selection')
-    mode = Selector( default='Classic', objects =['Manual', 'Classic', 'Agent'], doc='Mode for AutoPatch algorithm')
+    mode = Selector(default='Classic', objects=['Manual', 'Classic', 'Agent', 'Training'], doc='Mode for AutoPatch algorithm')
     auto_clean_pipette = Boolean(True, doc='Automatically clean pipette after attempt')
     lamp = Selector(default= '2', objects = ['1', '2', '3','4','5','6'], doc='default fluorescence cube slot')
     categories = [

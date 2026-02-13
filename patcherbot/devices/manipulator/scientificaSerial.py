@@ -3,6 +3,7 @@ import serial
 from .manipulator import Manipulator
 import time
 import threading
+import re
 
 __all__ = ['ScientificaSerial']
 
@@ -12,7 +13,9 @@ class SerialCommands():
     GET_Z_POS = 'PZ\r'
     GET_X_Y_Z = '\r'
     GET_MAX_SPEED = 'TOP\r'
+    GET_MAX_SPEED_Z = 'TOPZ\r'
     GET_MAX_ACCEL = 'ACC\r'
+    GET_MAX_ACCEL_Z = 'ACCZ\r'
     GET_IS_BUSY = 's\r'
 
     SET_X_Y_POS_ABS = 'abs {} {}\r'
@@ -23,7 +26,9 @@ class SerialCommands():
 
     SET_Z_POS = 'absz {}\r'
     SET_MAX_SPEED = 'TOP {}\r'
+    SET_MAX_SPEED_Z = 'TOPZ {}\r'
     SET_MAX_ACCEL = 'ACC {}\r'
+    SET_MAX_ACCEL_Z = 'ACCZ {}\r'
 
     SET_X_Y_Z_VEL = 'VJ {} {} {}\r'
 
@@ -31,6 +36,22 @@ class SerialCommands():
     SET_BAUD = 'BAUD {}\r'
 
     STOP = 'STOP\r'
+
+
+_number_re = re.compile(r'-?\d+')
+
+
+def _parse_scientifica_int(response):
+    if response is None:
+        return None
+    resp = str(response).strip()
+    if not resp or resp.startswith('E,'):
+        return None
+    match = _number_re.search(resp)
+    if match is None:
+        return None
+    return int(match.group(0))
+
 
 class ScientificaSerialEncoder(Manipulator):
 
@@ -42,6 +63,7 @@ class ScientificaSerialEncoder(Manipulator):
         self.encoderZ = 0
 
         self._lock = threading.Lock()
+        self._supports_stage_z_profile = None
         self.current_pos = [0, 0, 0]
 
         # self.info(f"Baud Rate: {self.get_baud_rate()}")
@@ -68,32 +90,61 @@ class ScientificaSerialEncoder(Manipulator):
         '''
         self._sendCmd(SerialCommands.SET_BAUD.format(int(baud_rate)))
 
+    def _get_optional_stage_profile_value(self, command):
+        if self._supports_stage_z_profile is False:
+            return None
+        resp = self._sendCmd(command)
+        value = _parse_scientifica_int(resp)
+        if value is None and str(resp).startswith('E,'):
+            self._supports_stage_z_profile = False
+            return None
+        if value is not None:
+            self._supports_stage_z_profile = True
+        return value
 
+    def _set_optional_stage_profile_value(self, command):
+        if self._supports_stage_z_profile is False:
+            return
+        resp = self._sendCmd(command)
+        if str(resp).startswith('E,'):
+            self._supports_stage_z_profile = False
+        else:
+            self._supports_stage_z_profile = True
 
     def get_max_speed(self):
-        '''Gets the max speed for the Scientifica Stage.  
-           It seems like the range for this is around (1000, 100000)
-        '''
-        resp = self._sendCmd(SerialCommands.GET_MAX_SPEED)
-        return int(resp)
+        xy_resp = self._sendCmd(SerialCommands.GET_MAX_SPEED)
+        xy_speed = _parse_scientifica_int(xy_resp)
+        if xy_speed is None:
+            self.warning(f"Scientifica TOP read failed: {xy_resp}")
+            return None
+        z_speed = self._get_optional_stage_profile_value(SerialCommands.GET_MAX_SPEED_Z)
+        return min(xy_speed, z_speed) if z_speed is not None else xy_speed
+
     def get_max_accel(self):
-        '''Gets the max acceleration for the Scientifica Stage.
-           It seems like the range for this is around (10, 10000)
-        '''
-        resp = self._sendCmd(SerialCommands.GET_MAX_ACCEL)
-        return int(resp)
-    
+        xy_resp = self._sendCmd(SerialCommands.GET_MAX_ACCEL)
+        xy_accel = _parse_scientifica_int(xy_resp)
+        if xy_accel is None:
+            self.warning(f"Scientifica ACC read failed: {xy_resp}")
+            return None
+        z_accel = self._get_optional_stage_profile_value(SerialCommands.GET_MAX_ACCEL_Z)
+        return min(xy_accel, z_accel) if z_accel is not None else xy_accel
+
     def set_max_speed(self, speed):
-        '''Sets the max speed for the Scientifica Stage.  
-           It seems like the range for this is around (1000, 100000)
-        '''
-        self._sendCmd(SerialCommands.SET_MAX_SPEED.format(int(speed)))
+        speed = int(speed)
+        resp = self._sendCmd(SerialCommands.SET_MAX_SPEED.format(speed))
+        if str(resp).startswith('E,'):
+            self.warning(f"Scientifica TOP set failed: {resp}")
+            return
+        self._set_optional_stage_profile_value(SerialCommands.SET_MAX_SPEED_Z.format(speed))
 
     def set_max_accel(self, accel):
-        '''Sets the max acceleration for the Scientifica Stage.
-           It seems like the range for this is around (10, 10000)
-        '''
-        self._sendCmd(SerialCommands.SET_MAX_ACCEL.format(int(accel)))
+        accel = int(accel)
+        resp = self._sendCmd(SerialCommands.SET_MAX_ACCEL.format(accel))
+        if str(resp).startswith('E,'):
+            self.warning(f"Scientifica ACC set failed: {resp}")
+            return
+        self._set_optional_stage_profile_value(SerialCommands.SET_MAX_ACCEL_Z.format(accel))
+
 
     def __del__(self):
         try:
@@ -105,12 +156,10 @@ class ScientificaSerialEncoder(Manipulator):
     def _sendCmd(self, cmd):
         '''Sends a command to the stage and returns the response
         '''
-
-        self._lock.acquire()
-        self.comPort.write(cmd.encode())
-        resp = self.comPort.read_until(b'\r') #read reply to message
-        resp = resp[:-1]
-        self._lock.release()
+        with self._lock:
+            self.comPort.write(cmd.encode())
+            resp = self.comPort.read_until(b'\r') #read reply to message
+            resp = resp[:-1]
 
         return resp.decode()
 
@@ -249,6 +298,7 @@ class ScientificaSerialNoEncoder(Manipulator):
     def __init__(self, comPort: serial.Serial):
         self.comPort : serial.Serial = comPort
         self._lock = threading.Lock()
+        self._supports_stage_z_profile = None
         self.current_pos = [0, 0, 0]
 
         self.set_max_accel(1000)
@@ -276,24 +326,60 @@ class ScientificaSerialNoEncoder(Manipulator):
         '''
         self._sendCmd(SerialCommands.SET_BAUD.format(int(baud_rate)))
 
+    def _get_optional_stage_profile_value(self, command):
+        if self._supports_stage_z_profile is False:
+            return None
+        resp = self._sendCmd(command)
+        value = _parse_scientifica_int(resp)
+        if value is None and str(resp).startswith('E,'):
+            self._supports_stage_z_profile = False
+            return None
+        if value is not None:
+            self._supports_stage_z_profile = True
+        return value
+
+    def _set_optional_stage_profile_value(self, command):
+        if self._supports_stage_z_profile is False:
+            return
+        resp = self._sendCmd(command)
+        if str(resp).startswith('E,'):
+            self._supports_stage_z_profile = False
+        else:
+            self._supports_stage_z_profile = True
+
+    def get_max_speed(self):
+        xy_resp = self._sendCmd(SerialCommands.GET_MAX_SPEED)
+        xy_speed = _parse_scientifica_int(xy_resp)
+        if xy_speed is None:
+            self.warning(f"Scientifica TOP read failed: {xy_resp}")
+            return None
+        z_speed = self._get_optional_stage_profile_value(SerialCommands.GET_MAX_SPEED_Z)
+        return min(xy_speed, z_speed) if z_speed is not None else xy_speed
+
+    def get_max_accel(self):
+        xy_resp = self._sendCmd(SerialCommands.GET_MAX_ACCEL)
+        xy_accel = _parse_scientifica_int(xy_resp)
+        if xy_accel is None:
+            self.warning(f"Scientifica ACC read failed: {xy_resp}")
+            return None
+        z_accel = self._get_optional_stage_profile_value(SerialCommands.GET_MAX_ACCEL_Z)
+        return min(xy_accel, z_accel) if z_accel is not None else xy_accel
 
     def set_max_speed(self, speed):
-        '''Sets the max speed for the Scientifica Stage.  
-           It seems like the range for this is around (1000, 100000)
-        '''
-        self._sendCmd(SerialCommands.SET_MAX_SPEED.format(int(speed)))
-    
-    def get_max_speed(self):
-        '''Gets the max speed for the Scientifica Stage.  
-           It seems like the range for this is around (1000, 100000)
-        '''
-        resp = self._sendCmd(SerialCommands.GET_MAX_SPEED)
+        speed = int(speed)
+        resp = self._sendCmd(SerialCommands.SET_MAX_SPEED.format(speed))
+        if str(resp).startswith('E,'):
+            self.warning(f"Scientifica TOP set failed: {resp}")
+            return
+        self._set_optional_stage_profile_value(SerialCommands.SET_MAX_SPEED_Z.format(speed))
 
     def set_max_accel(self, accel):
-        '''Sets the max acceleration for the Scientifica Stage.
-           It seems like the range for this is around (10, 10000)
-        '''
-        self._sendCmd(SerialCommands.SET_MAX_ACCEL.format(int(accel)))
+        accel = int(accel)
+        resp = self._sendCmd(SerialCommands.SET_MAX_ACCEL.format(accel))
+        if str(resp).startswith('E,'):
+            self.warning(f"Scientifica ACC set failed: {resp}")
+            return
+        self._set_optional_stage_profile_value(SerialCommands.SET_MAX_ACCEL_Z.format(accel))
 
     def __del__(self):
         self.comPort.close()
@@ -301,17 +387,15 @@ class ScientificaSerialNoEncoder(Manipulator):
     def _sendCmd(self, cmd):
         '''Sends a command to the stage and returns the response
         '''
-        
-        self._lock.acquire()
-        # start  = time.perf_counter_ns()
-        self.comPort.write(cmd.encode())
-        resp = self.comPort.read_until(b'\r') #read reply to message
-        resp = resp[:-1]
-        # if resp == b'A':
-        #     print(f"command received: {resp}")
-        # end = time.perf_counter_ns()
-        # print(f"Time taken to send command: {(end - start)/1e6} ms")
-        self._lock.release()
+        with self._lock:
+            # start  = time.perf_counter_ns()
+            self.comPort.write(cmd.encode())
+            resp = self.comPort.read_until(b'\r') #read reply to message
+            resp = resp[:-1]
+            # if resp == b'A':
+            #     print(f"command received: {resp}")
+            # end = time.perf_counter_ns()
+            # print(f"Time taken to send command: {(end - start)/1e6} ms")
         return resp.decode()
 
     def position(self, axis=None):

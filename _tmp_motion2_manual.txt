@@ -1,0 +1,3169 @@
+Scientifica Motion 2 Command Documentation
+
+                           ElecSoft Solutions Ltd
+                               Matthew Player
+
+                             6th July 2020 10:37
+
+Contents
+
+1 Connection                                       4
+
+1.1 Serial Port . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4
+
+2 Commands                                         4
+
+2.1 Board Information . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4
+
+2.1.1 SCIENTIFICA . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4
+
+2.1.2 DESC . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 4
+
+2.1.3 ID . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 5
+
+2.1.4 SERIAL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 5
+
+2.1.5 DATE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+
+2.1.6 HWREV . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+
+2.1.7 UID . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+
+2.1.8 VER . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+
+2.1.9 TYPE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 7
+
+2.1.10 STYPE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 8
+
+2.2 Position . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 8
+
+2.2.1 P . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 8
+
+2.2.2 PX . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 10
+
+2.2.3 PY . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 10
+
+2.2.4 PZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 11
+
+2.2.5 PA . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 11
+
+2.2.6 ZERO . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12
+
+2.2.7 RPOS . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12
+
+2.3 Axes . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12
+
+2.3.1 ANGLE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12
+
+2.3.2 APPROACH . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+
+2.3.3 AXISTYPE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+
+2.3.4 CURRENT . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+
+2.3.5 NEGANGLES . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16
+
+2.3.6 REVM . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+
+2.3.7 REVS . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+
+2.3.8 REVU . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18
+
+2.3.9 USTEP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18
+
+2.3.10 XLEFTR . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+
+2.3.11 RTIME . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+
+2.3.12 SCALE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+
+2.4 Motion . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+
+2.4.1 ABS . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+
+2.4.2 ABSA . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+
+2.4.3 ABSZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+
+2.4.4 CREEP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22
+
+2.4.5 STEP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22
+
+ElecSoft Solutions Ltd  Page 1 of 64
+0                       6th July 2020 10:37
+
+         2.4.6 STOP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+         2.4.7 REL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+         2.4.8 RELA . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+         2.4.9 RELZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24
+         2.4.10 SETSTEP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+         2.4.11 S . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+         2.4.12 VJ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+         2.4.13 SSX . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26
+         2.4.14 SSY . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+         2.4.15 SSZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+         2.4.16 SSA . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28
+         2.4.17 ACC . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28
+         2.4.18 ACCZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29
+         2.4.19 FIRST . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29
+         2.4.20 FIRSTZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30
+         2.4.21 JERK . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 30
+         2.4.22 JERKZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31
+         2.4.23 TRAPEZOID . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31
+         2.4.24 SCURVE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32
+         2.4.25 TOP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 32
+         2.4.26 TOPZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33
+   2.5 SliceScope . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33
+
+                   2.5.0.1 Changing Objectives . . . . . . . . . . . . . . . . . . . . . . . . . . . 33
+         2.5.1 OBJ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33
+         2.5.2 OBJCAL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 34
+         2.5.3 OBJ1DESC . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 35
+         2.5.4 OBJ2DESC . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 35
+         2.5.5 OBJDISP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 36
+         2.5.6 OBJD . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 36
+         2.5.7 OBJLIFT . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 36
+         2.5.8 OBJS . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 37
+         2.5.9 OBJU . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 37
+   2.6 Follow . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38
+
+                   2.6.0.1 Calibration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38
+         2.6.1 FCAL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 38
+         2.6.2 FOLLOW . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 40
+   2.7 Control . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 40
+         2.7.1 BUT . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 40
+         2.7.2 INPUTDIS . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 41
+         2.7.3 PPLMAP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 41
+         2.7.4 PPLTYPE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42
+         2.7.5 PPLUID . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42
+         2.7.6 PPLSELECT . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42
+         2.7.7 PPLSERIAL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 43
+         2.7.8 PPLVER . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 43
+         2.7.9 JACC . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 43
+         2.7.10 JACCZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44
+         2.7.11 JDX . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44
+         2.7.12 JDY . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 45
+         2.7.13 JDZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 45
+         2.7.14 JSPEED . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 46
+         2.7.15 JSSPEED . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 46
+         2.7.16 JTOP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 47
+         2.7.17 JTOPZ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 47
+         2.7.18 LREMAP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 48
+         2.7.19 SREMAP . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 48
+         2.7.20 PTIME . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 49
+         2.7.21 VFAST . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 50
+
+ElecSoft Solutions Ltd  Page 2 of 64
+0                       6th July 2020 10:37
+
+         2.7.22 VJENABLE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 50
+         2.7.23 VSLOW . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 51
+   2.8 Homing . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 51
+         2.8.1 IN . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 51
+         2.8.2 OUT . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 52
+         2.8.3 INSET . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 52
+         2.8.4 OFFSET . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 53
+         2.8.5 SET . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 54
+   2.9 Limits . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 54
+         2.9.1 LIMITS . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 54
+         2.9.2 RAWL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 55
+         2.9.3 HIGHL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 55
+         2.9.4 LOWL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 55
+         2.9.5 LIMPOL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 56
+         2.9.6 INTOL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 56
+         2.9.7 OUTTOL . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 57
+   2.10 Stored Points . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 57
+         2.10.1 SAVE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 57
+         2.10.2 GOTO . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 58
+         2.10.3 CLEAR . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 58
+         2.10.4 PNTADD . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 58
+         2.10.5 PNTDELETE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 59
+         2.10.6 PNTEDIT . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 59
+         2.10.7 PNTINSERT . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 59
+         2.10.8 PNTMOVE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 60
+         2.10.9 PNTGET . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 60
+         2.10.10 PNTGOTO . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 60
+         2.10.11 PNTINFO . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 61
+   2.11 Misc . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 61
+         2.11.1 V . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 61
+         2.11.2 BAUD . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 62
+         2.11.3 DEFAULTS . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 62
+         2.11.4 RESET . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 63
+         2.11.5 RESTART . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 63
+         2.11.6 TEMPS . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 63
+         2.11.7 > . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 63
+
+3 Error Codes           64
+
+ElecSoft Solutions Ltd  Page 3 of 64
+2.1.3                                                                  6th July 2020 10:37
+
+1 Connection
+
+1.1 Serial Port
+
+To connect to a motion 2 card use the following serial port settings:
+     · Baud Rate: 38400
+     · Parity: None
+     · Stop Bits One
+     · New Line: Carriage return character (ASCII 0xD)
+
+2 Commands
+
+2.1 Board Information
+
+2.1.1 SCIENTIFICA
+
+SCIENTIFICA
+
+          Description: Used to help identify a Scientifica device.
+               Syntax: SCIENTIFICA
+
+           Parameters: None
+              Returns: Y159
+               Sample: SCIENTIFICA Y159
+
+2.1.2 DESC
+Stores a string of up to 40 ASCII characters on the card that is typically used to help distinguish devices.
+The description string is also used by LinLab 2 to name the tabs related to that device.
+
+Get Description
+
+          Description: Gets the description string to be stored on the unit.
+               Syntax: DESC
+
+           Parameters: None
+              Returns: The description string to be stored on the unit.
+               Sample: DESC LEFT PATCHSTAR
+
+Set Description
+
+       Description: Sets the description string to be stored on the unit.
+           Syntax: DESC
+
+       Parameters: <description> string to be set as the description string, maximum of 40 characters
+          Returns: Acknowledgement character (A)
+           Sample: DESC RIGHT PATCHSTAR A
+
+ElecSoft Solutions Ltd                                                 Page 4 of 64
+2.1.5                                                         6th July 2020 10:37
+
+2.1.3 ID
+A card ID number that is used as an address when devices are communicating to each other and to control
+devices. The ID can be set either via a rotary switch on the rack or by storing a value in the card. Devices
+should not have the same ID as any other within the system and numbers from 1 - 20 should be used
+except within specialised systems.
+
+Get Current ID
+
+          Description: Gets the ID currently being used by the card.
+               Syntax: ID
+
+           Parameters: None
+              Returns: The ID currently being used by the card.
+               Sample: ID 1
+
+Reread ID
+
+       Description:  Sets the card into auto read ID mode and reads the state of the rotary switch on
+                     the rack and then returns the new value. Auto read ID mode means that the card
+                     will read the rotary switch at start up and use that as the ID, if the rotary switch is
+                     changed after start up the ID will not change unless this command is used.
+
+           Syntax: ID
+
+       Parameters: ?
+
+           Returns: The ID currently being used by the card.
+
+           Sample: ID ? 1
+
+Get Stored ID
+
+          Description: Gets the ID stored in the card or 0 if the card is in auto ID mode.
+               Syntax: ID
+
+           Parameters: A
+              Returns: The ID stored in the card or 0 if the card is in auto ID mode.
+               Sample: ID A 0
+
+2.1.4 SERIAL
+
+Get Serial Number
+
+       Description: Returns the serial number of the unit
+           Syntax: SERIAL
+
+       Parameters: None
+          Returns: The serial number of the card as an ACSII string or a "-" if the serial number has
+                      not been set
+           Sample: SERIAL M1406-072-001
+
+ElecSoft Solutions Ltd                                                                      Page 5 of 64
+2.1.9                                                                                6th July 2020 10:37
+
+2.1.5 DATE
+
+Get Firmware Build Date and Software Version
+
+          Description: Returns the version number of software on the card followed by the Date and Time
+                          the software was compiled.
+
+               Syntax: DATE
+           Parameters: None
+
+              Returns: Returns the version number of software on the card as a decimal value with 2 deci-
+                          mal places followed by the date and time the software was compiled.
+
+               Sample: DATE Version 3.08 Date Jul 1 2014 Time 12:05:23
+
+2.1.6 HWREV
+
+Get hardware
+
+          Description: Returns the hardware revision of the circuit board.
+               Syntax: HWREV
+
+           Parameters: None
+              Returns: Returns the hardware revision of the card as an ASCII string or returns a "-" if the
+                          hardware revision has not been set.
+               Sample: HWREV B
+
+2.1.7 UID
+
+Unique ID
+
+          Description: Returns a unique number that each processor on the card has.
+               Syntax: UID
+
+           Parameters: The unique number of the card as an ASCII string.
+              Returns: 0
+               Sample: UID 001D00203139471739333531
+
+2.1.8 VER
+
+Get Software Version
+
+       Description: Returns the version number of software on the card.
+           Syntax: VER
+
+       Parameters: None
+          Returns: Returns the version number of software on the card as a decimal value with 2 deci-
+                      mal places.
+           Sample: VER 3.08
+
+ElecSoft Solutions Ltd                                                               Page 6 of 64
+2.1.10                                                      6th July 2020 10:37
+
+2.1.9 TYPE
+
+Type is the decimal number which determines what type of device is attached to the card. The card itself
+uses this value to setup some of the settings and LinLab 2 uses this value to provide the correct user
+interface to the user.
+
+                        Type Number  Device
+
+                        3.01         Linear
+                        3.02         UMS
+                        3.03         MMTP
+                        3.04         SliceMaster
+                        3.05         PatchStar
+                        3.06         MMSP
+                        3.07         MMSP Z
+                        3.08         MicroStar
+                        3.09         UMS
+                        3.10         IMTP
+                        3.11         SliceScope
+                        3.12         Condenser
+                        3.13         MMBP
+                        3.14         IVM
+                        3.15         Custom
+                        3.16         Extended PatchStar
+                        3.17         IVM Mini
+                        3.18         SliceScope 2
+
+                        Table 1: Valid Types
+
+Get Type
+
+          Description: Gets the type number of the card.
+               Syntax: TYPE
+
+           Parameters: None
+              Returns: The type number of the card
+               Sample: TYPE 3.05
+
+Set Type
+
+          Description: Sets the type number of the card.
+               Syntax: TYPE
+
+           Parameters: <type> The type number, see Table 1
+              Returns: Acknowledgement character (A)
+               Sample: TYPE 3.08 A
+
+ElecSoft Solutions Ltd                                      Page 7 of 64
+2.2.1                                                              6th July 2020 10:37
+
+2.1.10 STYPE
+
+Sub type is the decimal number which determines what type of device is attached to the X and Y axis of
+either a SliceScope or SliceScope 2. The card itself uses this value to setup some of the settings if setting
+defaults.
+
+                        Type Number  Device
+
+                        3.02         UMS
+                        3.03         MMTP
+                        3.06         MMSP
+                        3.09         UMS
+                        3.10         IMTP
+                        3.11         SliceScope
+                        3.13         MMBP
+
+                        Table 2: Valid Sub Types
+
+Get Sub Type
+
+          Description: Gets the sub type number of the card.
+               Syntax: STYPE
+
+           Parameters: None
+              Returns: The sub type number of the card
+               Sample: STYPE 3.11
+
+Set Sub Type
+
+          Description: Sets the sub type number of the card.
+               Syntax: STYPE
+
+           Parameters: <subtype> The sub type number, see Table 2
+              Returns: Acknowledgement character (A)
+               Sample: STYPE 3.02 A
+
+2.2 Position
+
+2.2.1 P
+
+Get XYZ Position
+
+          Description: Returns current xyz position of the card in hundredths of a micro.
+               Syntax: P
+
+           Parameters: None
+              Returns: <x> current x position in hundredths of a micron
+                          <y> current y position in hundredths of a micron
+
+ElecSoft Solutions Ltd                                                                     Page 8 of 64
+2.2.1                                                                                   6th July 2020 10:37
+
+                 <z> current z position in hundredths of a micron
+       Sample: P 0 0 0
+
+Get XYZA Position
+
+          Description: Returns current xyza position of the card in hundredths of a micro.
+               Syntax: P
+
+           Parameters: ?
+              Returns: <x> current x position in hundredths of a micron
+                          <y> current y position in hundredths of a micron
+                          <z> current z position in hundredths of a micron
+                          <a> current a position in hundredths of a micron
+               Sample: P ?0 0 0 0
+
+Set XY Position
+
+          Description: Set current xy position of the card in hundredths of a micro.
+               Syntax: P
+
+           Parameters: <x> current x position in hundredths of a micron
+                          <y> current y position in hundredths of a micron
+
+              Returns: Acknowledgement character (A)
+               Sample: P 100 100 A
+
+Set XYZ Position
+
+          Description: Set current xyz position of the card in hundredths of a micro.
+               Syntax: P
+
+           Parameters: <x> current x position in hundredths of a micron
+                          <y> current y position in hundredths of a micron
+                          <z> current z position in hundredths of a micron
+
+              Returns: Acknowledgement character (A)
+               Sample: P 100 100 100 A
+
+Set XYZA Position                                                                           Page 9 of 64
+
+          Description: Set current xyza position of the card in hundredths of a micro.
+               Syntax: P
+
+           Parameters: <x> current x position in hundredths of a micron
+
+ElecSoft Solutions Ltd
+2.2.4                                                                                6th July 2020 10:37
+
+                          <y> current y position in hundredths of a micron
+                          <z> current z position in hundredths of a micron
+                          <a> current a position in hundredths of a micron
+              Returns: Acknowledgement character (A)
+               Sample: P 100 100 100 100A
+
+2.2.2 PX
+
+Get X Position
+
+          Description: Returns current x position of the card in hundredths of a micro.
+               Syntax: PX
+
+           Parameters: None
+              Returns: <x> current x position in hundredths of a micron
+               Sample: PX 0
+
+Set X Position
+
+          Description: Set current x position of the card in hundredths of a micro.
+               Syntax: PX
+
+           Parameters: <x> current x position in hundredths of a micron
+              Returns: Acknowledgement character (A)
+               Sample: PX 100 A
+
+2.2.3 PY
+
+Get Y Position
+
+          Description: Returns current y position of the card in hundredths of a micro.
+               Syntax: PY
+
+           Parameters: None
+              Returns: <y> current y position in hundredths of a micron
+               Sample: PY 0
+
+Set Y Position                                                                           Page 10 of 64
+
+          Description: Set current y position of the card in hundredths of a micro.
+               Syntax: PY
+
+           Parameters: <y> current y position in hundredths of a micron
+              Returns: Acknowledgement character (A)
+               Sample: PY 100 A
+
+ElecSoft Solutions Ltd
+2.2.6                                                                                6th July 2020 10:37
+
+2.2.4 PZ
+
+Get Z Position
+
+          Description: Returns current z position of the card in hundredths of a micro.
+               Syntax: PZ
+
+           Parameters: None
+              Returns: <z> current z position in hundredths of a micron
+               Sample: PZ 0
+
+Set Z Position
+
+          Description: Set current z position of the card in hundredths of a micro.
+               Syntax: PZ
+
+           Parameters: <z> current z position in hundredths of a micron
+              Returns: Acknowledgement character (A)
+               Sample: PZ 100 A
+
+2.2.5 PA
+
+Get A Position
+
+          Description: Returns current a position of the card in hundredths of a micro.
+               Syntax: PA
+
+           Parameters: None
+              Returns: <x> current a position in hundredths of a micron
+               Sample: PA 0
+
+Set A Position
+
+          Description: Set current a position of the card in hundredths of a micro.
+               Syntax: PA
+
+           Parameters: <a> current a position in hundredths of a micron
+              Returns: Acknowledgement character (A)
+               Sample: PA 100 A
+
+ElecSoft Solutions Ltd                                                                   Page 11 of 64
+2.3.1                   6th July 2020 10:37
+
+2.2.6 ZERO
+
+Zero XYZ axis
+
+          Description: Sets the position on xyz axis to 0 (it is equivalent to sending P 0 0 0 0).
+               Syntax: ZERO
+
+           Parameters: None
+              Returns: Acknowledgement character (A)
+               Sample: ZERO A
+
+2.2.7 RPOS
+When the card is first turned on the raw position is set to 0 on all axis and this cannot be changed, the
+conventional position is worked out by applying an offset to the raw position. This means that when the
+conventional position is zeroed or changed the raw position remains in the same place as it was when the
+card was first turned on.
+
+Get Raw XYZA Position
+
+          Description: Returns current raw xyza position of the card in hundredths of a micro.
+               Syntax: RPOS
+
+           Parameters: None
+              Returns: <x> current raw x position in hundredths of a micron
+                          <y> current raw y position in hundredths of a micron
+                          <z> current raw z position in hundredths of a micron
+                          <a> current raw z position in hundredths of a micron
+               Sample: RPOS 0 0 0 0
+
+2.3 Axes
+
+2.3.1 ANGLE
+Is the angle in degrees that the approach axis is measured from either the X axis or Z axis depending on
+the type of device (Currently only the IVM Mini has this angle measured from the Z axis). The angle can
+either be read from a sensor or manually set.
+
+Get Angle
+
+          Description: Returns the angle read from the angle sensor if in auto angle mode or the manually
+                          set angle if not.
+
+               Syntax: ANGLE
+           Parameters: None
+
+              Returns: The angle in degrees
+               Sample: ANGLE 25
+
+ElecSoft Solutions Ltd  Page 12 of 64
+2.3.1                                                            6th July 2020 10:37
+
+Get ADC Angle Sensor
+
+          Description: Returns the filtered ADC result from the angle sensor, returned value will only be
+                          accurate if in auto angle mode.
+
+               Syntax: ANGLE
+           Parameters: ?
+
+              Returns: The ADC value of the angle sensor (12 bit value)
+               Sample: ANGLE ?27215
+
+Get Angle Calibration Values
+
+          Description: Returns calibration values calculated during angle calibration allowing them to be
+                          backed up.
+
+               Syntax: ANGLE
+           Parameters: R
+
+              Returns: <zero> zero point ADC calibration value
+                          <minus 90> minus 90 ADC calibration value
+                          <plus 90> plus 90 ADC calibration value
+
+               Sample: ANGLE R 32600 15082 49960
+
+Set Angle Calibration Values
+
+          Description: Sets angle sensor calibration values without physically preforming calibration.
+               Syntax: ANGLE
+
+           Parameters: <zero> zero point ADC calibration value
+                          <minus 90> minus 90 ADC calibration value
+                          <plus 90> plus 90 ADC calibration value
+
+              Returns: Acknowledgement character (A)
+               Sample: ANGLE 32600 15082 49960 A
+
+Is In Auto Angle Mode                                            Page 13 of 64
+
+          Description: Returns if card is in auto angle or not.
+               Syntax: ANGLE
+
+           Parameters: A
+                          ?
+
+              Returns: 1 if in auto angle mode and 0 if not.
+               Sample: ANGLE A ? 0
+
+ElecSoft Solutions Ltd
+2.3.2                   6th July 2020 10:37
+
+Set Auto Angle Mode
+
+          Description: Sets card into auto angle mode which will cause angle sensor to be read regularly
+                          and the angle updated accordingly.
+
+               Syntax: ANGLE
+           Parameters: A
+
+                          <state> 1 to turn auto angle on and 0 to turn it off, will use the last stored angle
+                          when turning off
+              Returns: Acknowledgement character (A)
+               Sample: ANGLE A 1 A
+
+Calibrate Angle
+
+          Description: To calibrate the angle sensor this command should be called when the angle rotary
+                          sensor is at 90 degrees and then again when it is at -90 (will display as 90 if negative
+                          angles is not on).
+
+               Syntax: ANGLE
+           Parameters: C
+
+              Returns: Acknowledgement character (A)
+               Sample: ANGLE C A
+
+Set Angle
+
+          Description: Manually overrides auto angle with given angle
+               Syntax: ANGLE
+
+           Parameters: <angle> angle in degrees to use
+              Returns: Acknowledgement character (A)
+               Sample: ANGLE 45 A
+
+Get Stored Angle
+
+          Description: Returns the angle stored in the memory regardless of if auto angle is on or off.
+               Syntax: ANGLE
+
+           Parameters: S
+              Returns: The stored angle in degrees
+               Sample: ANGLE S 25
+
+ElecSoft Solutions Ltd  Page 14 of 64
+2.3.4                                                                        6th July 2020 10:37
+
+2.3.2 APPROACH
+Turns the approach axis on and off, if using this command when a control device such as a Cube or
+PatchPad is plugged in will cause the approach switch on the control device to be in the wrong state
+and if and of the buttons or switches on the device is used the value will be reset to match the switches
+position.
+
+Get Approach State
+
+          Description: Get if the approach axis is on or off.
+               Syntax: APPROACH
+
+           Parameters: None
+              Returns: 0 if approach is off and 1 if approach is on.
+               Sample: APPROACH 0
+
+Set Approach State
+
+          Description: Set if the approach axis is on or off.
+               Syntax: APPROACH
+
+           Parameters: <state> 0 if approach is off and 1 if approach is on
+              Returns: Acknowledgement character (A)
+               Sample: APPROACH 1A
+
+2.3.3 AXISTYPE
+
+Get Axis Position Sensor or Limit Switch
+
+          Description: Returns whether each axis is using a position sensor or limit switches to determine
+                          if the axis is in limits.
+
+               Syntax: AXISTYPE
+           Parameters: X, Y or Z
+
+              Returns: 1 if using a position sensor and 0 if using limit switches on the specifies axis.
+               Sample: AXISTYPE X 25
+
+2.3.4 CURRENT
+
+Get Current for Axis
+
+       Description: Returns current values in mA for a given axis.
+           Syntax: CURRENT
+
+       Parameters: X, Y, Z or A
+          Returns: <run> current in mA to put on all axes when the axes are moving
+
+ElecSoft Solutions Ltd                                                              Page 15 of 64
+2.3.6                                                                                   6th July 2020 10:37
+
+                 <standby> current in mA to put on all axes when the axes are not moving
+       Sample: CURRENT X 545 330
+
+Set All Currents
+
+          Description: Set all axes to the same given current values.
+               Syntax: CURRENT
+
+           Parameters: <run> current in mA to put on all axes when the axes are moving
+                          <standby> current in mA to put on all axes when the axes are not moving
+
+              Returns: Acknowledgement character (A)
+               Sample: CURRENT 545 330A
+
+Set Axis Currents
+
+          Description: Set given axes to given current values.
+               Syntax: CURRENT
+
+           Parameters: X, Y, Z or A
+                          <run> current in mA to put on all axes when the axes are moving
+                          <standby> current in mA to put on all axes when the axes are not moving
+
+              Returns: Acknowledgement character (A)
+               Sample: CURRENT X 545 330A
+
+2.3.5 NEGANGLES
+Allows the rotary sensor to display negative angles when the rotary sensor goes past 0 degrees by default
+this is not allowed. XLEFTR must be set correctly for the configuration of the device or the angles will
+return negative when they should be positive and vice versa.
+
+Get Negative Angles
+
+          Description: Get if negative angles are allowed.
+               Syntax: NEGANGLES
+
+           Parameters: None
+              Returns: 0 if negative angles are not allowed and 1 if they are.
+               Sample: NEGANGLES 0
+
+Set Negative Angles                                                                     Page 16 of 64
+
+          Description: Sets if negative angles are allowed.
+               Syntax: NEGANGLES
+
+           Parameters: <state> 0 if negative angles are not allowed and 1 if they are.
+              Returns: Acknowledgement character (A)
+               Sample: NEGANGLES 1A
+
+ElecSoft Solutions Ltd
+2.3.8                                                                                   6th July 2020 10:37
+
+2.3.6 REVM
+Reverses the motor travel direction.
+
+Get Reverse Motor
+
+          Description: Get if the motor travel direction is reversed.
+               Syntax: REVM
+
+           Parameters: None
+              Returns: 0 if motor travel direction is not reversed 1 if it is.
+               Sample: REVM 0
+
+Set Reverse Motor
+
+          Description: Sets if the motor travel direction is reversed.
+               Syntax: REVM
+
+           Parameters: <state> 0 if motor travel direction is not reversed 1 if it is.
+              Returns: Acknowledgement character (A)
+               Sample: REVM 1A
+
+2.3.7 REVS
+Reverses the direction travelled when Step in and Step out functions are used.
+
+Get Reverse Step
+
+          Description: Get if the step direction is reversed.
+               Syntax: REVS
+
+           Parameters: None
+              Returns: 0 if step direction is not reversed 1 if it is.
+               Sample: REVS 0
+
+Set Reverse Step
+
+          Description: Sets if the step direction is reversed.
+               Syntax: REVS
+
+           Parameters: <state> 0 if step direction is not reversed 1 if it is.
+              Returns: Acknowledgement character (A)
+               Sample: REVS 1A
+
+ElecSoft Solutions Ltd                                                                  Page 17 of 64
+2.3.9                                                                   6th July 2020 10:37
+
+2.3.8 REVU
+Reverses the direction of positive numbers on the axis.
+
+Get Reverse Step
+
+          Description: Get if the axis number direction is reversed.
+               Syntax: REVU
+
+           Parameters: None
+              Returns: 0 if unit direction is not reversed 1 if it is.
+               Sample: REVU 0
+
+Set Reverse Step
+
+          Description: Sets if the axis number direction is reversed.
+               Syntax: REVU
+
+           Parameters: <state> 0 if unit direction is not reversed 1 if it is.
+              Returns: Acknowledgement character (A)
+               Sample: REVU 1A
+
+2.3.9 USTEP
+The number of hundredths of a micron steps per motor cycle on a given axis. This varies on an axis by
+axis basis depending on the screw lead. This value can be calculated using the following equation:
+
+Get Axis Steps Per Cycle
+
+          Description: Returns current values in mA for a given axis.
+               Syntax: USTEP
+
+           Parameters: X, Y, Z or A
+              Returns: Returns the number of hundredths of a micron steps per motor cycle for given axis.
+               Sample: USTEP X 1600
+
+Set Axis Steps Per Cycle
+
+          Description: Set given axes to given current values.
+               Syntax: USTEP
+
+           Parameters: X, Y, Z or A
+                          <usteps> number of hundredths of a micron steps per motor cycle
+
+              Returns: Acknowledgement character (A)
+               Sample: USTEP X 1600 A
+
+ElecSoft Solutions Ltd                                                                     Page 18 of 64
+2.3.11                                                                                6th July 2020 10:37
+
+Set All Axes Steps Per Cycle
+
+          Description: Set all axes to the same given current values.
+               Syntax: USTEP
+
+           Parameters: <x> number of hundredths of a micron steps per motor cycle
+           Parameters: <x> number of hundredths of a micron steps per motor cycle
+           Parameters: <za> number of hundredths of a micron steps per motor cycle. Effects Z axis if in
+
+                          XYZ mode and A axis if in XYA mode
+              Returns: Acknowledgement character (A)
+               Sample: USTEP 1600 1600 1600A
+
+2.3.10 XLEFTR
+When allowing the use of negative angles (NEGANGLES) so that the approach is in the correct position
+the software must know whether the blue knob for the X axis is on the left or right of the rotary when
+looking at the front of the manipulator.
+
+Get X On Left Of Rotary
+
+          Description: Get if negative angles are allowed.
+               Syntax: XLEFTR
+
+           Parameters: None
+              Returns: 0 if x on right of the rotary and 1 if x is on the left of the rotary.
+               Sample: XLEFTR 0
+
+Set X On Left of Rotary
+
+          Description: Sets if negative angles are allowed.
+               Syntax: XLEFTR
+
+           Parameters: <state> 0 if x on right of the rotary and 1 if x is on the left of the rotary.
+              Returns: Acknowledgement character (A)
+               Sample: XLEFTR 1A
+
+2.3.11 RTIME
+Time in milliseconds after an axis has stopped moving that the current on the axis starts to reduce from
+run current to standby current.
+
+Get Reduce Time
+
+          Description: Returns current reduce time in milliseconds for a given axis.  Page 19 of 64
+               Syntax: RTIME
+
+           Parameters: X, Y, Z or A
+
+ElecSoft Solutions Ltd
+2.4.1                                                       6th July 2020 10:37
+
+       Returns: Integer value of time in milliseconds after an axis has stopped moving that the
+                  current on the axis starts to reduce from run current to standby current.
+
+       Sample: RTIME X2000
+
+Set Axis Reduce Time
+
+          Description: Set the current reduce time in milliseconds for a given axis.
+               Syntax: RTIME
+
+           Parameters: X, Y, Z or A
+                          <time> time in milliseconds after an axis has stopped moving that the current on
+                          the axis starts to reduce from run current to standby current.
+
+              Returns: Acknowledgement character (A)
+               Sample: RTIME X 2000 A
+2.3.12 SCALE
+
+Get Axis Scale
+
+          Description: Returns axis scale for a given axis
+               Syntax: SCALE
+
+           Parameters: X, Y, Z or A
+              Returns: Axis scale value for a given axis
+               Sample: SCALE X1
+
+Set Axis Scale                                              Page 20 of 64
+
+          Description: Set the axis scale for a given axis
+               Syntax: SCALE
+
+           Parameters: X, Y, Z or A
+                          <scale> Axis scale
+
+              Returns: Acknowledgement character (A)
+               Sample: SCALE X 10 A
+
+2.4 Motion
+
+2.4.1 ABS
+
+Go To XY
+
+          Description: Move to an XY coordinate
+               Syntax: ABS
+
+ElecSoft Solutions Ltd
+2.4.4                                                  6th July 2020 10:37
+                                                              Page 21 of 64
+           Parameters: <x> x coordinate to move to
+                          <y> y coordinate to move to
+
+              Returns: Acknowledgement character (A)
+               Sample: ABS 1247 3024 A
+
+Go To XYZ
+          Description: Move to an XYZ coordinate
+               Syntax: ABS
+           Parameters: <x> x coordinate to move to
+                          <y> y coordinate to move to
+                          <z> z coordinate to move to
+              Returns: Acknowledgement character (A)
+               Sample: ABS 1247 3024 1421 A
+
+2.4.2 ABSA
+
+Go To A
+          Description: Move to an A coordinate
+               Syntax: ABSA
+           Parameters: <a> a coordinate to move to
+              Returns: Acknowledgement character (A)
+               Sample: ABSA 1247 A
+
+2.4.3 ABSZ
+
+Go To Z
+          Description: Move to an Z coordinate
+               Syntax: ABSZ
+           Parameters: <z> z coordinate to move to
+              Returns: Acknowledgement character (A)
+               Sample: ABSZ 1247 A
+
+ElecSoft Solutions Ltd
+2.4.5                   6th July 2020 10:37
+
+2.4.4 CREEP
+Sets up and reports progress of creep moves which are generally slow variable speed moves over a set
+distance.
+
+Get Remaining Distance
+
+          Description: Returns the distance in hundredths of a micro remaining on the current creep move.
+               Syntax: CREEP
+
+           Parameters: X, Y, Z or A
+              Returns: Integer value of the distance remaining of the creep move to go in hundredths of a
+                          micron.
+               Sample: CREEP X 545
+
+Set Axis Creep Speed
+
+          Description: Sets given axis moving at given velocity it is equivalent to using VJ and if a creep
+                          move has not been set or has finished then the axis will not stop.
+
+               Syntax: CREEP
+           Parameters: X, Y, Z or A
+
+                          <speed> creep speed
+              Returns: Acknowledgement character (A)
+               Sample: CREEP X 12A
+
+Setup Creep
+
+          Description: Sets given axis moving at given velocity and will stop after the given distance
+               Syntax: CREEP
+
+           Parameters: X, Y, Z or A
+                          <distance> distance in hundredths of a micro to move by
+                          <speed> creep speed
+
+              Returns: Acknowledgement character (A)
+               Sample: CREEP X 1210 20A
+
+2.4.5 STEP
+Moves in device in the approach axis (or Z if approach is off) by the stored step distance (SETSTEP).
+This is the default behaviour of the "Step" button on control devices.
+
+Step In
+
+       Description: Moves device in the approach axis (or Z if approach is off) by the stored step dis-
+                      tance (SETSTEP).
+
+ElecSoft Solutions Ltd  Page 22 of 64
+2.4.7                                                               6th July 2020 10:37
+
+           Syntax: STEP
+       Parameters: None
+
+          Returns: Acknowledgement character (A)
+          Sample: STEP A
+
+Step Out
+
+          Description: Moves device back in the approach axis (or Z if approach is off) by the stored step
+                          distance (SETSTEP).
+
+               Syntax: STEP
+           Parameters: B
+
+              Returns: Acknowledgement character (A)
+               Sample: STEP BA
+
+2.4.6 STOP
+Stops all motion on all axis of the device.
+
+Emergency Stop
+
+          Description: Stop all axis as soon as possible, could result in some position loss.
+               Syntax: STOP
+
+           Parameters: None
+              Returns: Acknowledgement character (A)
+               Sample: STOP A
+
+Smooth Stop                                                         Page 23 of 64
+
+          Description: Stop all axis with normal slow down period.
+               Syntax: STOP
+
+           Parameters: S
+              Returns: Acknowledgement character (A)
+               Sample: STOP SA
+
+2.4.7 REL
+
+Move By XY
+
+          Description: Move by XY distance
+               Syntax: REL
+
+           Parameters: <x> x distance to move by
+
+ElecSoft Solutions Ltd
+2.4.10                                                6th July 2020 10:37
+
+                          <y> y distance to move by
+              Returns: Acknowledgement character (A)
+               Sample: ABS 1247 3024 A
+
+Move By XYZ
+
+          Description: Move by XYZ distance
+               Syntax: REL
+
+           Parameters: <x> x distance to move by
+                          <y> y distance to move by
+                          <z> z distance to move by
+
+              Returns: Acknowledgement character (A)
+               Sample: ABS 1247 3024 1421 A
+2.4.8 RELA
+
+Move By A
+
+          Description: Move by A distance
+               Syntax: REL
+
+           Parameters: <a> a distance to move by
+              Returns: Acknowledgement character (A)
+               Sample: REL 1247 A
+
+2.4.9 RELZ
+
+Move By Z
+
+          Description: Move by distance
+               Syntax: REL
+
+           Parameters: <z> z distance to move by
+              Returns: Acknowledgement character (A)
+               Sample: REL 1247 A
+
+ElecSoft Solutions Ltd                                Page 24 of 64
+2.4.12                  6th July 2020 10:37
+
+2.4.10 SETSTEP
+
+Get Step Size
+
+          Description: Returns the distance moved in hundreds of microns when using the STEP function
+               Syntax: SETSTEP
+
+           Parameters: None
+              Returns: Distance moved in hundreds of microns when using the STEP function
+               Sample: SETSTEP 1000
+
+Set Step Size
+
+          Description: Set the axis scale for a given axis
+               Syntax: SETSTEP
+
+           Parameters: <distance> distance moved in hundreds of microns when using the STEP function
+              Returns: Acknowledgement character (A)
+               Sample: SETSTEP 1000 A
+
+2.4.11 S
+
+Get Status
+
+          Description: Reports whether the device is stationary, preforming a point to point move or a
+                          velocity move.
+
+               Syntax: S
+           Parameters: None
+
+              Returns: 0 if device is not moving, 1 if it is preforming a point to point move and 1 if it is a
+                          velocity move.
+
+               Sample: S 1
+2.4.12 VJ
+
+Move By XYZ
+
+          Description: Starts a velocity move at the given speeds in hundredths of microns per second on
+                          XYZ.
+
+               Syntax: VJ
+           Parameters: <x> x velocity to move at in hundredths of microns per second.
+
+                          <y> y velocity to move at in hundredths of microns per second.
+                          <z> z velocity to move at in hundredths of microns per second.
+
+ElecSoft Solutions Ltd  Page 25 of 64
+2.4.13                                          6th July 2020 10:37
+
+        Returns: Acknowledgement character (A)
+        Sample: VJ 147 324 141 A
+
+Move By XYZA
+
+          Description: Starts a velocity move at the given speeds in hundredths of microns per second on
+                          XYZA.
+
+               Syntax: VJ
+           Parameters: <x> x velocity to move at in hundredths of microns per second.
+
+                          <y> y velocity to move at in hundredths of microns per second.
+                          <z> z velocity to move at in hundredths of microns per second.
+                          <a> a velocity to move at in hundredths of microns per second.
+              Returns: Acknowledgement character (A)
+               Sample: VJ 147 324 141 412A
+
+Control Device Move XYZ
+
+          Description: Used usually by control devices it allows the given speeds to be multiplied by a
+                          scale which provides the functionality of the speed switch on control devices.
+
+               Syntax: VJ
+           Parameters: <x> x velocity to move at in hundredths of microns per second.
+
+                          <y> y velocity to move at in hundredths of microns per second.
+                          <z> z velocity to move at in hundredths of microns per second.
+                          <scale> 'S' JSSPEED,'F' JSPEED
+              Returns: Acknowledgement character (A)
+               Sample: VJ 147 324 141 SA
+
+2.4.13 SSX
+An integer value stored in the card and used by LinLab 2 to remember the step size to make when moving
+on the X axis in the Jog move window.
+
+Get Step Size X
+
+          Description: Returns the distance moved in hundreds of microns when using LinLab 2 Jog win-
+                          dow.
+
+               Syntax: SSX
+           Parameters: None
+
+              Returns: Jog move distance in hundreds of microns.
+               Sample: SSX 1000
+
+ElecSoft Solutions Ltd                          Page 26 of 64
+2.4.15                  6th July 2020 10:37
+
+Set Step Size X
+
+          Description: Set the distance moved in hundreds of microns when using LinLab 2 Jog window.
+               Syntax: SSX
+
+           Parameters: <distance> Jog move distance in hundreds of microns.
+              Returns: Acknowledgement character (A)
+               Sample: SSX 1000 A
+
+2.4.14 SSY
+An integer value stored in the card and used by LinLab 2 to remember the step size to make when moving
+on the X axis in the Jog move window.
+
+Get Step Size Y
+
+          Description: Returns the distance moved in hundreds of microns when using LinLab 2 Jog win-
+                          dow.
+
+               Syntax: SSY
+           Parameters: None
+
+              Returns: Jog move distance in hundreds of microns.
+               Sample: SSY 1000
+
+Set Step Size Y
+
+          Description: Set the distance moved in hundreds of microns when using LinLab 2 Jog window.
+               Syntax: SSY
+
+           Parameters: <distance> Jog move distance in hundreds of microns.
+              Returns: Acknowledgement character (A)
+               Sample: SSY 1000 A
+
+2.4.15 SSZ
+An integer value stored in the card and used by LinLab 2 to remember the step size to make when moving
+on the X axis in the Jog move window.
+
+Get Step Size Z
+
+        Description: Returns the distance moved in hundreds of microns when using LinLab 2 Jog win-
+                       dow.
+
+            Syntax: SSZ
+        Parameters: None
+
+           Returns: Jog move distance in hundreds of microns.
+            Sample: SSZ 1000
+
+ElecSoft Solutions Ltd  Page 27 of 64
+2.4.17                  6th July 2020 10:37
+
+Set Step Size X
+
+          Description: Set the distance moved in hundreds of microns when using LinLab 2 Jog window.
+               Syntax: SSZ
+
+           Parameters: <distance> Jog move distance in hundreds of microns.
+              Returns: Acknowledgement character (A)
+               Sample: SSZ 1000 A
+
+2.4.16 SSA
+An integer value stored in the card and used by LinLab 2 to remember the step size to make when moving
+on the X axis in the Jog move window.
+
+Get Step Size A
+
+          Description: Returns the distance moved in hundreds of microns when using LinLab 2 Jog win-
+                          dow.
+
+               Syntax: SSA
+           Parameters: None
+
+              Returns: Jog move distance in hundreds of microns.
+               Sample: SSA 1000
+
+Set Step Size A
+
+          Description: Set the distance moved in hundreds of microns when using LinLab 2 Jog window.
+               Syntax: SSA
+
+           Parameters: <distance> Jog move distance in hundreds of microns.
+              Returns: Acknowledgement character (A)
+               Sample: SSA 1000 A
+
+2.4.17 ACC
+
+Get Acceleration
+
+          Description: Gets the acceleration for both motion profiles in microns per second squared.
+               Syntax: ACC
+
+           Parameters: None
+              Returns: Acceleration in microns per second squared.
+               Sample: ACC 19500
+
+Set Acceleration
+
+ElecSoft Solutions Ltd  Page 28 of 64
+2.4.19                  6th July 2020 10:37
+
+          Description: Set the acceleration for both motion profiles in microns per second squared.
+               Syntax: ACC
+
+           Parameters: <acc> Acceleration in microns per second squared.
+              Returns: Acknowledgement character (A)
+               Sample: ACC 19500 A
+
+2.4.18 ACCZ
+Z acceleration is used if the device type is set to a stage where XY movements are separate from Z move-
+ments
+Get Acceleration Z
+
+          Description: Gets the Z axis acceleration for both motion profiles in microns per second squared
+                          for stages.
+
+               Syntax: ACCZ
+           Parameters: None
+
+              Returns: Acceleration in microns per second squared.
+               Sample: ACCZ 19500
+
+Set Acceleration Z
+
+          Description: Set the Z axis acceleration for both motion profiles in microns per second squared
+                          for stages.
+
+               Syntax: ACCZ
+           Parameters: <acc> Acceleration in microns per second squared.
+
+              Returns: Acknowledgement character (A)
+               Sample: ACCZ 19500 A
+2.4.19 FIRST
+
+Get First Speed
+
+          Description: Gets the initial speed for the trapezoid profile in microns per second.
+               Syntax: FIRST
+
+           Parameters: None
+              Returns: Initial speed in microns per second.
+               Sample: FIRST 50
+
+Set First Speed
+          Description: Set the initial speed for the trapezoid profile in microns per second.
+
+ElecSoft Solutions Ltd                                                                         Page 29 of 64
+2.4.22                                                6th July 2020 10:37
+
+               Syntax: FIRST
+           Parameters: <speed> Initial speed in microns per second.
+
+              Returns: Acknowledgement character (A)
+               Sample: FIRST 50 A
+
+2.4.20 FIRSTZ
+Initial Z speed is used if the device type is set to a stage where XY movements are separate from Z move-
+ments
+Get First Speed Z
+
+          Description: Gets the Z axis initial speed for the trapezoid profile in microns per second for
+                          stages.
+
+               Syntax: FIRSTZ
+           Parameters: None
+
+              Returns: Initial speed in microns per second.
+               Sample: FIRSTZ 50
+
+Set First Speed Z
+
+          Description: Set the Z axis initial speed for the trapezoid profile in microns per second for stages.
+               Syntax: FIRSTZ
+
+           Parameters: <speed> Initial speed in microns per second.
+              Returns: Acknowledgement character (A)
+               Sample: FIRSTZ 50 A
+
+2.4.21 JERK
+Controls the size of the ramp into and out of the acceleration phase for the S curve profile, the larger the
+number the smoother the motion.
+Get Number of Jerk Steps
+
+          Description: Gets the number of jerk steps.
+               Syntax: JERK
+
+           Parameters: None
+              Returns: Number of jerk steps.
+               Sample: JERK 50
+
+Set Number of Jerk Steps                              Page 30 of 64
+
+          Description: Set the number of jerk steps.
+               Syntax: JERK
+
+           Parameters: <steps> Number of jerk steps.
+              Returns: Acknowledgement character (A)
+               Sample: JERK 50 A
+
+ElecSoft Solutions Ltd
+2.4.24                                                                                   6th July 2020 10:37
+
+2.4.22 JERKZ
+Controls the size of the ramp into and out of the acceleration phase for the S curve profile, the larger the
+number the smoother the motion on the Z axis. Only used if the device type is set to a stage where XY
+movements are separate from Z movements
+Get Number of Z Jerk Steps
+
+          Description: Gets the number of jerk steps.
+               Syntax: JERKZ
+
+           Parameters: None
+              Returns: Number of jerk steps.
+               Sample: JERKZ 50
+
+Set Number of Z Jerk Steps
+
+          Description: Set the number of jerk steps.
+               Syntax: JERKZ
+
+           Parameters: <steps> Number of jerk steps.
+              Returns: Acknowledgement character (A)
+               Sample: JERKZ 50 A
+
+2.4.23 TRAPEZOID
+
+Use Trapezoid Profile
+
+          Description: Sets the card to use the trapezoid motion profile
+               Syntax: TRAPEZOID
+
+           Parameters: None
+              Returns: Acknowledgement character (A)
+               Sample: TRAPEZOID 0
+
+Is Using Trapezoid Profile
+
+          Description: Gets if the card to using the trapezoid motion profile
+               Syntax: TRAPEZOID
+
+           Parameters: ?
+              Returns: 1 to use the trapezoid profile and 0 to use the S curve profile.
+               Sample: TRAPEZOID ?1
+
+ElecSoft Solutions Ltd                                                                   Page 31 of 64
+2.4.26                                                                  6th July 2020 10:37
+
+2.4.24 SCURVE
+
+Use SCurve Profile
+
+          Description: Sets the card to use the s curve motion profile
+               Syntax: SCURVE
+
+           Parameters: None
+              Returns: Acknowledgement character (A)
+               Sample: SCURVE 0
+
+Is Using SCurve Profile
+
+          Description: Gets if the card to using the s curve motion profile
+               Syntax: SCURVE
+
+           Parameters: ?
+              Returns: 1 to use the s curve profile and 0 to use the S curve profile.
+               Sample: SCURVE ?1
+
+2.4.25 TOP
+
+Get Top Speed
+
+          Description: Gets the top speed for both motion profile in microns per second.
+               Syntax: TOP
+
+           Parameters: None
+              Returns: Top speed in microns per second.
+               Sample: TOP 2300
+
+Set Top Speed
+
+          Description: Set the top speed for both motion profile in microns per second.
+               Syntax: TOP
+
+           Parameters: <speed> Top speed in microns per second.
+              Returns: Acknowledgement character (A)
+               Sample: TOP 2300 A
+
+ElecSoft Solutions Ltd                                                                    Page 32 of 64
+2.5.1                   6th July 2020 10:37
+
+2.4.26 TOPZ
+Only used if the device type is set to a stage where XY movements are separate from Z movements
+
+Get Top Speed Z
+
+          Description: Gets the top speed for both motion profile in microns per second for stages.
+               Syntax: TOPZ
+
+           Parameters: None
+              Returns: Top speed in microns per second.
+               Sample: TOPZ 2300
+
+Set Top Speed Z
+
+          Description: Set the top speed for both motion profile in microns per second for stages.
+               Syntax: TOPZ
+
+           Parameters: <speed> Top speed in microns per second.
+              Returns: Acknowledgement character (A)
+               Sample: TOPZ 2300 A
+
+2.5 SliceScope
+
+2.5.0.1 Changing Objectives
+     · Move the SliceScope Z axis up to give enough clearance to change objectives (OBJU).
+     · Wait for the SliceScope to stop moving (S).
+     · Tell the condenser to switch objectives (OBJ).
+     · Wait for the Condenser to stop moving (S).
+     · Move the SliceScope Z axis back down to refocus on the same point as previously (OBJD).
+
+2.5.1 OBJ
+When used with the condenser type and a motorised objective changer this command changes which
+objective is in position or returns which objective is currently in position. Note this will only move the
+objectives it will not move the objectives up and is usually used in part of a sequence.
+
+Get Current Objective
+
+       Description: Gets which objective is currently in place.
+
+           Syntax: OBJ
+
+       Parameters: None
+
+          Returns: Current objective in position, this is only accurate if using this card with a con-
+                      denser. A return value of 1 means the front objective is in position a 2 means the
+                      read.
+
+           Sample: OBJ 1
+
+ElecSoft Solutions Ltd  Page 33 of 64
+2.5.3                   6th July 2020 10:37
+
+Change Objective
+
+          Description: Switch to objective.
+               Syntax: OBJ
+
+           Parameters: <obj> 1 for front objective, 2 for rear objective
+              Returns: Acknowledgement character (A)
+               Sample: OBJ 1A
+
+2.5.2 OBJCAL
+Allows OBJDISP to be calculated with internal numbers so that zeroing axis etc does not effect result.
+Commands below should be sent in order they are listed.
+
+Objective 1 Is In Focus
+
+          Description: Let card know that objective 1 is focused on something
+               Syntax: OBJCAL
+
+           Parameters: 1
+              Returns: Acknowledgement character (A)
+               Sample: OBJCAL 1A
+
+Objective 2 Is In Focus
+
+          Description: Let card know that objective 2 is focused on the same thing as objective 1 was.
+               Syntax: OBJCAL
+
+           Parameters: 2
+              Returns: Acknowledgement character (A)
+               Sample: OBJCAL 2A
+
+Calculate Displacement
+
+          Description: Let card know that objective 1 and 2 have been set and to calculate displacement.
+               Syntax: OBJCAL
+
+           Parameters: None
+              Returns: Acknowledgement character (A)
+               Sample: OBJCAL A
+
+ElecSoft Solutions Ltd  Page 34 of 64
+2.5.5                   6th July 2020 10:37
+
+2.5.3 OBJ1DESC
+Stores a string of up to 40 ASCII characters on the card that is used by LinLab 2 to give a meaningful
+name to the front objective.
+
+Get Front Objective Description
+
+          Description: Gets the description string for the front objective.
+               Syntax: OBJ1DESC
+
+           Parameters: None
+              Returns: The description string to be stored for the front objective.
+               Sample: OBJ1DESC 10x
+
+Set Front Objective Description
+
+          Description: Sets the description string for the front objective.
+               Syntax: OBJ1DESC
+
+           Parameters: <description> string to be stored for the front objective, maximum of 40 characters
+              Returns: Acknowledgement character (A)
+               Sample: OBJ1DESC 50x A
+
+2.5.4 OBJ2DESC
+Stores a string of up to 40 ASCII characters on the card that is used by LinLab 2 to give a meaningful
+name to the rear objective.
+
+Get Rear Objective Description
+
+          Description: Gets the description string for the rear objective.
+               Syntax: OBJ2DESC
+
+           Parameters: None
+              Returns: The description string to be stored for the rear objective.
+               Sample: OBJ2DESC 10x
+
+Set Rear Objective Description
+
+          Description: Sets the description string for the rear objective.
+               Syntax: OBJ2DESC
+
+           Parameters: <description> string to be stored for the rear objective, maximum of 40 characters
+              Returns: Acknowledgement character (A)
+               Sample: OBJ2DESC 50x A
+
+ElecSoft Solutions Ltd  Page 35 of 64
+2.5.7                        6th July 2020 10:37
+
+2.5.5 OBJDISP
+
+Get Objective Displacement
+
+          Description: Gets the distance in hundredths of microns required to offset the Z axis to keep the
+                          objective in focus between the front and rear objective
+
+               Syntax: OBJDISP
+           Parameters: None
+
+              Returns: Objective displacement in hundredths of microns.
+               Sample: OBJDISP 200
+
+Set Objective Displacement
+
+          Description: Set the distance in hundredths of microns required to offset the Z axis to keep the
+                          objective in focus between the front and rear objective
+
+               Syntax: OBJDISP
+           Parameters: <distance> Objective displacement in hundredths of microns.
+
+              Returns: Acknowledgement character (A)
+               Sample: OBJDISP 300 A
+
+2.5.6 OBJD
+
+Move Objective Down
+
+          Description: Moves the Z axis of the SliceScope (and the objectives) down by distance required
+                          to refocus after the objective has been changed. This is usually used in part of a
+                          sequence.
+
+               Syntax: OBJD
+           Parameters: None
+
+              Returns: Acknowledgement character (A)
+               Sample: OBJD A
+
+2.5.7 OBJLIFT
+
+Get Objective Lift Distance
+
+       Description: Gets the distance in hundredths of microns required to lift the objectives by to safely
+                      change between objectives. Distance used in OBJU and OBJD.
+
+           Syntax: OBJLIFT
+       Parameters: None
+
+          Returns: Objective lift distance in hundredths of microns.
+
+ElecSoft Solutions Ltd       Page 36 of 64
+2.6                         6th July 2020 10:37
+
+     Sample: OBJLIFT 10000
+
+Set Objective Lift Distance
+
+          Description: Set the distance in hundredths of microns required to lift the objectives by to safely
+                          change between objectives.
+
+               Syntax: OBJLIFT
+           Parameters: <distance> Objective lift distance in hundredths of microns.
+
+              Returns: Acknowledgement character (A)
+               Sample: OBJLIFT 10000 A
+
+2.5.8 OBJS
+
+Get Objective Change Speed
+
+          Description: Gets the speed at which the OBJ command moves between objectives, there are no
+                          units for this speed.
+
+               Syntax: OBJS
+           Parameters: None
+
+              Returns: The current speed at which the objectives are changed, there are no units for this
+                          speed.
+
+               Sample: OBJS 750
+
+Set Objective Change Speed
+
+          Description: Set the speed at which the OBJ command moves between objectives, there are no
+                          units for this speed.
+
+               Syntax: OBJS
+           Parameters: <speed> Speed at which the objectives are changed, there are no units for this
+
+                          speed.
+              Returns: Acknowledgement character (A)
+               Sample: OBJS 800 A
+
+2.5.9 OBJU
+
+Move Objective Up
+
+     Description: Moves the Z axis of the SliceScope (and the objectives) up by set distance (OB-
+                    JLIFT) after the objective has been changed. This is usually used in part of a se-
+                    quence.
+
+         Syntax: OBJU
+
+     Parameters: None
+
+        Returns: Acknowledgement character (A)
+
+         Sample: OBJU A
+
+ElecSoft Solutions Ltd      Page 37 of 64
+2.6.1                                                      6th July 2020 10:37
+
+2.6 Follow
+
+Allows manipulators with pipettes or electrodes attached to them to follow a stage so that the pipettes or
+electrodes remain in view.
+
+2.6.0.1 Calibration
+     · Align pipettes or electrodes on following devices to a cross hair on the view of the lead device.
+
+     · Send FCAL Step 1 to all devices (following and lead devices).
+
+     · Move the lead device by at least 2mm in the X axis (the greater the distance moved the more
+       accurate the follow is likely to be) and then realign all of the pipettes and electrodes to the cross
+       hair.
+
+     · Send FCAL Step 2 to the following devices with the FQ follow position of the lead as the argu-
+       ments.
+
+     · Move the lead device by at least 2mm in the Y axis (the greater the distance moved the more
+       accurate the follow is likely to be) and then realign all of the pipettes and electrodes to the cross
+       hair.
+
+     · Send FCAL Step 3 to the following devices with the FQ follow position of the lead as the argu-
+       ments.
+
+     · Move the lead device in the Z axis so the pipettes and electrodes are out of focus and then refocus
+       the pipettes and electrodes .
+
+     · Send FCAL Step 4 to the following devices with the FQ follow position of the lead as the argu-
+       ments.
+
+     · Send FCAL Step 5 to the following devices.
+
+2.6.1 FCAL
+
+Step 1 (Set Zero Offset)
+
+          Description: First step of follow calibration.
+               Syntax: FCAL
+
+           Parameters: 1
+              Returns: Acknowledgement character (A)
+               Sample: FCAL 1 A
+
+Step 2 (Set Position 1)                                    Page 38 of 64
+
+          Description: Second step of follow calibration.
+               Syntax: FCAL
+
+           Parameters: 2
+                          <x> lead device x position.
+                          <y> lead device y position.
+                          <z> lead device z position.
+
+              Returns: Acknowledgement character (A)
+
+ElecSoft Solutions Ltd
+2.6.2                                                     6th July 2020 10:37
+
+       Sample: FCAL 2 200000 0 1252 A
+
+Step 3 (Set Position 2)
+
+          Description: Third step of follow calibration.
+               Syntax: FCAL
+
+           Parameters: 3
+                          <x> lead device x position.
+                          <y> lead device y position.
+                          <z> lead device z position.
+
+              Returns: Acknowledgement character (A)
+               Sample: FCAL 3 200000 0 1252 A
+
+Step 4 (Set ID and Calculate)
+
+          Description: Forth step of follow calibration.
+               Syntax: FCAL
+
+           Parameters: 4
+                          <id> ID of the lead device used when following with intercoms link
+
+              Returns: Acknowledgement character (A)
+               Sample: FCAL 4 15 A
+
+Step 5 (Zero Follow)
+
+          Description: Fifth step of follow calibration.
+               Syntax: FCAL
+
+           Parameters: 5
+           Parameters: <x> lead device x position.
+
+                          <y> lead device y position.
+                          <z> lead device z position.
+              Returns: Acknowledgement character (A)
+               Sample: FCAL 5 0 0 1252 A
+
+ElecSoft Solutions Ltd                                                                        Page 39 of 64
+2.7.2                                                             6th July 2020 10:37
+
+2.6.2 FOLLOW
+
+Follow XYZ
+
+          Description: If follow has been calibrated correctly and given the lead device's follow coordi-
+                          nates this command will reposition the device to match the lead device.
+
+               Syntax: FOLLOW
+           Parameters: <x> lead device x position.
+
+                          <y> lead device y position.
+                          <z> lead device z position.
+              Returns: Acknowledgement character (A)
+               Sample: FOLLOW 1252 2442 8712 A
+
+Follow XY
+
+       Description: If follow has been calibrated correctly and given the lead device's follow coordi-
+                      nates this command will reposition the device to match the lead device on the X
+                      and Z axis only.
+
+           Syntax: FOLLOW
+       Parameters: <x> lead device x position.
+
+                      <y> lead device y position.
+
+          Returns: Acknowledgement character (A)
+           Sample: FOLLOW 1252 2442 A
+
+2.7 Control
+
+2.7.1 BUT
+
+                        7  6  5  4  3  2  1  0
+
+                           Unused Approach Hout Hin MR M+ Step
+
+                        Figure 1: Button return byte description
+
+Report Button Status
+
+          Description: This command is used by control devices to communicate the state of the buttons.
+               Syntax: BUT
+
+           Parameters: <buttons> decimal value where 8 bit binary relates to the state of buttons. See
+                          Figure 1
+
+              Returns: Acknowledgement character (A)
+               Sample: BUT 1 A
+
+ElecSoft Solutions Ltd                                            Page 40 of 64
+2.7.3                                                6th July 2020 10:37
+
+2.7.2 INPUTDIS
+
+Is Input Disabled
+
+          Description: Returns if input from control devices will be ignored. Input will always be enabled
+                          on start up.
+
+               Syntax: INPUTDIS
+           Parameters: None
+
+              Returns: 0 if control device input is enabled and 1 if it is disabled.
+               Sample: INPUTDIS 0
+
+Set Input Disabled
+
+          Description: Set if input from control devices will be ignored. Input will always be enabled on
+                          start up.
+
+               Syntax: INPUTDIS
+           Parameters: <state> 0 if control device input is enabled and 1 if it is disabled.
+
+              Returns: Acknowledgement character (A)
+               Sample: INPUTDIS 1 A
+
+2.7.3 PPLMAP
+
+       n Control Cube Wheel Map  PatchPad Wheel Map
+
+       0 X ­ Right Y - Front Z - Top X ­ Right Y - Centre Z - Left
+       1 X ­ Right Y ­ Top Z ­ Front X ­ Right Y ­ Left Z ­ Centre
+       2 X ­ Front Y ­ Right Z ­ Top X ­ Centre Y ­ Right Z - Left
+       3 X ­ Top Y ­ Right Z ­ Front X ­ Left Y ­ Right Z ­ Centre
+       4 X ­ Front Y ­ Top Z ­ Right X ­ Centre Y ­ Left Z ­ Right
+       5 X ­ Top Y - Front Z ­ Right X ­ Left Y ­ Centre Z ­ Right
+
+                        Table 3: PPLMAP remapping
+
+Get Control Device Wheel Mapping
+
+          Description: Returns mapping value between 0 and 5 where value is n in Table 3
+               Syntax: PPLMAP
+
+           Parameters: None
+              Returns: Mapping value between 0 and 5 where value is n in Table 3
+               Sample: PPLMAP 1
+
+Set Control Device Wheel Mapping
+
+ElecSoft Solutions Ltd                                                                    Page 41 of 64
+2.7.6                                                            6th July 2020 10:37
+
+          Description: Set the distance in hundredths of microns required to lift the objectives by to safely
+                          change between objectives.
+
+               Syntax: PPLMAP
+           Parameters: <n> Mapping value between 0 and 5 where value is n in Table 3
+
+              Returns: Acknowledgement character (A)
+               Sample: PPLMAP 0 A
+
+2.7.4 PPLTYPE
+
+                                Type Number  Device
+
+                                3000025      PatchPad
+                                3000074      PatchPad
+                                3000027      Cube
+                                3000014      Cube
+
+                                Table 4: PPLTYPE Value Meanings
+
+Get Control Device Type
+
+          Description: Returns the type of control device (if any) that is attached to the card.
+               Syntax: PPLTYPE
+
+           Parameters: None
+              Returns: Returns the part number as an ACSII string of the PCB in the attached control
+                          device. If no control device is attached only a carriage return is returned.
+               Sample: PPLTYPE 3000014
+
+2.7.5 PPLUID
+
+Get Control Device Unique ID
+
+          Description: Returns a unique number that each processor on the control device has if a device
+                          is attached.
+
+               Syntax: PPLUID
+           Parameters: The unique number of the card as an ASCII string.
+
+              Returns: 0
+               Sample: PPLUID 001D00203139471739333531
+
+2.7.6 PPLSELECT
+
+Get Control Device Selected ID
+
+       Description: Returns the ID number of the device that is currently selected by the control device.
+           Syntax: PPLSELECT
+
+ElecSoft Solutions Ltd                                           Page 42 of 64
+2.7.10                     6th July 2020 10:37
+
+           Parameters: None
+              Returns: Returns the ID number of the device that is currently selected by the control device.
+               Sample: PPLSELECT 15
+
+2.7.7 PPLSERIAL
+
+Get Control Device Serial Number
+
+          Description: Returns the serial number of the unit
+               Syntax: PPLSERIAL
+
+           Parameters: None
+              Returns: Returns the ElecSoft serial number of the control device as an ACSII string. If no
+                          control device is attached only a carriage return is returned.
+               Sample: PPLSERIAL W1406-074-001
+
+2.7.8 PPLVER
+
+Get Control Device Version
+
+          Description: Returns the version number of software on the card.
+               Syntax: PPLVER
+
+           Parameters: None
+              Returns: Returns the version number of software on the control as an integer value .
+               Sample: PPLVER 23
+
+2.7.9 JACC
+
+Get Joystick Acceleration
+
+          Description: Gets the acceleration for control device wheel moves in microns per second squared.
+               Syntax: JACC
+
+           Parameters: None
+              Returns: Acceleration in microns per second squared.
+               Sample: JACC 19500
+
+Set Joystick Acceleration
+
+        Description: Set the acceleration for control device wheel moves in microns per second squared.
+            Syntax: JACC
+
+        Parameters: <jacc> Acceleration in microns per second squared.
+           Returns: Acknowledgement character (A)
+            Sample: JACC 19500 A
+
+ElecSoft Solutions Ltd     Page 43 of 64
+2.7.12                  6th July 2020 10:37
+
+2.7.10 JACCZ
+Only used if the device type is set to a stage where XY movements are separate from Z movements
+
+Get Joystick Acceleration Z
+
+          Description: Gets the Z axis acceleration for control device wheel moves in microns per second
+                          squared for stages.
+
+               Syntax: JACCZ
+           Parameters: None
+
+              Returns: Acceleration in microns per second squared.
+               Sample: JACCZ 19500
+
+Set Joystick Acceleration Z
+
+          Description: Set the Z axis acceleration for control device wheel moves in microns per second
+                          squared for stages.
+
+               Syntax: JACCZ
+           Parameters: <acc> Acceleration in microns per second squared.
+
+              Returns: Acknowledgement character (A)
+               Sample: JACCZ 19500 A
+2.7.11 JDX
+
+Get X Wheel Reverse Status
+
+          Description: Get if the wheel direction on the control devices is reversed.
+               Syntax: JDX
+
+           Parameters: ?
+              Returns: 0 if clockwise turns preform positive velocity moves and 1 otherwise
+               Sample: JDX ?0
+
+Set X Wheel Reverse Status
+
+          Description: Sets if the wheel direction on the control devices is reversed.
+               Syntax: JDX
+
+           Parameters: <state> 0 if clockwise turns preform positive velocity moves and 1 otherwise
+              Returns: Acknowledgement character (A)
+               Sample: JDX 1A
+
+ElecSoft Solutions Ltd  Page 44 of 64
+2.7.14                  6th July 2020 10:37
+
+2.7.12 JDY
+
+Get Y Wheel Reverse Status
+
+          Description: Get if the wheel direction on the control devices is reversed.
+               Syntax: JDY
+
+           Parameters: ?
+              Returns: 0 if clockwise turns preform positive velocity moves and 1 otherwise
+               Sample: JDY ?0
+
+Set Y Wheel Reverse Status
+
+          Description: Sets if the wheel direction on the control devices is reversed.
+               Syntax: JDY
+
+           Parameters: <state> 0 if clockwise turns preform positive velocity moves and 1 otherwise
+              Returns: Acknowledgement character (A)
+               Sample: JDY 1A
+
+2.7.13 JDZ
+
+Get Z Wheel Reverse Status
+
+          Description: Get if the wheel direction on the control devices is reversed.
+               Syntax: JDZ
+
+           Parameters: ?
+              Returns: 0 if clockwise turns preform positive velocity moves and 1 otherwise
+               Sample: JDZ ?0
+
+Set Z Wheel Reverse Status
+
+          Description: Sets if the wheel direction on the control devices is reversed.
+               Syntax: JDZ
+
+           Parameters: <state> 0 if clockwise turns preform positive velocity moves and 1 otherwise
+              Returns: Acknowledgement character (A)
+               Sample: JDZ 1A
+
+ElecSoft Solutions Ltd  Page 45 of 64
+2.7.16                      6th July 2020 10:37
+
+2.7.14 JSPEED
+
+Get + Speed Velocity Scale
+
+          Description: Get the multiplier the velocity values received from the control devices when the
+                          speed switch is at the + position.
+
+               Syntax: JSPEED
+           Parameters: None
+
+              Returns: Multiplier the velocity values received from the control devices when the speed
+                          switch is at the + position.
+
+               Sample: JSPEED 100
+
+Set + Speed Velocity Scale
+
+          Description: Sets the multiplier the velocity values received from the control devices when the
+                          speed switch is at the + position.
+
+               Syntax: JSPEED
+           Parameters: <multiplier> Multiplier the velocity values received from the control devices when
+
+                          the speed switch is at the + position.
+              Returns: Acknowledgement character (A)
+               Sample: JSPEED 100 A
+
+2.7.15 JSSPEED
+
+Get - Speed Velocity Scale
+
+          Description: Get the multiplier the velocity values received from the control devices when the
+                          speed switch is at the - position.
+
+               Syntax: JSSPEED
+           Parameters: None
+
+              Returns: Multiplier the velocity values received from the control devices when the speed
+                          switch is at the - position.
+
+               Sample: JSSPEED 20
+
+Set - Speed Velocity Scale
+
+        Description: Sets the multiplier the velocity values received from the control devices when the
+                       speed switch is at the - position.
+
+            Syntax: JSSPEED
+
+        Parameters: <multiplier> Multiplier the velocity values received from the control devices when
+                       the speed switch is at the - position.
+
+           Returns: Acknowledgement character (A)
+
+            Sample: JSSPEED 20 A
+
+ElecSoft Solutions Ltd      Page 46 of 64
+2.7.18                  6th July 2020 10:37
+
+2.7.16 JTOP
+
+Get Top Speed
+
+          Description: Gets the top speed for control device wheel in microns per second.
+               Syntax: JTOP
+
+           Parameters: None
+              Returns: Top speed in microns per second.
+               Sample: JTOP 2300
+
+Set Top Speed
+
+          Description: Set the top speed for control device wheel in microns per second.
+               Syntax: JTOP
+
+           Parameters: <speed> Top speed in microns per second.
+              Returns: Acknowledgement character (A)
+               Sample: JTOP 2300 A
+
+2.7.17 JTOPZ
+Only used if the device type is set to a stage where XY movements are separate from Z movements
+
+Get Top Speed
+
+          Description: Gets the Z axis top speed for control device wheel in microns per second.
+               Syntax: JTOPZ
+
+           Parameters: None
+              Returns: Top speed in microns per second.
+               Sample: JTOPZ 2300
+
+Set Top Speed
+
+          Description: Set the Z axis top speed for control device wheel in microns per second.
+               Syntax: JTOPZ
+
+           Parameters: <speed> Top speed in microns per second.
+              Returns: Acknowledgement character (A)
+               Sample: JTOPZ 2300 A
+
+ElecSoft Solutions Ltd                                                                     Page 47 of 64
+2.7.19                                                                    6th July 2020 10:37
+
+2.7.18 LREMAP
+
+Remaps the function of buttons on control devices when the buttons is held down for more than the
+PTIME.
+
+                                                        n Button
+                                                        0 Step
+                                                        1 M+
+                                                        2 MR
+                                                        3 Hin
+                                                        4 Hout
+
+                                             Table 5: Remap button values
+
+Get Long Press Function Remapping
+
+          Description: Gets the long press remapping for a button.
+               Syntax: LREMAP
+
+           Parameters: <button> Button to get remapping of. See table 5.
+              Returns: <state> 0 if long press remapping for this button is off and 1 if it is on. If it is off
+                          then this is the only value returned.
+                          <command> The ASCII string command that will be executed when the corre-
+                          sponding button has had a long press.
+               Sample: LREMAP 0 1 ZERO
+
+Set Long Press Function Remapping
+
+          Description: Set the long press remapping for a button.
+               Syntax: LREMAP
+
+           Parameters: <button> Button to set remapping of. See table 5.
+                          <state> 0 if long press remapping for this button is off and 1 if it is on. If it is off
+                          then this is the only value returned.
+                          <command> The ASCII string command that will be executed when the corre-
+                          sponding button has had a long press.
+
+              Returns: Acknowledgement character (A)
+               Sample: LREMAP 0 1 REL 1000 0 0 A
+
+2.7.19 SREMAP
+
+Get Short Press Function Remapping                                        Page 48 of 64
+
+          Description: Gets the short press remapping for a button.
+               Syntax: SREMAP
+
+           Parameters: <button> Button to get remapping of. See table 5.
+
+ElecSoft Solutions Ltd
+2.7.21                  6th July 2020 10:37
+
+        Returns: <state> 0 if short press remapping for this button is off and 1 if it is on. If it is off
+                   then this is the only value returned.
+
+                   <command> The ASCII string command that will be executed when the corre-
+                   sponding button has had a short press.
+
+        Sample: SREMAP 0 1 ZERO
+
+Set Short Press Function Remapping
+
+          Description: Set the short press remapping for a button.
+               Syntax: LREMAP
+
+           Parameters: <button> Button to set remapping of. See table 5.
+                          <state> 0 if short press remapping for this button is off and 1 if it is on. If it is off
+                          then this is the only value returned.
+                          <command> The ASCII string command that will be executed when the corre-
+                          sponding button has had a short press.
+
+              Returns: Acknowledgement character (A)
+               Sample: SREMAP 0 1 REL 1000 0 0 A
+
+2.7.20 PTIME
+
+Get Press Time Boundary
+
+          Description: Gets the amount of milliseconds a button on a control device needs to be held before
+                          it is classed as a long press instead of a short press.
+
+               Syntax: PTIME
+           Parameters: None
+
+              Returns: Number of milliseconds a button on a control device needs to be held before it is
+                          classed as a long press instead of a short press.
+
+               Sample: PTIME 1000
+
+Set Press Time Boundary
+
+          Description: Set the amount of milliseconds a button on a control device needs to be held before
+                          it is classed as a long press instead of a short press.
+
+               Syntax: PTIME
+           Parameters: <milliseconds> Number of milliseconds a button on a control device needs to be
+
+                          held before it is classed as a long press instead of a short press.
+              Returns: Acknowledgement character (A)
+               Sample: PTIME 2000 A
+
+ElecSoft Solutions Ltd  Page 49 of 64
+2.7.23                  6th July 2020 10:37
+
+2.7.21 VFAST
+
+Get Fast Push and Hold Button Speed
+
+          Description: Get the speed the given axis will move when a push and hold button is used with
+                          the speed toggle set to +.
+
+               Syntax: VFAST
+           Parameters: <button> Button to get remapping of. From left to right on the PatchPad buttons
+
+                          are numbered 0 to 5.
+              Returns: <speed> Speed the given axis will move when a push and hold button is used with
+
+                          the speed toggle set to +.
+               Sample: VFAST 0 500000
+
+Set Fast Push and Hold Button Speed
+
+          Description: Set the speed the given axis will move when a push and hold button is used with
+                          the speed toggle set to +.
+
+               Syntax: VFAST
+           Parameters: <button> Button to get remapping of. From left to right on the PatchPad buttons
+
+                          are numbered 0 to 5.
+                          <speed> Speed the given axis will move when a push and hold button is used with
+                          the speed toggle set to +.
+              Returns: Acknowledgement character (A)
+               Sample: VFAST 0 500000 A
+
+2.7.22 VJENABLE
+
+Is Axis From Control Device Enabled
+
+          Description: Returns if input from a specific axis control devices will be ignored. Input will
+                          always be enabled on start up.
+
+               Syntax: VJENABLE
+           Parameters: X, Y or Z
+
+              Returns: 0 if specific axis on control device input is enabled and 1 if it is disabled.
+               Sample: VJENABLE X 0
+
+Set Axis Control Device Input Disabled
+
+          Description: Set if input from a specific axis control devices will be ignored. Input will always
+                          be enabled on start up.
+
+               Syntax: VJENABLE
+           Parameters: X, Y or Z
+           Parameters: <state> 0 if specific axis on control device input is enabled and 1 if it is disabled.
+
+              Returns: Acknowledgement character (A)
+               Sample: VJENABLE X 1 A
+
+ElecSoft Solutions Ltd  Page 50 of 64
+2.8.2                                            6th July 2020 10:37
+
+2.7.23 VSLOW
+
+Get Slow Push and Hold Button Speed
+
+          Description: Get the speed the given axis will move when a push and hold button is used with
+                          the speed toggle set to -.
+
+               Syntax: VSLOW
+           Parameters: <button> Button to get remapping of. From left to right on the PatchPad buttons
+
+                          are numbered 0 to 5.
+              Returns: <speed> Speed the given axis will move when a push and hold button is used with
+
+                          the speed toggle set to -.
+               Sample: VSLOW 0 10000
+
+Set Fast Push and Hold Button Speed
+
+          Description: Set the speed the given axis will move when a push and hold button is used with
+                          the speed toggle set to -.
+
+               Syntax: VSLOW
+           Parameters: <button> Button to get remapping of. From left to right on the PatchPad buttons
+
+                          are numbered 0 to 5.
+                          <speed> Speed the given axis will move when a push and hold button is used with
+                          the speed toggle set to -.
+              Returns: Acknowledgement character (A)
+               Sample: VSLOW 0 10000 A
+
+2.8 Homing
+
+2.8.1 IN
+
+Home In
+
+         Description:  Moves device to the home in position. If there is a fixed home in position (set via
+                       the INSET command) then this will cause the motion device to move to this set
+                       position. If there is not a fixed home in position then if the OUT command was last
+                       issued the motion device will return to the position before the OUT command was
+                       issued.
+
+         Syntax: IN
+
+         Parameters: None
+
+         Returns: Acknowledgement character (A)
+
+         Sample: IN A
+
+ElecSoft Solutions Ltd                           Page 51 of 64
+2.8.3                   6th July 2020 10:37
+
+2.8.2 OUT
+
+Home Out
+
+          Description: This causes the motion device to move to the home out position set using the SET
+                          command.
+
+               Syntax: OUT
+           Parameters: None
+
+              Returns: Acknowledgement character (A)
+               Sample: OUT A
+2.8.3 INSET
+
+Is Using Fixed Home In
+
+          Description: Get if the home in is set to use a fixed or dynamic home in.
+               Syntax: INSET
+
+           Parameters: None
+              Returns: 0 if using dynamic home in and 1 if using a fixed home in.
+               Sample: INSET 0
+
+Get Home In Position
+
+          Description: Returns home in xyz position of the card in hundredths of a micro.
+               Syntax: INSET
+
+           Parameters: ?
+              Returns: <x> home in x position in hundredths of a micron
+                          <y> home in y position in hundredths of a micron
+                          <z> home in z position in hundredths of a micron
+               Sample: INSET ? 2010 2875 3141
+
+Set Home In Mode
+
+       Description: Get if the home in is set to use a fixed or dynamic home in.
+           Syntax: INSET
+
+       Parameters: <state> 0 to set dynamic move in and 1 to set fixed home in. If set to fixed home
+                      in current position is set to home in position.
+
+          Returns: Acknowledgement character (A)
+           Sample: INSET 1 A
+
+ElecSoft Solutions Ltd                                                                     Page 52 of 64
+2.8.5                   6th July 2020 10:37
+
+Set Home In Position
+
+          Description: Set home in xyz position of the card in hundredths of a micro. Using this command
+                          will set home in to use fixed mode.
+
+               Syntax: INSET
+           Parameters: <x> home in x position in hundredths of a micron
+
+                          <y> home in y position in hundredths of a micron
+                          <z> home in z position in hundredths of a micron
+              Returns: Acknowledgement character (A)
+               Sample: INSET 100 100 100 A
+
+2.8.4 OFFSET
+
+Get Home In Offset
+
+          Description: Returns the distance before the home in position the device should stop when in
+                          dynamic home in to avoid collisions with the sample.
+
+               Syntax: OFFSET
+           Parameters: ?
+
+              Returns: <x> home in x offset in hundredths of a micron
+                          <y> home in y offset in hundredths of a micron
+                          <z/a> home in z/a offset in hundredths of a micron
+
+               Sample: OFFSET 0 0 100
+
+Set Home In Offset
+
+          Description: Set the distance before the home in position the device should stop when in dynamic
+                          home in to avoid collisions with the sample.
+
+               Syntax: OFFSET
+           Parameters: <x> home in x offset in hundredths of a micron
+
+                          <y> home in y offset in hundredths of a micron
+                          <z/a> home in z/a offset in hundredths of a micron
+              Returns: Acknowledgement character (A)
+               Sample: OFFSET 20 0 50A
+
+ElecSoft Solutions Ltd  Page 53 of 64
+2.9.2                                                                         6th July 2020 10:37
+
+2.8.5 SET
+
+Set Current Position to Home Out Position
+
+          Description: Set current position to home out position.
+               Syntax: SET
+
+           Parameters: None
+              Returns: Acknowledgement character (A)
+               Sample: SET A
+
+Set Home Out Position
+
+       Description: Set home out position.
+           Syntax: SET
+
+       Parameters: <x> home out x position in hundredths of a micron
+                      <y> home out y position in hundredths of a micron
+                      <z> home out z position in hundredths of a micron
+
+          Returns: Acknowledgement character (A)
+           Sample: SET 20 0 50A
+
+2.9 Limits
+
+2.9.1 LIMITS
+
+                        7          6  5  4  3  2                   1  0
+
+                           Unused     Z High Z Low Y High Y Low X High X Low
+                                      Limit Limit Limit Limit Limit Limit
+
+                        Figure 2: Limit return byte description
+
+Get Limits
+
+          Description: Gets state of limits.
+               Syntax: LIMITS
+
+           Parameters: None
+              Returns: Returns an 8 unsigned bit number as a hexadecimal value were the binary number
+                          will be in the following format
+               Sample: LIMITS 33
+
+ElecSoft Solutions Ltd                                                        Page 54 of 64
+2.9.4                                             6th July 2020 10:37
+
+2.9.2 RAWL
+
+Get Raw ADC Values
+
+          Description: Gets the ADC values from the position sensors (if using them AXISTYPE).
+               Syntax: RAWL
+
+           Parameters: None
+              Returns: <x> raw x ADC value
+                          <y> raw y ADC value
+                          <z> raw z ADC value
+               Sample: RAWL 30512 12471 47212
+
+2.9.3 HIGHL
+HIGHL is the upper limit of travel ends on axis using position sensors. High limit will be on when the
+ADC value for an axis is above this value.
+
+Get High Limit ADC Threshold
+
+          Description: Gets high limit ADC threshold
+               Syntax: HIGHL
+
+           Parameters: None
+              Returns: High limit ADC threshold
+               Sample: HIGHL 60000
+
+Set High Limit ADC Threshold
+
+          Description: Set high limit ADC threshold
+               Syntax: HIGHL
+
+           Parameters: <threshold> High limit ADC threshold 0 to 65535.
+              Returns: Acknowledgement character (A)
+               Sample: HIGHL 61214 A
+
+2.9.4 LOWL
+LOWL is the lower limit of travel ends on axis using position sensors. Low limit will be on when the
+ADC value for an axis is below this value.
+
+Get Low Limit ADC Threshold
+
+       Description: Gets low limit ADC threshold
+           Syntax: LOWL
+
+       Parameters: None
+
+ElecSoft Solutions Ltd                            Page 55 of 64
+2.9.6                                    6th July 2020 10:37
+
+       Returns: Low limit ADC threshold
+       Sample: LOWL 10000
+
+Set Low Limit ADC Threshold
+
+          Description: Set low limit ADC threshold
+               Syntax: LOWL
+
+           Parameters: <threshold> Low limit ADC threshold 0 to 65535.
+              Returns: Acknowledgement character (A)
+               Sample: LOWL 8124 A
+
+2.9.5 LIMPOL
+When using switches to indicate an axis has reached limits (AXISTYPE), this allows the card to reverse
+which state on the limit lines which the card takes to mean the device has reached its limits.
+
+Get Limit Switch Polarity
+
+          Description: Get the limit switch polarity.
+               Syntax: LIMPOL
+
+           Parameters: X, Y or Z
+              Returns: 0 if high state is in limits and 1 if low state is in limits.
+               Sample: LIMPOL 0
+
+Set Limit Switch Polarity
+
+          Description: Set low limit ADC threshold
+               Syntax: LIMPOL
+
+           Parameters: X, Y or Z
+                          <state> 0 if high state is in limits and 1 if low state is in limits.
+
+              Returns: Acknowledgement character (A)
+               Sample: LIMPOL 1 A
+
+2.9.6 INTOL
+INTOL and OUTTOL add hysteresis to HIGHL and LOWL. INTOL is the amount past the limit threshold
+the ADC has to go to be considered in limits.
+
+Get Limit In Tolerance
+
+       Description: Get the amount past the limit threshold the ADC has to go to be considered in limits.
+           Syntax: INTOL
+
+       Parameters: None
+
+ElecSoft Solutions Ltd                   Page 56 of 64
+2.10.2                  6th July 2020 10:37
+
+              Returns: In tolerance value.
+               Sample: INTOL 5
+
+Set Limit In Tolerance
+
+          Description: Set the amount past the limit threshold the ADC has to go to be considered in limits.
+               Syntax: INTOL
+
+           Parameters: <value> In tolerance value.
+              Returns: Acknowledgement character (A)
+               Sample: INTOL 10 A
+
+2.9.7 OUTTOL
+INTOL and OUTTOL add hysteresis to HIGHL and LOWL. OUTTOL is the amount past the limit
+threshold the ADC has to go to be considered out of limits.
+
+Get Limit In Tolerance
+
+          Description: Get the amount past the limit threshold the ADC has to go to be considered out of
+                          limits.
+
+               Syntax: OUTTOL
+           Parameters: None
+
+              Returns: Out tolerance value.
+               Sample: OUTTOL 5
+
+Set Limit In Tolerance
+
+          Description: Set the amount past the limit threshold the ADC has to go to be considered out of
+                          limits.
+
+               Syntax: OUTTOL
+           Parameters: <value> Out tolerance value.
+
+              Returns: Acknowledgement character (A)
+               Sample: OUTTOL 10 A
+
+2.10 Stored Points
+
+2.10.1 SAVE
+
+Save Position
+
+        Description: Saves the current raw position onto the card, this is the default behaviour of the
+                       "M+" button on control devices.
+
+            Syntax: SAVE
+        Parameters: None
+
+           Returns: Acknowledgement character (A)
+            Sample: SAVE A
+
+ElecSoft Solutions Ltd  Page 57 of 64
+2.10.5                                                                                  6th July 2020 10:37
+
+2.10.2 GOTO
+
+Go To Next Position
+
+          Description: Moves the device to the next point in the list of saved points.
+               Syntax: GOTO
+
+           Parameters: None
+              Returns: Acknowledgement character (A)
+               Sample: GOTO A
+
+Go To Previous Position
+
+          Description: Moves the device to the previous point in the list of saved points.
+               Syntax: GOTO
+
+           Parameters: 1
+              Returns: Acknowledgement character (A)
+               Sample: GOTO 1A
+
+2.10.3 CLEAR
+
+Clear Saved Positions
+
+          Description: Clears the list of saved points on the card.
+               Syntax: CLEAR
+
+           Parameters: None
+              Returns: Acknowledgement character (A)
+               Sample: CLEAR A
+
+2.10.4 PNTADD
+
+Save XYZ Position                                                                           Page 58 of 64
+
+          Description: Save given position to saved points on the card.
+               Syntax: P
+
+           Parameters: <x> x position in hundredths of a micron
+                          <y> y position in hundredths of a micron
+                          <z> z position in hundredths of a micron
+
+              Returns: Acknowledgement character (A)
+               Sample: PNTADD 100 100 100 A
+
+ElecSoft Solutions Ltd
+2.10.8                  6th July 2020 10:37
+
+2.10.5 PNTDELETE
+
+Delete A Saved Positions
+
+          Description: Deletes a specific point from the list of saved points on the card.
+               Syntax: PNTDELETE
+
+           Parameters: <i> index of the point to delete
+              Returns: Acknowledgement character (A)
+               Sample: PNTDELETE 1 A
+
+2.10.6 PNTEDIT
+
+Edit Save Point
+
+          Description: Edit position of a given saved points on the card.
+               Syntax: PNTEDIT
+
+           Parameters: <i> index of the point to edit
+                          <x> x position in hundredths of a micron
+                          <y> y position in hundredths of a micron
+                          <z> z position in hundredths of a micron
+
+              Returns: Acknowledgement character (A)
+               Sample: PNTEDIT 0 100 100 100 A
+2.10.7 PNTINSERT
+
+Insert Save Point
+
+          Description: Insert position at a specific index to the list of saved points on the card.
+               Syntax: PNTINSERT
+
+           Parameters: <i> index to insert point in
+                          <x> x position in hundredths of a micron
+                          <y> y position in hundredths of a micron
+                          <z> z position in hundredths of a micron
+
+              Returns: Acknowledgement character (A)
+               Sample: PNTINSERT 0 100 100 100 A
+
+ElecSoft Solutions Ltd  Page 59 of 64
+2.10.11                 6th July 2020 10:37
+
+2.10.8 PNTMOVE
+
+Move A Saved Positions In List
+
+          Description: Moves a saved point from one index to another in the list of saved points and shuf-
+                          fles other points accordingly.
+
+               Syntax: PNTMOVE
+           Parameters: <old> index of the point to move
+
+                          <new> index to move point to.
+              Returns: Acknowledgement character (A)
+               Sample: PNTMOVE 0 10 A
+2.10.9 PNTGET
+
+Get Saved Position Data
+
+          Description: Gets data of a specific position
+               Syntax: PNTGET
+
+           Parameters: <i> index of the point to get data of
+              Returns: <id> id of the point
+                          <x> x position in hundredths of a micron
+                          <y> y position in hundredths of a micron
+                          <z> z position in hundredths of a micron
+                          <hash> hash of the point
+               Sample: PNTGET 1 A
+
+2.10.10 PNTGOTO
+
+Goto a specific saved point
+
+          Description: Go to a specific saved point
+               Syntax: PNTGOTO
+
+           Parameters: <i> index of the point to goto
+              Returns: Acknowledgement character (A)
+               Sample: PNTGOTO 1 A
+
+ElecSoft Solutions Ltd  Page 60 of 64
+2.11.2                                                                        6th July 2020 10:37
+
+2.10.11 PNTINFO
+
+Get Saved Position Information
+
+          Description: Get data on the saved position list.
+               Syntax: PNTINFO
+              Returns: <count> number of saved points
+                          <hash> hash of all the saved point data (see HASH)
+                          <write index> index next point will be saved to.
+                          <goto> the index of the current saved point
+               Sample: PNTINFO0 0 0 0
+
+2.11 Misc
+
+2.11.1 V
+
+Get Volatile Information
+
+        Description: Combines data from multiple commands with data that changes frequently into a
+                       single command.
+
+            Syntax: V
+           Returns: <x> current x position in hundredths of a micron
+
+                       <y> current y position in hundredths of a micron
+                       <z> current z position in hundredths of a micron
+                       <a> current a position in hundredths of a micron
+                       <approach> 0 if approach is off and 1 if approach is on.
+                       <angle> approach angle in degrees
+                       <limits> state of axis limits (see LIMITS)
+                       <moving> 0 if not moving 1 if moving
+                       <x percent> value between 0 and 1 that gives the percentage between limits when
+                       using linear sensors on the x axis
+                       <y percent> value between 0 and 1 that gives the percentage between limits when
+                       using linear sensors on the y axis
+                       <z percent> value between 0 and 1 that gives the percentage between limits when
+                       using linear sensors on the z axis
+                       <a percent> value between 0 and 1 that gives the percentage between limits when
+                       using linear sensors on the a axis
+                       <mem count> number of saved points
+                       <mem hash> hash of all the saved point data (see HASH)
+                       <mem goto> the index of the current saved point
+                       <settings hash> hash of the axis settings
+            Sample: V0 0 0 0 1 12 0 0 0.5 0.5 0.5 0 0 0 F
+
+ElecSoft Solutions Ltd                                                        Page 61 of 64
+2.11.4                                                            6th July 2020 10:37
+
+2.11.2 BAUD
+Allows the baud rate on the receiving serial port to be changed.
+
+Get Baud Rate
+
+          Description: Gets the current baud rate.
+               Syntax: BAUD
+
+           Parameters: None
+              Returns: Baud rate of the USB serial port.
+               Sample: BAUD 38400
+
+Set Baud Rate
+
+          Description: Change baud rate of USB serial port.
+               Syntax: BAUD
+
+           Parameters: <baud rate> '9600', '19200', '38400', '57600' or '115200'
+              Returns: Acknowledgement character (A) at the old baud rate before changing to the new.
+               Sample: BAUD 115200 A
+
+2.11.3 DEFAULTS
+
+Set Defaults for Current Type
+
+          Description: Set default settings for currently set type.
+               Syntax: DEFAULTS
+
+           Parameters: None
+              Returns: Acknowledgement character (A)
+               Sample: DEFAULTS A
+
+Guess Type and Set Defaults
+
+          Description: Guesses the type of the current device then set default settings for that type.
+               Syntax: DEFAULTS
+
+           Parameters: G
+              Returns: Acknowledgement character (A)
+               Sample: DEFAULTS GA
+
+ElecSoft Solutions Ltd                                            Page 62 of 64
+3                                                                               6th July 2020 10:37
+
+2.11.4 RESET
+
+Restore to Factory Settings
+
+          Description: Restores all the settings on the card to there default setting including TYPE which
+                          will default to being a PatchStar.
+
+               Syntax: RESET
+           Parameters: None
+
+              Returns: Acknowledgement character (A)
+               Sample: RESET A
+
+2.11.5 RESTART
+
+Restarts Software
+
+          Description: Restarts the card software.
+               Syntax: RESTART
+
+           Parameters: None
+              Returns: None
+               Sample: RESTART 
+
+2.11.6 TEMPS
+
+Get Card Temperatures
+
+          Description: Returns the temperature of the heat sink and CPU in °C.
+               Syntax: TEMPS
+
+           Parameters: None
+              Returns: <heat sink> heat sink temperature in °C
+                          <cpu> CPU temperature in °C
+               Sample: TEMPS32.14 65.14
+
+2.11.7 >
+
+Echo                                                                            Page 63 of 64
+
+          Description: Returns the temperature of the heat sink and CPU in °C.
+               Syntax: TEMPS
+
+           Parameters: Any string consisting of no more than 7 words.
+              Returns: The string sent as an argument.
+               Sample: > HELLOHELLO
+
+ElecSoft Solutions Ltd
+3                                                            6th July 2020 10:37
+
+3 Error Codes
+
+                        Code  Description
+
+                        E,1   Unrecognised command
+                        E,2   Incorrect number of arguments
+                        E,3   Argument 1 is not valid
+                        E,4   Argument 2 is not valid
+                        E,5   Argument 3 is not valid
+                        E,6   Argument 4 is not valid
+                        E,7   Argument 5 is not valid
+                        E,8   Argument 6 is not valid
+                        E,9   Argument 7 is not valid
+                        E,10  Argument 8 is not valid
+                        E,11  Argument 9 is not valid
+                        E,12  Argument 10 is not valid
+                        E,13  Argument 11 is not valid
+                        E,14  Argument 12 is not valid
+                        E,15  Incorrect State
+                        E,16  Operation failed
+
+                              Table 6: Error Codes
+
+ElecSoft Solutions Ltd                                       Page 64 of 64
+
