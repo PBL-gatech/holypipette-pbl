@@ -1914,7 +1914,10 @@ class NiDAQ(DAQ):
                         laser.set_wavelength(wavelength)
                     if power_percent is not None:
                         laser.set_power_level(power_percent, wavelength)
-                    laser.power_on()
+                    try:
+                        laser.power_off()
+                    except Exception:
+                        pass
 
                     num_samples = int(rate_hz * duration_s)
                     if num_samples <= 0:
@@ -1923,6 +1926,23 @@ class NiDAQ(DAQ):
 
                     ai = self._setup_optogenetic_ai_task(rate_hz, num_samples)
                     ai.start()
+
+                    # Laser on from 1/3 to 2/3 of the recording window.
+                    record_start = time.perf_counter()
+                    laser_on_at = record_start + (duration_s / 3.0)
+                    laser_off_at = record_start + (2.0 * duration_s / 3.0)
+
+                    self._wait_until(laser_on_at, tight_timing=True)
+                    try:
+                        laser.power_on()
+                    except Exception:
+                        pass
+                    self._wait_until(laser_off_at, tight_timing=True)
+                    try:
+                        laser.power_off()
+                    except Exception:
+                        pass
+
                     raw = self._read_optogenetic_ai(ai, num_samples, duration_s)
                     ai = None
 
