@@ -551,6 +551,38 @@ class CalibratedUnit(ManipulatorUnit):
         self.wait_until_still()
 
 
+    def velocity_position_control(self, position_delta, speed):
+        """
+        Convert a displacement vector and scalar speed into per-axis velocities.
+
+        Parameters
+        ----------
+        position_delta : iterable of length 3
+            Relative displacement [dx, dy, dz] in um.
+        speed : float
+            Requested travel speed magnitude in um/s.
+
+        Returns
+        -------
+        list
+            Velocity command [vx, vy, vz] in um/s.
+        """
+        delta = np.asarray(position_delta, dtype=float).reshape(-1)
+        if delta.size != 3:
+            raise ValueError("position_delta must be a 3-element vector [dx, dy, dz].")
+
+        distance = float(norm(delta))
+        if distance == 0:
+            return [0.0, 0.0, 0.0]
+
+        speed = abs(float(speed))
+        if speed == 0:
+            raise ValueError("Speed must be non-zero for velocity control.")
+
+        unit_direction = delta / distance
+        return (unit_direction * speed).tolist()
+
+
     def _velocity_move_by_displacement(self, movement_vector, speed, poll_interval=0.01):
         """
         Execute a relative displacement using a continuous velocity command.
@@ -568,7 +600,7 @@ class CalibratedUnit(ManipulatorUnit):
             raise ValueError("Speed must be non-zero for velocity moves.")
 
         direction = movement_vector / distance
-        velocity = (direction * speed).tolist()
+        velocity = self.velocity_position_control(movement_vector, speed)
         start_pos = np.asarray(self.position(), dtype=float)
         expected_time = distance / speed
         timeout = max(2.0, expected_time * 5.0)

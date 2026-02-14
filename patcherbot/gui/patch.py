@@ -496,11 +496,11 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
         # Find Pipette path
-        self.pipette_location = [self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
+        self.pipette_location = [self.pipette_interface.center_pipette,self.pipette_interface.focus_pipette,self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
         # add a box for testing controllability of the pipette and stage
         buttonList = [['Find Pipette','Test Pipette Movement']]
         cmds = [[self.pipette_location,self.pipette_interface.move_pipette_random_velocity]]
-        freq = [[1, 25]]
+        freq = [[150, 1]]
         self.addButtonList('testing', layout, buttonList, cmds, freq=freq, sequential=True)
 
         # # Add a box for lamp commands

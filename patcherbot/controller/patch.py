@@ -63,6 +63,7 @@ class AutoPatcher(TaskController):
         self.goal_random = True
         self.ninput = None
         self.done = False
+        self.find_pipette_velocity_speed_um_s = 200.0
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -126,6 +127,9 @@ class AutoPatcher(TaskController):
         else:
             self.info("Classic/Manual/Training mode detected; skipping agent model load for find_pipette")
         sleep_time = 0.005 # seconds
+        command_speed_um_s = abs(float(getattr(self, "find_pipette_velocity_speed_um_s", 200.0)))
+        if command_speed_um_s == 0:
+            raise ValueError("find_pipette_velocity_speed_um_s must be non-zero.")
 
         def _log_timing(label: str, duration_s: float) -> None:
             """Lightweight timing logger for find_pipette stages."""
@@ -166,6 +170,24 @@ class AutoPatcher(TaskController):
         err = None
         action = None
         target_point = None
+        velocity_start_pos_um = None
+        velocity_direction = None
+        velocity_distance_um = None
+        velocity_start_time = None
+        velocity_timeout_s = None
+        velocity_opposite_direction_warned = False
+
+        def _reset_velocity_motion(stop_motion: bool = False) -> None:
+            nonlocal velocity_start_pos_um, velocity_direction, velocity_distance_um
+            nonlocal velocity_start_time, velocity_timeout_s, velocity_opposite_direction_warned
+            if stop_motion:
+                self.calibrated_unit.stop()
+            velocity_start_pos_um = None
+            velocity_direction = None
+            velocity_distance_um = None
+            velocity_start_time = None
+            velocity_timeout_s = None
+            velocity_opposite_direction_warned = False
 
         while True:
             obs_start = time.perf_counter()
@@ -218,6 +240,7 @@ class AutoPatcher(TaskController):
 
                 if gerr_um <= tol_um:
                     self.info("Pipette found")
+                    self.calibrated_unit.stop()
                     if self.config.mode == "Training":
                         self.info("Training mode: goal condition reached. Click Success or Abort to finish.")
                         while True:
@@ -230,9 +253,15 @@ class AutoPatcher(TaskController):
                 err = None
                 act_start = time.perf_counter()
                 xy_um = self.calibrated_unit.pixels_to_um_relative([xgerr_px, ygerr_px, 0])
-                target_um = self.calibrated_unit.position() + np.array([xy_um[0], xy_um[1], zerr_um])
-                self.calibrated_unit.absolute_move(target_um.tolist())
-                self.calibrated_unit.wait_until_still()
+                # target_um = self.calibrated_unit.position() + np.array([xy_um[0], xy_um[1], zerr_um])
+                # self.calibrated_unit.absolute_move(target_um.tolist())
+                # self.calibrated_unit.wait_until_still()
+                move_um = np.array([xy_um[0], xy_um[1], zerr_um], dtype=float)
+                move_distance_um = float(np.linalg.norm(move_um))
+                if move_distance_um > 0:
+                    velocity = self.calibrated_unit.velocity_position_control(move_um, command_speed_um_s)
+                    velocity_command_local = -np.asarray(velocity, dtype=float)
+                    self.calibrated_unit.absolute_move_group_velocity(velocity_command_local.tolist())
                 # _log_timing("action_direct_pipette", time.perf_counter() - act_start)
                 self.sleep(sleep_time)
                 continue
@@ -310,13 +339,31 @@ class AutoPatcher(TaskController):
                 target_point_microns_absolute = move_um + self.calibrated_unit.position()
 
                 # self.info(f" target converted distance in um: {target_point_microns_absolute} um")
+                move_distance_um = float(np.linalg.norm(move_um))
+                if move_distance_um == 0:
+                    self.info("Predicted movement is zero; requesting next action.")
+                    action = None
+                    target_point = None
+                    err = None
+                    _reset_velocity_motion(stop_motion=False)
+                    self.sleep(sleep_time)
+                    continue
 
                 self.info(f"acting...")
                 act_start = time.perf_counter()
-                self.calibrated_unit.relative_move(move_um)
+                velocity = self.calibrated_unit.velocity_position_control(move_um, command_speed_um_s)
+                velocity_start_pos_um = np.asarray(self.calibrated_unit.position(), dtype=float)
+                velocity_direction = move_um / move_distance_um
+                velocity_distance_um = move_distance_um
+                velocity_start_time = time.perf_counter()
+                velocity_timeout_s = max(2.0, (move_distance_um / command_speed_um_s) * 5.0)
+                velocity_opposite_direction_warned = False
+                velocity_command = -np.asarray(velocity, dtype=float)
+                self.calibrated_unit.absolute_move_group_velocity(velocity_command.tolist())
+                # self.calibrated_unit.relative_move(move_um)
                 # _log_timing("action_relative_move", time.perf_counter() - act_start)
 
-            
+             
                 width = getattr(camera, "width", None)
                 height = getattr(camera, "height", None)
 
@@ -326,6 +373,7 @@ class AutoPatcher(TaskController):
                         action = None
                         target_point = None
                         err = None
+                        _reset_velocity_motion(stop_motion=True)
                         self.sleep(0.04)
                         continue
 
@@ -349,12 +397,44 @@ class AutoPatcher(TaskController):
 
             if gerr <= tol_um:
                 self.info("Pipette found")
+                _reset_velocity_motion(stop_motion=True)
                 if self.config.mode == "Training":
                     self.info("Training mode: goal condition reached. Click Success or Abort to finish.")
                     while True:
                         self.sleep(0.1)
                 self.success_requested = True
                 self.success_if_requested()
+
+            if target_point is not None and velocity_start_pos_um is not None and velocity_direction is not None and velocity_distance_um is not None:
+                current_position_um = np.asarray(self.calibrated_unit.position(), dtype=float)
+                signed_traveled_um = float(np.dot(current_position_um - velocity_start_pos_um, velocity_direction))
+                traveled_um = abs(signed_traveled_um)
+                if traveled_um >= velocity_distance_um:
+                    _reset_velocity_motion(stop_motion=True)
+                    action = None
+                    target_point = None
+                    err = None
+                    self.sleep(sleep_time)
+                    continue
+                if (signed_traveled_um < 0) and (not velocity_opposite_direction_warned):
+                    self.warning(
+                        "Find-pipette velocity move is progressing opposite commanded direction; "
+                        "using absolute displacement criterion."
+                    )
+                    velocity_opposite_direction_warned = True
+                if velocity_start_time is not None and velocity_timeout_s is not None:
+                    elapsed_s = time.perf_counter() - velocity_start_time
+                    if elapsed_s > velocity_timeout_s:
+                        self.warning(
+                            f"Find-pipette velocity move timeout after {velocity_timeout_s:.2f}s "
+                            f"(target {velocity_distance_um:.2f} um, traveled {signed_traveled_um:.2f} um signed)."
+                        )
+                        _reset_velocity_motion(stop_motion=True)
+                        action = None
+                        target_point = None
+                        err = None
+                        self.sleep(sleep_time)
+                        continue
 
             if target_point is not None:
                 xerr = curr_point_np[0] - target_point[0]
@@ -365,6 +445,7 @@ class AutoPatcher(TaskController):
                 # self.info(f"total XY error (um): {err}")
 
                 if err <= (tol_um / 2):
+                    _reset_velocity_motion(stop_motion=True)
                     action = None
                     target_point = None
                     err = None
