@@ -126,7 +126,9 @@ class AutoPatcher(TaskController):
             self.agenthelper.prepare_model("find_pipette", allow_goal_placeholders=True)
         else:
             self.info("Classic/Manual/Training mode detected; skipping agent model load for find_pipette")
-        sleep_time = 0.005 # seconds
+        max_sleep_time = 0.005  # seconds (slowest polling)
+        min_sleep_time = 0.001  # seconds (fastest polling)
+        sleep_time = max_sleep_time
         command_speed_um_s = abs(float(getattr(self, "find_pipette_velocity_speed_um_s", 200.0)))
         if command_speed_um_s == 0:
             raise ValueError("find_pipette_velocity_speed_um_s must be non-zero.")
@@ -134,6 +136,18 @@ class AutoPatcher(TaskController):
         def _log_timing(label: str, duration_s: float) -> None:
             """Lightweight timing logger for find_pipette stages."""
             # self.info(f"[find_pipette timing] {label}: {duration_s * 1000.0:.1f} ms")
+
+        def _adaptive_sleep_time(goal_error_um: float, tol_um: float) -> float:
+            """
+            Error-scaled polling:
+            - near goal   -> faster polling (min_sleep_time)
+            - far from goal -> slower polling (max_sleep_time)
+            """
+            if goal_error_um is None or (not np.isfinite(goal_error_um)):
+                return max_sleep_time
+            far_error_um = max(float(tol_um) * 10.0, float(tol_um))
+            ratio = float(np.clip(float(goal_error_um) / far_error_um, 0.0, 1.0))
+            return min_sleep_time + (max_sleep_time - min_sleep_time) * ratio
 
         goal_needed = bool(self.goal_needed)
         random = bool(self.goal_random)
@@ -263,7 +277,7 @@ class AutoPatcher(TaskController):
                     velocity_command_local = -np.asarray(velocity, dtype=float)
                     self.calibrated_unit.absolute_move_group_velocity(velocity_command_local.tolist())
                 # _log_timing("action_direct_pipette", time.perf_counter() - act_start)
-                self.sleep(sleep_time)
+                self.sleep(_adaptive_sleep_time(gerr_um, tol_um))
                 continue
 
             if action is None:
@@ -386,6 +400,7 @@ class AutoPatcher(TaskController):
             dy_um = ygerr / px_per_um[1] if px_per_um and px_per_um[1] else np.nan
             gerr = float(np.sqrt((dx_um ** 2 + dy_um ** 2 + z_weight * (zerr_um_goal ** 2)) / (2 + z_weight)))
             self.info(f" Goal error (um):{gerr}")
+            loop_sleep_time = _adaptive_sleep_time(gerr, tol_um)
 
             if goal_needed and camera is not None:
                 camera.show_circle(
@@ -414,7 +429,7 @@ class AutoPatcher(TaskController):
                     action = None
                     target_point = None
                     err = None
-                    self.sleep(sleep_time)
+                    self.sleep(loop_sleep_time)
                     continue
                 if (signed_traveled_um < 0) and (not velocity_opposite_direction_warned):
                     self.warning(
@@ -433,7 +448,7 @@ class AutoPatcher(TaskController):
                         action = None
                         target_point = None
                         err = None
-                        self.sleep(sleep_time)
+                        self.sleep(loop_sleep_time)
                         continue
 
             if target_point is not None:
@@ -449,10 +464,10 @@ class AutoPatcher(TaskController):
                     action = None
                     target_point = None
                     err = None
-                    self.sleep(sleep_time)
+                    self.sleep(loop_sleep_time)
                     continue
 
-            self.sleep(sleep_time)
+            self.sleep(loop_sleep_time)
 
     @record_state("run_protocols")
     def run_protocols(self):
