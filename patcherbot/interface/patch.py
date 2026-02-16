@@ -13,6 +13,7 @@ from patcherbot.interface.pipettes import PipetteInterface
 from patcherbot.devices.amplifier.DAQ import NiDAQ
 from patcherbot.devices.lamp import Lamp
 from .patchConfig import PatchConfig
+from .protocolConfig import ProtocolConfig
 from PyQt5 import QtCore
 import time
 
@@ -22,21 +23,42 @@ class AutoPatchInterface(TaskInterface):
     '''
     A class to run automatic patch-clamp
     '''
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, pipette_interface: PipetteInterface, recording_state_manager: RecordingStateManager, lamp: Lamp):
+    def __init__(
+        self,
+        amplifier: Amplifier,
+        daq: NiDAQ,
+        pressure: PressureController,
+        pipette_interface: PipetteInterface,
+        recording_state_manager: RecordingStateManager,
+        lamp: Lamp,
+        laser=None,
+        config_data=None,
+        protocol_data=None,
+    ):
         super().__init__()
         self.config = PatchConfig(name='Patch')
+        if config_data:
+            cleaned = {k: v for k, v in config_data.items() if v is not None}
+            self.config.from_dict(cleaned)
+        self.protocol_config = ProtocolConfig(name='Protocols')
+        if protocol_data:
+            cleaned = {k: v for k, v in protocol_data.items() if v is not None}
+            self.protocol_config.from_dict(cleaned)
         self.amplifier = amplifier
         self.daq = daq
         self.pressure = pressure
         self.pipette_controller = pipette_interface
         self.recording_state_manager = recording_state_manager
         self.lamp = lamp
+        self.laser = laser
         self.ephys_logger = EPhysLogger(recording_state_manager=self.recording_state_manager, ephys_filename="CellMetadata")
         autopatcher = AutoPatcher(amplifier, daq, pressure, self.pipette_controller.calibrated_unit,
                                     self.pipette_controller.calibrated_unit.microscope,
                                     calibrated_stage=self.pipette_controller.calibrated_stage,
                                     lamp=self.lamp,
-                                    config=self.config)
+                                    laser=self.laser,
+                                    config=self.config,
+                                    protocol_config=self.protocol_config)
         self.current_autopatcher = autopatcher
 
         self.is_selecting_cells = False
@@ -49,23 +71,43 @@ class AutoPatchInterface(TaskInterface):
         self.timer.start(50)
 
     def _protocol_holding_parameters(self):
-        config = self.current_autopatcher.config
+        protocol_config = self.current_autopatcher.protocol_config
         voltage_hold = float("nan")
         current_hold = float("nan")
 
-        if getattr(config, "voltage_protocol", False):
+        if getattr(protocol_config, "voltage_protocol", False):
             try:
-                voltage_hold = float(config.Vramp_amplitude) * 1e3
+                voltage_hold = float(protocol_config.vclamp_hold) * 1e3
             except (TypeError, ValueError):
                 voltage_hold = float("nan")
 
-        if getattr(config, "current_protocol", False):
+        if getattr(protocol_config, "current_protocol", False):
             try:
-                current_hold = float(config.cclamp_hold)
+                current_hold = float(protocol_config.cclamp_hold)
             except (TypeError, ValueError):
                 current_hold = float("nan")
 
         return voltage_hold, current_hold
+
+    def _wait_for_filter_slot(self, target_slot, timeout_s=2.0, poll_interval_s=0.05):
+        if target_slot is None:
+            return
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            current_slot = self.current_autopatcher.lamp.get_filter()
+            if current_slot == target_slot:
+                return
+            time.sleep(poll_interval_s)
+        self.warning(f"Timed out waiting for lamp filter to reach slot {target_slot}")
+
+    def _unpack_cell_entry(self, cell_entry):
+        if cell_entry is None:
+            return None, None, None, None
+        if len(cell_entry) >= 4:
+            return cell_entry[0], cell_entry[1], cell_entry[2], cell_entry[3]
+        if len(cell_entry) == 3:
+            return cell_entry[0], cell_entry[1], cell_entry[2], None
+        return None, None, None, None
 
     
     @blocking_command(category='Patch', description='Break into the cell',
@@ -107,6 +149,16 @@ class AutoPatchInterface(TaskInterface):
         #move cell sorter to cell
         self.execute(self.pipette_controller.calibrated_cellsorter.center_cellsorter_on_point, argument=[cellx, celly, cellz])
 
+    @command(category='Cell Sorter',
+            description='Turn cell sorter LED on')
+    def cell_sorter_led_on(self):
+        self.pipette_controller.calibrated_cellsorter.set_led_status(True, ring=1)
+
+    @command(category='Cell Sorter',
+            description='Turn cell sorter LED off')
+    def cell_sorter_led_off(self):
+        self.pipette_controller.calibrated_cellsorter.set_led_status(False, ring=1)
+
     @blocking_command(category='DAQ',
             description='Run Protocols on the Cell',
             task_description='Run Protocols on the Cell')
@@ -114,16 +166,24 @@ class AutoPatchInterface(TaskInterface):
         self.recording_state_manager.increment_sample_number()
         index = self.recording_state_manager.sample_number
         if self.cells_to_patch:
-            stage_coords, img,stage_coords_um = self.cells_to_patch[0]
+            stage_coords, img, stage_coords_um, img_fluo = self.cells_to_patch[0]
             voltage_hold, current_hold = self._protocol_holding_parameters()
             self.ephys_logger.save_cell_metadata(
                 index,
                 stage_coords_um,
                 img,
+                image_fluo=img_fluo,
                 voltage_hold=voltage_hold,
                 current_hold=current_hold,
             )
         self.execute(self.current_autopatcher.run_protocols)
+
+    @blocking_command(category='DAQ',
+            description='Run Optogenetic Protocol',
+            task_description='Running Optogenetic Protocol')
+    def run_optogenetic_protocol(self, protocol_params=None):
+        self.recording_state_manager.increment_sample_number()
+        self.execute(self.current_autopatcher.run_optogenetic_protocol, argument=protocol_params)
     
 
     @command(category='Patch', description='Add a mouse position to the list of cells to patch')
@@ -161,16 +221,32 @@ class AutoPatchInterface(TaskInterface):
             if img is None or img.shape != (512, 512):
                 raise RuntimeError('Cell too Close to edge!')
             
-            #save the image
-            # img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-            # cv2.imwrite(f'cell_{len(self.cells_to_patch)}.png', img)
-            self.cells_to_patch.append((np.array(stage_pos_pixels), img, stage_pos_um))
+            img_fluo = None
+            if self.config.auto_capture_fluo:
+                fluo_slot = int(self.config.lamp)
+                current_slot = self.current_autopatcher.lamp.get_filter()
+                did_toggle = current_slot != fluo_slot
+                if did_toggle:
+                    self.current_autopatcher.toggle_fluorescence()
+                    self._wait_for_filter_slot(fluo_slot)
+                try:
+                    img_fluo = self.current_autopatcher.calibrated_unit.camera.get_16bit_image()
+                    img_fluo = img_fluo[int(position[1]-256):int(position[1]+256), int(position[0]-256):int(position[0]+256)]
+                    if img_fluo is None or img_fluo.shape != (512, 512):
+                        raise RuntimeError('Cell too Close to edge!')
+                finally:
+                    if did_toggle:
+                        self.current_autopatcher.toggle_fluorescence()
+                        if current_slot is not None:
+                            self._wait_for_filter_slot(current_slot)
+
+            self.cells_to_patch.append((np.array(stage_pos_pixels), img, stage_pos_um, img_fluo))
             self.is_selecting_cells = False
 
     # Update the cell list to store both cell coordinates and image.
     def update_camera_cell_list(self) -> None:
         self.current_autopatcher.calibrated_unit.camera.cell_list = []
-        for cell, img,pos in self.cells_to_patch:
+        for cell, img, pos, _img_fluo in self.cells_to_patch:
             camera_pos = -cell + self.current_autopatcher.calibrated_stage.reference_position()
             self.current_autopatcher.calibrated_unit.camera.cell_list.append((camera_pos[0:2].astype(int), img,pos))
             
@@ -195,7 +271,7 @@ class AutoPatchInterface(TaskInterface):
             self.warning("No cells queued for patching; skipping patch command")
             return
 
-        stage_coords, img, stage_coords_um = self.cells_to_patch[0]
+        stage_coords, img, stage_coords_um, img_fluo = self.cells_to_patch[0]
 
         # Allocate a fresh sample index and persist metadata before protocols run
         self.recording_state_manager.increment_sample_number()
@@ -205,6 +281,7 @@ class AutoPatchInterface(TaskInterface):
             index,
             stage_coords_um,
             img,
+            image_fluo=img_fluo,
             voltage_hold=voltage_hold,
             current_hold=current_hold,
         )
@@ -226,11 +303,52 @@ class AutoPatchInterface(TaskInterface):
             self.info("Patch command completed successfully; escaping cell and cleaning pipette")
             self.remove_last_cell()
 
+    @blocking_command(
+        category='Patch',
+        description='Attempt gigaseal, break in, and run protocols (optional escape)',
+        task_description='Attempting gigaseal, breaking in, running protocols, and optional escape'
+    )
+    def whole_cell(self) -> None:
+        if not self.cells_to_patch:
+            self.warning("No cells queued for patching; skipping whole-cell command")
+            return
+
+        stage_coords, img, stage_coords_um, img_fluo = self.cells_to_patch[0]
+
+        # Allocate a fresh sample index and persist metadata before protocols run
+        self.recording_state_manager.increment_sample_number()
+        index = self.recording_state_manager.sample_number
+        voltage_hold, current_hold = self._protocol_holding_parameters()
+        self.ephys_logger.save_cell_metadata(
+            index,
+            stage_coords_um,
+            img,
+            image_fluo=img_fluo,
+            voltage_hold=voltage_hold,
+            current_hold=current_hold,
+        )
+
+        success = self.execute(
+            self.current_autopatcher.whole_cell,
+            argument=(stage_coords, img, stage_coords_um)
+        )
+        time.sleep(2)
+        if success and not self.current_autopatcher.config.auto_clean_pipette:
+            self.info("Whole-cell command completed successfully, but auto escape not enabled; leaving cell in queue for manual follow-up.")
+        elif not success and self.current_autopatcher.config.auto_clean_pipette:
+            self.error("Whole-cell command did not complete successfully; cleaning pipette and escaping cell")
+            self.remove_last_cell()
+        elif not success and not self.current_autopatcher.config.auto_clean_pipette:
+            self.error("Whole-cell command did not complete and auto escape not enabled; leaving cell in queue for manual follow-up.")
+        else:
+            self.info("Whole-cell command completed successfully; escaping cell and cleaning pipette")
+            self.remove_last_cell()
+
     @blocking_command(category='Patch',
                         description='Locate the cell',
                         task_description='Moving to the cell')
     def locate_cell(self):
-        cell, img,pos = self.cells_to_patch[0]
+        cell, img, pos, img_fluo = self.cells_to_patch[0]
         self.recording_state_manager.increment_sample_number()
         self.execute(self.current_autopatcher.locate_cell,
                       argument = (cell, img,pos))
@@ -240,16 +358,26 @@ class AutoPatchInterface(TaskInterface):
                      description = 'Center the stage on cell',
                       task_description='Centering the stage on cell')
     def center_on_cell(self):
-        cell, img,pos = self.cells_to_patch[0]
+        cell, img, pos, img_fluo = self.cells_to_patch[0]
         # print( f"patch.py: centering on cell {cell} with image {img.shape}")
         self.execute(self.current_autopatcher.calibrated_stage.center_on_cell,
                       argument = (cell, img,pos))
+
+    @blocking_command(category='Stage',
+                     description='Move stage to cell',
+                      task_description='Moving stage to cell')
+    def move_stage_to_cell(self):
+        if not self.cells_to_patch:
+            self.warning("No cells queued for stage move; skipping command")
+            return
+        cell, img, pos, img_fluo = self.cells_to_patch[0]
+        self.execute(self.current_autopatcher.move_stage_to_cell, argument=cell)
 
     @blocking_command(category='Patch',
                         description='Hunt the cell',
                         task_description='Moving to the cell and detecting it ')
     def hunt_cell(self):
-        cell, img,pos = self.cells_to_patch[0]
+        cell, img, pos, img_fluo = self.cells_to_patch[0]
         self.recording_state_manager.increment_sample_number()
         self.execute(self.current_autopatcher.hunt_cell,
                       argument = (cell, img,pos))
@@ -314,10 +442,12 @@ class AutoPatchInterface(TaskInterface):
     def store_calibration_positions(self) -> None:
         # modifying to store the safe position of the and stage as well.
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
-        angle = np.deg2rad(25)
-        delta = -18000
+        angle = np.deg2rad(self.current_autopatcher.calibrated_unit.config.pipette_y_rotation)
+        delta = float(self.current_autopatcher.calibrated_unit.config.safe_position_delta_um)
         x_pip, y_pip,z_pip  = self.current_autopatcher.home_position
-        self.current_autopatcher.safe_position = np.array([x_pip + delta*np.cos(angle), y_pip , z_pip +delta*np.sin(angle)])
+        self.current_autopatcher.safe_position = np.array(
+            [x_pip + delta * np.cos(angle), y_pip, z_pip + delta * np.sin(angle)]
+        )
         x,y = self.pipette_controller.calibrated_stage.position()
         z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
         self.current_autopatcher.home_stage_position = [x,y,z]
@@ -407,6 +537,19 @@ class AutoPatchInterface(TaskInterface):
                         task_description='Moving the group up')
     def move_group_up(self):
         self.execute(self.current_autopatcher.move_group_up)
+
+    @blocking_command(category='Patch',
+                      description='Move the group in x direction',
+                      task_description='Moving the group in x direction')
+    def move_group_in_x(self):
+        self.execute(self.current_autopatcher.move_group_in_x)
+
+    @blocking_command(category='Patch',
+                      description='Move the group in y direction',
+                        task_description='Moving the group in y direction')
+    def move_group_in_y(self):
+        self.execute(self.current_autopatcher.move_group_in_y)
+
     @blocking_command(category='Patch',
                       description='Move the pipette up',
                       task_description='Moving the pipette up')
@@ -451,3 +594,21 @@ class AutoPatchInterface(TaskInterface):
              task_description='Moving filter cube right')
     def move_cube_right(self):
        self.execute(self.current_autopatcher.move_cube_right)
+
+    @blocking_command(category='Laser',
+                      description='Toggle laser output',
+                      task_description='Toggling laser output')
+    def toggle_laser_output(self):
+        self.execute(self.current_autopatcher.toggle_laser_output)
+
+    @blocking_command(category='Laser',
+                      description='Step wavelength down',
+                      task_description='Stepping wavelength down')
+    def wavelength_down(self):
+        self.execute(self.current_autopatcher.wavelength_down)
+
+    @blocking_command(category='Laser',
+                      description='Step wavelength up',
+                      task_description='Stepping wavelength up')
+    def wavelength_up(self):
+        self.execute(self.current_autopatcher.wavelength_up)

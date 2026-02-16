@@ -6,7 +6,8 @@ import numpy as np
 from datetime import datetime
 
 from patcherbot.interface import TaskInterface, command, blocking_command
-from patcherbot.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage, CalibrationConfig
+from patcherbot.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
+from patcherbot.devices.manipulator.CalibrationConfig import CalibrationConfig
 from patcherbot.devices.cellsorter import CalibratedCellSorter
 import time
 
@@ -17,13 +18,25 @@ class PipetteInterface(TaskInterface):
     Controller for the stage, the microscope, a pipette, and the cell sorter.
     '''
 
-    def __init__(self, stage, microscope: Microscope, camera, unit, cellsorterManip, cellsorterController,
-                 config_filename='calibration.pickle'):
+    def __init__(
+        self,
+        stage,
+        microscope: Microscope,
+        camera,
+        unit,
+        cellsorterManip,
+        cellsorterController,
+        config_filename='calibration.pickle',
+        calibration_data=None,
+    ):
         super().__init__()
         self.microscope = microscope
         self.camera = camera
         # Create a common calibration configuration for all stages/manipulators
         self.calibration_config = CalibrationConfig(name='Calibration')
+        if calibration_data:
+            cleaned = {k: v for k, v in calibration_data.items() if v is not None}
+            self.calibration_config.from_dict(cleaned)
         self.calibrated_stage = CalibratedStage(stage, None, microscope, camera,
                                                 config=self.calibration_config)
         self.calibrated_unit = CalibratedUnit(unit,
@@ -211,7 +224,7 @@ class PipetteInterface(TaskInterface):
              default_arg=-500)
     def move_pipette_xyz(self, distance):
         # currently utilized for automatic safe space saving
-        angle = (np.radians(25))
+        angle = np.deg2rad(self.calibrated_unit.config.pipette_y_rotation)
         distance = np.array([distance*np.cos(angle),0,distance*np.sin(angle)])
         self.calibrated_unit.relative_move(distance)
         

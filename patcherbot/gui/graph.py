@@ -15,9 +15,6 @@ import threading
 
 import numpy as np
 from collections import deque
-from patcherbot.devices.amplifier import DAQ
-from patcherbot.devices.amplifier.amplifier import Amplifier
-from patcherbot.devices.pressurecontroller import PressureController
 from patcherbot.utils.RecordingStateManager import RecordingStateManager
 from patcherbot.utils import FileLogger
 from patcherbot.utils import EPhysLogger
@@ -29,7 +26,16 @@ from datetime import datetime
 
 from patcherbot.interface.graph import GraphInterface
 
-__all__ = ["EPhysGraph", "CurrentProtocolGraph", "VoltageProtocolGraph", "LeakSubtractionGraph", "HoldingProtocolGraph"]
+__all__ = [
+    "EPhysGraph",
+    "CurrentProtocolGraph",
+    "VoltageProtocolGraph",
+    "LeakSubtractionGraph",
+    "HoldingProtocolGraph",
+    "OptogeneticStimProtocolGraph",
+    "OptogeneticWavelengthProtocolGraph",
+    "NoiseGraph",
+]
 
 
 class ProtocolGraph(QWidget):
@@ -322,9 +328,284 @@ class HoldingProtocolGraph(ProtocolGraph):
 
         self.latestDisplayedData = self.graph_interface.daq.holding_protocol_data.copy()
         self.graph_interface.daq.holding_protocol_data = None  # Reset after plotting
+
+class OptogeneticBaseGraph(ProtocolGraph):
+    def __init__(
+        self,
+        graph_interface: GraphInterface,
+        recording_state_manager: RecordingStateManager,
+        *,
+        window_title: str,
+        protocol_key: str,
+    ):
+        super().__init__(
+            graph_interface,
+            recording_state_manager,
+            window_title=window_title,
+            y_label="PicoAmps",
+            y_unit="A",
+            x_label="Time",
+            x_unit="s",
+            ephys_filename="OptogeneticProtocol",
+        )
+        self.protocol_key = protocol_key
+
+    def update_plot(self):
+        daq = self.graph_interface.daq
+        entry = daq.pop_optogenetic_entry(self.protocol_key)
+        if entry is None:
+            return
+
+        index = self.recording_state_manager.sample_number
+
+        if self.isHidden():
+            self.setHidden(False)
+
+        self.plotWidget.clear()
+        data = entry.get("data") or []
+        pulses = entry.get("pulses") or []
+        pulse_range = entry.get("pulse_range")
+        stim_data = entry.get("stim_data")
+        protocol_type = entry.get("protocol_type")
+        if protocol_type is None and stim_data:
+            protocol_type = stim_data[0].get("protocol_type")
+
+        if pulse_range is None:
+            pulse_range = len(data)
+
+        if not data:
+            return
+
+        protocol_label = "unknown"
+        if protocol_type is not None:
+            name = getattr(protocol_type, "name", None)
+            if isinstance(name, str) and name.strip():
+                protocol_label = name.strip().lower()
+            else:
+                text = str(protocol_type).strip().lower()
+                if text:
+                    protocol_label = text
+
+        rep_indices = []
+        power_values = []
+        for pulse in pulses:
+            try:
+                rep_indices.append(int(pulse.get("replicate", 0)))
+            except (TypeError, ValueError, AttributeError):
+                rep_indices.append(0)
+            try:
+                power = float(pulse.get("power_percent"))
+            except (TypeError, ValueError, AttributeError):
+                power = None
+            if power is not None and np.isfinite(power):
+                power_values.append(power)
+
+        rep_count = max(rep_indices) + 1 if rep_indices else 1
+        power_keys = []
+        power_rank = {}
+        segment = 1.0
+        if protocol_label == "power":
+            power_keys = sorted({round(p, 6) for p in power_values}, reverse=True)
+            power_rank = {value: idx for idx, value in enumerate(power_keys)}
+            segment = 1.0 / max(len(power_keys), 1)
+
+        color_map = EPhysGraph.laserColorMap
+        for idx, trace in enumerate(data):
+            if trace is None or len(trace) < 3:
+                continue
+            timeData, respData, readData = trace
+            pulse = pulses[idx] if idx < len(pulses) else {}
+            wavelength = pulse.get("wavelength") if isinstance(pulse, dict) else None
+            try:
+                power = float(pulse.get("power_percent")) if isinstance(pulse, dict) else None
+            except (TypeError, ValueError):
+                power = None
+            rep_index = rep_indices[idx] if idx < len(rep_indices) else 0
+
+            color_label = "unknown"
+            base_hex = "#e0e0e0"
+            if wavelength is not None:
+                if isinstance(wavelength, str):
+                    cleaned = wavelength.strip()
+                    if cleaned.isdigit():
+                        wavelength = int(cleaned)
+                    else:
+                        key = cleaned.lower()
+                        if key in color_map:
+                            color_label, base_hex = key, color_map[key][1]
+                if isinstance(wavelength, int):
+                    options = self.graph_interface.get_laser_wavelength_options()
+                    if options:
+                        index = max(1, min(len(options), wavelength))
+                        wavelength = options[index - 1]
+                    else:
+                        default_keys = list(color_map.keys())
+                        if default_keys:
+                            key = default_keys[max(1, min(len(default_keys), wavelength)) - 1]
+                            color_label, base_hex = key, color_map[key][1]
+                            wavelength = None
+                if wavelength is not None and not isinstance(wavelength, int):
+                    name = getattr(wavelength, "name", str(wavelength))
+                    key = name.strip().lower()
+                    if key in color_map:
+                        color_label, base_hex = key, color_map[key][1]
+                    elif key:
+                        color_label = key
+
+            if protocol_label == "power":
+                power_key = round(power, 6) if power is not None and np.isfinite(power) else None
+                rank = power_rank.get(power_key, len(power_keys) - 1 if power_keys else 0)
+                ratio = rank * segment
+                if rep_count > 0:
+                    ratio += (rep_index / rep_count) * segment
+            else:
+                ratio = rep_index / max(rep_count - 1, 1)
+
+            max_whiten_ratio = 0.7
+            ratio = max(0.0, min(max_whiten_ratio, float(ratio)))
+            cmap = LinearSegmentedColormap.from_list("", [base_hex, "#ffffff"])
+            color_hex = to_hex(cmap(ratio))
+            self.plotWidget.plot(timeData, respData, pen=color_hex)
+
+            safe_label = str(color_label).strip().lower().replace(" ", "")
+            rep_tag = f"rep{rep_index}"
+            marker = f"{protocol_label}_{safe_label}_{rep_tag}_{color_hex}"
+            self.ephys_logger.write_ephys_data(
+                index,
+                timeData,
+                readData,
+                respData,
+                marker
+            )
+
+            if idx == pulse_range - 1:
+                self.ephys_logger.save_optogenetic_plot(index, self.plotWidget, protocol_type)
+
+        if stim_data:
+            self.ephys_logger.write_optogenetic_stim_data(index, stim_data, protocol_type)
+
+        self.latestDisplayedData = entry
+        daq.optogenetic_protocol_data = None
+        daq.optogenetic_stim_data = None
+        daq.optogenetic_protocol_type = None
+
+
+class OptogeneticStimProtocolGraph(OptogeneticBaseGraph):
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        super().__init__(
+            graph_interface,
+            recording_state_manager,
+            window_title="Optogenetic Stim Protocol",
+            protocol_key="power",
+        )
+
+
+class OptogeneticWavelengthProtocolGraph(OptogeneticBaseGraph):
+    def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        super().__init__(
+            graph_interface,
+            recording_state_manager,
+            window_title="Optogenetic Wavelength Protocol",
+            protocol_key="wavelength",
+        )
+
+class NoiseGraph(QWidget):
+    noise_state_changed = pyqtSignal(bool)
+
+    def __init__(self, graph_interface: GraphInterface):
+        super().__init__()
+        self.graph_interface = graph_interface
+        self.setWindowTitle("Noise Graph (4-10 ms)")
+
+        main_layout = QVBoxLayout()
+        plot_layout = QVBoxLayout()
+        stats_layout = QHBoxLayout()
+
+        self.zoomPlot = PlotWidget()
+        self.fftPlot = PlotWidget()
+        for plot in [self.zoomPlot, self.fftPlot]:
+            plot.setBackground("w")
+            plot.getAxis("left").setPen("k")
+            plot.getAxis("bottom").setPen("k")
+
+        self.zoomPlot.setLabel("left", "Current", units="A")
+        self.zoomPlot.setLabel("bottom", "Time", units="ms")
+        self.fftPlot.setLabel("left", "FFT Magnitude", units="A")
+        self.fftPlot.setLabel("bottom", "Frequency", units="Hz")
+
+        plot_layout.addWidget(self.zoomPlot)
+        plot_layout.addWidget(self.fftPlot)
+
+        self.p2pLabel = QLabel("Peak-to-peak: N/A")
+        self.stdLabel = QLabel("Std dev: N/A")
+        self.avgP2pLabel = QLabel("Avg P2P (1 ms): N/A")
+        stats_layout.addWidget(self.p2pLabel)
+        stats_layout.addWidget(self.stdLabel)
+        stats_layout.addWidget(self.avgP2pLabel)
+        stats_layout.addStretch(1)
+
+        main_layout.addLayout(plot_layout)
+        main_layout.addLayout(stats_layout)
+        self.setLayout(main_layout)
+
+        self.updateDt = 42  # ms
+        self.updateTimer = QtCore.QTimer()
+        self.updateTimer.timeout.connect(self.update_plot)
+
+        self.setHidden(True)
+        self.closeEvent = lambda event: (event.ignore(), self.stop())
+
+    def is_active(self):
+        return self.updateTimer.isActive()
+
+    def start(self):
+        if not self.updateTimer.isActive():
+            self.updateTimer.start(self.updateDt)
+        self.setHidden(False)
+        self.raise_()
+        self.noise_state_changed.emit(True)
+
+    def stop(self):
+        if self.updateTimer.isActive():
+            self.updateTimer.stop()
+        self.setHidden(True)
+        self.noise_state_changed.emit(False)
+
+    def update_plot(self):
+        metrics = self.graph_interface.get_noise_metrics()
+        if not metrics:
+            return
+
+        window_time = metrics["window_time"]
+        window_resp = metrics["window_resp"]
+        window_time_ms = window_time * 1000.0
+        self.zoomPlot.clear()
+        self.zoomPlot.plot(window_time_ms, window_resp, pen="k")
+        self.zoomPlot.setXRange(4.0, 10.0, padding=0.0)
+
+        self.p2pLabel.setText(f"Peak-to-peak: {metrics['p2p']:.3e} A")
+        self.stdLabel.setText(f"Std dev: {metrics['std']:.3e} A")
+        self.avgP2pLabel.setText(f"Avg P2P (1 ms): {metrics['avg_p2p']:.3e} A")
+
+        freqs = metrics.get("freqs")
+        fft_magnitude = metrics.get("fft_magnitude")
+        self.fftPlot.clear()
+        if freqs is not None and fft_magnitude is not None:
+            self.fftPlot.plot(freqs, fft_magnitude, pen="k")
+
 class EPhysGraph(QWidget):
     pressureLowerBound = -450
     pressureUpperBound = 730
+    laserPowerLowerBound = 0
+    laserPowerUpperBound = 100
+    laserColorMap = {
+        "red": ("Red", "#ff3b30"),
+        "green": ("Green", "#34c759"),
+        "cyan": ("Cyan", "#00bcd4"),
+        "uv": ("UV", "#6a5acd"),
+        "blue": ("Blue", "#007aff"),
+        "infrared": ("Infrared", "#000000"),
+    }
 
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
         """
@@ -420,6 +701,11 @@ class EPhysGraph(QWidget):
         self.atmosphericPressureButton.clicked.connect(self.togglePressure)
         self.atmtoggle = True
 
+        # Noise check toggle.
+        self.noiseButton = QPushButton("Check Noise")
+        bottomBarLayout.addWidget(self.noiseButton)
+        self.noiseButton.clicked.connect(self.toggleNoise)
+
         # Zap controls.
         self.zapLabel = QLabel("Zap Duration:")
         bottomBarLayout.addWidget(self.zapLabel)
@@ -435,6 +721,40 @@ class EPhysGraph(QWidget):
         self.zapButton.clicked.connect(self.handle_zap_button_press)
         bottomBarLayout.addWidget(self.zapButton)
         self.graph_interface.set_zap_duration(25e-6)  # Default zap duration in seconds
+
+        # Laser controls.
+        initial_power = self.graph_interface.get_laser_power()
+        if initial_power is None:
+            initial_power = 0
+        initial_power = int(round(initial_power))
+
+        self.laserPowerLabel = QLabel(f"Power: {initial_power} %")
+        bottomBarLayout.addWidget(self.laserPowerLabel)
+
+        self.laserPowerBox = QLineEdit()
+        self.laserPowerBox.setMaxLength(3)
+        self.laserPowerBox.setFixedWidth(80)
+        self.laserPowerBox.setValidator(QtGui.QIntValidator(self.laserPowerLowerBound, self.laserPowerUpperBound))
+        self.laserPowerBox.setPlaceholderText(f"Set to: {initial_power} %")
+        self.laserPowerBox.returnPressed.connect(self.laserPowerBoxReturnPressed)
+        bottomBarLayout.addWidget(self.laserPowerBox)
+
+        self.laserLeftButton = QToolButton()
+        self.laserLeftButton.setArrowType(QtCore.Qt.LeftArrow)
+        self.laserLeftButton.setFixedWidth(30)
+        self.laserLeftButton.clicked.connect(self.handle_laser_left)
+        bottomBarLayout.addWidget(self.laserLeftButton)
+
+        self.laserToggleButton = QPushButton("Off")
+        self.laserToggleButton.setFixedWidth(70)
+        self.laserToggleButton.clicked.connect(self.handle_laser_toggle)
+        bottomBarLayout.addWidget(self.laserToggleButton)
+
+        self.laserRightButton = QToolButton()
+        self.laserRightButton.setArrowType(QtCore.Qt.RightArrow)
+        self.laserRightButton.setFixedWidth(30)
+        self.laserRightButton.clicked.connect(self.handle_laser_right)
+        bottomBarLayout.addWidget(self.laserRightButton)
 
         bottomBarLayout.addStretch(1)
         self.bottomBar.setMaximumHeight(20)
@@ -468,6 +788,9 @@ class EPhysGraph(QWidget):
         self.updateTimer = QtCore.QTimer()
         self.updateTimer.timeout.connect(self.update_plot)
         self.updateTimer.start(self.updateDt)
+
+        self.noiseGraph = NoiseGraph(self.graph_interface)
+        self.noiseGraph.noise_state_changed.connect(self.updateNoiseButton)
 
         self.show()
         self.raise_()
@@ -552,6 +875,8 @@ class EPhysGraph(QWidget):
                     )
                 except Exception as e:
                     logging.error(f"Error writing graph data: {e}")
+
+        self.update_laser_controls()
 
     def pressureCommandSliderChanged(self):
         """
@@ -670,3 +995,98 @@ class EPhysGraph(QWidget):
             zap_duration = float(text)
         logging.info(f"Setting zap duration to {zap_duration} seconds")
         self.graph_interface.set_zap_duration(zap_duration)
+
+    def laserPowerBoxReturnPressed(self):
+        """
+        When a laser power value is entered, update the setpoint.
+        """
+        try:
+            text = self.laserPowerBox.text().replace("Set to:", "").replace("%", "").strip()
+            self.laserPowerBox.clear()
+            power = float(text)
+            power = max(self.laserPowerLowerBound, min(self.laserPowerUpperBound, power))
+            applied = self.graph_interface.set_laser_power(power)
+            if applied is None:
+                applied = power
+            self.laserPowerBox.setPlaceholderText(f"Set to: {int(round(applied))} %")
+        except ValueError:
+            logging.warning("Invalid laser power input.")
+        except Exception as e:
+            logging.error(f"Error in laserPowerBoxReturnPressed: {e}")
+
+    def _resolve_laser_label(self, wavelength):
+        if wavelength is None:
+            return "Unknown", "#e0e0e0"
+        if isinstance(wavelength, str):
+            cleaned = wavelength.strip()
+            if cleaned.isdigit():
+                wavelength = int(cleaned)
+            else:
+                key = cleaned.lower()
+                if key in self.laserColorMap:
+                    return self.laserColorMap[key]
+        if isinstance(wavelength, int):
+            options = self.graph_interface.get_laser_wavelength_options()
+            if options:
+                index = max(1, min(len(options), wavelength))
+                return self._resolve_laser_label(options[index - 1])
+            default_keys = list(self.laserColorMap.keys())
+            if default_keys:
+                index = max(1, min(len(default_keys), wavelength))
+                return self.laserColorMap[default_keys[index - 1]]
+            return f"Ch {wavelength}", "#e0e0e0"
+        name = getattr(wavelength, "name", str(wavelength))
+        key = name.strip().lower()
+        if key in self.laserColorMap:
+            return self.laserColorMap[key]
+        return name, "#e0e0e0"
+
+    def update_laser_controls(self):
+        power_state = self.graph_interface.get_laser_power_state()
+        wavelength = self.graph_interface.get_laser_wavelength()
+        power = self.graph_interface.get_laser_power()
+        if power is None:
+            power = 0
+        power_value = int(round(power))
+        self.laserPowerBox.setPlaceholderText(f"Set to: {power_value} %")
+        self.laserPowerLabel.setText(f"Power: {power_value} %")
+        for widget in (self.laserPowerBox, self.laserLeftButton, self.laserToggleButton, self.laserRightButton):
+            widget.setEnabled(True)
+
+        if power_state != "on":
+            self.laserToggleButton.setText("Off")
+            self.laserToggleButton.setStyleSheet(
+                "background-color: white; color: black; border-radius: 5px; padding: 5px;"
+            )
+            return
+
+        label, color = self._resolve_laser_label(wavelength)
+        text_color = "black" if color in ("#ffffff", "#e0e0e0") else "white"
+        self.laserToggleButton.setText(label)
+        self.laserToggleButton.setStyleSheet(
+            f"background-color: {color}; color: {text_color}; border-radius: 5px; padding: 5px;"
+        )
+
+    def updateNoiseButton(self, active):
+        if active:
+            self.noiseButton.setText("Stop Noise Check")
+        else:
+            self.noiseButton.setText("Check Noise")
+
+    def toggleNoise(self):
+        if self.noiseGraph.is_active():
+            self.noiseGraph.stop()
+        else:
+            self.noiseGraph.start()
+
+    def handle_laser_left(self):
+        self.graph_interface.wavelength_down()
+        self.update_laser_controls()
+
+    def handle_laser_right(self):
+        self.graph_interface.wavelength_up()
+        self.update_laser_controls()
+
+    def handle_laser_toggle(self):
+        self.graph_interface.toggle_laser_output()
+        self.update_laser_controls()

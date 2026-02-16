@@ -8,21 +8,20 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
-from patcherbot.deepLearning.PatcherBotAgentR import (
-    Burglar,
-    CellHunter,
-    DemoReplayAgent,
-    GigaSealer,
-    PipetteFinder,
-)
-
 import h5py
+
+_AI_FEATURE_DISABLED_MESSAGE = (
+    "AI features need to be enabled in calibration config before use. "
+    "Set calibration.use_ai_features to true."
+)
 
 
 class AgentHelper:
 
-    def __init__(self):
+    def __init__(self, use_ai_features: bool = True):
         """Track the active agent instance and its configuration."""
+        self._use_ai_features = bool(use_ai_features)
+        self._agent_classes: Optional[Dict[str, Any]] = None
         self.agent = None
         self.requires_goal = False
         self._demo_actions: Optional[np.ndarray] = None
@@ -36,19 +35,47 @@ class AgentHelper:
             },
         }
 
+    def _load_agent_classes(self) -> Dict[str, Any]:
+        if self._agent_classes is not None:
+            return self._agent_classes
+
+        if not self._use_ai_features:
+            raise NotImplementedError(_AI_FEATURE_DISABLED_MESSAGE)
+        try:
+            from patcherbot.deepLearning.PatcherBotAgentR import (
+                Burglar,
+                CellHunter,
+                DemoReplayAgent,
+                GigaSealer,
+                PipetteFinder,
+            )
+        except Exception as exc:
+            raise NotImplementedError(f"Agent models are not available: {exc}") from exc
+
+        self._agent_classes = {
+            "Burglar": Burglar,
+            "CellHunter": CellHunter,
+            "DemoReplayAgent": DemoReplayAgent,
+            "GigaSealer": GigaSealer,
+            "PipetteFinder": PipetteFinder,
+        }
+        return self._agent_classes
+
     def prepare_model(self, model_type, *, allow_goal_placeholders: Optional[bool] = None):
         """Instantiate one of the supported agent subclasses."""
+        agent_classes = self._load_agent_classes()
+        demo_replay_cls = agent_classes["DemoReplayAgent"]
         self.model_type = model_type
         if model_type == "find_pipette":
-            self.agent = PipetteFinder()
+            self.agent = agent_classes["PipetteFinder"]()
         elif model_type == "hunt":
-            self.agent = CellHunter()
+            self.agent = agent_classes["CellHunter"]()
         elif model_type == "gigaseal":
-            self.agent = GigaSealer()
+            self.agent = agent_classes["GigaSealer"]()
         elif model_type == "break_in":
-            self.agent = Burglar()
+            self.agent = agent_classes["Burglar"]()
         elif model_type in {"find_pipette_replay", "hunt_replay"}:
-            self.agent = DemoReplayAgent()
+            self.agent = demo_replay_cls()
             if self._demo_actions is None:
                 source = self._default_demo_sources.get(model_type)
                 if source and source.get("path"):
@@ -65,7 +92,7 @@ class AgentHelper:
                 self.agent.load_actions(self._demo_actions)
         else:
             raise ValueError(f"Model type '{model_type}' not supported")
-        if isinstance(self.agent, DemoReplayAgent):
+        if isinstance(self.agent, demo_replay_cls):
             image_size = self._infer_image_size(self._last_demo_dataset)
             if image_size is not None:
                 self.agent.set_image_size(image_size)
@@ -81,7 +108,7 @@ class AgentHelper:
         if replay.size == 0:
             raise ValueError("Demo action array must contain at least one action")
         self._demo_actions = replay.astype(np.float32, copy=False)
-        if isinstance(self.agent, DemoReplayAgent):
+        if self.agent is not None and type(self.agent).__name__ == "DemoReplayAgent":
             self.agent.load_actions(self._demo_actions)
 
     def has_demo_actions(self) -> bool:

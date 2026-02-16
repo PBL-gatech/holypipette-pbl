@@ -172,6 +172,13 @@ class DAQ(TaskController):
         self.leak_subtraction_data = None
         self.leak_subtraction_meta = None
         self.holding_protocol_data = None
+        self.optogenetic_protocol_data = None
+        self.optogenetic_stim_data = None
+        self.optogenetic_protocol_type = None
+        self.optogenetic_pulses = None
+        self.optogenetic_pulseRange = None
+        self.optogenetic_protocol_queue = collections.deque()
+        self._optogenetic_queue_lock = threading.Lock()
         self._deviceLock = threading.Lock()
         self.isRunningProtocol = False
         self.totalResistance = None
@@ -194,6 +201,24 @@ class DAQ(TaskController):
 
     def getCellMode(self) -> bool:
         return self.cellMode
+
+    def _normalize_optogenetic_protocol_key(self, protocol_type):
+        if protocol_type is None:
+            return "unknown"
+        name = getattr(protocol_type, "name", None)
+        if isinstance(name, str) and name.strip():
+            return name.strip().lower()
+        text = str(protocol_type).strip().lower()
+        return text if text else "unknown"
+
+    def pop_optogenetic_entry(self, protocol_key):
+        key = self._normalize_optogenetic_protocol_key(protocol_key)
+        with self._optogenetic_queue_lock:
+            for entry in self.optogenetic_protocol_queue:
+                if entry.get("protocol_key") == key:
+                    self.optogenetic_protocol_queue.remove(entry)
+                    return entry
+        return None
     # --------------------------
     # Acquisition Methods
     # --------------------------
@@ -234,6 +259,79 @@ class DAQ(TaskController):
         if hasattr(self, "_daq_acq_thread") and self._daq_acq_thread:
             return self._daq_acq_thread.get_last_data()
         return None
+
+    def compute_noise_metrics(self, timeData=None, respData=None,
+                              window_start=0.004, window_end=0.010,
+                              avg_p2p_window=0.001):
+        """
+        Compute noise metrics from response data within a time window.
+        Returns a dict with windowed data, p2p, std, avg_p2p, and FFT results,
+        or None if inputs are insufficient.
+        """
+        if timeData is None or respData is None:
+            last = self.get_last_acquisition()
+            if last is None:
+                return None
+            if timeData is None:
+                timeData = last.get("timeData")
+            if respData is None:
+                respData = last.get("respData")
+
+        if timeData is None or respData is None:
+            return None
+
+        time_array = np.asarray(timeData)
+        resp_array = np.asarray(respData)
+        if time_array.size < 2 or resp_array.size < 2:
+            return None
+
+        window_mask = (time_array >= window_start) & (time_array <= window_end)
+        if not np.any(window_mask):
+            return None
+
+        window_time = time_array[window_mask]
+        window_resp = resp_array[window_mask]
+        if window_time.size < 2:
+            return None
+
+        dt = float(np.mean(np.diff(window_time)))
+        if not np.isfinite(dt) or dt <= 0:
+            dt = None
+
+        p2p = float(np.max(window_resp) - np.min(window_resp))
+        std = float(np.std(window_resp))
+
+        avg_p2p = p2p
+        if dt is not None:
+            window_samples = int(round(avg_p2p_window / dt))
+            if window_samples < 2:
+                window_samples = 2
+            if window_resp.size >= window_samples:
+                p2p_values = []
+                for start in range(0, window_resp.size - window_samples + 1):
+                    segment = window_resp[start:start + window_samples]
+                    p2p_values.append(float(np.max(segment) - np.min(segment)))
+                if p2p_values:
+                    avg_p2p = float(np.mean(p2p_values))
+
+        freqs = None
+        fft_magnitude = None
+        if dt is not None and window_resp.size >= 2:
+            detrended = window_resp - np.mean(window_resp)
+            fft_vals = np.fft.rfft(detrended)
+            freqs = np.fft.rfftfreq(detrended.size, d=dt)
+            fft_magnitude = np.abs(fft_vals)
+
+        return {
+            "window_time": window_time,
+            "window_resp": window_resp,
+            "dt": dt,
+            "p2p": p2p,
+            "std": std,
+            "avg_p2p": avg_p2p,
+            "freqs": freqs,
+            "fft_magnitude": fft_magnitude
+        }
 
     def stop_acquisition(self):
         """
@@ -330,6 +428,13 @@ class DAQ(TaskController):
 
     def getDataFromHoldingProtocol(self, *args, **kwargs):
         """Acquire baseline holding data (no command output).
+
+        Sub-classes **must** implement this.
+        """
+        raise NotImplementedError("Implement in subclass.")
+
+    def getDataFromOptogeneticProtocol(self, *args, **kwargs):
+        """Acquire holding data while running a laser protocol.
 
         Sub-classes **must** implement this.
         """
@@ -890,7 +995,7 @@ class NiDAQ(DAQ):
         self._cur_wave_amp   = 0.5
         self._cur_wave_rtime = 0.025
 
-    def _setupAcquisitionCurrent(self, recordingTime=500):
+    def _setupAcquisitionCurrent(self, recordingTime=500, dutyCycle=0.5):
         """
         Configure a dedicated continuous AI + AO pair for the
         current-step protocol.  The background stream must be paused first.
@@ -898,7 +1003,7 @@ class NiDAQ(DAQ):
         import nidaqmx, nidaqmx.constants as c
 
         samplesPerSec = 100_000
-        dutyCycle     = 0.5
+        dutyCycle     = float(dutyCycle)
         recordingTime = (float(recordingTime) * 1e-3)  # convert ms to seconds
         wave_freq     = 1.0 / (recordingTime)  # 1 Hz square wave
 
@@ -1127,6 +1232,63 @@ class NiDAQ(DAQ):
             store=False,
         )
         self.ao_task.write(wave, auto_start=False)
+
+    def _build_optogenetic_timeline(self, protocol_steps: list[dict]):
+        stim_timeline: list[dict] = []
+        cursor = 0.0
+        for step in protocol_steps:
+            duration = float(step.get("duration_s", 0.0))
+            if duration <= 0:
+                continue
+            entry = dict(step)
+            entry["start_s"] = cursor
+            cursor += duration
+            entry["end_s"] = cursor
+            stim_timeline.append(entry)
+
+        if not stim_timeline:
+            raise ValueError("protocol_steps must contain positive durations")
+
+        protocol_type = stim_timeline[0].get("protocol_type")
+        return stim_timeline, cursor, protocol_type
+
+    def _wait_until(self, deadline_s: float, *, tight_timing: bool = True) -> None:
+        """
+        Sleep until deadline_s; optionally spin for the last few ms to reduce jitter.
+        """
+        while True:
+            remaining = deadline_s - time.perf_counter()
+            if remaining <= 0:
+                return
+            if not tight_timing or remaining > 0.005:
+                time.sleep(min(0.001, max(0.0, remaining - 0.002)))
+                continue
+            while time.perf_counter() < deadline_s:
+                pass
+
+    def _setup_optogenetic_ai_task(self, rate_hz: int, num_samples: int):
+        ai = nidaqmx.Task()
+        ai.ai_channels.add_ai_voltage_chan(
+            f"{self.readDev}/{self.readChannel}",
+            terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF,
+            min_val=-10.0, max_val=10.0)
+        ai.ai_channels.add_ai_voltage_chan(
+            f"{self.respDev}/{self.respChannel}",
+            terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF,
+            min_val=-10.0, max_val=10.0)
+        ai.timing.cfg_samp_clk_timing(
+            rate=rate_hz,
+            sample_mode=nidaqmx.constants.AcquisitionType.FINITE,
+            samps_per_chan=num_samples)
+        return ai
+
+    def _read_optogenetic_ai(self, ai_task, num_samples: int, duration_s: float):
+        raw = ai_task.read(
+            number_of_samples_per_channel=num_samples,
+            timeout=duration_s + 2.0)
+        ai_task.stop()
+        ai_task.close()
+        return np.asarray(raw, dtype=float)
 
     def getLeakSubtraction(
             self,
@@ -1471,7 +1633,8 @@ class NiDAQ(DAQ):
                                    startCurrentPicoAmp: float | None = None,
                                    endCurrentPicoAmp: float | None = None,
                                    stepCurrentPicoAmp: float = 10,
-                                   recordingTimeMs: float = 500):
+                                   recordingTimeMs: float = 500,
+                                   dutyCycle: float = 0.5):
         """
         Run an entire I-clamp step protocol on one continuous stream.
         Returns
@@ -1480,7 +1643,7 @@ class NiDAQ(DAQ):
         """
         # ───────── constants ─────────
         samplesPerSec  = 100_000
-        dutyCycle      = 0.5
+        dutyCycle      = float(dutyCycle)
         recordingTime  = recordingTimeMs * 1e-3   # 0.25 s / segment
         wave_freq      = 1.0 / recordingTime      # 4 Hz
         fullRecTime    = 4 * recordingTime        # 1.0 s / train
@@ -1527,7 +1690,7 @@ class NiDAQ(DAQ):
                 pass
 
         # ─ 3. start dedicated tasks (prime buffer = 0 pA test) ──────────
-        self._setupAcquisitionCurrent(recordingTime * 1e3)   # expects ms
+        self._setupAcquisitionCurrent(recordingTime * 1e3, dutyCycle=dutyCycle)   # expects ms
 
         # a) queue FIRST real pulse so it will become train #2
         next_amp_V = (pulses[0] * 1e-12) / self.C_CLAMP_AMP_PER_VOLT
@@ -1632,6 +1795,169 @@ class NiDAQ(DAQ):
 
         finally:
             # ---------------------------------------------- 3. resume stream
+            self.resume_acquisition()
+
+    def getDataFromOptogeneticProtocol(
+        self,
+        *,
+        laser,
+        protocol_steps: list[dict],
+        rate_hz: int = 50_000,
+    ):
+        """
+        Modified holding protocol that records only during optogenetic "on" steps.
+
+        Returns
+        -------
+        (list[list[np.ndarray]], list[dict])
+            One trace per on-step plus the stimulation timeline.
+        """
+        if laser is None:
+            raise ValueError("laser is required")
+        if protocol_steps is None or len(protocol_steps) == 0:
+            raise ValueError("protocol_steps must contain at least one step")
+
+        stim_timeline, _, protocol_type = self._build_optogenetic_timeline(protocol_steps)
+
+        self.pause_acquisition()
+        ai = None
+        actual_timeline = []
+
+        try:
+            try:
+                laser.power_off()
+            except Exception:
+                pass
+            t0 = time.perf_counter()
+            aligned_traces: list[list[np.ndarray]] = []
+            aligned_pulses: list[dict] = []
+
+            for step in stim_timeline:
+                duration_s = float(step.get("duration_s", 0.0))
+                if duration_s <= 0:
+                    continue
+
+                planned_start = float(step.get("start_s", 0.0))
+                planned_end = float(step.get("end_s", planned_start + duration_s))
+                self._wait_until(t0 + planned_start, tight_timing=True)
+
+                state = step.get("state", "on")
+                wavelength = step.get("wavelength")
+                power_percent = step.get("power_percent")
+                if state == "on":
+                    if isinstance(wavelength, str) and wavelength.strip().lower() == "off":
+                        state = "off"
+                    else:
+                        name = getattr(wavelength, "name", None)
+                        if isinstance(name, str) and name.upper() == "OFF":
+                            state = "off"
+
+                step_start = time.perf_counter() - t0
+                if state == "on":
+                    if wavelength is not None:
+                        laser.set_wavelength(wavelength)
+                    if power_percent is not None:
+                        laser.set_power_level(power_percent, wavelength)
+                    try:
+                        laser.power_off()
+                    except Exception:
+                        pass
+
+                    num_samples = int(rate_hz * duration_s)
+                    if num_samples <= 0:
+                        laser.power_off()
+                        continue
+
+                    ai = self._setup_optogenetic_ai_task(rate_hz, num_samples)
+                    ai.start()
+
+                    # Laser on from 1/3 to 2/3 of the recording window.
+                    record_start = time.perf_counter()
+                    laser_on_at = record_start + (duration_s / 3.0)
+                    laser_off_at = record_start + (2.0 * duration_s / 3.0)
+
+                    self._wait_until(laser_on_at, tight_timing=True)
+                    try:
+                        laser.power_on()
+                    except Exception:
+                        pass
+                    self._wait_until(laser_off_at, tight_timing=True)
+                    try:
+                        laser.power_off()
+                    except Exception:
+                        pass
+
+                    raw = self._read_optogenetic_ai(ai, num_samples, duration_s)
+                    ai = None
+
+                    resp = raw[1] * self.V_CLAMP_VOLT_PER_AMP
+                    read = raw[0] * self.V_CLAMP_VOLT_PER_VOLT
+                    t = np.linspace(0, duration_s, num_samples, dtype=float)
+
+                    aligned_traces.append([t, resp, read])
+                    aligned_pulses.append({
+                        "wavelength": wavelength,
+                        "power_percent": power_percent,
+                        "replicate": step.get("replicate"),
+                        "protocol_type": step.get("protocol_type"),
+                    })
+                    try:
+                        laser.power_off()
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        laser.power_off()
+                    except Exception:
+                        pass
+
+                self._wait_until(t0 + planned_end, tight_timing=True)
+                step_end = time.perf_counter() - t0
+
+                entry = dict(step)
+                entry["state"] = state
+                if power_percent is not None:
+                    entry["power_percent"] = power_percent
+                entry["start_s"] = step_start
+                entry["end_s"] = step_end
+                actual_timeline.append(entry)
+
+            stim_used = actual_timeline or stim_timeline
+            if not aligned_traces:
+                aligned_traces = []
+                aligned_pulses = []
+
+            self.optogenetic_protocol_data = aligned_traces
+            self.optogenetic_stim_data = stim_used
+            if protocol_type is None and self.optogenetic_stim_data:
+                protocol_type = self.optogenetic_stim_data[0].get("protocol_type")
+            self.optogenetic_protocol_type = protocol_type
+            self.optogenetic_pulses = aligned_pulses
+            self.optogenetic_pulseRange = len(aligned_pulses)
+
+            protocol_key = self._normalize_optogenetic_protocol_key(protocol_type)
+            entry = {
+                "data": aligned_traces,
+                "pulses": aligned_pulses,
+                "pulse_range": len(aligned_pulses),
+                "stim_data": stim_used,
+                "protocol_type": protocol_type,
+                "protocol_key": protocol_key,
+            }
+            with self._optogenetic_queue_lock:
+                self.optogenetic_protocol_queue.append(entry)
+            return self.optogenetic_protocol_data, self.optogenetic_stim_data
+
+        finally:
+            try:
+                laser.power_off()
+            except Exception:
+                pass
+            try:
+                if ai is not None:
+                    ai.stop(); ai.close()
+            except Exception:
+                pass
             self.resume_acquisition()
 
     def getDataFromVoltageProtocol(

@@ -37,11 +37,22 @@ class PatchGui(ManipulatorGui):
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
         self.recording_state_manager = recording_state_manager
+        self._cell_list_signature = None
+        self.cell_list_window = CellListWindow(self)
+        self.cell_list_window.closed.connect(self._cells_window_closed)
+        self.show_cells_button = QtWidgets.QPushButton("Show Cells")
+        self.show_cells_button.setCheckable(True)
+        self.show_cells_button.clicked.connect(self.toggle_cell_list_window)
+        self.status_bar.insertPermanentWidget(0, self.show_cells_button)
+        self._cell_list_timer = QtCore.QTimer(self)
+        self._cell_list_timer.setInterval(500)
+        self._cell_list_timer.timeout.connect(self._refresh_cell_list_window)
 
         self.patch_interface.moveToThread(pipette_interface.thread())
         self.interface_signals[self.patch_interface] = (self.patch_command_signal,
                                                         self.patch_reset_signal)
         self.add_config_gui(self.patch_interface.config)
+        self.add_config_gui(self.patch_interface.protocol_config)
         logging.debug("Added config GUI.")
         classic_patching_tab = ClassicPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
         self.add_tab(classic_patching_tab, 'Classic Auto Patching', index = 0)
@@ -60,6 +71,40 @@ class PatchGui(ManipulatorGui):
                                  self.patch_interface.store_rinsing_position)
         self.register_key_action(Qt.Key_F4, None,
                                  self.patch_interface.clean_pipette)
+
+    def toggle_cell_list_window(self, checked=None):
+        if checked is None:
+            checked = self.show_cells_button.isChecked()
+        if checked:
+            self.show_cells_button.setText("Hide Cells")
+            self._refresh_cell_list_window(force=True)
+            self.cell_list_window.show()
+            self.cell_list_window.raise_()
+            self.cell_list_window.activateWindow()
+            self._cell_list_timer.start()
+        else:
+            self.cell_list_window.close()
+
+    def _cells_window_closed(self):
+        self._cell_list_timer.stop()
+        if self.show_cells_button.isChecked():
+            self.show_cells_button.blockSignals(True)
+            self.show_cells_button.setChecked(False)
+            self.show_cells_button.blockSignals(False)
+        self.show_cells_button.setText("Show Cells")
+
+    def _refresh_cell_list_window(self, force=False):
+        if not self.cell_list_window.isVisible():
+            return
+        cells = list(self.patch_interface.cells_to_patch)
+        try:
+            stage_reference = self.patch_interface.current_autopatcher.calibrated_stage.reference_position()
+        except Exception:
+            stage_reference = None
+        signature = tuple(id(cell) for cell in cells)
+        full_refresh = force or (signature != self._cell_list_signature)
+        self.cell_list_window.update_cells(cells, stage_reference, full_refresh=full_refresh)
+        self._cell_list_signature = signature
 
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
     def __init__(self, title="", parent=None):
@@ -152,6 +197,135 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
                 child.widget().setParent(None)
         self.content_layout.addLayout(layout)
 
+
+class CellListWindow(QtWidgets.QDialog):
+    closed = QtCore.pyqtSignal()
+
+    def __init__(self, parent=None, thumbnail_size=96):
+        super().__init__(parent=parent)
+        self.setWindowTitle("Selected Cells")
+        self.setWindowFlags(self.windowFlags() | Qt.Tool)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+
+        self.thumbnail_size = thumbnail_size
+        self.table = QtWidgets.QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels([
+            "Image",
+            "Fluo Image",
+            "Cell",
+            "Stage (px)",
+            "Stage (um)",
+        ])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        self.table.verticalHeader().setDefaultSectionSize(self.thumbnail_size + 12)
+
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self.table)
+        self.setLayout(layout)
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+    def update_cells(self, cells, stage_reference=None, full_refresh=True):
+        if self.table.rowCount() != len(cells):
+            self.table.setRowCount(len(cells))
+            full_refresh = True
+
+        for row, cell in enumerate(cells):
+            stage_px, img, stage_um, img_fluo = self._unpack_cell(cell)
+
+            if full_refresh:
+                self._set_image_cell(row, 0, img)
+                self._set_image_cell(row, 1, img_fluo, empty_text="N/A")
+                self._set_item(row, 2, str(row + 1))
+                self._set_item(row, 3, self._format_vec(stage_px))
+                self._set_item(row, 4, self._format_vec(stage_um))
+
+    def _unpack_cell(self, cell):
+        if cell is None:
+            return None, None, None, None
+        if len(cell) >= 4:
+            return cell[0], cell[1], cell[2], cell[3]
+        if len(cell) == 3:
+            return cell[0], cell[1], cell[2], None
+        return None, None, None, None
+
+    def _set_item(self, row, col, text):
+        item = self.table.item(row, col)
+        if item is None:
+            item = QtWidgets.QTableWidgetItem()
+            item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+            self.table.setItem(row, col, item)
+        item.setText(text)
+
+    def _set_image_cell(self, row, col, image, empty_text=""):
+        if image is None:
+            self.table.removeCellWidget(row, col)
+            item = QtWidgets.QTableWidgetItem(empty_text)
+            item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+            self.table.setItem(row, col, item)
+            return
+
+        pixmap = self._image_to_pixmap(image)
+        label = QtWidgets.QLabel()
+        label.setAlignment(Qt.AlignCenter)
+        if pixmap is not None:
+            label.setPixmap(
+                pixmap.scaled(
+                    self.thumbnail_size,
+                    self.thumbnail_size,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
+        self.table.setCellWidget(row, col, label)
+
+    def _image_to_pixmap(self, image):
+        if image is None:
+            return None
+        img = np.array(image)
+        if img.ndim == 2:
+            img8 = self._normalize_to_uint8(img)
+            q_image = QtGui.QImage(
+                img8.data,
+                img8.shape[1],
+                img8.shape[0],
+                img8.strides[0],
+                QtGui.QImage.Format_Grayscale8,
+            ).copy()
+        else:
+            img8 = self._normalize_to_uint8(img[..., 0])
+            q_image = QtGui.QImage(
+                img8.data,
+                img8.shape[1],
+                img8.shape[0],
+                img8.strides[0],
+                QtGui.QImage.Format_Grayscale8,
+            ).copy()
+        return QtGui.QPixmap.fromImage(q_image)
+
+    def _normalize_to_uint8(self, img):
+        img = img.astype(np.float32)
+        min_val = float(np.min(img))
+        max_val = float(np.max(img))
+        if max_val > min_val:
+            img = (img - min_val) / (max_val - min_val) * 255.0
+        else:
+            img = np.zeros_like(img, dtype=np.float32)
+        return img.astype(np.uint8)
+
+    def _format_vec(self, vec):
+        if vec is None:
+            return "N/A"
+        arr = np.array(vec).astype(float).ravel()
+        return ", ".join(f"{v:.1f}" for v in arr)
+
 class ButtonTabWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
@@ -160,6 +334,8 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self.interface_signals = {}
         self.start_task = None
         self.section_buttons = {}  # Dictionary to store buttons by section
+        self.section_button_map = {}  # section -> {button_name: button}
+        self.active_buttons_by_section = {}  # section -> set(button_name)
         self.color_change_sections = []  # Sections that should change color on completion
         self.section_colors = {}  # Store custom colors for different sections
 
@@ -171,6 +347,8 @@ class ButtonTabWidget(QtWidgets.QWidget):
         # Ensure cmds is a list
         if not isinstance(cmds, list):
             cmds = [cmds]
+        else:
+            cmds = self._flatten_sequential_cmds(cmds)
         try:
             repeat_count = max(1, int(repeat))
         except (TypeError, ValueError):
@@ -188,14 +366,31 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self._seq_button = button
         self._seq_section = section
         self._seq_button_name = button_name
+        self._seq_active_style = False
         
         # Special case for reset button in any section (assuming it contains "Clear" or "Reset")
         if (section in self.section_buttons and button and 
             ("Clear" in button_name or "Reset" in button_name)):
             # Reset all section button colors before running the command
             self._reset_section_button_colors(section)
+        elif (
+            button
+            and section in self.active_buttons_by_section
+            and button_name in self.active_buttons_by_section[section]
+        ):
+            self._set_button_active_style(button)
+            self._seq_active_style = True
         
         self._run_next_seq_command()
+
+    def _flatten_sequential_cmds(self, cmds):
+        flat_cmds = []
+        for cmd in cmds:
+            if isinstance(cmd, list):
+                flat_cmds.extend(self._flatten_sequential_cmds(cmd))
+            else:
+                flat_cmds.append(cmd)
+        return flat_cmds
 
     def _reset_section_button_colors(self, section):
         """Reset colors for all buttons in a section"""
@@ -212,26 +407,9 @@ class ButtonTabWidget(QtWidgets.QWidget):
                 not any(reset_term in self._seq_button_name for reset_term in ["Clear", "Reset"])):
                 # Get the color for this section, or use default blue
                 color = self.section_colors.get(self._seq_section, "rgba(0, 0, 255, 0.3)")
-                
-                # Set completed style while preserving all original behaviors
-                self._seq_button.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {color}; 
-                        border: 1px solid lightgray;
-                        border-radius: 6px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: rgba(173, 216, 230, 0.5);
-                        border: 1px solid #87CEEB;
-                    }}
-                    QPushButton:pressed {{
-                        background-color: #d1e7ff;
-                    }}
-                    QPushButton:focus {{
-                        border: 1px solid lightgray;
-                        outline: none;
-                    }}
-                """)
+                self._set_button_completion_style(self._seq_button, color)
+            elif self._seq_active_style and self._seq_button:
+                self._seq_button.setStyleSheet("")
             return
 
         # Rest of the method implementation unchanged
@@ -247,6 +425,9 @@ class ButtonTabWidget(QtWidgets.QWidget):
                     interface.task_finished.disconnect(on_finished)
                 except Exception:
                     pass
+                if exit_code != 0 and self._seq_active_style and self._seq_button:
+                    self._seq_button.setStyleSheet("")
+                    self._seq_active_style = False
                 # Launch next command after current one finishes
                 self._run_next_seq_command()
             # Connect to the task_finished signal
@@ -293,6 +474,31 @@ class ButtonTabWidget(QtWidgets.QWidget):
                 cmd(None)
         else:
             cmd()
+
+    def _set_button_completion_style(self, button, color="rgba(0, 0, 255, 0.3)"):
+        if button is None:
+            return
+        button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {color}; 
+                border: 1px solid lightgray;
+                border-radius: 6px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(173, 216, 230, 0.5);
+                border: 1px solid #87CEEB;
+            }}
+            QPushButton:pressed {{
+                background-color: #d1e7ff;
+            }}
+            QPushButton:focus {{
+                border: 1px solid lightgray;
+                outline: none;
+            }}
+        """)
+
+    def _set_button_active_style(self, button, color="rgba(173, 216, 230, 0.5)"):
+        self._set_button_completion_style(button, color)
 
     def addPositionBox(self, name: str, layout, update_func, tare_func=None, axes=['x', 'y', 'z']):
         # Use CollapsibleGroupBox instead of QGroupBox
@@ -355,7 +561,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
 
     def addButtonList(self, box_name: str, layout: QtWidgets.QVBoxLayout, buttonNames: list[list[str]], 
                     cmds, freq=None, sequential=False, change_color_on_complete=False, 
-                    completion_color="rgba(0, 0, 255, 0.3)"):
+                    completion_color="rgba(0, 0, 255, 0.3)", change_color_during=None):
         # Use CollapsibleGroupBox instead of QGroupBox
         box = CollapsibleGroupBox(box_name)
         rows = QtWidgets.QVBoxLayout()
@@ -387,6 +593,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
                 
                 # Track this button for this section
                 section_buttons.append((button, i, j, button_name))
+                self.section_button_map.setdefault(box_name, {})[button_name] = button
 
                 # Use a lambda function with default arguments to correctly capture the command
                 if i < len(cmds) and j < len(cmds[i]):
@@ -404,9 +611,19 @@ class ButtonTabWidget(QtWidgets.QWidget):
         
         # Store buttons for this section
         self.section_buttons[box_name] = section_buttons
+        if change_color_during:
+            if change_color_during is True:
+                active_names = {name for row in buttonNames for name in row}
+            else:
+                active_names = set(change_color_during)
+            self.active_buttons_by_section[box_name] = active_names
 
         box.setContentLayout(rows)
         layout.addWidget(box)
+        return section_buttons
+
+    def get_section_button(self, section: str, name: str):
+        return self.section_button_map.get(section, {}).get(name)
 
 
 class FileSelector(QWidget):
@@ -486,9 +703,8 @@ class ClassicPatchButtons(ButtonTabWidget):
                         change_color_on_complete=True, completion_color="rgba(173, 216, 230, 0.5)")
 
         # Add a box for movement commands 
-        buttonList = [['move group down','move group up'],['Move to Safe Position','Move to Home Position'],['Move to cell plane','Focus Stage'],['Center Pipette','Clean pipette','Focus Pipette']]
+        buttonList = [['Move to Safe Position','Move to Home Position'],['Move to cell plane','Focus Stage'],['Center Pipette','Clean pipette','Focus Pipette']]
         cmds = [
-            [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
             [self.patch_interface.move_to_safe_space, self.patch_interface.move_to_home_space],
             [self.pipette_interface.go_to_floor,self.pipette_interface.focus_stage],
             [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
@@ -505,20 +721,32 @@ class ClassicPatchButtons(ButtonTabWidget):
 
         # # Add a box for lamp commands
         buttonList = [['toggle shutter', 'toggle fluorescense'],['move cube left','move cube right']]
-        # set a bunch of do nothing commands for now
-        cmds = [[self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
+        cmds = [[ self.patch_interface.toggle_shutter, self.patch_interface.toggle_fluorescence],
                 [self.patch_interface.move_cube_left, self.patch_interface.move_cube_right]
         ]
         self.addButtonList('fluorescence', layout, buttonList, cmds, sequential=True)
-        
+
         # Add a box for patching commands
-        buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],['Locate Cell','Hunt Cell','Gigaseal'],['Break-in','Run Protocols'],['Patch Cell','Escape Cell']]
+        buttonList = [['Select Cell','Remove Last Cell','Center on Cell'],
+                      ['Locate Cell','Hunt Cell','Gigaseal'],
+                      ['Break-in','Escape Cell'],
+                      ['Patch Cell','Run Protocols']]
         cmds = [[self.patch_interface.start_selecting_cells, self.patch_interface.remove_last_cell, self.patch_interface.center_on_cell],
-                [self.patch_interface.locate_cell,[self.start_recording,self.patch_interface.hunt_cell],self.patch_interface.gigaseal],
-                [self.patch_interface.break_in,[self.stop_recording,self.patch_interface.run_protocols]],
-                [[self.start_recording,self.patch_interface.patch,self.stop_recording],[self.stop_recording,self.patch_interface.escape_cell]]
+                [self.patch_interface.locate_cell,
+                 [self.start_recording,self.patch_interface.hunt_cell],[self.patch_interface.gigaseal]],
+                [[ self.patch_interface.break_in],
+                 [self.stop_recording,  self.patch_interface.escape_cell]],
+                [[self.start_recording,  self.patch_interface.patch, self.stop_recording],
+                 [self.stop_recording,  self.patch_interface.run_protocols]]
 ]
-        self.addButtonList('patching', layout, buttonList, cmds,sequential=True)
+        self.addButtonList('patching', layout, buttonList, cmds, sequential=True, change_color_during={
+            'Locate Cell',
+            'Hunt Cell',
+            'Gigaseal',
+            'Break-in',
+            'Escape Cell',
+            'Run Protocols',
+        })
 
         # Add a box for Rig Recorder
         self.record_button = QtWidgets.QPushButton("Start Recording")
@@ -577,6 +805,54 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.record_button.setText("Start Recording")
         self.record_button.setStyleSheet("")
         logging.info("Recording stopped")
+
+    def _update_cell_sorter_led_button_style(self, enabled: bool):
+        if self.cell_sorter_led_button is None:
+            return
+        if enabled:
+            self.cell_sorter_led_button.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(173, 216, 230, 0.5);
+                    border: 1px solid lightgray;
+                    border-radius: 6px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(173, 216, 230, 0.5);
+                    border: 1px solid #87CEEB;
+                }
+                QPushButton:pressed {
+                    background-color: #d1e7ff;
+                }
+                QPushButton:focus {
+                    border: 1px solid lightgray;
+                    outline: none;
+                }
+            """)
+        else:
+            self.cell_sorter_led_button.setStyleSheet("")
+
+    def _set_cell_sorter_led_state(self, enabled: bool):
+        if self.cell_sorter_led_button is not None and self.cell_sorter_led_button.isChecked() != enabled:
+            self.cell_sorter_led_button.blockSignals(True)
+            self.cell_sorter_led_button.setChecked(enabled)
+            self.cell_sorter_led_button.blockSignals(False)
+        self._update_cell_sorter_led_button_style(enabled)
+        if enabled:
+            self.patch_interface.cell_sorter_led_on()
+        else:
+            self.patch_interface.cell_sorter_led_off()
+
+    def cell_sorter_led_off(self):
+        self._set_cell_sorter_led_state(False)
+
+    def cell_sorter_led_on(self):
+        self._set_cell_sorter_led_state(True)
+
+    def toggle_cell_sorter_led(self, checked=None):
+        if self.cell_sorter_led_button is None:
+            return
+        enabled = self.cell_sorter_led_button.isChecked() if checked is None else bool(checked)
+        self._set_cell_sorter_led_state(enabled)
 
 
 

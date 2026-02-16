@@ -487,13 +487,18 @@ class CameraGui(QtWidgets.QMainWindow):
         self.record_button.setStyleSheet('QToolButton:checked {background-color: red;}')
 
         self.autoexposure_button = QtWidgets.QToolButton(clicked=self.normalize_active_camera)
-        self.autoexposure_button.setIcon(qta.icon('fa.camera'))
+        self.autoexposure_button.setText('Normalize')
+        self.autoexposure_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.autoexposure_button.setToolTip('Normalize the image')
 
-        # create autonormalizatoin checkbox
-        self.autonormalize_checkbox = QtWidgets.QCheckBox('Auto-normalize')
-        self.autonormalize_checkbox.setChecked(False)
-        self.autonormalize_checkbox.stateChanged.connect(self.handle_autonormalize_change)
+        self.unnormalize_button = QtWidgets.QToolButton(clicked=self.unnormalize_active_camera)
+        self.unnormalize_button.setText('Unnormalize')
+        self.unnormalize_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.unnormalize_button.setToolTip('Unnormalize the image')
+
+        self.snap_image_button = QtWidgets.QToolButton(clicked=self.snap_active_camera_image)
+        self.snap_image_button.setIcon(qta.icon('fa.camera'))
+        self.snap_image_button.setToolTip('Snap image')
 
         self.switch_view_button = QtWidgets.QPushButton()
         self.switch_view_button.clicked.connect(self.toggle_camera_view)
@@ -509,10 +514,11 @@ class CameraGui(QtWidgets.QMainWindow):
         self.status_bar.addPermanentWidget(self.switch_view_button)
         self.status_bar.addPermanentWidget(self.setexposure_edit)
         self.status_bar.addPermanentWidget(self.help_button)
-        self.status_bar.addPermanentWidget(self.log_button)
-        self.status_bar.addPermanentWidget(self.record_button)
+        # self.status_bar.addPermanentWidget(self.log_button)
+        # self.status_bar.addPermanentWidget(self.record_button)
+        self.status_bar.addPermanentWidget(self.snap_image_button)
         self.status_bar.addPermanentWidget(self.autoexposure_button)
-        self.status_bar.addPermanentWidget(self.autonormalize_checkbox)
+        self.status_bar.addPermanentWidget(self.unnormalize_button)
 
         self.status_bar.setSizeGripEnabled(False)
         self.setStatusBar(self.status_bar)
@@ -615,10 +621,15 @@ class CameraGui(QtWidgets.QMainWindow):
             return
         self.active_interface.normalize()
 
-    def handle_autonormalize_change(self, state):
+    def unnormalize_active_camera(self):
         if self.active_interface is None:
             return
-        self.active_interface.autonormalize(bool(state))
+        self.active_interface.unnormalize()
+
+    def snap_active_camera_image(self):
+        if self.active_interface is None:
+            return
+        self.active_interface.snap_image()
 
     def apply_active_exposure(self):
         if self.active_interface is None:
@@ -1252,6 +1263,11 @@ class ConfigGui(QtWidgets.QWidget):
                         value_widget.setCurrentIndex(param_obj.objects.index(current))
                     value_widget.currentIndexChanged.connect(
                         functools.partial(self.set_selector_value, param_name, param_obj.objects))
+                elif isinstance(param_obj, param.String):
+                    value_widget = QtWidgets.QLineEdit()
+                    value_widget.setText(str(getattr(config, param_name)))
+                    value_widget.textChanged.connect(
+                        functools.partial(self.set_string_value, param_name))
                 elif isinstance(param_obj, param.Tuple):         
                     value_widget = QtWidgets.QLineEdit()          
                     value_widget.setReadOnly(True)                
@@ -1310,7 +1326,7 @@ class ConfigGui(QtWidgets.QWidget):
             return                                             # (unchanged)
 
         line = self.findChild(QtWidgets.QLineEdit, key)        
-        if line is not None and line.isReadOnly():             
+        if line is not None:             
             line.blockSignals(True)                            
             line.setText(str(value))                           
             line.blockSignals(False)                           
@@ -1328,6 +1344,9 @@ class ConfigGui(QtWidgets.QWidget):
     def set_selector_value(self, name, options, index):
         if 0 <= index < len(options):
             setattr(self.config, name, options[index])
+
+    def set_string_value(self, name, value):
+        setattr(self.config, name, value)
 
 
     def save_config(self):

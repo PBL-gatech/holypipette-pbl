@@ -114,6 +114,12 @@ class PcoCamera(Camera):
         self.lowerBound = img.min()
         self.upperBound = img.max()
 
+    def unnormalize(self, img = None) -> None:
+        if not self.auto_normalize:
+            print("UNNORMALIZING")
+        self.lowerBound = 0
+        self.upperBound = 255
+
     def autonormalize(self,flag = None):
         self.auto_normalize = flag
         return self.auto_normalize

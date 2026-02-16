@@ -12,7 +12,6 @@ import time
 import threading
 import imageio
 import logging
-from patcherbot.deepLearning.cellSegmentor import CellSegmentor2
 from patcherbot.deepLearning.pipetteDetector import PipetteDetectorYOLO1
 
 import numpy as np
@@ -128,8 +127,13 @@ class Camera(object):
         self.last_frame_time = None
         self.fps = 0
 
-        self.Cellseg = CellSegmentor2()
-        self.pipdetector = PipetteDetectorYOLO1()
+        # Default off; RigConfigManager applies calibration.use_ai_features after instantiation.
+        self.use_ai_features = False
+
+        self.Cellseg = None
+        self._cellseg_error = None
+        device = os.getenv("PIPETTE_DETECTOR_DEVICE", "cuda:0")
+        self.pipdetector = PipetteDetectorYOLO1(device=device)
         # testing flag
         
 
@@ -152,9 +156,27 @@ class Camera(object):
 
 
     def segment(self, img, cell, label):
-
-        mask = self.Cellseg.segment(image = img, input_point = cell, input_label = label)
+        segmentor = self._ensure_cellseg()
+        mask = segmentor.segment(image = img, input_point = cell, input_label = label)
         return mask
+
+    def _ensure_cellseg(self):
+        if not self.use_ai_features:
+            raise NotImplementedError(
+                "SAM2 segmentation unavailable. AI features need to be enabled in "
+                "calibration config before use. Set calibration.use_ai_features to true."
+            )
+        if self._cellseg_error is not None:
+            raise NotImplementedError(f"SAM2 is not available: {self._cellseg_error}") from self._cellseg_error
+        if self.Cellseg is None:
+            try:
+                from patcherbot.deepLearning.cellSegmentor import CellSegmentor2
+
+                self.Cellseg = CellSegmentor2()
+            except Exception as exc:
+                self._cellseg_error = exc
+                raise NotImplementedError(f"SAM2 is not available: {exc}") from exc
+        return self.Cellseg
     
     def mask_test(self, mask,cell,img):
         if mask is not None:
@@ -324,6 +346,9 @@ class Camera(object):
 
     def normalize(self):
         print('Normalizing not supported for this camera')
+
+    def unnormalize(self):
+        print('Unnormalizing not supported for this camera')
         
     def autonormalize(self, state):
         self.auto_normalize = state

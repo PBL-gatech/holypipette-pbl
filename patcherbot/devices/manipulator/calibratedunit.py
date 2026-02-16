@@ -24,64 +24,10 @@ from numpy.linalg import inv, pinv, norm
 from threading import Thread
 from .StageCalHelper import FocusHelper, StageCalHelper
 from .PipetteCalHelper import PipetteCalHelper, PipetteFocusHelper
-from .CellTrackHelper import CellTrackHelper
 
 __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
 
 verbose = True
-
-##### Calibration parameters #####
-from patcherbot.utils.config import Config, NumberWithUnit, Number, Boolean, Tuple
-
-
-class CalibrationConfig(Config):
-    position_update = NumberWithUnit(1000, unit='ms',
-                                     doc='dt for updating displayed pos.',
-                                     bounds=(0, 10000))
-    
-    autofocus_dist = NumberWithUnit(15, unit='um',
-                                     doc='z dist to scan for autofocusing.',
-                                     bounds=(10, 5000))
-    
-    stage_diag_move = NumberWithUnit(500, unit='um',
-                                     doc='x, y dist to move for stage cal.',
-                                     bounds=(0, 10000))
-    
-    frame_lag = NumberWithUnit(4, unit='frames',
-                                     doc='number of frames between for computing change with optical flow',
-                                     bounds=(1, 20))
-    
-    pipette_diag_move = NumberWithUnit(200, unit='um',
-                                     doc='x, y dist to move for pipette cal.',
-                                     bounds=(50, 10000))
-    stage_x_axis_flip = Boolean(False, 
-                                doc='Flip the x axis of the stage')
-    stage_y_axis_flip = Boolean(True, 
-                                doc='Flip the y axis of the stage')
-    pipette_z_rotation = NumberWithUnit(-60.75, unit = 'degrees',
-                                doc='Rotation of the pipette in the xy plane (degrees)',
-                                bounds=(-360, 360))
-    pipette_y_rotation = NumberWithUnit(25, unit = 'degrees',
-                                doc='Rotation of the pipette in the xz plane (degrees)',
-                                bounds=(-90, 90))
-    
-    home_position =  Tuple((0, 0, 0), doc='Home position of the pipette in um')
-    home_position_stage =  Tuple((0, 0, 0), doc='Home position of the stage in um')
-    safe_position =  Tuple((0, 0, 0), doc='Safe position of the pipette in um')
-    safe_position_stage =  Tuple((0, 0, 0), doc='Safe position of the stage in um')
-    bath_position =  Tuple((0, 0, 0), doc='Bath position of the pipette in um')
-    
-
-    categories = [('Stage Calibration', ['autofocus_dist', 'stage_diag_move', 'frame_lag']),
-                  ('Pipette Calibration', ['pipette_diag_move']),
-                  ('Stage x-axis flip?', ['stage_x_axis_flip']),
-                  ('Stage y-axis flip?', ['stage_y_axis_flip']),
-                  ('Pipette z-axis rotation', ['pipette_z_rotation']),
-                  ('Pipette y-axis rotation', ['pipette_y_rotation']),
-                  ('Display', ['position_update']),
-                  ('Positions', ['home_position', 'home_position_stage','safe_position','safe_position_stage','bath_position']),
-                 ]
-
 
 class CalibrationError(Exception):
     def __init__(self, message='Device is not calibrated'):
@@ -110,7 +56,9 @@ class CalibratedUnit(ManipulatorUnit):
         self.saved_state_question = ('Move manipulator and stage back to '
                                      'initial position?')
         if config is None:
-            config = CalibrationConfig(name='Calibration config')
+            raise ValueError(
+                "CalibratedUnit requires an explicit CalibrationConfig instance."
+            )
         self.config = config
         if stage is None: # In this case we assume the unit is on a fixed element.
             self.stage = FixedStage()
@@ -140,8 +88,8 @@ class CalibratedUnit(ManipulatorUnit):
         self.emperical_offset = np.zeros(3) # offset for pipette position in px based on deep learning model
 
         #setup pipette calibration helper class
-        self.pipetteCalHelper = PipetteCalHelper(unit, self.microscope, camera, stage)
-        self.pipetteFocusHelper = PipetteFocusHelper(unit, camera)
+        self.pipetteCalHelper = PipetteCalHelper(unit, self.microscope, camera, stage, config=self.config)
+        self.pipetteFocusHelper = PipetteFocusHelper(unit, camera, config=self.config)
 
     def save_state(self):
         if self.stage is not None:
@@ -752,7 +700,10 @@ class CalibratedStage(CalibratedUnit):
 
         self.focusHelper = FocusHelper(microscope, camera)
         self.stageCalHelper = StageCalHelper(unit, camera, self.config.frame_lag)
-        self.cellTrackHelper = CellTrackHelper(self, camera)
+        self.cellTrackHelper = None
+        if self.config.use_ai_features:
+            from .CellTrackHelper import CellTrackHelper
+            self.cellTrackHelper = CellTrackHelper(self, camera)
         self.pipette_cal_position = np.zeros(2)
         self.unit = unit
 
@@ -981,6 +932,13 @@ class CalibratedStage(CalibratedUnit):
 
         Returns the centroid position (in pixels) as a numpy array.
         """
+        if not self.config.use_ai_features:
+            raise NotImplementedError(
+                "Cell tracking is disabled. Set calibration.use_ai_features to true before use."
+            )
+        if self.cellTrackHelper is None:
+            raise RuntimeError("CellTrackHelper is not initialized.")
+
         _cell_coords, reference_image, _position = cell
 
         # capture new image

@@ -1,6 +1,8 @@
 import time
 import cv2
 import numpy as np
+import os
+from pathlib import Path
 from patcherbot.devices.manipulator.microscope import Microscope
 from patcherbot.devices.manipulator import Manipulator
 from patcherbot.devices.camera import Camera
@@ -8,6 +10,36 @@ from patcherbot.deepLearning.pipetteDetector import PipetteDetector, PipetteDete
 from patcherbot.deepLearning.pipetteFocuser import PipetteFocuser
 from threading import Thread
 import logging
+
+
+def _resolve_model_path(model_name):
+    if model_name is None:
+        return None
+    model_text = str(model_name).strip()
+    if not model_text:
+        return None
+
+    # Normalize accidental wrappers like r'...', "...", and stray quote tails.
+    while model_text:
+        previous = model_text
+        if len(model_text) >= 2 and model_text[0].lower() == "r" and model_text[1] in ("'", '"'):
+            model_text = model_text[1:].strip()
+        if len(model_text) >= 2 and model_text[0] in ("'", '"') and model_text[-1] == model_text[0]:
+            model_text = model_text[1:-1].strip()
+        model_text = model_text.strip(" '\"")
+        if model_text == previous:
+            break
+
+    if not model_text:
+        return None
+
+    path = Path(model_text).expanduser()
+    if path.is_absolute():
+        return path
+
+    model_dir = Path(__file__).resolve().parents[2] / "deepLearning" / "pipetteModel"
+    return model_dir / path
+
 
 class PipetteCalHelper():
     """
@@ -31,14 +63,26 @@ class PipetteCalHelper():
     CAL_MAX_SPEED = 1000
     NORMAL_MAX_SPEED = 1000
 
-    def __init__(self, pipette: Manipulator, microscope: Microscope, camera: Camera, calibrated_stage):
+    def __init__(self, pipette: Manipulator, microscope: Microscope, camera: Camera, calibrated_stage, config=None):
         self.pipette: Manipulator = pipette
         self.microscope: Microscope = microscope
         self.camera = camera
-        # Prefer GPU inference if available; allow override via PIPETTE_DETECTOR_DEVICE.
-        import os
+        self.config = config
         device = os.getenv("PIPETTE_DETECTOR_DEVICE", "cuda:0")
-        self.pipetteDetector: PipetteDetector = PipetteDetectorYOLO1(device=device)
+        model_name = getattr(self.config, "pipette_detector_model", None) if self.config is not None else None
+        model_path = _resolve_model_path(model_name)
+        try:
+            self.pipetteDetector: PipetteDetector = PipetteDetectorYOLO1(
+                model_path=model_path,
+                device=device,
+            )
+        except Exception as exc:
+            logging.warning(
+                "Failed to initialize PipetteDetectorYOLO1 with model '%s' (%s); using default model path",
+                model_name,
+                exc,
+            )
+            self.pipetteDetector = PipetteDetectorYOLO1(device=device)
         self.calibrated_stage = calibrated_stage
         # Each calibration point will be a tuple:
         #   (image_x, image_y, encoder_x, encoder_y)
@@ -165,10 +209,21 @@ class PipetteCalHelper():
         return mat3x4
 
 class PipetteFocusHelper():
-    def __init__(self, pipette: Manipulator, camera: Camera):
+    def __init__(self, pipette: Manipulator, camera: Camera, config=None):
         self.pipette = pipette
         self.camera = camera
-        self.pipetteFocuser: PipetteFocuser = PipetteFocuser()
+        self.config = config
+        model_name = getattr(self.config, "pipette_focuser_model", None) if self.config is not None else None
+        model_path = _resolve_model_path(model_name)
+        try:
+            self.pipetteFocuser: PipetteFocuser = PipetteFocuser(model_path=model_path)
+        except Exception as exc:
+            logging.warning(
+                "Failed to initialize PipetteFocuser with model '%s' (%s); using default model path",
+                model_name,
+                exc,
+            )
+            self.pipetteFocuser = PipetteFocuser()
     
     def focus(self):
         """

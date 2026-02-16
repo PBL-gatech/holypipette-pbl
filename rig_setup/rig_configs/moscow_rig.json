@@ -1,6 +1,9 @@
 {
   "name": "Moscow Rig",
   "schema_version": 2,
+  "calibration_file": "moscow_cal.yaml",
+  "patch_file": "moscow_patch.yaml",
+  "protocol_file": "moscow_protocol.yaml",
   "devices": {
     "stage_controller": {
       "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
@@ -52,6 +55,10 @@
     "lamp": {
       "class": "patcherbot.devices.lamp.olympus.OlympusLamp",
       "params": { "port": "COM21" }
+    },
+    "laser": {
+      "class": "patcherbot.devices.laser.laser.FakeLaser",
+      "params": {}
     }
   }
 }

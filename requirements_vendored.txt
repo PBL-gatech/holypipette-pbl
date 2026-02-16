@@ -1,0 +1,4 @@
+# Forked repos that should live inside patcherbot/deepLearning (installed with --target).
+lightglue @ git+https://github.com/PBL-gatech/LightGlue.git
+sam-2 @ git+https://github.com/facebookresearch/sam2.git
+robomimic @ git+https://github.com/PBL-gatech/robomimic.git

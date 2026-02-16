@@ -18,7 +18,7 @@ from patcherbot.utils.RecordingStateManager import RecordingStateManager
 from patcherbot.interface import AutoPatchInterface
 from patcherbot.interface.pipettes import PipetteInterface
 from patcherbot.interface.graph import GraphInterface
-from patcherbot.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, LeakSubtractionGraph, HoldingProtocolGraph
+from patcherbot.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, LeakSubtractionGraph, HoldingProtocolGraph, OptogeneticStimProtocolGraph, OptogeneticWavelengthProtocolGraph
 from patcherbot.gui.patch import PatchGui
 from rig_setup.rig_config import RigConfigError, RigConfigManager
 from rig_setup.rig_selector import RigSelectorDialog
@@ -37,7 +37,8 @@ def main():
     config_path = selector.selected_path or manager.default_config_path()
 
     try:
-        rig_devices = manager.build_devices_from_file(config_path)
+        config_data = manager.load_config(config_path)
+        rig_devices = manager.build_devices(config_data)
     except RigConfigError as exc:
         QMessageBox.critical(None, "Rig configuration error", str(exc))
         return
@@ -61,12 +62,38 @@ def main():
     daq = rig_devices["daq"]
     pressure = rig_devices["pressure"]
     lamp = rig_devices["lamp"]
+    laser = rig_devices.get("laser")
 
     recording_state_manager = RecordingStateManager()
+    calibration_data = None
+    patch_data = None
+    protocol_data = None
+    if isinstance(config_data, dict):
+        calibration_data = config_data.get("_resolved_calibration", config_data.get("calibration"))
+        patch_data = config_data.get("_resolved_patch", config_data.get("patch"))
+        protocol_data = config_data.get("_resolved_protocol", config_data.get("protocol"))
 
-    pipette_controller = PipetteInterface(stage, microscope, camera, unit, cellSorterManip, cellSorterController)
-    patch_controller = AutoPatchInterface(amplifier, daq, pressure, pipette_controller, recording_state_manager, lamp)
-    graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager)
+    pipette_controller = PipetteInterface(
+        stage,
+        microscope,
+        camera,
+        unit,
+        cellSorterManip,
+        cellSorterController,
+        calibration_data=calibration_data,
+    )
+    patch_controller = AutoPatchInterface(
+        amplifier,
+        daq,
+        pressure,
+        pipette_controller,
+        recording_state_manager,
+        lamp,
+        laser=laser,
+        config_data=patch_data,
+        protocol_data=protocol_data,
+    )
+    graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager, laser=laser)
     gui = PatchGui(camera, pipette_camera, pipette_controller, patch_controller, recording_state_manager)
     graphs = EPhysGraph(graph_interface, recording_state_manager)
     # graphs.location_on_the_screen()
@@ -76,6 +103,8 @@ def main():
     voltageProtocolGraph = VoltageProtocolGraph(graph_interface, recording_state_manager)
     leakSubtractionGraph = LeakSubtractionGraph(graph_interface, recording_state_manager)
     holdingProtocolGraph = HoldingProtocolGraph(graph_interface, recording_state_manager)
+    optogeneticStimProtocolGraph = OptogeneticStimProtocolGraph(graph_interface, recording_state_manager)
+    optogeneticWavelengthProtocolGraph = OptogeneticWavelengthProtocolGraph(graph_interface, recording_state_manager)
 
 
     gui.initialize()

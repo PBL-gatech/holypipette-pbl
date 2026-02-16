@@ -15,6 +15,7 @@ from datetime import datetime
 import pickle
 import os
 from patcherbot.interface.patchConfig import PatchConfig
+from patcherbot.interface.protocolConfig import ProtocolConfig
 
 from .base import TaskController, RequestedSuccessException
 import threading
@@ -31,9 +32,22 @@ class AutopatchError(Exception):
 
 
 class AutoPatcher(TaskController):
-    def __init__(self, amplifier: Amplifier, daq: NiDAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp:Lamp, config: PatchConfig):
+    def __init__(
+        self,
+        amplifier: Amplifier,
+        daq: NiDAQ,
+        pressure: PressureController,
+        calibrated_unit: CalibratedUnit,
+        microscope: Microscope,
+        calibrated_stage: CalibratedStage,
+        lamp: Lamp,
+        laser=None,
+        config: PatchConfig | None = None,
+        protocol_config: ProtocolConfig | None = None,
+    ):
         super().__init__()
-        self.config = config
+        self.config = config if config is not None else PatchConfig(name="Patch")
+        self.protocol_config = protocol_config if protocol_config is not None else ProtocolConfig(name="Protocols")
         self.amplifier = amplifier
         self.daq = daq
         self.pressure = pressure
@@ -41,6 +55,7 @@ class AutoPatcher(TaskController):
         self.calibrated_stage = calibrated_stage
         self.microscope = microscope
         self.lamp = lamp
+        self.laser = laser
         self.safe_position = None
         self.safe_stage_position = None
         self.home_position = None
@@ -57,7 +72,9 @@ class AutoPatcher(TaskController):
         self.attempt_counter = 0
         self._state_recorder = None
         self._in_patch       = False
-        self.agenthelper =   AgentHelper()
+        self.agenthelper = AgentHelper(
+            use_ai_features=bool(self.calibrated_stage.config.use_ai_features)
+        )
         self.current_protocol_graph = None
         self.goal_needed = True
         self.goal_random = True
@@ -76,11 +93,11 @@ class AutoPatcher(TaskController):
 
     def getHolding(self):
         """Get the holding current as measured by the DAQ."""
-        if  self.config.custom_cclamp_protocol:
-            holding_current = self.config.cclamp_hold
+        if self.protocol_config.custom_cclamp_protocol:
+            holding_current = self.protocol_config.cclamp_hold
             return holding_current
         else:
-            holding_current = self.config.cclamp_hold
+            holding_current = self.protocol_config.cclamp_hold
             # self.amplifier.voltage_clamp()
             # self.sleep(1)
             # self.amplifier.switch_holding(False) 
@@ -479,20 +496,24 @@ class AutoPatcher(TaskController):
     def run_protocols(self):
         self.daq.setCellMode(True)
         holding = self.getHolding()
-        if self.config.voltage_protocol:
+        if self.protocol_config.voltage_protocol:
             self.run_voltage_protocol()
             self.sleep(0.25)
-        if self.config.current_protocol:
+        if self.protocol_config.current_protocol:
             self.daq.setCellMode(False)
             self.iholding = holding
             self.run_current_protocol()
             self.sleep(0.25)
             self.daq.setCellMode(True)
-        if self.config.voltage_sweep_protocol:
+        if self.protocol_config.voltage_sweep_protocol:
             self.run_voltage_sweep_protocol()
             self.sleep(0.25)
-        if self.config.holding_protocol:
+        if self.protocol_config.holding_protocol:
             self.run_holding_protocol()
+            self.sleep(0.25)
+        if self.protocol_config.opto_random_wavelength_protocol or self.protocol_config.opto_random_power_protocol:
+            self.run_optogenetic_protocol()
+            self.sleep(0.25)
         if self.config.mode == "Training":
             self.info("Training mode: protocol sequence complete. Click Success or Abort to finish.")
             while True:
@@ -515,7 +536,7 @@ class AutoPatcher(TaskController):
             holding = -0.070
         self.amplifier.set_holding(holding)
         self.info(f'holding at {holding} mV')
-        membrane_hold = float(self.config.Vramp_amplitude)
+        membrane_hold = float(self.protocol_config.vclamp_hold)
         self.amplifier.set_holding(membrane_hold)
         self.info(f'holding at {membrane_hold * 1e3:.1f} mV for membrane test')
         self.sleep(0.25)
@@ -539,10 +560,10 @@ class AutoPatcher(TaskController):
         self.info('Running voltage sweep protocol')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        sweep_hold = float(self.config.vclamp_hold)
-        sweep_step = float(self.config.vclamp_step)
-        sweep_start = float(self.config.vclamp_start)
-        sweep_end = float(self.config.vclamp_end)
+        sweep_hold = float(self.protocol_config.vclamp_sweep_hold)
+        sweep_step = float(self.protocol_config.vclamp_step)
+        sweep_start = float(self.protocol_config.vclamp_start)
+        sweep_end = float(self.protocol_config.vclamp_end)
         self.amplifier.set_holding(sweep_hold)
         self.info(f'holding at {sweep_hold * 1e3:.1f} mV for voltage sweep')
         self.sleep(0.25)
@@ -565,7 +586,7 @@ class AutoPatcher(TaskController):
             holding_voltage=sweep_hold
         )
         self.sleep(0.25)
-        self.amplifier.set_holding(self.config.Vramp_amplitude)
+        self.amplifier.set_holding(self.protocol_config.vclamp_hold)
         self.info('finished running voltage sweep protocol')
 
     def run_current_protocol(self):
@@ -584,17 +605,23 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         self.amplifier.current_clamp()
         self.sleep(0.1)
-        self.amplifier.set_neutralization_capacitance(cap)
-        self.info('set neutralization capacitance')
-        self.amplifier.set_neutralization_enable(True)
-        self.info('enabled neutralization')
-        self.sleep(0.1)
-        self.amplifier.set_bridge_balance(True)
-        self.info('auto bridge balance')
-        self.amplifier.auto_bridge_balance()
-        self.sleep(0.1)
+        if self.protocol_config.enable_neutralization_capacitance:
+            self.amplifier.set_neutralization_capacitance(cap)
+            self.info('set neutralization capacitance')
+            self.amplifier.set_neutralization_enable(True)
+            self.info('enabled neutralization')
+            self.sleep(0.1)
+        else:
+            self.info('neutralization capacitance disabled')
+        if self.protocol_config.enable_bridge_balance:
+            self.amplifier.set_bridge_balance(True)
+            self.info('auto bridge balance')
+            self.amplifier.auto_bridge_balance()
+            self.sleep(0.1)
+        else:
+            self.info('bridge balance disabled')
         if self.iholding is None:
-            current = self.config.cclamp_hold
+            current = self.protocol_config.cclamp_hold
 
         else:
             current = (self.iholding)
@@ -606,12 +633,28 @@ class AutoPatcher(TaskController):
         self.amplifier.switch_holding(True)
         self.info('enabled holding')
         self.sleep(0.1)
-        if self.config.custom_cclamp_protocol:
+        if self.protocol_config.custom_cclamp_protocol:
             self.debug('running custom current protocol')
-            self.daq.getDataFromCurrentProtocol(custom =self.config.custom_cclamp_protocol,factor= 1,startCurrentPicoAmp=(self.config.cclamp_start), endCurrentPicoAmp=(self.config.cclamp_end), stepCurrentPicoAmp=(self.config.cclamp_step), recordingTimeMs = 500)                                            
+            self.daq.getDataFromCurrentProtocol(
+                custom=self.protocol_config.custom_cclamp_protocol,
+                factor=1,
+                startCurrentPicoAmp=self.protocol_config.cclamp_start,
+                endCurrentPicoAmp=self.protocol_config.cclamp_end,
+                stepCurrentPicoAmp=self.protocol_config.cclamp_step,
+                recordingTimeMs=self.protocol_config.cclamp_recording_time_ms,
+                dutyCycle=self.protocol_config.cclamp_duty_cycle,
+            )
         else:
             self.debug('running default current protocol')
-            self.daq.getDataFromCurrentProtocol(custom=self.config.custom_cclamp_protocol, factor=1, startCurrentPicoAmp=None, endCurrentPicoAmp=None, stepCurrentPicoAmp=10, recordingTimeMs = 500)
+            self.daq.getDataFromCurrentProtocol(
+                custom=self.protocol_config.custom_cclamp_protocol,
+                factor=1,
+                startCurrentPicoAmp=None,
+                endCurrentPicoAmp=None,
+                stepCurrentPicoAmp=10,
+                recordingTimeMs=self.protocol_config.cclamp_recording_time_ms,
+                dutyCycle=self.protocol_config.cclamp_duty_cycle,
+            )
         self.sleep(0.1)
         self.amplifier.switch_holding(False)
         self.info('disabled holding')
@@ -623,13 +666,11 @@ class AutoPatcher(TaskController):
         self.info('Running holding protocol (E/I PSC test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
-        holding = self.amplifier.get_holding()
-        if holding is None:
-            holding = -0.070
+        holding = float(self.protocol_config.vclamp_hold)
         self.amplifier.set_holding(holding)
         self.info(f'holding at {holding} mV')
         self.sleep(0.25)
-        self.daq.getDataFromHoldingProtocol(duration_s = self.config.hclamp_duration)
+        self.daq.getDataFromHoldingProtocol(duration_s=self.protocol_config.hclamp_duration)
         self.sleep(0.25)
         # self.amplifier.set_holding(0)
         self.sleep(0.25)
@@ -657,6 +698,30 @@ class AutoPatcher(TaskController):
         except (AutopatchError, ValueError) as e:
             self.rig_ready = False
             raise e
+
+    def move_stage_to_cell(self, cell):
+        '''
+        Moves the stage to the XY position of the target cell.
+        '''
+        if cell is None:
+            raise AutopatchError("No cell given to move stage to")
+        if not self.calibrated_stage.calibrated:
+            raise AutopatchError("Stage not calibrated")
+
+        cell_pos = None
+        cell_array = np.asarray(cell)
+        if cell_array.shape == (3,) and np.issubdtype(cell_array.dtype, np.number):
+            cell_pos = cell_array
+        elif isinstance(cell, (tuple, list)) and len(cell) > 0:
+            cell_pos = np.asarray(cell[0])
+
+        if cell_pos is None or cell_pos.size < 2:
+            raise AutopatchError("Cell position missing XY coordinates")
+
+        self.info(f" Moving to Cell position: {cell_pos}")
+        cell_pos_planar = np.array([cell_pos[0], cell_pos[1], 0])
+        self.calibrated_stage.safe_move(np.array(cell_pos_planar))
+        self.calibrated_stage.wait_until_still()
 
     @record_state("locate_cell") 
     def locate_cell(self, cell):
@@ -823,6 +888,8 @@ class AutoPatcher(TaskController):
         else:
             autoHunt = False
 
+        stage_config = self.calibrated_stage.config
+        track_cell_ai_disabled_logged = False
         cell_detected = self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase)
         while not cell_detected and self.abort_requested == False:
             # if autoHunt:
@@ -862,12 +929,20 @@ class AutoPatcher(TaskController):
                 break
             #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
             if self.config.track_cell:
-                position, disp = self.calibrated_stage.get_cell_position(cell,use_centroid=self.config.use_centroid)
-                if position is not None and disp is not None:
-                    self.info(f"cell displacement: {disp} px")
-                    self.info(f"cell position: {position} px")
-                else:
-                    self.info("lost track of cell")
+                ai_tracking_enabled = bool(stage_config.use_ai_features)
+                if ai_tracking_enabled:
+                    track_cell_ai_disabled_logged = False
+                    position, disp = self.calibrated_stage.get_cell_position(cell,use_centroid=self.config.use_centroid)
+                    if position is not None and disp is not None:
+                        self.info(f"cell displacement: {disp} px")
+                        self.info(f"cell position: {position} px")
+                    else:
+                        self.info("lost track of cell")
+                elif not track_cell_ai_disabled_logged:
+                    self.info(
+                        "Track-cell is enabled, but calibration.use_ai_features is false; skipping AI cell tracking."
+                    )
+                    track_cell_ai_disabled_logged = True
 
             self.sleep(0.04)
             lastResDeque.append(daqResistance)
@@ -1059,7 +1134,7 @@ class AutoPatcher(TaskController):
 
             # Holding potential switch
             if avg_resistance >= self.config.gigaseal_R / 12 and not holding_switched:
-                self.amplifier.set_holding(self.config.Vramp_amplitude)
+                self.amplifier.set_holding(self.protocol_config.vclamp_hold)
                 self.amplifier.switch_holding(True)
                 holding_switched = True
 
@@ -1262,7 +1337,7 @@ class AutoPatcher(TaskController):
             self.info("Whole-cell achieved, resting for 5 seconds")
             self.sleep(5)
             
-            if not self.config.custom_cclamp_protocol: 
+            if not self.protocol_config.custom_cclamp_protocol:
                     #! Phase 4: run protocols
                     self.info(f"Running protocol")
                     _run_phase(self.run_protocols)
@@ -1275,6 +1350,72 @@ class AutoPatcher(TaskController):
                         cleanup_performed = True
 
             self.success_requested = True
+
+        finally:
+            if not cleanup_performed:
+                try:
+                    self.info("Patch attempt interrupted, running escape cleanup")
+                    if self.config.auto_clean_pipette:
+                        self.escape()
+                except RequestedSuccessException:
+                    # Escape may also set success; clear it so teardown can finish.
+                    self.success_requested = False
+                except Exception as cleanup_error:
+                    self.warning(f"Cleanup escape failed: {cleanup_error}")
+            # ---- teardown so the next call starts a fresh attempt ----
+            self._state_recorder = None
+            self._in_patch = False
+
+    @record_state("whole_cell")
+    def whole_cell(self, cell=None):
+        """ method similar to patch, but starts from gigaseal stage
+        """
+        self._in_patch = True
+        self._get_state_recorder()
+
+        def _run_phase(phase_callable, *phase_args, sleep_after=None):
+            """
+            Execute a patching phase while ignoring manual success interrupts so
+            the full sequence can continue. Any other exception still bubbles up.
+            """
+            try:
+                phase_callable(*phase_args)
+            except RequestedSuccessException:
+                return
+            finally:
+                # Reset the flag so follow-up phases do not see a stale request.
+                self.success_requested = False
+            if sleep_after:
+                self.sleep(sleep_after)
+
+        cleanup_performed = False
+
+        try:
+            # ------ rig preparation -------------------------------#
+            self.isrigready()
+            if self.rig_ready is False:
+                raise AutopatchError("Rig not ready for patching")
+
+            if cell is None:
+                raise AutopatchError("No cell given to patch!")
+
+            self.info("Starting patching process")
+
+            #! Phase 2: attempt to form a gigaseal
+            _run_phase(self.gigaseal, sleep_after=3)
+
+            #! Phase 3: break into cell
+            _run_phase(self.break_in)
+            self.info("Whole-cell achieved, resting for 5 seconds")
+            self.sleep(5)
+
+            if not self.protocol_config.custom_cclamp_protocol:
+                    #! Phase 4: run protocols
+                    self.info(f"Running protocol")
+                    _run_phase(self.run_protocols)
+
+            self.success_requested = True
+            cleanup_performed = True
 
         finally:
             if not cleanup_performed:
@@ -1393,6 +1534,33 @@ class AutoPatcher(TaskController):
             self.microscope.wait_until_still()
         finally:
             pass
+
+    def move_group_in_x(self,dist = 25):
+        '''
+        Moves the pipette and stage in x axis by input distance
+        '''
+
+        try:
+            self.calibrated_unit.relative_move(dist, axis=0)
+            self.calibrated_unit.wait_until_still(0)
+            self.calibrated_stage.relative_move(dist, axis=0)
+            self.calibrated_stage.wait_until_still(0)
+        finally:
+            pass
+
+    def move_group_in_y(self,dist = 500):
+        '''
+        Moves the pipette and stage in y axis by input distance
+        '''
+
+        try:
+            self.calibrated_unit.relative_move(dist, axis=1)
+            self.calibrated_unit.wait_until_still(1)
+            #rotate for pipette motion in around z
+            self.calibrated_stage.relative_move(dist, axis=1)
+            self.calibrated_stage.wait_until_still(1)
+        finally:
+            pass
     
     def move_pipette_up(self, dist = 5000):
         '''
@@ -1414,17 +1582,20 @@ class AutoPatcher(TaskController):
         try:
             start_x, start_y, start_z = self.calibrated_unit.position()
             safe_x, safe_y, safe_z = self.safe_position
+            clean_move_order = list(self.calibrated_unit.config.clean_move_order)
+            if len(clean_move_order) != 3 or set(clean_move_order) != {"x", "y", "z"}:
+                self.warning(f"Invalid clean_move_order={clean_move_order}; falling back to ['y', 'x', 'z']")
+                clean_move_order = ["y", "x", "z"]
             # Step 1: Move to the safe space
             self.move_to_safe_space()
             clean_x, clean_y, clean_z = self.cleaning_bath_position
-            # Step 2: Move the pipette above the cleaning bath in the x and y directions
-            self.calibrated_unit.absolute_move(clean_y, axis=1)
-            self.calibrated_unit.wait_until_still(1)
-            self.calibrated_unit.absolute_move(clean_x, axis=0)
-            self.calibrated_unit.wait_until_still(0)
-            # Step 3: Move the pipette down to the cleaning bath
-            self.calibrated_unit.absolute_move(clean_z, axis=2)
-            self.calibrated_unit.wait_until_still(2)
+            # Step 2 + 3: Move the pipette above and then down into the cleaning bath
+            clean_position = {"x": clean_x, "y": clean_y, "z": clean_z}
+            axis_map = {"x": 0, "y": 1, "z": 2}
+            for axis_name in clean_move_order:
+                axis = axis_map[axis_name]
+                self.calibrated_unit.absolute_move(clean_position[axis_name], axis=axis)
+                self.calibrated_unit.wait_until_still(axis)
 
             # Step 4: Cleaning
             # Fill up with the Alconox
@@ -1439,13 +1610,12 @@ class AutoPatcher(TaskController):
                 self.sleep(0.75)
 
             # Step 5: Drying
-            # move pipette back to safe space in reverse
-            self.calibrated_unit.absolute_move(safe_z, axis=2)
-            self.calibrated_unit.wait_until_still(2)
-            self.calibrated_unit.absolute_move(safe_x, axis=0)
-            self.calibrated_unit.wait_until_still(0)
-            self.calibrated_unit.absolute_move(safe_y, axis=1)
-            self.calibrated_unit.wait_until_still(1)
+            # move pipette back to safe space in reverse configured axis order
+            safe_target = {"x": safe_x, "y": safe_y, "z": safe_z}
+            for axis_name in reversed(clean_move_order):
+                axis = axis_map[axis_name]
+                self.calibrated_unit.absolute_move(safe_target[axis_name], axis=axis)
+                self.calibrated_unit.wait_until_still(axis)
 
             self.pressure.set_pressure(-600)
             self.sleep(1)
@@ -1462,6 +1632,28 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.wait_until_still()
             self.calibrated_unit.absolute_move(start_y, axis=1)
             self.calibrated_unit.wait_until_still() # Ensure movement completes
+        finally:
+            pass
+
+    def clean_pipette_no_move(self):
+        '''
+        Cleans the pipette without moving to cleaning bath position
+        '''
+        try:
+            # Cleaning
+            # Fill up with the Alconox
+            self.pressure.set_ATM(atm=False)
+            self.pressure.set_pressure(-600)
+            self.sleep(1)
+            # 5 cycles of tip cleaning
+            for i in range(1, 5):
+                self.pressure.set_pressure(-600)
+                self.sleep(0.75)
+                self.pressure.set_pressure(1000)
+                self.sleep(0.75)
+
+            self.pressure.set_pressure(50)
+  
         finally:
             pass
 
@@ -1617,6 +1809,160 @@ class AutoPatcher(TaskController):
             current = 1
         new_slot = current + 1
         self.lamp.set_filter(new_slot)
+
+    def run_optogenetic_protocol(self, protocol_params: dict | None = None):
+        """
+        Run optogenetic protocols based on configuration or explicit parameters.
+        """
+        if self.laser is None:
+            self.warning("No laser configured; skipping optogenetic protocol.")
+            return None
+        if not hasattr(self.daq, "getDataFromOptogeneticProtocol"):
+            self.warning("DAQ does not support optogenetic protocol capture.")
+            return None
+
+        self.info("Running optogenetic protocol")
+        self.amplifier.voltage_clamp()
+        self.sleep(0.25)
+        holding = float(self.protocol_config.vclamp_hold)
+        self.amplifier.set_holding(holding)
+        self.info(f'holding at {holding} mV')
+        self.sleep(0.25)
+
+        results = []
+
+        color_cycle = ["red", "green", "cyan", "uv", "blue", "infrared"]
+
+        def _coerce_wavelength(value):
+            if isinstance(value, str):
+                return value.strip().lower()
+            try:
+                idx = int(value)
+            except (TypeError, ValueError):
+                return value
+            if idx == 7:
+                return "off"
+            if idx <= 0:
+                idx = 1
+            return color_cycle[(idx - 1) % len(color_cycle)]
+
+        def _run_steps(steps, rate_hz):
+            result = self.daq.getDataFromOptogeneticProtocol(
+                laser=self.laser,
+                protocol_steps=steps,
+                rate_hz=rate_hz,
+            )
+            results.append(result)
+            self.sleep(0.25)
+
+        if protocol_params is not None:
+            randomize_target = protocol_params.get("randomize_target", protocol_params.get("mode", "wavelength"))
+            raw_wavelengths = list(protocol_params.get("wavelengths", ["green"]))
+            wavelengths = [_coerce_wavelength(value) for value in raw_wavelengths]
+            steps = self.laser.build_optogenetic_protocol(
+                wavelengths=wavelengths,
+                powers=list(protocol_params.get("powers", [50])),
+                randomize_target=randomize_target,
+                stabilize_time=float(protocol_params.get("stabilize_time", 1.0)),
+                off_time=float(protocol_params.get("off_time", 0.1)),
+                on_time=float(protocol_params.get("on_time", 0.01)),
+                replicates=int(protocol_params.get("replicates", 1)),
+                randomize=bool(protocol_params.get("randomize", True)),
+                power_divisor=float(protocol_params.get("power_divisor", 1.0)),
+            )
+            _run_steps(steps, int(protocol_params.get("rate_hz", 50_000)))
+        else:
+            cfg = self.protocol_config
+            stabilize_time = float(cfg.opto_stabilize_time)
+            off_time = float(cfg.opto_off_time)
+            on_time = float(cfg.opto_on_time)
+            replicates = int(cfg.opto_replicates)
+            rate_hz = 50_000
+
+            if cfg.opto_random_wavelength_protocol:
+                wavelengths = ["red", "green", "cyan", "uv", "blue", "infrared"]
+                powers = [float(cfg.opto_wavelength_power)]
+                steps = self.laser.build_optogenetic_protocol(
+                    wavelengths=wavelengths,
+                    powers=powers,
+                    randomize_target="wavelength",
+                    stabilize_time=stabilize_time,
+                    off_time=off_time,
+                    on_time=on_time,
+                    replicates=replicates,
+                    randomize=True,
+                )
+                _run_steps(steps, rate_hz)
+
+            if cfg.opto_random_power_protocol:
+                wavelengths = [_coerce_wavelength(cfg.opto_power_wavelength)]
+                powers = list(range(0, 101, 20))
+                steps = self.laser.build_optogenetic_protocol(
+                    wavelengths=wavelengths,
+                    powers=powers,
+                    randomize_target="power",
+                    stabilize_time=stabilize_time,
+                    off_time=off_time,
+                    on_time=on_time,
+                    replicates=replicates,
+                    randomize=True,
+                )
+                _run_steps(steps, rate_hz)
+
+        if not results:
+            self.warning("No optogenetic protocol flags enabled")
+
+        self.amplifier.voltage_clamp()
+        self.info("finished running optogenetic protocol")
+        if len(results) == 1:
+            return results[0]
+        return results
+
+    def toggle_laser_output(self):
+        if self.laser is None:
+            self.warning("No laser configured; skipping output toggle.")
+            return
+        try:
+            self.laser.excite()
+        except Exception as exc:
+            self.error(f"Error toggling laser output: {exc}")
+
+    def _step_laser_wavelength(self, step: int):
+        if self.laser is None:
+            self.warning("No laser configured; skipping wavelength change.")
+            return
+        current = self.laser.get_wavelength()
+        if current is None:
+            target = 1
+        elif isinstance(current, int):
+            target = max(1, current + step)
+        else:
+            try:
+                from enum import Enum
+                if isinstance(current, Enum):
+                    channels = [c for c in type(current) if getattr(c, "name", "") != "OFF"]
+                    if not channels:
+                        self.warning("Laser wavelength enum has no selectable channels.")
+                        return
+                    try:
+                        idx = channels.index(current)
+                    except ValueError:
+                        idx = 0
+                    target = channels[max(0, min(len(channels) - 1, idx + step))]
+                else:
+                    self.warning(f"Unsupported laser wavelength type: {type(current)}")
+                    return
+            except Exception as exc:
+                self.error(f"Unable to step laser wavelength: {exc}")
+                return
+
+        self.laser.set_wavelength(target)
+
+    def wavelength_down(self):
+        self._step_laser_wavelength(-1)
+
+    def wavelength_up(self):
+        self._step_laser_wavelength(1)
 
     def observe(self):
         import time
