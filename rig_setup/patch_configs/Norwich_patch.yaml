@@ -1,0 +1,3 @@
+max_access_R: 50
+slice_start_distance: 20
+zap: true

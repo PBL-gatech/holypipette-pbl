@@ -435,7 +435,9 @@ class AutoPatchInterface(TaskInterface):
         angle = np.deg2rad(self.current_autopatcher.calibrated_unit.config.pipette_y_rotation)
         delta = float(self.current_autopatcher.calibrated_unit.config.safe_position_delta_um)
         x_pip, y_pip,z_pip  = self.current_autopatcher.home_position
-        self.current_autopatcher.safe_position = np.array([x_pip, y_pip , z_pip+delta])
+        self.current_autopatcher.safe_position = np.array(
+            [x_pip + delta * np.cos(angle), y_pip, z_pip + delta * np.sin(angle)]
+        )
         x,y = self.pipette_controller.calibrated_stage.position()
         z = self._microscope_z_um()
         self.current_autopatcher.home_stage_position = [x,y,z]

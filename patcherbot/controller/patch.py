@@ -736,7 +736,7 @@ class AutoPatcher(TaskController):
         disp[1] = stage_pos[1] - self.home_stage_position[1]
         disp[2] = 0
         # print(f"Disp: {disp}")
-        pipette_disp = self.calibrated_unit.rotate(disp, [2, 1])
+        pipette_disp = self.calibrated_unit.rotate(disp, 2)
         self.calibrated_unit.relative_move(pipette_disp)
         self.calibrated_unit.wait_until_still() 
         # center pipette on cell xy 
