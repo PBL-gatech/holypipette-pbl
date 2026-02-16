@@ -63,7 +63,7 @@ class AutoPatcher(TaskController):
         self.goal_random = True
         self.ninput = None
         self.done = False
-        self.find_pipette_velocity_speed_um_s = 200.0
+        self.find_pipette_velocity_speed_um_s = 1000.0
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -132,6 +132,8 @@ class AutoPatcher(TaskController):
         command_speed_um_s = abs(float(getattr(self, "find_pipette_velocity_speed_um_s", 200.0)))
         if command_speed_um_s == 0:
             raise ValueError("find_pipette_velocity_speed_um_s must be non-zero.")
+        non_agent_relative_move_threshold_um_s = 1000.0
+        use_non_agent_relative_move = command_speed_um_s >= non_agent_relative_move_threshold_um_s
 
         def _log_timing(label: str, duration_s: float) -> None:
             """Lightweight timing logger for find_pipette stages."""
@@ -273,9 +275,13 @@ class AutoPatcher(TaskController):
                 move_um = np.array([xy_um[0], xy_um[1], zerr_um], dtype=float)
                 move_distance_um = float(np.linalg.norm(move_um))
                 if move_distance_um > 0:
-                    velocity = self.calibrated_unit.velocity_position_control(move_um, command_speed_um_s)
-                    velocity_command_local = -np.asarray(velocity, dtype=float)
-                    self.calibrated_unit.absolute_move_group_velocity(velocity_command_local.tolist())
+                    if use_non_agent_relative_move:
+                        self.calibrated_unit.relative_move_group(move_um.tolist())
+                        self.calibrated_unit.wait_until_still()
+                    else:
+                        velocity = self.calibrated_unit.velocity_position_control(move_um, command_speed_um_s)
+                        velocity_command_local = -np.asarray(velocity, dtype=float)
+                        self.calibrated_unit.absolute_move_group_velocity(velocity_command_local.tolist())
                 # _log_timing("action_direct_pipette", time.perf_counter() - act_start)
                 self.sleep(_adaptive_sleep_time(gerr_um, tol_um))
                 continue

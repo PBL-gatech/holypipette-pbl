@@ -150,6 +150,7 @@ class DatasetBuilderSettings:
     random_seed: int = 0
     freq_mask: int = 1
     load_next_obs: bool = False # set to true for goal conditioning
+    use_velocities: bool = False # set to true to convert action deltas into per-observation velocities
     prefer_cv_movement: bool = True # set to true to prefer cv_movement_recording.csv over movement_recording.csv
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
@@ -207,6 +208,82 @@ def _shift_forward(arr: np.ndarray) -> np.ndarray:
     out[:-1] = arr[1:]
     out[-1] = arr[-1]
     return out
+
+
+def _positions_to_deltas(positions: np.ndarray) -> np.ndarray:
+    """Return per-observation deltas with an initial zero row."""
+
+    if positions.size == 0:
+        return np.empty_like(positions, dtype=np.float64)
+
+    positions = np.asarray(positions, dtype=np.float64)
+    zeros = np.zeros((1, positions.shape[1]), dtype=np.float64)
+    if positions.shape[0] <= 1:
+        return zeros
+    return np.vstack([zeros, np.diff(positions, axis=0)])
+
+
+def _deltas_to_observation_velocities(
+    deltas: np.ndarray,
+    timestamps: np.ndarray,
+) -> np.ndarray:
+    """Convert deltas into per-observation velocities.
+
+    The first sample uses forward Euler, the last uses backward Euler, and
+    interior samples blend forward/backward Euler slopes with dt-based weights.
+    """
+
+    deltas = np.asarray(deltas, dtype=np.float64)
+    if deltas.size == 0:
+        return np.empty_like(deltas)
+
+    num_samples = deltas.shape[0]
+    velocities = np.zeros_like(deltas)
+    if num_samples <= 1:
+        return velocities
+
+    timestamps = np.asarray(timestamps, dtype=np.float64).reshape(-1)
+    if timestamps.shape[0] != num_samples:
+        raise ValueError("timestamps and deltas must have matching lengths")
+
+    dt = np.diff(timestamps)
+    interval_velocities = np.zeros((num_samples - 1, deltas.shape[1]), dtype=np.float64)
+    valid_dt = dt > np.finfo(np.float64).eps
+    if np.any(valid_dt):
+        interval_velocities[valid_dt] = deltas[1:][valid_dt] / dt[valid_dt, None]
+
+    if not np.any(valid_dt):
+        return velocities
+
+    valid_indices = np.flatnonzero(valid_dt)
+    velocities[0] = interval_velocities[valid_indices[0]]
+    velocities[-1] = interval_velocities[valid_indices[-1]]
+
+    if num_samples > 2:
+        interior = velocities[1:-1]
+        back_v = interval_velocities[:-1]
+        fwd_v = interval_velocities[1:]
+        back_dt = dt[:-1]
+        fwd_dt = dt[1:]
+        back_valid = valid_dt[:-1]
+        fwd_valid = valid_dt[1:]
+
+        both_valid = back_valid & fwd_valid
+        back_only = back_valid & ~fwd_valid
+        fwd_only = ~back_valid & fwd_valid
+
+        if np.any(both_valid):
+            denom = (back_dt[both_valid] + fwd_dt[both_valid])[:, None]
+            interior[both_valid] = (
+                back_dt[both_valid, None] * back_v[both_valid]
+                + fwd_dt[both_valid, None] * fwd_v[both_valid]
+            ) / denom
+        if np.any(back_only):
+            interior[back_only] = back_v[back_only]
+        if np.any(fwd_only):
+            interior[fwd_only] = fwd_v[fwd_only]
+    return velocities
+
 
 def _parse_waveform_column(column: Sequence[str]) -> np.ndarray:
     """Parse JSON-encoded voltage/current columns and pad to equal length."""
@@ -393,6 +470,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.omit_stage_movement = settings.omit_stage_movement
         self.rng = np.random.default_rng(settings.random_seed)
         self.load_next_obs = settings.load_next_obs
+        self.use_velocities = settings.use_velocities
         self.prefer_cv_movement = settings.prefer_cv_movement
         self.freq_mask = max(1, int(settings.freq_mask))
         self.observation_selector = settings.observation_selector
@@ -404,6 +482,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self._camera_frame_shape_cache: Dict[str, Tuple[int, int]] = {}
         self._using_cv_movement_file = False
         self._last_pipette_scale: Tuple[float, float] = (1.0, 1.0)
+        self._last_action_representation = "velocity" if self.use_velocities else "delta"
 
         self.dataset_dir, self.dataset_path = _ensure_dataset_stub(settings.dataset_name, create_file=False)
         self._base_dataset_name = self.dataset_name
@@ -815,26 +894,65 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 continue
         return None
 
+    def _camera_xy_transform(
+        self, frame_shape: Tuple[int, int]
+    ) -> Optional[Tuple[float, float, float, float]]:
+        width, height = frame_shape
+        if width <= 0 or height <= 0:
+            return None
+        crop_w = width // 2 if self.center_crop else width
+        crop_h = height // 2 if self.center_crop else height
+        if crop_w <= 0 or crop_h <= 0:
+            return None
+        offset_x = (width - crop_w) // 2 if self.center_crop else 0
+        offset_y = (height - crop_h) // 2 if self.center_crop else 0
+        scale_x = self.image_resize / crop_w
+        scale_y = self.image_resize / crop_h
+        return float(offset_x), float(offset_y), float(scale_x), float(scale_y)
+
     def _apply_camera_crop_and_resize(
         self, pipette_positions: np.ndarray, frame_shape: Tuple[int, int]
     ) -> np.ndarray:
         if pipette_positions.ndim < 2 or pipette_positions.shape[1] < 2:
             return pipette_positions
-        width, height = frame_shape
-        if width <= 0 or height <= 0:
+        transform = self._camera_xy_transform(frame_shape)
+        if transform is None:
             return pipette_positions
-        crop_w = width // 2 if self.center_crop else width
-        crop_h = height // 2 if self.center_crop else height
-        if crop_w <= 0 or crop_h <= 0:
-            return pipette_positions
-        offset_x = (width - crop_w) // 2 if self.center_crop else 0
-        offset_y = (height - crop_h) // 2 if self.center_crop else 0
+        offset_x, offset_y, scale_x, scale_y = transform
         scaled = pipette_positions.astype(np.float64, copy=True)
-        scale_x = self.image_resize / crop_w
-        scale_y = self.image_resize / crop_h
         scaled[:, 0] = (scaled[:, 0] - offset_x) * scale_x
         scaled[:, 1] = (scaled[:, 1] - offset_y) * scale_y
         return scaled
+
+    def _pipette_positions_in_image_space(
+        self,
+        pipette_positions: np.ndarray,
+        rig_recorder_data_folder: Optional[str] = None,
+    ) -> Tuple[np.ndarray, Tuple[float, float]]:
+        """Return pipette positions converted into post-crop, post-resize image space."""
+        converted = pipette_positions.astype(np.float64, copy=True)
+        scale_xy = (1.0, 1.0)
+        if not self._using_cv_movement_file:
+            return converted, scale_xy
+
+        frame_shape = None
+        if rig_recorder_data_folder:
+            frame_shape = self._get_camera_frame_shape(rig_recorder_data_folder)
+
+        if frame_shape is None:
+            scale_xy = getattr(self, "_last_pipette_scale", (1.0, 1.0))
+            if converted.shape[1] >= 1:
+                converted[:, 0] *= scale_xy[0]
+            if converted.shape[1] >= 2:
+                converted[:, 1] *= scale_xy[1]
+            return converted, scale_xy
+
+        transform = self._camera_xy_transform(frame_shape)
+        if transform is None:
+            return converted, scale_xy
+        _, _, scale_x, scale_y = transform
+        converted = self._apply_camera_crop_and_resize(converted, frame_shape)
+        return converted, (scale_x, scale_y)
 
     def get_attempt_camera_frames(
         self,
@@ -940,28 +1058,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             voltage_values = None
 
         stage_positions_full = self.get_attempt_stage_positions(attempt_movement_values)
-        pipette_positions_full = self.get_attempt_pipette_positions(attempt_movement_values).astype(np.float64, copy=True)
-
-        scale_x = 1.0
-        scale_y = 1.0
-
-        if self._using_cv_movement_file:
-            frame_shape = self._get_camera_frame_shape(rig_recorder_data_folder)
-            if frame_shape is not None:
-                width, height = frame_shape
-                crop_w = width // 2 if self.center_crop else width
-                crop_h = height // 2 if self.center_crop else height
-                if crop_w > 0 and crop_h > 0:
-                    offset_x = (width - crop_w) // 2 if self.center_crop else 0
-                    offset_y = (height - crop_h) // 2 if self.center_crop else 0
-                    scale_x = self.image_resize / crop_w
-                    scale_y = self.image_resize / crop_h
-                    if pipette_positions_full.shape[1] >= 1:
-                        pipette_positions_full[:, 0] = (pipette_positions_full[:, 0] - offset_x) * scale_x
-                    if pipette_positions_full.shape[1] >= 2:
-                        pipette_positions_full[:, 1] = (pipette_positions_full[:, 1] - offset_y) * scale_y
-
-        self._last_pipette_scale = (scale_x, scale_y)
+        pipette_positions_raw = self.get_attempt_pipette_positions(attempt_movement_values)
+        pipette_positions_full, pipette_scale = self._pipette_positions_in_image_space(
+            pipette_positions_raw,
+            rig_recorder_data_folder=rig_recorder_data_folder,
+        )
+        self._last_pipette_scale = pipette_scale
 
         stage_positions: Optional[np.ndarray]
         if selector.include_stage:
@@ -1075,31 +1177,35 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         )
 
     # --- Action computation ----------------------------------------------
-    def get_attempt_actions(self, attempt_movement_values: np.ndarray) -> np.ndarray:
-        """Return low-level deltas (and optional command hashes) per timestep."""
+    def get_attempt_actions(
+        self,
+        attempt_movement_values: np.ndarray,
+        rig_recorder_data_folder: Optional[str] = None,
+    ) -> np.ndarray:
+        """Return low-level per-step deltas or per-observation velocities."""
+        timestamps = attempt_movement_values[:, 0].astype(np.float64, copy=False)
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
-        pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
+        pipette_positions_raw = self.get_attempt_pipette_positions(attempt_movement_values)
+        pipette_positions, pipette_scale = self._pipette_positions_in_image_space(
+            pipette_positions_raw,
+            rig_recorder_data_folder=rig_recorder_data_folder,
+        )
+        self._last_pipette_scale = pipette_scale
 
-        zero_stage = np.zeros((1, stage_positions.shape[1]), dtype=np.float64)
-        if stage_positions.shape[0] > 1:
-            stage_delta = np.vstack([zero_stage, np.diff(stage_positions, axis=0)])
+        stage_delta = _positions_to_deltas(stage_positions)
+        pip_delta = _positions_to_deltas(pipette_positions)
+
+        if self.use_velocities:
+            stage_actions = _deltas_to_observation_velocities(stage_delta, timestamps)
+            pip_actions = _deltas_to_observation_velocities(pip_delta, timestamps)
+            self._last_action_representation = "velocity"
         else:
-            stage_delta = zero_stage
+            stage_actions = stage_delta
+            pip_actions = pip_delta
+            self._last_action_representation = "delta"
 
-        zero_pipette = np.zeros((1, pipette_positions.shape[1]), dtype=np.float64)
-        if pipette_positions.shape[0] > 1:
-            pip_delta = np.vstack([zero_pipette, np.diff(pipette_positions, axis=0)])
-        else:
-            pip_delta = zero_pipette
-
-        scale_x, scale_y = getattr(self, "_last_pipette_scale", (1.0, 1.0))
-        if pip_delta.shape[1] >= 1:
-            pip_delta[:, 0] *= scale_x
-        if pip_delta.shape[1] >= 2:
-            pip_delta[:, 1] *= scale_y
-
-        movement_actions = np.hstack([stage_delta, pip_delta])
-        stage_dim = stage_delta.shape[1]
+        movement_actions = np.hstack([stage_actions, pip_actions])
+        stage_dim = stage_actions.shape[1]
 
         selector = self.action_selector
 
@@ -1108,7 +1214,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self._last_stage_motion_detected = bool(np.any(stage_delta != 0.0))
 
         stage_indices = selector.stage_indices(stage_dim)
-        pip_indices = selector.pipette_indices(pip_delta.shape[1])
+        pip_indices = selector.pipette_indices(pip_actions.shape[1])
 
         selected_components: List[np.ndarray] = []
         action_labels: List[str] = []
@@ -1265,6 +1371,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             action_ds = demo.create_dataset("actions", data=actions)
             if self._last_action_labels:
                 action_ds.attrs["axes"] = np.asarray(self._last_action_labels, dtype="S")
+            action_ds.attrs["representation"] = self._last_action_representation
             demo.create_dataset("dones", data=dones)
 
             observations = demo.create_group("obs")
@@ -1361,6 +1468,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 "pipette_axes": obs.pipette_axis_labels(),
             },
             "actions": {
+                "representation": "velocity" if self.use_velocities else "delta",
                 "include_stage": act.include_stage,
                 "include_pipette": act.include_pipette,
                 "include_pressure": act.include_pressure,
@@ -1586,7 +1694,10 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         include_camera=include_camera,
                     )
 
-                    actions = self.get_attempt_actions(attempt_movement_values)
+                    actions = self.get_attempt_actions(
+                        attempt_movement_values,
+                        rig_recorder_data_folder=rig_recorder_data_folder,
+                    )
 
                     stage_moved = getattr(self, "_last_stage_motion_detected", False)
                     if self.omit_stage_movement and stage_moved:

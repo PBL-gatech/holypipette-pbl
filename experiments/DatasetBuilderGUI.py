@@ -147,6 +147,10 @@ class DatasetBuilderGUI(QWidget):
         self.inaction_tolerance.setValue(0.0)
 
         self.load_next_obs = QCheckBox("Load next observations")
+        self.use_velocities = QCheckBox("Use velocities")
+        self.use_velocities.setToolTip(
+            "Convert deltas to per-observation velocities using forward/backward Euler."
+        )
         self.omit_stage_movement = QCheckBox("Omit stage movement attempts")
         self.center_crop = QCheckBox("Center crop camera")
         self.pipette_dot = QCheckBox("Add final pipette dot")
@@ -183,6 +187,7 @@ class DatasetBuilderGUI(QWidget):
         form.addRow("Inaction Steps:", self.inaction)
         form.addRow("Inaction Tolerance:", self.inaction_tolerance)
         form.addRow(self.load_next_obs)
+        form.addRow(self.use_velocities)
         form.addRow(self.omit_stage_movement)
         form.addRow(self.center_crop)
         form.addRow(self.pipette_dot)
@@ -566,6 +571,7 @@ class DatasetBuilderGUI(QWidget):
         self._set_if(self.inaction, settings.get("inaction"))
         self._set_if(self.inaction_tolerance, settings.get("inaction_tolerance"))
         self._set_if(self.load_next_obs, settings.get("load_next_obs"))
+        self._set_if(self.use_velocities, settings.get("use_velocities"))
         self._set_if(self.use_cv_defined_coords, settings.get("prefer_cv_movement"))
         self._set_if(self.cv_filter_images, settings.get("cv_filter_images"))
         self._set_if(self.omit_stage_movement, settings.get("omit_stage_movement"))
@@ -652,6 +658,7 @@ class DatasetBuilderGUI(QWidget):
             random_seed=int(self.random_seed.value()),
             freq_mask=int(self.freq_mask.value()),
             load_next_obs=self.load_next_obs.isChecked(),
+            use_velocities=self.use_velocities.isChecked(),
             prefer_cv_movement=self.use_cv_defined_coords.isChecked(),
             filter=FilterSettings(
                 enable_random_filter=self.enable_filter.isChecked(),
