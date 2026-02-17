@@ -118,6 +118,17 @@ class Manipulator(TaskController):
         '''
         self.absolute_move_group(array(self.position_group(axes))+array(x), axes)
 
+    def relative_move_group_velocity(self, vel, axes=None):
+        '''
+        Moves the device group continuously at velocity vel in um/s.
+        By default, this forwards to absolute velocity control.
+        '''
+        if hasattr(self, "absolute_move_group_velocity"):
+            if axes is None:
+                return self.absolute_move_group_velocity(vel)
+            return self.absolute_move_group_velocity(vel, axes)
+        raise NotImplementedError("relative_move_group_velocity is not implemented for this device.")
+
     def stop(self, axis):
         """
         Stops current movements.

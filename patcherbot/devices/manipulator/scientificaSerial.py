@@ -403,6 +403,13 @@ class ScientificaSerialEncoder(Manipulator):
         except Exception as e:
             self.error(f"Error in absolute_move: {e}")
 
+    def relative_move_group_velocity(self, vel, axes):
+        """
+        Relative velocity-mode API; Scientifica firmware uses direct axis velocities,
+        so this is equivalent to absolute_move_group_velocity.
+        """
+        self.absolute_move_group_velocity(vel, axes)
+
     def wait_until_still(self, axes = None, axis = None):
         while True:
             resp = self._sendCmd(SerialCommands.GET_IS_BUSY)
@@ -612,6 +619,12 @@ class ScientificaSerialNoEncoder(Manipulator):
             self._sendCmd(SerialCommands.SET_X_Y_Z_VEL.format(xvel, yvel, zvel))
         except Exception as e:
             self.error(f"Error in absolute_move: {e}")
+
+    def relative_move_group_velocity(self, vel, axes=None):
+        """
+        Relative velocity-mode API; backend command accepts direct axis velocities.
+        """
+        self.absolute_move_group_velocity(vel)
         
     def relative_move_group(self, x, axes, speed=None):
         """

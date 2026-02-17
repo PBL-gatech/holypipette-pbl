@@ -81,6 +81,10 @@ class AutoPatcher(TaskController):
         self.ninput = None
         self.done = False
         self.find_pipette_velocity_speed_um_s = 1000.0
+        # Agent find_pipette toggle:
+        # False -> interpret model output as displacement (xy px, z um) and use relative moves.
+        # True  -> interpret model output as velocity (xy px/s, z um/s) and stream velocity commands.
+        self.velocity_prediction = False
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -151,6 +155,18 @@ class AutoPatcher(TaskController):
             raise ValueError("find_pipette_velocity_speed_um_s must be non-zero.")
         non_agent_relative_move_threshold_um_s = 1000.0
         use_non_agent_relative_move = command_speed_um_s >= non_agent_relative_move_threshold_um_s
+        use_velocity_prediction = bool(getattr(self, "velocity_prediction", False))
+        if self.config.mode == "Agent":
+            if use_velocity_prediction:
+                self.info(
+                    "Agent find_pipette action mode: velocity "
+                    "(xy in px/s converted to um/s, z in um/s)."
+                )
+            else:
+                self.info(
+                    "Agent find_pipette action mode: displacement "
+                    "(xy in px converted to um, z in um)."
+                )
 
         def _log_timing(label: str, duration_s: float) -> None:
             """Lightweight timing logger for find_pipette stages."""
@@ -332,10 +348,13 @@ class AutoPatcher(TaskController):
                             self.warning(f"Goal preprocessing failed; using raw goal. Error: {exc}")
                 action = self.agenthelper.run_inference(observation=observation, goal=agent_goal, is_demo=False)
                 # _log_timing("inference_block", time.perf_counter() - inf_start)
-                self.info(f"pipette prediction: {action} um")
+                prediction_units = "velocity (xy px/s, z um/s)" if use_velocity_prediction else "displacement (xy px, z um)"
+                self.info(f"pipette prediction: {action} [{prediction_units}]")
 
                 if action is None:
                     self.warning("Model did not return an action; retrying inference")
+                    if use_velocity_prediction:
+                        _reset_velocity_motion(stop_motion=True)
                     err = None
                     self.sleep(sleep_time)
                     continue
@@ -343,6 +362,8 @@ class AutoPatcher(TaskController):
                 pred_offset_xy = np.asarray(action[:2], dtype=float)
                 if pred_offset_xy.size < 2:
                     self.warning("Predicted offset missing coordinates; retrying inference")
+                    if use_velocity_prediction:
+                        _reset_velocity_motion(stop_motion=True)
                     action = None
                     target_point = None
                     err = None
@@ -351,70 +372,88 @@ class AutoPatcher(TaskController):
 
                 if np.isnan(pred_offset_xy).any():
                     self.warning("Predicted offset contains NaNs; retrying inference")
+                    if use_velocity_prediction:
+                        _reset_velocity_motion(stop_motion=True)
                     action = None
                     target_point = None
                     err = None
                     self.sleep(sleep_time)
                     continue
 
-                z_offset_um = float(action[2]) if len(action) >= 3 and action[2] is not None else -curr_point_np[2]
-                target_point_float = np.asarray(curr_point[:2], dtype=float) + pred_offset_xy
-                target_point_pixels = (
-                    ((target_point_float[0])),
-                    ((target_point_float[1]))
-                )
-
-                target_point_microns = (
-                    ((pred_offset_xy[0])),
-                    ((pred_offset_xy[1])),
-                    0
-                )
-
-                target_point_microns_relative = self.calibrated_unit.pixels_to_um_relative(target_point_microns)
-                move_um = np.array([target_point_microns_relative[0], target_point_microns_relative[1], -z_offset_um])
-                # self.info(f"target converted relative distance: {move_um} um")
-                target_point_microns_absolute = move_um + self.calibrated_unit.position()
-
-                # self.info(f" target converted distance in um: {target_point_microns_absolute} um")
-                move_distance_um = float(np.linalg.norm(move_um))
-                if move_distance_um == 0:
-                    self.info("Predicted movement is zero; requesting next action.")
-                    action = None
-                    target_point = None
-                    err = None
-                    _reset_velocity_motion(stop_motion=False)
-                    self.sleep(sleep_time)
-                    continue
-
-                self.info(f"acting...")
-                act_start = time.perf_counter()
-                velocity = self.calibrated_unit.velocity_position_control(move_um, command_speed_um_s)
-                velocity_start_pos_um = np.asarray(self.calibrated_unit.position(), dtype=float)
-                velocity_direction = move_um / move_distance_um
-                velocity_distance_um = move_distance_um
-                velocity_start_time = time.perf_counter()
-                velocity_timeout_s = max(2.0, (move_distance_um / command_speed_um_s) * 5.0)
-                velocity_opposite_direction_warned = False
-                velocity_command = -np.asarray(velocity, dtype=float)
-                self.calibrated_unit.absolute_move_group_velocity(velocity_command.tolist())
-                # self.calibrated_unit.relative_move(move_um)
-                # _log_timing("action_relative_move", time.perf_counter() - act_start)
-
-             
-                width = getattr(camera, "width", None)
-                height = getattr(camera, "height", None)
-
-                if width is not None and height is not None:
-                    if not (0 <= target_point_pixels[0] < width and 0 <= target_point_pixels[1] < height):
-                        self.warning(f"predicted point not on screen: {target_point_pixels}")
+                z_component = float(action[2]) if len(action) >= 3 and action[2] is not None else None
+                if use_velocity_prediction:
+                    # Velocity mode: model output is interpreted directly as [vx_px, vy_px, vz_um].
+                    # Convert xy into manipulator-frame um/s; pass z through as-is.
+                    z_velocity_um_s = 0.0 if z_component is None else z_component
+                    velocity_xy_um_s = self.calibrated_unit.pixels_to_um_relative(
+                        [pred_offset_xy[0], pred_offset_xy[1], 0.0]
+                    )
+                    velocity_um_s = np.array(
+                        [velocity_xy_um_s[0], velocity_xy_um_s[1], z_velocity_um_s],
+                        dtype=float,
+                    )
+                    if not np.isfinite(velocity_um_s).all():
+                        self.warning("Predicted velocity contains invalid values; retrying inference")
                         action = None
                         target_point = None
                         err = None
                         _reset_velocity_motion(stop_motion=True)
-                        self.sleep(0.04)
+                        self.sleep(sleep_time)
                         continue
-
-                target_point = target_point_pixels
+                    if float(np.linalg.norm(velocity_um_s)) == 0.0:
+                        self.info("Predicted velocity is zero; stopping motion and requesting next action.")
+                        action = None
+                        target_point = None
+                        err = None
+                        _reset_velocity_motion(stop_motion=True)
+                        self.sleep(sleep_time)
+                        continue
+                    self.calibrated_unit.relative_move_group_velocity(velocity_um_s.tolist())
+                    action = None
+                    target_point = None
+                    err = None
+                    _reset_velocity_motion(stop_motion=False)
+                else:
+                    # Displacement mode: treat model output as [dx_px, dy_px, dz_um], then do a relative move.
+                    z_offset_um = -curr_point_np[2] if z_component is None else z_component
+                    target_point_float = np.asarray(curr_point[:2], dtype=float) + pred_offset_xy
+                    target_point_pixels = (target_point_float[0], target_point_float[1])
+                    width = getattr(camera, "width", None)
+                    height = getattr(camera, "height", None)
+                    if width is not None and height is not None:
+                        if not (0 <= target_point_pixels[0] < width and 0 <= target_point_pixels[1] < height):
+                            self.warning(f"predicted point not on screen: {target_point_pixels}")
+                            action = None
+                            target_point = None
+                            err = None
+                            _reset_velocity_motion(stop_motion=True)
+                            self.sleep(0.04)
+                            continue
+                    move_xy_um = self.calibrated_unit.pixels_to_um_relative(
+                        [pred_offset_xy[0], pred_offset_xy[1], 0.0]
+                    )
+                    move_um = np.array([move_xy_um[0], move_xy_um[1], -z_offset_um], dtype=float)
+                    if not np.isfinite(move_um).all():
+                        self.warning("Predicted displacement contains invalid values; retrying inference")
+                        action = None
+                        target_point = None
+                        err = None
+                        self.sleep(sleep_time)
+                        continue
+                    move_distance_um = float(np.linalg.norm(move_um))
+                    if move_distance_um == 0:
+                        self.info("Predicted movement is zero; requesting next action.")
+                        action = None
+                        target_point = None
+                        err = None
+                        self.sleep(sleep_time)
+                        continue
+                    self.calibrated_unit.relative_move_group(move_um.tolist())
+                    self.calibrated_unit.wait_until_still()
+                    action = None
+                    target_point = None
+                    err = None
+                    _reset_velocity_motion(stop_motion=False)
 
             xgerr = goal_error_target[0] - curr_point_np[0]
             ygerr = goal_error_target[1] - curr_point_np[1]
