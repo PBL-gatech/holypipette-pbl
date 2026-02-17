@@ -16,6 +16,7 @@ from patcherbot.devices.laser import Laser
 from .patchConfig import PatchConfig
 from .protocolConfig import ProtocolConfig
 from PyQt5 import QtCore
+from patcherbot.devices.manipulator.PlateScanner import PlateScanner
 import time
 
 __all__ = ['AutoPatchInterface']
@@ -51,6 +52,7 @@ class AutoPatchInterface(TaskInterface):
                                     config=self.config,
                                     protocol_config=self.protocol_config)
         self.current_autopatcher = autopatcher
+        self.plate_scanner = PlateScanner(self)
 
         self.is_selecting_cells = False
         self.cells_to_patch = []
@@ -111,6 +113,17 @@ class AutoPatchInterface(TaskInterface):
 
     def start_selecting_cells(self):
         self.is_selecting_cells = True
+
+    def start_selecting_corners(self):
+        self.plate_scanner.SelectCorners()
+
+    @command(category='Patch',
+             description='Select a corner on right-click while Store Corners is active')
+    def handle_corner_right_click(self, position):
+        if self.plate_scanner.is_collecting:
+            self.plate_scanner.SelectCorners(position)
+            return
+        self.execute(self.pipette_controller.move_stage, argument=position)
 
     def remove_last_cell(self):
         if self.cells_to_patch:

@@ -63,6 +63,8 @@ class PatchGui(ManipulatorGui):
         #                            self.patch_interface.patch_with_move)
         self.register_mouse_action(Qt.LeftButton, Qt.NoModifier,
                                    self.patch_interface.add_cell)
+        self.register_mouse_action(Qt.RightButton, Qt.NoModifier,
+                                   self.patch_interface.handle_corner_right_click)
         self.register_key_action(Qt.Key_B, None,
                                  self.patch_interface.break_in)
         self.register_key_action(Qt.Key_F2, None,
@@ -690,16 +692,23 @@ class ClassicPatchButtons(ButtonTabWidget):
                         change_color_on_complete=True, completion_color="rgba(173, 216, 230, 0.5)")
 
         # Add a box for movement commands 
-        buttonList = [['move group down','move group up'],['move group in x','move group in y'],['Move to Safe Position','Move to Home Position'],['Move to cell plane','Focus Stage'],['Center Pipette','Clean pipette','Focus Pipette']]
-        # buttonList = [['Move to Safe Position','Move to Home Position'],['Move to Floor','Focus Stage'],['Center Pipette','Clean pipette','Focus Pipette']]
+
+        
+        buttonList = [['Move to Safe Position','Move to Home Position'],
+                      ['Move to cell plane','Focus Stage'],
+                      ['Store corners'],
+                      ['Center Pipette','Clean pipette','Focus Pipette']]
+
         cmds = [
             [self.patch_interface.move_group_down, self.patch_interface.move_group_up],
             [self.patch_interface.move_group_in_x, self.patch_interface.move_group_in_y],
             [self.patch_interface.move_to_safe_space, self.patch_interface.move_to_home_space],
             [self.pipette_interface.go_to_floor,self.pipette_interface.focus_stage],
-            [self.pipette_interface.center_pipette,
-             [self.cell_sorter_led_on, self.patch_interface.clean_pipette],
-             self.pipette_interface.focus_pipette]
+
+
+            [self.patch_interface.start_selecting_corners],
+            [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
+
         ]
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)
 
