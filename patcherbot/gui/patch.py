@@ -716,7 +716,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         # add a box for testing controllability of the pipette and stage
         buttonList = [['Find Pipette','Test Pipette Movement']]
         cmds = [[self.pipette_location,self.pipette_interface.move_pipette_random_velocity]]
-        freq = [[1, 1]]
+        freq = [[1, 10]]
         self.addButtonList('testing', layout, buttonList, cmds, freq=freq, sequential=True)
 
         # # Add a box for lamp commands
@@ -918,7 +918,8 @@ class ClassicPatchButtons(ButtonTabWidget):
         zPos = self.pipette_interface.microscope.position()
         self.currz_stage_pos = [0, 0, zPos]
         # update pipette controller stage tare at z position as a numpy array
-        self.pipette_interface.tare_stage[2] = zPos/5  # divide by 5 to account for z-axis gear ratio
+        z_scale = self.pipette_interface.calibrated_unit.config.microscope_units_per_um
+        self.pipette_interface.tare_stage[2] = zPos / z_scale
         print("Tare stage z: ", self.currz_stage_pos)
         self.pipette_interface.write_tare()
 
@@ -935,7 +936,7 @@ class ClassicPatchButtons(ButtonTabWidget):
             if i < 2:
                 label.setText(f'{label.text().split(":")[0]}: {xyPos[i]:.2f}')
             else:
-                # Note: divide by 5 here to account for z-axis gear ratio
-                label.setText(f'{label.text().split(":")[0]}: {zPos/5:.2f}')
+                z_scale = self.pipette_interface.calibrated_unit.config.microscope_units_per_um
+                label.setText(f'{label.text().split(":")[0]}: {zPos / z_scale:.2f}')
 
 

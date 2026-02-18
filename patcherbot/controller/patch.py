@@ -84,7 +84,7 @@ class AutoPatcher(TaskController):
         # Agent find_pipette toggle:
         # False -> interpret model output as displacement (xy px, z um) and use relative moves.
         # True  -> interpret model output as velocity (xy px/s, z um/s) and stream velocity commands.
-        self.velocity_prediction = False
+        self.velocity_prediction = True
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -380,13 +380,12 @@ class AutoPatcher(TaskController):
                     self.sleep(sleep_time)
                     continue
 
-                z_component = float(action[2]) if len(action) >= 3 and action[2] is not None else None
                 if use_velocity_prediction:
                     # Velocity mode: model output is interpreted directly as [vx_px, vy_px, vz_um].
                     # Convert xy into manipulator-frame um/s; pass z through as-is.
-                    z_velocity_um_s = 0.0 if z_component is None else z_component
+                    z_velocity_um_s = 0.0 if len(action) < 3 or action[2] is None else float(action[2])
                     velocity_xy_um_s = self.calibrated_unit.pixels_to_um_relative(
-                        [pred_offset_xy[0], pred_offset_xy[1], 0.0]
+                        [-pred_offset_xy[0], -pred_offset_xy[1], 0.0]
                     )
                     velocity_um_s = np.array(
                         [velocity_xy_um_s[0], velocity_xy_um_s[1], z_velocity_um_s],
@@ -415,6 +414,8 @@ class AutoPatcher(TaskController):
                     _reset_velocity_motion(stop_motion=False)
                 else:
                     # Displacement mode: treat model output as [dx_px, dy_px, dz_um], then do a relative move.
+                    # Negate agent find_pipette Z output to match coordinate convention used by this rig.
+                    z_component = -float(action[2]) if len(action) >= 3 and action[2] is not None else None
                     z_offset_um = -curr_point_np[2] if z_component is None else z_component
                     target_point_float = np.asarray(curr_point[:2], dtype=float) + pred_offset_xy
                     target_point_pixels = (target_point_float[0], target_point_float[1])
@@ -848,7 +849,7 @@ class AutoPatcher(TaskController):
 
         self.microscope.move_to_floor()
         self.microscope.wait_until_still()
-        z_pos = self.microscope.position()/5.0
+        z_pos = self.microscope.position() / self.calibrated_unit.config.microscope_units_per_um
         zdistleft = z_pos - cell_pos[2]
         self.microscope.relative_move(-zdistleft)
         self.microscope.wait_until_still()
@@ -884,7 +885,11 @@ class AutoPatcher(TaskController):
 
         if self.config.cell_type_toggle and self.config.cell_type == "Slice":
             self.info("Moving pipette to slice position")
-            speed = [0, 0, self.config.max_descent_speed*5]
+            speed = [
+                0,
+                0,
+                self.config.max_descent_speed * self.calibrated_unit.config.microscope_units_per_um,
+            ]
             start_pos = self.calibrated_unit.position()
             self.calibrated_unit.absolute_move_group_velocity(speed)
             cell_hover_pos = self.config.cell_distance - self.config.slice_start_distance
@@ -929,7 +934,18 @@ class AutoPatcher(TaskController):
 
         stage_config = self.calibrated_stage.config
         track_cell_ai_disabled_logged = False
+        training_mode = self.config.mode == "Training"
+        enforce_max_hunt_distance = self.config.mode != "Training"
+        if not enforce_max_hunt_distance:
+            self.info(
+                "Training mode: max hunt distance check disabled; waiting for resistance threshold."
+            )
+        hunt_termination_reason = None
         cell_detected = self._isCellDetected(lastResDeque=lastResDeque,cellThreshold = self.config.cell_R_increase)
+        last_training_threshold_status = None
+        if training_mode:
+            last_training_threshold_status = cell_detected
+            self.info(f"Training mode: resistance threshold achieved: {cell_detected}")
         while not cell_detected and self.abort_requested == False:
             # if autoHunt:
             #     try: 
@@ -951,9 +967,17 @@ class AutoPatcher(TaskController):
                 # self.calibrated_unit.relative_move(pi_pos)
 
             curr_pos = self.calibrated_unit.position()
-            if abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance)):
+            if (
+                enforce_max_hunt_distance
+                and abs(curr_pos[2] - start_pos[2]) >= (int(self.config.max_distance))
+            ):
                 # we have moved expected um down and still no cell detected
-                self.info("cell not detected")
+                moved_distance = abs(curr_pos[2] - start_pos[2])
+                hunt_termination_reason = (
+                    "Cell not detected before reaching max hunt distance "
+                    f"({moved_distance:.1f} um >= {float(self.config.max_distance):.1f} um)."
+                )
+                self.info(hunt_termination_reason)
                 self.calibrated_unit.stop()
                 self.calibrated_stage.stop()
                 self.microscope.stop()
@@ -987,18 +1011,32 @@ class AutoPatcher(TaskController):
             lastResDeque.append(daqResistance)
             daqResistance = self.daq.resistance()
             cell_detected = self._isCellDetected(lastResDeque=lastResDeque,cellThreshold=self.config.cell_R_increase)
+            if training_mode and cell_detected != last_training_threshold_status:
+                self.info(f"Training mode: resistance threshold achieved: {cell_detected}")
+                last_training_threshold_status = cell_detected
 
         self.calibrated_stage.stop()
         self.calibrated_unit.stop()
         self.microscope.stop()
         if cell_detected:
             self.info("Cell Detected")
-            if self.config.mode == "Training":
-                self.info("Training mode: goal condition reached. Click Success or Abort to finish.")
+            if training_mode:
+                self.info("Training mode: waiting for manual Success or Abort.")
                 while True:
                     self.sleep(0.1)
             self.success_requested = True
             self.success_if_requested()
+        elif hunt_termination_reason is not None:
+            if self.config.mode == "Training":
+                self.info(
+                    "Training mode: hunt ended without cell detection. "
+                    "Click Success or Abort to finish."
+                )
+                while True:
+                    self.sleep(0.1)
+            raise AutopatchError(hunt_termination_reason)
+        elif self.abort_requested:
+            self.abort_if_requested()
 
     @record_state("escape")
     def escape(self):
@@ -1101,7 +1139,13 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         self.info("Collecting baseline resistance...")
 
-        avg_resistance = self.resistanceRamp()
+        num_slope_samples = 5
+        sample_interval = float(self.config.measurement_speed)
+
+        avg_resistance = self.resistanceRamp(
+            num_measurements=num_slope_samples,
+            interval=sample_interval,
+        )
         consecutive_success = 0
 
         self.pressure.set_ATM(atm=True)
@@ -1127,10 +1171,13 @@ class AutoPatcher(TaskController):
                 raise AutopatchError(f"Seal attempt failed: resistance did not improve by at least {self.config.gigaseal_min_delta_R} MegaOhms by the {self.config.seal_deadline} second deadline.")
 
             prev_resistance = avg_resistance
-            avg_resistance = self.resistanceRamp()
+            avg_resistance = self.resistanceRamp(
+                num_measurements=num_slope_samples,
+                interval=sample_interval,
+            )
 
             delta_resistance = avg_resistance - prev_resistance
-            rate_mohm_per_sec = delta_resistance / (5 * 0.200)
+            rate_mohm_per_sec = delta_resistance / (num_slope_samples * sample_interval)
 
             if delta_resistance >= self.config.gigaseal_min_delta_R:
                 last_progress_time = time.time()
@@ -1138,14 +1185,20 @@ class AutoPatcher(TaskController):
             # ---------------------- auto-pressure logic ----------------------
             if autoPressure:
                 # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
-                if -(self.config.gigaseal_R / 100) < rate_mohm_per_sec < self.config.gigaseal_R / 3000:
-                    currPressure -= 5; speed = 3; max_pressure = -45
-                elif self.config.gigaseal_R / 3000 <= rate_mohm_per_sec <= self.config.gigaseal_R / 10:
+                increase_gate = self.config.increase_slope_gate
+                constant_gate = self.config.constant_slope_gate
+                decrease_gate = self.config.decrease_slope_gate
+
+                increase_thresh = self.config.gigaseal_R / increase_gate
+                constant_thresh = self.config.gigaseal_R / constant_gate
+                decrease_thresh = self.config.gigaseal_R / decrease_gate
+
+                if rate_mohm_per_sec < increase_thresh:
+                    currPressure -= 5; speed = 3; max_pressure = self.config.pressure_ramp_max
+                elif rate_mohm_per_sec <= constant_thresh:
                     speed = 1  # maintain
-                elif self.config.gigaseal_R / 10 < rate_mohm_per_sec <= self.config.gigaseal_R / 5:
+                elif rate_mohm_per_sec <= decrease_thresh:
                     max_pressure = self.config.pressure_ramp_max; currPressure += 5; speed = 3
-                elif rate_mohm_per_sec <= -(self.config.gigaseal_R / 100):
-                    currPressure += 5; currPressure = max(currPressure, -5); speed = 0.5
 
                 currPressure = min(currPressure, -5.0)
                 currPressure = max(currPressure, self.config.pressure_ramp_max)
@@ -1158,7 +1211,10 @@ class AutoPatcher(TaskController):
                 if currPressure <= max_pressure:
                     self.pressure.set_ATM(True)
                     self.sleep(5)
-                    testresistance = self.resistanceRamp()
+                    testresistance = self.resistanceRamp(
+                        num_measurements=num_slope_samples,
+                        interval=sample_interval,
+                    )
                     difference = testresistance - avg_resistance
                     self.info(f"Test resistance: {testresistance} MΩ; difference: {difference} MΩ")
                     if difference < 0:
@@ -1172,7 +1228,7 @@ class AutoPatcher(TaskController):
             # ---------------------------------------------------------------
 
             # Holding potential switch
-            if avg_resistance >= self.config.gigaseal_R / 12 and not holding_switched:
+            if avg_resistance >= self.config.gigaseal_R / self.config.hold_switch and not holding_switched:
                 self.amplifier.set_holding(self.protocol_config.vclamp_hold)
                 self.amplifier.switch_holding(True)
                 holding_switched = True
@@ -2018,7 +2074,7 @@ class AutoPatcher(TaskController):
 
         pi = self.calibrated_unit.position()
         st = self.calibrated_stage.position()[:2]
-        stz = self.calibrated_unit.microscope.position() / 5
+        stz = self.calibrated_unit.microscope.position() / self.calibrated_unit.config.microscope_units_per_um
         st = np.append(st, stz)
         t3 = time.perf_counter()
 

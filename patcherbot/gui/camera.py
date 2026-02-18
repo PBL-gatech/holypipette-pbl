@@ -2,6 +2,7 @@
 from __future__ import absolute_import
 
 import collections
+import ast
 # Support older versions of Python
 try:
     from collections.abc import Sequence
@@ -500,6 +501,11 @@ class CameraGui(QtWidgets.QMainWindow):
         self.snap_image_button.setIcon(qta.icon('fa.camera'))
         self.snap_image_button.setToolTip('Snap image')
 
+        # create autonormalizatoin checkbox
+        self.autonormalize_checkbox = QtWidgets.QCheckBox('Auto-normalize')
+        self.autonormalize_checkbox.setChecked(False)
+        self.autonormalize_checkbox.stateChanged.connect(self.handle_autonormalize_change)
+
         self.switch_view_button = QtWidgets.QPushButton()
         self.switch_view_button.clicked.connect(self.toggle_camera_view)
         self.switch_view_button.setEnabled(self.aux_camera is not None)
@@ -514,11 +520,12 @@ class CameraGui(QtWidgets.QMainWindow):
         self.status_bar.addPermanentWidget(self.switch_view_button)
         self.status_bar.addPermanentWidget(self.setexposure_edit)
         self.status_bar.addPermanentWidget(self.help_button)
-        # self.status_bar.addPermanentWidget(self.log_button)
-        # self.status_bar.addPermanentWidget(self.record_button)
+        self.status_bar.addPermanentWidget(self.log_button)
+        self.status_bar.addPermanentWidget(self.record_button)
         self.status_bar.addPermanentWidget(self.snap_image_button)
         self.status_bar.addPermanentWidget(self.autoexposure_button)
         self.status_bar.addPermanentWidget(self.unnormalize_button)
+        self.status_bar.addPermanentWidget(self.autonormalize_checkbox)
 
         self.status_bar.setSizeGripEnabled(False)
         self.setStatusBar(self.status_bar)
@@ -630,6 +637,11 @@ class CameraGui(QtWidgets.QMainWindow):
         if self.active_interface is None:
             return
         self.active_interface.snap_image()
+
+    def handle_autonormalize_change(self, state):
+        if self.active_interface is None:
+            return
+        self.active_interface.autonormalize(bool(state))
 
     def apply_active_exposure(self):
         if self.active_interface is None:
@@ -1235,13 +1247,7 @@ class ConfigGui(QtWidgets.QWidget):
                 row = QtWidgets.QHBoxLayout()
                 label = ElidedLabel(param_obj.doc)
                 label.setToolTip(param_obj.doc)
-                if isinstance(param_obj, param.Number):
-                    value_widget = QtWidgets.QDoubleSpinBox()
-                    value_widget.setMinimum(param_obj.bounds[0])
-                    value_widget.setMaximum(param_obj.bounds[1])
-                    value_widget.setValue(getattr(config, param_name))
-                    value_widget.valueChanged.connect(
-                        functools.partial(self.set_numerical_value, param_name))
+                value_widget = None
                 if isinstance(param_obj, NumberWithUnit):
                     value_widget = QtWidgets.QDoubleSpinBox()
                     magnitude = param_obj.magnitude
@@ -1250,6 +1256,13 @@ class ConfigGui(QtWidgets.QWidget):
                     value_widget.setValue(getattr(config, param_name) / magnitude)
                     value_widget.valueChanged.connect(
                         functools.partial(self.set_numerical_value_with_unit, param_name, magnitude))
+                elif isinstance(param_obj, param.Number):
+                    value_widget = QtWidgets.QDoubleSpinBox()
+                    value_widget.setMinimum(param_obj.bounds[0])
+                    value_widget.setMaximum(param_obj.bounds[1])
+                    value_widget.setValue(getattr(config, param_name))
+                    value_widget.valueChanged.connect(
+                        functools.partial(self.set_numerical_value, param_name))
                 elif isinstance(param_obj, param.Boolean):
                     value_widget = QtWidgets.QCheckBox()
                     value_widget.setChecked(getattr(config, param_name))
@@ -1268,11 +1281,21 @@ class ConfigGui(QtWidgets.QWidget):
                     value_widget.setText(str(getattr(config, param_name)))
                     value_widget.textChanged.connect(
                         functools.partial(self.set_string_value, param_name))
+                elif isinstance(param_obj, param.List):
+                    value_widget = QtWidgets.QLineEdit()
+                    value_widget.setText(self._format_list_value(getattr(config, param_name)))
+                    value_widget.editingFinished.connect(
+                        functools.partial(self.set_list_value, param_name, value_widget, param_obj))
                 elif isinstance(param_obj, param.Tuple):         
                     value_widget = QtWidgets.QLineEdit()          
                     value_widget.setReadOnly(True)                
                     value_widget.setEnabled(False)               
                     value_widget.setText(str(getattr(config, param_name))) 
+                else:
+                    value_widget = QtWidgets.QLineEdit()
+                    value_widget.setReadOnly(True)
+                    value_widget.setEnabled(False)
+                    value_widget.setText(str(getattr(config, param_name)))
                 value_widget.setToolTip(param_obj.doc)
                 value_widget.setObjectName(param_name)
                 self.value_widgets[param_name] = value_widget
@@ -1328,7 +1351,10 @@ class ConfigGui(QtWidgets.QWidget):
         line = self.findChild(QtWidgets.QLineEdit, key)        
         if line is not None:             
             line.blockSignals(True)                            
-            line.setText(str(value))                           
+            if isinstance(value, list):
+                line.setText(self._format_list_value(value))
+            else:
+                line.setText(str(value))
             line.blockSignals(False)                           
 
 
@@ -1347,6 +1373,69 @@ class ConfigGui(QtWidgets.QWidget):
 
     def set_string_value(self, name, value):
         setattr(self.config, name, value)
+
+    def _format_list_value(self, value):
+        if isinstance(value, (list, tuple)):
+            return ', '.join(str(v) for v in value)
+        return str(value)
+
+    def _parse_list_value(self, text, item_type=None):
+        cleaned = (text or "").strip()
+        if cleaned == "":
+            parsed = []
+        else:
+            try:
+                literal = ast.literal_eval(cleaned)
+                if isinstance(literal, (list, tuple)):
+                    parsed = list(literal)
+                elif isinstance(literal, str):
+                    parsed = [literal]
+                else:
+                    parsed = [literal]
+            except Exception:
+                parsed = [item.strip() for item in cleaned.split(",") if item.strip()]
+
+        if item_type is None:
+            return parsed
+
+        coerced = []
+        for item in parsed:
+            if item_type is str:
+                coerced.append(str(item))
+            elif item_type is int:
+                coerced.append(int(item))
+            elif item_type is float:
+                coerced.append(float(item))
+            elif item_type is bool:
+                if isinstance(item, bool):
+                    coerced.append(item)
+                else:
+                    token = str(item).strip().lower()
+                    if token in ("1", "true", "yes", "y", "on"):
+                        coerced.append(True)
+                    elif token in ("0", "false", "no", "n", "off"):
+                        coerced.append(False)
+                    else:
+                        raise ValueError(f"Invalid boolean list entry: {item}")
+            else:
+                coerced.append(item_type(item))
+        return coerced
+
+    def set_list_value(self, name, widget, param_obj):
+        try:
+            item_type = getattr(param_obj, "item_type", None)
+            parsed = self._parse_list_value(widget.text(), item_type=item_type)
+            setattr(self.config, name, parsed)
+            widget.blockSignals(True)
+            widget.setText(self._format_list_value(parsed))
+            widget.blockSignals(False)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Invalid list value for '%s': %s", name, widget.text(), exc_info=True
+            )
+            widget.blockSignals(True)
+            widget.setText(self._format_list_value(getattr(self.config, name)))
+            widget.blockSignals(False)
 
 
     def save_config(self):

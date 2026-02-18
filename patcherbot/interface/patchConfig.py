@@ -30,6 +30,11 @@ class PatchConfig(Config):
     cell_R_increase = Number(0.300, bounds=(0, 1), doc='Cell detection resistance limit') # in MOhm
     gigaseal_R = Number(1000, bounds=(100, 20000), doc='Gigaseal resistance')  # in MOhm
     gigaseal_min_delta_R = Number(15, bounds=(0, 1000), doc='Minimum resistance increase to extend deadline') # in MOhm
+    hold_switch = Number(12, bounds=(1, 1000), doc='Hold switch divisor: gigaseal_R / hold_switch')
+    increase_slope_gate = Number(3000, bounds=(1, 100000), doc='Slope gate divisor to increase suction')
+    constant_slope_gate = Number(10, bounds=(1, 100000), doc='Slope gate divisor to maintain suction')
+    decrease_slope_gate = Number(5, bounds=(1, 100000), doc='Slope gate divisor to decrease suction')
+    measurement_speed = NumberWithUnit(0.200, bounds=(0.001, 5), doc='Resistance sample interval for slope', unit='s')
 
     seal_min_time = NumberWithUnit(15, bounds=(0, 60), doc='Minimum time for seal', unit='s')
     seal_deadline = NumberWithUnit(150, bounds=(0, 300), doc='Maximum time for seal formation', unit='s')
@@ -47,7 +52,7 @@ class PatchConfig(Config):
     auto_capture_fluo = Boolean(False, doc='Capture fluorescence image on cell selection')
     categories = [
         ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance','max_distance', 'cell_R_increase','max_descent_speed','use_centroid','track_cell']),
-        ('Sealing', ['pressure_sealing', 'gigaseal_R', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
+        ('Sealing', ['pressure_sealing', 'gigaseal_R', 'gigaseal_min_delta_R', 'hold_switch', 'increase_slope_gate', 'constant_slope_gate', 'decrease_slope_gate', 'measurement_speed', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
         ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration','pulse_pressure_break_in','pulse_pressure_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('AutoPatching', ['cell_type_toggle','cell_type', 'mode','auto_clean_pipette']),
         ('Fluorescence', ['lamp', 'auto_capture_fluo'])  

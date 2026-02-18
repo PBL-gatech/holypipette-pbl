@@ -37,6 +37,8 @@ class PipetteInterface(TaskInterface):
         if calibration_data:
             cleaned = {k: v for k, v in calibration_data.items() if v is not None}
             self.calibration_config.from_dict(cleaned)
+        self.microscope.config = self.calibration_config
+        self.microscope.units_per_um = float(self.calibration_config.microscope_units_per_um)
         self.calibrated_stage = CalibratedStage(stage, None, microscope, camera,
                                                 config=self.calibration_config)
         self.calibrated_unit = CalibratedUnit(unit,
@@ -239,7 +241,8 @@ class PipetteInterface(TaskInterface):
              description='Set the position of the floor (cover slip)',
              success_message='Cover slip position stored')
     def set_floor(self):
-        self.microscope.floor_Z = self.microscope.position()/5.0
+        z_scale = self.calibrated_unit.config.microscope_units_per_um
+        self.microscope.floor_Z = self.microscope.position() / z_scale
         self.info(f'Cell plane position set to {self.microscope.floor_Z}')
 
     @command(category='Stage',

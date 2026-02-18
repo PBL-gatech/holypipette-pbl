@@ -1752,7 +1752,7 @@ class NiDAQ(DAQ):
         Returns
         -------
         np.ndarray
-            [time_s, resp_V, read_V]  – identical to the legacy layout.
+            [time_s, resp_A, read_V]
         """
         import nidaqmx
         import nidaqmx.constants as c
@@ -1786,8 +1786,9 @@ class NiDAQ(DAQ):
             ai.stop(); ai.close()
 
             raw = np.array(raw, dtype=float)
-            resp = raw[1]      # still in DAQ volts
-            read = raw[0]
+            # Keep unit conversions consistent with other V-clamp protocol paths.
+            resp = raw[1] * self.V_CLAMP_VOLT_PER_AMP
+            read = raw[0] * self.V_CLAMP_VOLT_PER_VOLT
             t = np.linspace(0, duration_s, num_samples, dtype=float)
 
             self.holding_protocol_data = np.array([t, resp, read])

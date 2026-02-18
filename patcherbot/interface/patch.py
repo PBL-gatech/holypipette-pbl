@@ -194,7 +194,8 @@ class AutoPatchInterface(TaskInterface):
         position[0] += self.current_autopatcher.calibrated_unit.camera.width / 2
         position[1] += self.current_autopatcher.calibrated_unit.camera.height / 2
         # add the z position of the microscope
-        z_pos = self.current_autopatcher.calibrated_unit.microscope.position()/5
+        z_scale = self.current_autopatcher.calibrated_unit.config.microscope_units_per_um
+        z_pos = self.current_autopatcher.calibrated_unit.microscope.position() / z_scale
         self.info(f'z position of the microscope: {z_pos}')
         print(f'adding cell... {self.is_selecting_cells}')
         if self.is_selecting_cells:
@@ -417,7 +418,8 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.safe_position = self.pipette_controller.calibrated_unit.position()
         self.current_autopatcher.calibrated_unit.config.safe_position = tuple(self.current_autopatcher.safe_position)
         x,y = self.pipette_controller.calibrated_stage.position()
-        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
+        z_scale = self.pipette_controller.calibrated_unit.config.microscope_units_per_um
+        z = float(self.pipette_controller.calibrated_unit.microscope.position() / z_scale)
         self.current_autopatcher.safe_stage_position = [x,y,z]
         self.current_autopatcher.calibrated_stage.config.safe_position_stage = tuple(self.current_autopatcher.safe_stage_position)
         self.info(f'safe space position stored: {self.current_autopatcher.safe_position} and {self.current_autopatcher.safe_stage_position}')
@@ -430,7 +432,8 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher.home_position = self.pipette_controller.calibrated_unit.position()
         self.current_autopatcher.calibrated_unit.config.home_position = tuple(self.current_autopatcher.home_position)
         x,y = self.pipette_controller.calibrated_stage.position()
-        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
+        z_scale = self.pipette_controller.calibrated_unit.config.microscope_units_per_um
+        z = float(self.pipette_controller.calibrated_unit.microscope.position() / z_scale)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.current_autopatcher.calibrated_stage.config.home_position_stage = tuple(self.current_autopatcher.home_stage_position)
         self.info(f'safe home position stored: {self.current_autopatcher.home_position} and {self.current_autopatcher.home_stage_position}')
@@ -449,7 +452,8 @@ class AutoPatchInterface(TaskInterface):
             [x_pip + delta * np.cos(angle), y_pip, z_pip + delta * np.sin(angle)]
         )
         x,y = self.pipette_controller.calibrated_stage.position()
-        z = float(self.pipette_controller.calibrated_unit.microscope.position()/5.0)
+        z_scale = self.pipette_controller.calibrated_unit.config.microscope_units_per_um
+        z = float(self.pipette_controller.calibrated_unit.microscope.position() / z_scale)
         self.current_autopatcher.home_stage_position = [x,y,z]
         self.current_autopatcher.safe_stage_position = self.current_autopatcher.home_stage_position
         # save all positions to the config

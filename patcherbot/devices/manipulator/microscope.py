@@ -32,6 +32,8 @@ class Microscope(Manipulator):
         self.axis = axis
         self.up_direction = None # Up direction, must be provided or calculated
         self.floor_Z = None # This is the Z coordinate of the coverslip
+        self.config = None
+        self.units_per_um = 5.0
         # Motor range in um; by default +- one meter
         self.min = -1e6 # This could replace floor_Z
         self.max = 1e6
@@ -47,7 +49,11 @@ class Microscope(Manipulator):
         -------
         The current position of the device axis in um.
         '''
-        true_position = float(5.0* self.dev.position(self.axis))
+        if self.config is not None:
+            units_per_um = float(self.config.microscope_units_per_um)
+        else:
+            units_per_um = float(self.units_per_um)
+        true_position = float(units_per_um * self.dev.position(self.axis))
         
         return true_position
 
