@@ -1,7 +1,7 @@
 # Core requirements required by patch_gui.py and runtime package imports
 numpy>=1.24.4
 opencv-python>=4.10.0
-onnxruntime-gpu==1.19.2
+onnxruntime==1.19.2
 ultralytics>=8.3.0
 torch==2.9.1
 Pillow>=10.0.0
