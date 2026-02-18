@@ -5,7 +5,7 @@
     "patch_file":  "ibb_patch.yaml",
     "protocol_file":  "ibb_protocol.yaml",
     "calibration":  {
-                        "pipette_detector_model":  "pipetteDetectorNet.pt",
+                        "pipette_detector_model":  "feb17.pt",
                         "pipette_focuser_model":  "WaynesBoroPipetteFocuserNet.onnx"
                     },
     "ai_features":  {
