@@ -30,6 +30,46 @@ class PlateScanner(TaskController):
     def corner_count(self):
         return len(self._corner_positions)
 
+    def _iter_speed_controllers(self, stage):
+        """Yield candidate objects that may expose max-speed getters/setters."""
+        seen = set()
+        for obj in (stage, getattr(stage, "unit", None), getattr(stage, "dev", None), getattr(getattr(stage, "unit", None), "dev", None)):
+            if obj is None:
+                continue
+            ident = id(obj)
+            if ident in seen:
+                continue
+            seen.add(ident)
+            if hasattr(obj, "set_max_speed") or hasattr(obj, "get_max_speed"):
+                yield obj
+
+    def _get_max_speed(self, stage):
+        """Return first reachable max speed from available speed controllers."""
+        for ctrl in self._iter_speed_controllers(stage):
+            getter = getattr(ctrl, "get_max_speed", None)
+            if not callable(getter):
+                continue
+            try:
+                speed = getter()
+            except Exception:
+                continue
+            if speed is not None:
+                return speed, ctrl
+        return None, None
+
+    def _set_max_speed(self, stage, speed):
+        """Try to apply max speed on the first controller that supports it."""
+        for ctrl in self._iter_speed_controllers(stage):
+            setter = getattr(ctrl, "set_max_speed", None)
+            if not callable(setter):
+                continue
+            try:
+                setter(speed)
+                return True
+            except Exception:
+                continue
+        return False
+
     def _store_position(self, click_position):
         click_position = np.array(click_position, dtype=float)
 
@@ -130,13 +170,21 @@ class PlateScanner(TaskController):
         right_x = bottom_right_xy[0]
 
         prior_speed = None
+        prior_speed_controller = None
         try:
-            if hasattr(stage, "get_max_speed") and hasattr(stage, "set_max_speed"):
-                try:
-                    prior_speed = stage.get_max_speed()
-                    stage.set_max_speed(scan_speed_um_per_sec)
-                except Exception:
-                    prior_speed = None
+            prior_speed, prior_speed_controller = self._get_max_speed(stage)
+            if prior_speed is None:
+                # Last-resort fallback: use the configured default max speed on the
+                # underlying controller, if available.
+                for ctrl in self._iter_speed_controllers(stage):
+                    default_speed = getattr(ctrl, "DEFAULT_MAX_SPEED", None)
+                    if default_speed is not None:
+                        prior_speed = default_speed
+                        prior_speed_controller = ctrl
+                        break
+
+            if prior_speed is not None and not self._set_max_speed(stage, scan_speed_um_per_sec):
+                self.patch_interface.warning("Could not set stage max speed for scan; speed override may not apply.")
 
             stage.absolute_move(top_left_xy, speed=scan_speed_um_per_sec)
             self.abort_if_requested()
@@ -172,7 +220,14 @@ class PlateScanner(TaskController):
         finally:
             if prior_speed is not None:
                 try:
-                    stage.set_max_speed(prior_speed)
+                    if prior_speed_controller is not None:
+                        prior_speed_set = getattr(prior_speed_controller, "set_max_speed", None)
+                        if callable(prior_speed_set):
+                            prior_speed_set(prior_speed)
+                        else:
+                            raise RuntimeError("No speed setter available on saved speed controller.")
+                    elif not self._set_max_speed(stage, prior_speed):
+                        raise RuntimeError("No speed setter available for this stage.")
                 except Exception:
                     self.patch_interface.warning(
                         "Failed to restore stage max speed after scan."
