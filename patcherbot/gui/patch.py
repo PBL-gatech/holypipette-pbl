@@ -63,7 +63,7 @@ class PatchGui(ManipulatorGui):
         #                            self.patch_interface.patch_with_move)
         self.register_mouse_action(Qt.LeftButton, Qt.NoModifier,
                                    self.patch_interface.add_cell)
-        self.register_mouse_action(Qt.RightButton, Qt.NoModifier,
+        self.register_mouse_action(Qt.RightButton, Qt.ShiftModifier,
                                    self.patch_interface.handle_corner_right_click)
         self.register_key_action(Qt.Key_B, None,
                                  self.patch_interface.break_in)
@@ -694,9 +694,10 @@ class ClassicPatchButtons(ButtonTabWidget):
         # Add a box for movement commands 
 
         
-        buttonList = [['Move to Safe Position','Move to Home Position'],
+        buttonList = [['move group down','move group up'],['move group in x','move group in y'],
+                      ['Move to Safe Position','Move to Home Position'],
                       ['Move to cell plane','Focus Stage'],
-                      ['Store corners'],
+                      ['Store corners', 'Start Scan'],
                       ['Center Pipette','Clean pipette','Focus Pipette']]
 
         cmds = [
@@ -706,7 +707,7 @@ class ClassicPatchButtons(ButtonTabWidget):
             [self.pipette_interface.go_to_floor,self.pipette_interface.focus_stage],
 
 
-            [self.patch_interface.start_selecting_corners],
+            [self.patch_interface.start_selecting_corners, self.patch_interface.start_scan],
             [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
 
         ]

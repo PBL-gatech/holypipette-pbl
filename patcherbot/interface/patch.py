@@ -117,6 +117,12 @@ class AutoPatchInterface(TaskInterface):
     def start_selecting_corners(self):
         self.plate_scanner.SelectCorners()
 
+    @blocking_command(category='Stage',
+                      description='Scan the stored corner coordinates',
+                      task_description='Scanning plate area')
+    def start_scan(self):
+        self.execute(self.plate_scanner.ScanArea)
+
     @command(category='Patch',
              description='Select a corner on right-click while Store Corners is active')
     def handle_corner_right_click(self, position):

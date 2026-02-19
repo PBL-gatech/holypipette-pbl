@@ -11,7 +11,7 @@ class PipetteFocuser:
     def __init__(self, model_path=None):
         # Determine the model path
         cur_dir = Path(__file__).parent.absolute()
-        default_model = cur_dir / "pipetteModel" / "WaynesBoroPipetteFocuserNet.onnx.onnx"
+        default_model = cur_dir / "pipetteModel" / "regression_model2.onnx"
         if isinstance(model_path, str) and not model_path.strip():
             model_path = None
         self.model_path = Path(model_path) if model_path is not None else default_model
