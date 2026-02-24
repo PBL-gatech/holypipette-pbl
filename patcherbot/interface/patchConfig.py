@@ -23,6 +23,7 @@ class PatchConfig(Config):
     slice_start_distance = NumberWithUnit(75, bounds=(0, 100), doc='Initial distance above target cell in slice', unit='μm') # 20 um default
     max_distance = NumberWithUnit(30, bounds=(0, 100), doc='Maximum movement during approach', unit='μm')
     max_descent_speed = Number(-10,bounds=(-50,50),doc='Maximum descent speed for Neuron Hunting')
+    max_clearing_speed = Number(-100,bounds=(-200,200),doc='Maximum speed for clearing Tissue during Neuron Hunting')
     use_centroid = Boolean(True, doc='Use centroid for pipette alignment during approach')
     track_cell = Boolean(False, doc='Track cell position during approach')
     

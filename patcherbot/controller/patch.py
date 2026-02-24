@@ -84,7 +84,7 @@ class AutoPatcher(TaskController):
         # Agent find_pipette toggle:
         # False -> interpret model output as displacement (xy px, z um) and use relative moves.
         # True  -> interpret model output as velocity (xy px/s, z um/s) and stream velocity commands.
-        self.velocity_prediction = True
+        self.velocity_prediction = False
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -554,10 +554,6 @@ class AutoPatcher(TaskController):
         if self.protocol_config.opto_random_wavelength_protocol or self.protocol_config.opto_random_power_protocol:
             self.run_optogenetic_protocol()
             self.sleep(0.25)
-        if self.config.mode == "Training":
-            self.info("Training mode: protocol sequence complete. Click Success or Abort to finish.")
-            while True:
-                self.sleep(0.1)
         self.success_requested = True
         self.success_if_requested()
 
@@ -865,6 +861,35 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.wait_until_still()
             self.microscope.relative_move(cell_distance)
             self.microscope.wait_until_still()
+
+        if self.config.cell_type_toggle and self.config.cell_type == "Slice":
+            self.clear_to_cell(cell)
+
+    def clear_to_cell(self, cell):
+        '''
+        Clears the pipette to the cell by moving down while checking resistance
+        '''
+        self.info("Clearing to cell")
+        self.isrigready()
+
+        if self.rig_ready == False:
+            raise AutopatchError("Rig not ready for clearing to cell")
+        
+        if cell is None:
+            raise AutopatchError("No cell given to patch!")
+        
+        # if a slice, push pipette into slice from above surface, just about 20um above cell of interest
+
+        if self.config.cell_type_toggle and self.config.cell_type == "Slice":
+            self.info("Moving pipette to slice position")
+            speed = [0,0,self.config.max_clearing_speed]
+            start_pos = self.calibrated_unit.position()
+            self.calibrated_unit.absolute_move_group_velocity(speed)
+            cell_hover_pos = self.config.cell_distance - self.config.slice_start_distance
+            self.info(f"Cell hover position: {cell_hover_pos} um")
+            while start_pos[2] - self.calibrated_unit.position()[2] > cell_hover_pos and not self.abort_requested:
+                self.sleep(0.1)
+            self.calibrated_unit.stop()
         
     @record_state("hunt_cell")
     def hunt_cell(self,cell = None):
@@ -881,23 +906,6 @@ class AutoPatcher(TaskController):
         if cell is None:
             raise AutopatchError("No cell given to patch!")
         
-        # if a slice, push pipette into slice from above surface, just about 20um above cell of interest
-
-        if self.config.cell_type_toggle and self.config.cell_type == "Slice":
-            self.info("Moving pipette to slice position")
-            speed = [
-                0,
-                0,
-                self.config.max_descent_speed * self.calibrated_unit.config.microscope_units_per_um,
-            ]
-            start_pos = self.calibrated_unit.position()
-            self.calibrated_unit.absolute_move_group_velocity(speed)
-            cell_hover_pos = self.config.cell_distance - self.config.slice_start_distance
-            self.info(f"Cell hover position: {cell_hover_pos} um")
-            while start_pos[2] - self.calibrated_unit.position()[2] > cell_hover_pos and not self.abort_requested:
-                self.sleep(0.1)
-            self.calibrated_unit.stop()
-            
         # # #ensure "near cell" pressure
         self.info(f"Setting pressure to {self.config.pressure_near} mbar")
         self.pressure.set_pressure(self.config.pressure_near)
