@@ -136,7 +136,7 @@ class PlateScanner(TaskController):
 
         stage = self.patch_interface.pipette_controller.calibrated_stage
         camera = self.patch_interface.pipette_controller.calibrated_unit.camera
-        row_step_px = float(camera.height) - 200.0
+        row_step_px = float(camera.height)/2
         if row_step_px <= 0:
             self.patch_interface.warning("Camera height is too small for scan step calculation.")
             return
@@ -146,6 +146,8 @@ class PlateScanner(TaskController):
 
         scan_speed_um_per_sec = 70
         row_step_um = stage.pixels_to_um_relative(np.array([0.0, row_step_px, 0.0]))
+        print(row_step_px)
+        print(row_step_um)
         row_step = np.array([float(row_step_um[0]), float(row_step_um[1])], dtype=float)
         if np.isclose(row_step[1], 0.0):
             self.patch_interface.warning("Unable to determine a valid Y step for the stage.")

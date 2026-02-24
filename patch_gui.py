@@ -67,6 +67,7 @@ def main():
     recording_state_manager = RecordingStateManager()
 
     calibration_data = config_data.get("calibration") if isinstance(config_data, dict) else None
+    print(calibration_data)
     patch_data = config_data.get("patch") if isinstance(config_data, dict) else None
     protocol_data = config_data.get("protocol") if isinstance(config_data, dict) else None
 
