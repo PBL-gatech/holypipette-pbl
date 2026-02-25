@@ -369,9 +369,12 @@ class ScanStitcher:
     def _pixel_drift_draw_order(self, coordinates):
         """
         Build frame draw order for pixel-drift stitching.
-        - Left-to-right rows: keep original order (later frames over earlier).
-        - Right-to-left rows: reverse within the row (later frames under earlier).
-        - Vertical transitions keep row stack order unchanged.
+        - Horizontal-major scans:
+          - Left-to-right rows keep original order (later frames over earlier).
+          - Right-to-left rows reverse within the row (later frames under earlier).
+        - Vertical-major scans:
+          - All columns reverse within the column (later frames under earlier),
+            regardless of top-to-bottom or bottom-to-top motion.
         """
         coords_arr = np.asarray(coordinates, dtype=float)
         if coords_arr.ndim != 2 or coords_arr.shape[1] < 2:
@@ -380,30 +383,91 @@ class ScanStitcher:
         if n == 0:
             return np.array([], dtype=int)
 
+        step_x = np.abs(np.diff(coords_arr[:, 0]))
+        step_y = np.abs(np.diff(coords_arr[:, 1]))
+        nonzero_dx = step_x[step_x > 0]
+        nonzero_dy = step_y[step_y > 0]
+        typical_dx = float(np.median(nonzero_dx)) if nonzero_dx.size else 0.0
+        typical_dy = float(np.median(nonzero_dy)) if nonzero_dy.size else 0.0
+        horizontal_major = typical_dx >= typical_dy
+
+        if horizontal_major:
+            primary_steps = step_x
+            secondary_steps = step_y
+            secondary_jitter_pool = secondary_steps[secondary_steps <= primary_steps]
+            if secondary_jitter_pool.size == 0:
+                secondary_jitter_pool = secondary_steps
+            secondary_jitter = (
+                float(np.median(secondary_jitter_pool)) if secondary_jitter_pool.size else 0.0
+            )
+            break_ratio = 3.0
+            min_secondary_jump = max(2.0, secondary_jitter * 8.0, typical_dx * 0.4)
+            direction_axis = 0
+            reverse_label = "right-to-left row(s)"
+        else:
+            primary_steps = step_y
+            secondary_steps = step_x
+            secondary_jitter_pool = secondary_steps[secondary_steps <= primary_steps]
+            if secondary_jitter_pool.size == 0:
+                secondary_jitter_pool = secondary_steps
+            secondary_jitter = (
+                float(np.median(secondary_jitter_pool)) if secondary_jitter_pool.size else 0.0
+            )
+            # Slightly looser than horizontal mode so vertical serpentine turns are still detected.
+            break_ratio = 1.25
+            min_secondary_jump = max(2.0, secondary_jitter * 8.0, typical_dy * 0.4)
+            direction_axis = 1
+            reverse_label = "column(s)"
+
         row_starts = [0]
         for i in range(1, n):
-            dx = abs(coords_arr[i, 0] - coords_arr[i - 1, 0])
-            dy = abs(coords_arr[i, 1] - coords_arr[i - 1, 1])
-            if dy > dx:
+            primary = primary_steps[i - 1]
+            secondary = secondary_steps[i - 1]
+            if secondary > (primary * break_ratio) and secondary > min_secondary_jump:
                 row_starts.append(i)
         row_starts.append(n)
 
         draw_order = []
-        rtl_rows = 0
+        reversed_segments = 0
         for start, end in zip(row_starts[:-1], row_starts[1:]):
             if end - start <= 1:
                 draw_order.extend(range(start, end))
                 continue
-            if coords_arr[end - 1, 0] < coords_arr[start, 0]:
-                rtl_rows += 1
+            if horizontal_major:
+                reverse_segment = coords_arr[end - 1, direction_axis] < coords_arr[start, direction_axis]
+            else:
+                reverse_segment = True
+            if reverse_segment:
+                reversed_segments += 1
                 draw_order.extend(range(end - 1, start - 1, -1))
             else:
                 draw_order.extend(range(start, end))
 
-        if rtl_rows > 0:
+        moved_boundary_entries = 0
+        if horizontal_major:
+            # Ensure the first frame after each vertical jump is under the prior horizontal frame.
+            for start in row_starts[1:-1]:
+                prev_idx = int(start - 1)
+                start_idx = int(start)
+                try:
+                    pos_start = draw_order.index(start_idx)
+                    pos_prev = draw_order.index(prev_idx)
+                except ValueError:
+                    continue
+                if pos_start > pos_prev:
+                    frame_id = draw_order.pop(pos_start)
+                    draw_order.insert(pos_prev, frame_id)
+                    moved_boundary_entries += 1
+
+        if reversed_segments > 0:
             print(
                 "[ScanStitcher] Applied underlay ordering for "
-                f"{rtl_rows} right-to-left row(s)."
+                f"{reversed_segments} {reverse_label}."
+            )
+        if moved_boundary_entries > 0:
+            print(
+                "[ScanStitcher] Applied boundary underlay for "
+                f"{moved_boundary_entries} vertical-entry frame(s)."
             )
 
         return np.asarray(draw_order, dtype=int)
@@ -1204,7 +1268,7 @@ def main():
     use_pixel_drift_stitch = True
     use_streaming_stitch = True
     downsample = 1
-    date_time_folder = "2026_02_24-18_19"
+    date_time_folder = "2026_02_24-19_14"
     stitcher = ScanStitcher(
         date_time_folder=date_time_folder,
         use_calibration=True,
@@ -1212,8 +1276,8 @@ def main():
         downsample=downsample,
         use_pixel_drift_stitch=use_pixel_drift_stitch,
     )
-    # h_overlap = stitcher.save_horizontal_overlap_from_dataset("horizontal_overlap_stitched.tif")
-    # print(f"Saved horizontal overlap image: {h_overlap}")
+    h_overlap = stitcher.save_horizontal_overlap_from_dataset("horizontal_overlap_stitched.tif")
+    print(f"Saved horizontal overlap image: {h_overlap}")
     # v_overlap = stitcher.save_vertical_overlap_from_dataset("vertical_overlap_stitched.tif")
     # print(f"Saved vertical overlap image: {v_overlap}")
     # h_dbg, v_dbg = stitcher.save_axis_debug_images(
@@ -1224,16 +1288,16 @@ def main():
     # print(f"Saved vertical debug image: {v_dbg}")
     # saved_projection = stitcher.save_projection_from_dataset("projection_image.tif")
     # print(f"Saved projection image: {saved_projection}")
-    if use_streaming_stitch and use_pixel_drift_stitch:
-        saved_scan = stitcher.stitch_streaming(
-            output_path="stitched_scan.tif",
-            metadata_path="meta.json",
-            cleanup_memmap=True,
-        )
-    else:
-        stitcher.stitch()
-        saved_scan = stitcher.save("stitched_scan.tif", "meta.json")
-    print(f"Saved stitched scan: {saved_scan}")
+    # if use_streaming_stitch and use_pixel_drift_stitch:
+    #     saved_scan = stitcher.stitch_streaming(
+    #         output_path="stitched_scan.tif",
+    #         metadata_path="meta.json",
+    #         cleanup_memmap=True,
+    #     )
+    # else:
+    #     stitcher.stitch()
+    #     saved_scan = stitcher.save("stitched_scan.tif", "meta.json")
+    # print(f"Saved stitched scan: {saved_scan}")
     # stitcher.plot()
 
 
