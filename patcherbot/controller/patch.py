@@ -85,6 +85,7 @@ class AutoPatcher(TaskController):
         # False -> interpret model output as displacement (xy px, z um) and use relative moves.
         # True  -> interpret model output as velocity (xy px/s, z um/s) and stream velocity commands.
         self.velocity_prediction = False
+        self._track_cell_ai_disabled_logged = False
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -815,10 +816,14 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
         self.fine_calibrate_pipette()
 
-        self.align(cell, cell_distance,self.config.use_centroid)
-        self.info("Located Cell")
-
         self.amplifier.start_patch()
+
+        self.align(cell, cell_distance,self.config.use_centroid)
+                
+        if self.config.cell_type_toggle and self.config.cell_type == "Slice":
+            self.clear_to_cell(cell)
+
+        self.info("Located Cell")
         self.success_requested = True
         self.success_if_requested()
 
@@ -862,9 +867,6 @@ class AutoPatcher(TaskController):
             self.microscope.relative_move(cell_distance)
             self.microscope.wait_until_still()
 
-        if self.config.cell_type_toggle and self.config.cell_type == "Slice":
-            self.clear_to_cell(cell)
-
     def clear_to_cell(self, cell):
         '''
         Clears the pipette to the cell by moving down while checking resistance
@@ -883,9 +885,11 @@ class AutoPatcher(TaskController):
         if self.config.cell_type_toggle and self.config.cell_type == "Slice":
             self.info("Moving pipette to slice position")
             speed = [0,0,self.config.max_clearing_speed]
+            cell_hover_pos = self.config.cell_distance - self.config.slice_start_distance
+            # move the stage up to the cell hover position
+            self.microscope.relative_move(cell_hover_pos)
             start_pos = self.calibrated_unit.position()
             self.calibrated_unit.absolute_move_group_velocity(speed)
-            cell_hover_pos = self.config.cell_distance - self.config.slice_start_distance
             self.info(f"Cell hover position: {cell_hover_pos} um")
             while start_pos[2] - self.calibrated_unit.position()[2] > cell_hover_pos and not self.abort_requested:
                 self.sleep(0.1)
@@ -940,8 +944,7 @@ class AutoPatcher(TaskController):
         else:
             autoHunt = False
 
-        stage_config = self.calibrated_stage.config
-        track_cell_ai_disabled_logged = False
+        self._track_cell_ai_disabled_logged = False
         training_mode = self.config.mode == "Training"
         enforce_max_hunt_distance = self.config.mode != "Training"
         if not enforce_max_hunt_distance:
@@ -998,22 +1001,8 @@ class AutoPatcher(TaskController):
 
                 self.info("Cell Detected")
                 break
-            #TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
-            if self.config.track_cell:
-                ai_tracking_enabled = bool(stage_config.use_ai_features)
-                if ai_tracking_enabled:
-                    track_cell_ai_disabled_logged = False
-                    position, disp = self.calibrated_stage.get_cell_position(cell,use_centroid=self.config.use_centroid)
-                    if position is not None and disp is not None:
-                        self.info(f"cell displacement: {disp} px")
-                        self.info(f"cell position: {position} px")
-                    else:
-                        self.info("lost track of cell")
-                elif not track_cell_ai_disabled_logged:
-                    self.info(
-                        "Track-cell is enabled, but calibration.use_ai_features is false; skipping AI cell tracking."
-                    )
-                    track_cell_ai_disabled_logged = True
+
+            self.track_cell(cell)
 
             self.sleep(0.04)
             lastResDeque.append(daqResistance)
@@ -1046,6 +1035,35 @@ class AutoPatcher(TaskController):
         elif self.abort_requested:
             self.abort_if_requested()
 
+    def track_cell(self, cell):
+        '''
+        Track the cell during hunting and return its current position in pixels.
+        '''
+        # TODO will add another condition to check if cell and pipette have moved away from each other based on the mask and original image.
+        if not self.config.track_cell:
+            return None
+
+        ai_tracking_enabled = bool(self.calibrated_stage.config.use_ai_features)
+        if ai_tracking_enabled:
+            position, disp = self.calibrated_stage.get_cell_position(
+                cell,
+                use_centroid=self.config.use_centroid,
+            )
+            if position is not None and disp is not None:
+                self.info(f"cell displacement: {disp} px")
+                self.info(f"cell position: {position} px")
+                return position
+            else:
+                self.info("lost track of cell")
+                return None
+
+        if not self._track_cell_ai_disabled_logged:
+            self.info(
+                "Track-cell is enabled, but calibration.use_ai_features is false; skipping AI cell tracking."
+            )
+            self._track_cell_ai_disabled_logged = True
+        return None
+    
     @record_state("escape")
     def escape(self):
             self.amplifier.stop_patch()
