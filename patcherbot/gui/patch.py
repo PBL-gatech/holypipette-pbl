@@ -707,7 +707,10 @@ class ClassicPatchButtons(ButtonTabWidget):
             [self.pipette_interface.go_to_floor,self.pipette_interface.focus_stage],
 
 
-            [self.patch_interface.start_selecting_corners, self.patch_interface.start_scan],
+            [
+                self.patch_interface.start_selecting_corners,
+                [[self.patch_interface.move_to_scan_start, self.start_recording, self.patch_interface.start_scan, self.stop_recording]],
+            ],
             [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
 
         ]

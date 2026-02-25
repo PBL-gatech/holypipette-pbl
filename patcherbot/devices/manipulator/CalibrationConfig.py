@@ -25,6 +25,10 @@ class CalibrationConfig(Config):
                                      doc="number of frames between for computing change with optical flow",
                                      bounds=(1, 20))
 
+    y_delta_scan = NumberWithUnit(1340, unit="um",
+                                  doc="configured vertical scan distance for stage scans",
+                                  bounds=(0, 100000))
+
     pipette_diag_move = NumberWithUnit(200, unit="um",
                                      doc="x, y dist to move for pipette cal.",
                                      bounds=(50, 10000))
@@ -81,6 +85,7 @@ class CalibrationConfig(Config):
             "autofocus_dist",
             "stage_diag_move",
             "frame_lag",
+            "y_delta_scan",
             "stage_x_axis_flip",
             "stage_y_axis_flip",
             "microscope_units_per_um",

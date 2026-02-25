@@ -70,6 +70,18 @@ class PlateScanner(TaskController):
                 continue
         return False
 
+    def _stage_xy_from_pixels(self, stage, stage_pixels):
+        """Convert a stage reference pixel coordinate into stage XY in um."""
+        stage_pixels = np.asarray(stage_pixels, dtype=float).reshape(-1)
+        if stage_pixels.size < 2:
+            raise ValueError("stage_pixels must contain at least x and y values.")
+        if stage_pixels.size < 3:
+            stage_pixels = np.append(stage_pixels, 0.0)
+        stage_um = np.asarray(stage.pixels_to_um(stage_pixels), dtype=float).reshape(-1)
+        if stage_um.size < 2:
+            raise ValueError("pixels_to_um did not return a valid XY coordinate.")
+        return np.array([float(stage_um[0]), float(stage_um[1])], dtype=float)
+
     def _store_position(self, click_position):
         click_position = np.array(click_position, dtype=float)
 
@@ -77,12 +89,13 @@ class PlateScanner(TaskController):
         click_position[0] += camera.width / 2.0
         click_position[1] += camera.height / 2.0
 
-        stage_pos_pixels = np.array(self.patch_interface.pipette_controller.calibrated_stage.reference_position())
+        stage = self.patch_interface.pipette_controller.calibrated_stage
+        stage_pos_pixels = np.array(stage.reference_position(), dtype=float)
         stage_pos_pixels[0:2] -= click_position
 
-        current_stage_um = self.patch_interface.pipette_controller.calibrated_stage.position()
+        stage_xy_um = self._stage_xy_from_pixels(stage, stage_pos_pixels)
         z_um = float(self.patch_interface.pipette_controller.calibrated_unit.microscope.position() / 5.0)
-        stage_pos_um = np.array([current_stage_um[0], current_stage_um[1], z_um])
+        stage_pos_um = np.array([stage_xy_um[0], stage_xy_um[1], z_um], dtype=float)
 
         description = self.CORNER_LABELS[self.corner_count]
         self._corner_positions.append(
@@ -122,6 +135,26 @@ class PlateScanner(TaskController):
             print(f"Bottom Right stage pixels: {bottom_right['stage_pixels']}")
             print(f"Bottom Right stage um: {bottom_right['stage_um']}")
 
+    def _move_to_scan_start(self, stage, top_left_xy, speed):
+        """Move the stage to the scan starting point and wait for motion to finish."""
+        self.abort_if_requested()
+        stage.absolute_move(top_left_xy, speed=speed)
+        self.abort_if_requested()
+        stage.wait_until_still()
+
+    def move_to_scan_start(self, speed=70):
+        """Move to the stored Top Left corner for scan initialization."""
+        if self.corner_count < len(self.CORNER_LABELS):
+            self.patch_interface.warning(
+                "Move to scan start requires both Top Left and Bottom Right corners from Select Corners."
+            )
+            return
+
+        stage = self.patch_interface.pipette_controller.calibrated_stage
+        top_left_pixels = np.array(self._corner_positions[0]["stage_pixels"], dtype=float)
+        top_left_xy = self._stage_xy_from_pixels(stage, top_left_pixels)
+        self._move_to_scan_start(stage, top_left_xy, speed)
+
     def ScanArea(self):
         """Scan the selected rectangular area from top-left to bottom-right at constant velocity."""
         self.abort_if_requested()
@@ -131,45 +164,30 @@ class PlateScanner(TaskController):
             )
             return
 
-        top_left = np.array(self._corner_positions[0]["stage_um"], dtype=float)
-        bottom_right = np.array(self._corner_positions[1]["stage_um"], dtype=float)
-
         stage = self.patch_interface.pipette_controller.calibrated_stage
         camera = self.patch_interface.pipette_controller.calibrated_unit.camera
-        row_step_px = float(camera.height)/2
+        top_left_px = np.array(self._corner_positions[0]["stage_pixels"], dtype=float)
+        bottom_right_px = np.array(self._corner_positions[1]["stage_pixels"], dtype=float)
+
+        row_step_px = float(camera.height) / 2.0
         if row_step_px <= 0:
             self.patch_interface.warning("Camera height is too small for scan step calculation.")
             return
 
-        top_left_xy = np.array([float(top_left[0]), float(top_left[1])], dtype=float)
-        bottom_right_xy = np.array([float(bottom_right[0]), float(bottom_right[1])], dtype=float)
-
         scan_speed_um_per_sec = 70
-        row_step_um = stage.pixels_to_um_relative(np.array([0.0, row_step_px, 0.0]))
-        print(row_step_px)
-        print(row_step_um)
-        row_step = np.array([float(row_step_um[0]), float(row_step_um[1])], dtype=float)
-        if np.isclose(row_step[1], 0.0):
-            self.patch_interface.warning("Unable to determine a valid Y step for the stage.")
-            return
+        top_left_xy = self._stage_xy_from_pixels(stage, top_left_px)
 
-        target_delta_y = bottom_right_xy[1] - top_left_xy[1]
-        if np.isclose(target_delta_y, 0.0):
+        target_delta_y_px = float(bottom_right_px[1] - top_left_px[1])
+        if np.isclose(target_delta_y_px, 0.0):
             self.patch_interface.warning("Top Left and Bottom Right have the same Y coordinate; no vertical scan range.")
             return
 
-        target_y = bottom_right_xy[1]
-        target_direction = 1.0 if target_delta_y > 0 else -1.0
-        if row_step[1] * target_direction < 0:
-            row_step = -row_step
-
-        if row_step[1] * target_direction <= 0:
-            self.patch_interface.warning("Could not compute a valid scan step that moves toward Bottom Right.")
-            return
-
-        reached_target_y = lambda y: (y - target_y) * target_direction >= 0
-        left_x = top_left_xy[0]
-        right_x = bottom_right_xy[0]
+        target_y_px = float(bottom_right_px[1])
+        target_direction = 1.0 if target_delta_y_px > 0 else -1.0
+        row_step_y_px = row_step_px if target_direction > 0 else -row_step_px
+        reached_target_y = lambda y_px: (y_px - target_y_px) * target_direction >= 0
+        left_x_px = float(top_left_px[0])
+        right_x_px = float(bottom_right_px[0])
 
         prior_speed = None
         prior_speed_controller = None
@@ -188,35 +206,36 @@ class PlateScanner(TaskController):
             if prior_speed is not None and not self._set_max_speed(stage, scan_speed_um_per_sec):
                 self.patch_interface.warning("Could not set stage max speed for scan; speed override may not apply.")
 
-            stage.absolute_move(top_left_xy, speed=scan_speed_um_per_sec)
-            self.abort_if_requested()
-            stage.wait_until_still()
+            self._move_to_scan_start(stage, top_left_xy, scan_speed_um_per_sec)
 
+            def move_to_pixel(px_x, px_y):
+                target_xy = self._stage_xy_from_pixels(stage, np.array([px_x, px_y, 0.0], dtype=float))
+                stage.absolute_move(target_xy, speed=scan_speed_um_per_sec)
+                stage.wait_until_still()
+
+            current_y_px = float(top_left_px[1])
             move_toward_right = True
             while True:
                 self.abort_if_requested()
-                target_x = right_x if move_toward_right else left_x
-                stage.absolute_move([target_x, stage.position()[1]], speed=scan_speed_um_per_sec)
-                stage.wait_until_still()
+                target_x_px = right_x_px if move_toward_right else left_x_px
+                move_to_pixel(target_x_px, current_y_px)
 
                 self.abort_if_requested()
-                current_y = stage.position()[1]
-                if reached_target_y(current_y):
+                if reached_target_y(current_y_px):
                     break
 
-                next_y = current_y + row_step[1]
-                if reached_target_y(next_y):
-                    stage.absolute_move([stage.position()[0], target_y], speed=scan_speed_um_per_sec)
-                    stage.wait_until_still()
+                next_y_px = current_y_px + row_step_y_px
+                if reached_target_y(next_y_px):
+                    current_y_px = target_y_px
+                    move_to_pixel(target_x_px, current_y_px)
                     move_toward_right = not move_toward_right
-                    final_target_x = right_x if move_toward_right else left_x
-                    stage.absolute_move([final_target_x, target_y], speed=scan_speed_um_per_sec)
-                    stage.wait_until_still()
+                    final_target_x_px = right_x_px if move_toward_right else left_x_px
+                    move_to_pixel(final_target_x_px, current_y_px)
                     break
 
                 self.abort_if_requested()
-                stage.absolute_move([stage.position()[0], next_y], speed=scan_speed_um_per_sec)
-                stage.wait_until_still()
+                current_y_px = next_y_px
+                move_to_pixel(target_x_px, current_y_px)
 
                 move_toward_right = not move_toward_right
         finally:
