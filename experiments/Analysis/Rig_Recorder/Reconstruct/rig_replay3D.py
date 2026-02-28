@@ -2,10 +2,13 @@ import sys
 import os
 import csv
 import bisect
+import json
+from pathlib import Path
 from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton,
-    QFileDialog, QShortcut, QHBoxLayout, QFrame, QSlider, QMessageBox, QSizePolicy, QStackedWidget
+    QFileDialog, QShortcut, QHBoxLayout, QFrame, QSlider, QMessageBox, QSizePolicy, QStackedWidget,
+    QLineEdit, QGraphicsDropShadowEffect
 )
 from PyQt5.QtGui import QPixmap, QColor, QKeySequence
 from PyQt5.QtCore import Qt, QTimer
@@ -303,6 +306,8 @@ class DataManager:
         self.directory = None
         self.scaling_factor = scaling_factor  # micrometers to millimeters
         self.init_image_time = 0.0
+        self.state_windows = []
+        self._state_window_starts = []
 
     def load_directory(self, directory):
         self.directory = directory
@@ -326,6 +331,125 @@ class DataManager:
             self.load_graph_data(graph_file_path)
         else:
             raise FileNotFoundError("graph_recording.csv not found in the selected directory.")
+
+        valid_start, valid_end = self._get_valid_recording_window()
+        folder_name = os.path.basename(os.path.normpath(directory))
+        self.load_state_attempts(folder_name, valid_start, valid_end)
+
+    def _get_valid_recording_window(self):
+        if self.graph_data:
+            return self.graph_data[0]['time'], self.graph_data[-1]['time']
+        if self.timestamps:
+            return self.timestamps[0], self.timestamps[-1]
+        return 0.0, 0.0
+
+    @staticmethod
+    def _slugify_state_name(name):
+        cleaned = name.strip().lower().replace(" ", "_")
+        slug = ''.join(ch if (ch.isalnum() or ch == '_') else '_' for ch in cleaned)
+        slug = slug.strip('_')
+        return slug or 'state'
+
+    def load_state_attempts(self, rig_recorder_data_folder, valid_start, valid_end):
+        self.state_windows = []
+        self._state_window_starts = []
+
+        day_token = rig_recorder_data_folder.split('-', 1)[0]
+        tolerance = 0.5
+
+        state_roots = self._candidate_state_roots()
+        if not state_roots:
+            return
+
+        seen_json_paths = set()
+        for state_root in state_roots:
+            for day_dir in sorted(state_root.glob(f"{day_token}*")):
+                if not day_dir.is_dir():
+                    continue
+                for attempt_dir in sorted(day_dir.glob("attempt_*")):
+                    if not attempt_dir.is_dir():
+                        continue
+                    for json_path in sorted(attempt_dir.glob("*.json")):
+                        try:
+                            json_key = str(json_path.resolve())
+                        except OSError:
+                            json_key = str(json_path)
+                        if json_key in seen_json_paths:
+                            continue
+                        seen_json_paths.add(json_key)
+                        try:
+                            with open(json_path, "r", encoding="utf-8") as fh:
+                                payload = json.load(fh)
+                        except (OSError, json.JSONDecodeError):
+                            continue
+
+                        started = payload.get("started")
+                        finished = payload.get("finished")
+                        if started is None or finished is None:
+                            continue
+                        try:
+                            started = float(started)
+                            finished = float(finished)
+                        except (TypeError, ValueError):
+                            continue
+                        if finished <= started:
+                            continue
+                        if finished < (valid_start - tolerance) or started > (valid_end + tolerance):
+                            continue
+
+                        stem = json_path.stem
+                        parts = stem.split("_")
+                        if len(parts) >= 3:
+                            state_name = "_".join(parts[1:-1])
+                        else:
+                            state_name = stem
+                        state_name = self._slugify_state_name(state_name)
+                        outcome = payload.get("outcome")
+                        try:
+                            outcome_code = int(outcome) if outcome is not None else None
+                        except (TypeError, ValueError):
+                            outcome_code = None
+
+                        self.state_windows.append((started, finished, state_name, outcome_code))
+
+        self.state_windows.sort(key=lambda window: window[0])
+        self._state_window_starts = [window[0] for window in self.state_windows]
+
+    def _candidate_state_roots(self):
+        """Return candidate state_recorder_data roots, preferring paths near the selected recording."""
+        roots = []
+        seen = set()
+
+        def add_root(path):
+            try:
+                resolved = path.resolve()
+            except OSError:
+                resolved = path
+            key = str(resolved)
+            if key in seen:
+                return
+            if path.exists() and path.is_dir():
+                roots.append(path)
+                seen.add(key)
+
+        if self.directory:
+            recording_path = Path(self.directory)
+            for ancestor in recording_path.parents:
+                add_root(ancestor / "state_recorder_data")
+
+        add_root(Path("experiments/Data/state_recorder_data"))
+        return roots
+
+    def get_active_state_for_timestamp(self, timestamp):
+        if not self.state_windows:
+            return None, None
+
+        idx = bisect.bisect_right(self._state_window_starts, timestamp)
+        for j in range(idx - 1, -1, -1):
+            started, finished, state_name, outcome_code = self.state_windows[j]
+            if started <= timestamp <= finished:
+                return state_name, outcome_code
+        return None, None
 
     def _parse_image_directory(self, directory, allow_empty=False, empty_message=None):
         if not os.path.exists(directory):
@@ -787,6 +911,17 @@ class IntegratedTimeline(QMainWindow):
 
         info_frame_layout.addWidget(self.info, stretch=1)
 
+        self.state_indicator = QLineEdit("No state")
+        self.state_indicator.setReadOnly(True)
+        self.state_indicator.setFocusPolicy(Qt.NoFocus)
+        self.state_indicator.setAlignment(Qt.AlignCenter)
+        self.state_indicator.setMinimumWidth(180)
+        self.state_indicator.setMaximumWidth(260)
+        self.state_glow_effect = None
+        self._last_state_indicator_key = ("__unset__", "__unset__")
+        self._set_state_indicator(None)
+        info_frame_layout.addWidget(self.state_indicator)
+
         # Buttons Layout
         self.buttons_layout = QHBoxLayout()
         self.buttons_layout.setSpacing(10)
@@ -892,6 +1027,59 @@ class IntegratedTimeline(QMainWindow):
             }
         """)
 
+    def _ensure_state_glow_effect(self):
+        effect = self.state_indicator.graphicsEffect()
+        if effect is None or not isinstance(effect, QGraphicsDropShadowEffect):
+            effect = QGraphicsDropShadowEffect(self.state_indicator)
+            effect.setOffset(0, 0)
+            effect.setBlurRadius(18)
+            self.state_indicator.setGraphicsEffect(effect)
+        self.state_glow_effect = effect
+        return effect
+
+    def _set_state_indicator(self, state_name, outcome_code=None):
+        glow_effect = self._ensure_state_glow_effect()
+        if state_name:
+            # Outcome code colors:
+            # 0 -> green (success), 1 -> red (failure), 2 -> yellow (abort), 3+ -> orange
+            if outcome_code == 0:
+                bg_color = "#0f3a1d"
+                text_color = "#9dffb6"
+                border_color = "#2ee66f"
+                glow_color = QColor(46, 230, 111)
+            elif outcome_code == 1:
+                bg_color = "#3b1414"
+                text_color = "#ffb0b0"
+                border_color = "#ff5c5c"
+                glow_color = QColor(255, 92, 92)
+            elif outcome_code == 2:
+                bg_color = "#3b320f"
+                text_color = "#ffe88f"
+                border_color = "#ffd84d"
+                glow_color = QColor(255, 216, 77)
+            else:
+                bg_color = "#3a240f"
+                text_color = "#ffc991"
+                border_color = "#ff9e42"
+                glow_color = QColor(255, 158, 66)
+
+            self.state_indicator.setText(state_name)
+            self.state_indicator.setStyleSheet(
+                "QLineEdit { "
+                f"background-color: {bg_color}; color: {text_color}; "
+                f"border: 2px solid {border_color}; border-radius: 4px; padding: 4px 8px; font-weight: 600; }}"
+            )
+            glow_effect.setColor(glow_color)
+            glow_effect.setEnabled(True)
+        else:
+            self.state_indicator.setText("No state")
+            self.state_indicator.setStyleSheet(
+                "QLineEdit { background-color: #3a3a3a; color: #d8d8d8; "
+                "border: 1px solid #5a5a5a; border-radius: 4px; padding: 4px 8px; }"
+            )
+            glow_effect.setEnabled(False)
+        self.state_indicator.update()
+
     def toggle_view(self):
         """Cycle through available right-side views."""
         next_view = self._get_next_view_key()
@@ -949,6 +1137,7 @@ class IntegratedTimeline(QMainWindow):
                 self.data_manager.load_directory(directory)
                 self.directory = directory
                 self.info.setText(f"Loaded data from {directory}")
+                self._last_state_indicator_key = ("__unset__", "__unset__")
                 self.current_view_key = 'graphs'
                 self.graph_stack.setCurrentWidget(self.view_widgets[self.current_view_key])
                 self.refresh_view_order()
@@ -990,7 +1179,6 @@ class IntegratedTimeline(QMainWindow):
         if self.current_index > 0:
             self.current_index -= 1
             self.slider.setValue(self.current_index)
-            self.update_view()
 
     def show_next_timepoint(self):
         """Show the next timepoint."""
@@ -1000,7 +1188,6 @@ class IntegratedTimeline(QMainWindow):
         if self.current_index < len(self.data_manager.image_paths) - 1:
             self.current_index += 1
             self.slider.setValue(self.current_index)
-            self.update_view()
 
     def toggle_video(self):
         """Toggle play/pause functionality."""
@@ -1022,7 +1209,6 @@ class IntegratedTimeline(QMainWindow):
         if self.current_index < len(self.data_manager.image_paths) - 1:
             self.current_index += 1
             self.slider.setValue(self.current_index)
-            self.update_view()
         else:
             self.toggle_video_button.setText("Play")
             self.timer.stop()
@@ -1038,6 +1224,12 @@ class IntegratedTimeline(QMainWindow):
     def update_view(self):
         """Update image, 2D graphs, and 3D plot based on current index."""
         self.display_image(self.data_manager.image_paths[self.current_index])
+        current_timestamp = self.data_manager.timestamps[self.current_index]
+        active_state, outcome_code = self.data_manager.get_active_state_for_timestamp(current_timestamp)
+        indicator_key = (active_state, outcome_code)
+        if indicator_key != self._last_state_indicator_key:
+            self._set_state_indicator(active_state, outcome_code)
+            self._last_state_indicator_key = indicator_key
         if self.data_manager.has_aux_images():
             self.update_aux_image()
         self.update_graphs()
