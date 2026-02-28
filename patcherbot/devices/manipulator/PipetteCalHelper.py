@@ -225,14 +225,15 @@ class PipetteFocusHelper():
             )
             self.pipetteFocuser = PipetteFocuser()
     
-    def focus(self):
+    def focus(self,frame=None):
         """
         Adjusts the pipette focus by capturing an image,
         predicting the defocus value, and commanding a relative move
         using that value.
         """
-        # logging.info("Focusing pipette...")
-        frame = self.camera.get_16bit_image()
+        if frame is None:
+            # Get the latest frame from the camera if not provided.
+            _, _, _, frame = self.camera.raw_frame_queue[0]
         # convert to 8-bit for display
         frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
         defocus_value = self.pipetteFocuser.get_pipette_focus_value(frame)

@@ -69,3 +69,5 @@ patcherbot/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.
 /temp
 /temp_folder
 /Emory_temp_folder
+*.dot
+/experiments/Analysis/Rig_Recorder/Reconstruct/controlsystems

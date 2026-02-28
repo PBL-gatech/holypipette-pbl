@@ -203,6 +203,23 @@ class CalibratedUnit(ManipulatorUnit):
         self.abort_if_requested()
         self.pipetteFocusHelper.focus()
 
+    def autofocus_cropped_pipette(self,crop_size=256):
+        ''' use pipette detector to crop ROI of pipette tip, then feed directly into focushelpers focuser'''
+        _, _, _, img = self.camera.raw_frame_queue[0]
+        pipette_px = self.pipetteCalHelper.pipetteDetector.detect_pipette(img)
+        if pipette_px is None:
+            self.error("No pipette detected in the current frame.")
+            return
+        pipette_px = np.array(pipette_px)
+        h, w = img.shape[:2]
+        x_min = max(int(pipette_px[0] - crop_size // 2), 0)
+        x_max = min(int(pipette_px[0] + crop_size // 2), w)
+        y_min = max(int(pipette_px[1] - crop_size // 2), 0)
+        y_max = min(int(pipette_px[1] + crop_size // 2), h)
+        cropped_img = img[y_min:y_max, x_min:x_max]
+        self.pipetteFocusHelper.focus(cropped_img)
+
+
     def safe_move(self, r):
         '''
         Moves the device to position x (an XYZ vector) in a way that minimizes

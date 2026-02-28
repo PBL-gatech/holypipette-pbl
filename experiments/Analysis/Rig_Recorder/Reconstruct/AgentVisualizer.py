@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image, UnidentifiedImageError
 
 # --- USER CONFIGURATION DEFAULTS ---
-DEFAULT_INPUT_DIR = Path(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\agent_movement_data\2026_01_27-17_45")
+DEFAULT_INPUT_DIR = Path(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\agent_movement_data\2026_02_18-21_38")
 DEFAULT_FPS = 30.0
 DEFAULT_RED_THRESHOLDS = (150, 100, 100)  # (r_min, g_max, b_max)
 DEFAULT_AXIS_LIMIT = 85
