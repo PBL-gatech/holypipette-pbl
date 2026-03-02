@@ -174,7 +174,7 @@ class PlateScanner(TaskController):
             self.patch_interface.warning("Camera height is too small for scan step calculation.")
             return
 
-        scan_speed_um_per_sec = 70
+        scan_speed_um_per_sec = 1000
         top_left_xy = self._stage_xy_from_pixels(stage, top_left_px)
 
         target_delta_y_px = float(bottom_right_px[1] - top_left_px[1])

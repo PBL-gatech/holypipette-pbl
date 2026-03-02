@@ -19,7 +19,7 @@ class ScanStitcher:
         self,
         date_time_folder=None,
         date_time_root=STANDARD_DATA_ROOT,
-        use_calibration=True,
+        use_calibration=False,
         coord_cols=(1, 2),
         flip_x=False,
         flip_y=True,
@@ -60,7 +60,8 @@ class ScanStitcher:
         self.frame_catalog = self._build_frame_catalog()
         print(f"[ScanStitcher] Loaded {len(self.coord_data)} movement rows and {len(self.frame_catalog)} frames.")
         print(f"[ScanStitcher] Stitch mode: {'pixel_drift' if self.use_pixel_drift_stitch else 'projection'}")
-        print(f"[ScanStitcher] Stitch downsample: 1/{self.downsample}")
+        print(f"[ScanStitcher] Stitch downsample: 1/{self.downsample} (frame decimation and final-tile decimation)")
+        print(f"[ScanStitcher] Source file: {os.path.abspath(__file__)}")
 
     @staticmethod
     def _validate_downsample(downsample):
@@ -354,6 +355,10 @@ class ScanStitcher:
         if n == 0:
             return timestamps, coords, frame_paths
         if self.downsample <= 1:
+            print(
+                f"[ScanStitcher] downsample=1/{self.downsample}; "
+                f"using all {n}/{n} frames (no decimation)."
+            )
             return timestamps, coords, frame_paths
 
         indices = np.arange(0, n, self.downsample, dtype=int)
@@ -624,6 +629,7 @@ class ScanStitcher:
         camera_frames,
         coordinate_scale=1.0,
         frame_padding=0,
+        image_downsample=1,
     ):
         print("[ScanStitcher] Building non-overlapping projection canvas...")
         timestamps_arr = np.asarray(timestamps, dtype=float).reshape(-1)
@@ -657,6 +663,17 @@ class ScanStitcher:
             raise ValueError("camera frames must contain 3 channels.")
         sample = sample[:, :, :3]
         tile_h, tile_w = sample.shape[:2]
+        image_ds = self._validate_downsample(image_downsample)
+        resize_interp = cv2.INTER_AREA if image_ds > 1 else cv2.INTER_LINEAR
+        if image_ds > 1:
+            src_h, src_w = tile_h, tile_w
+            tile_h = max(1, int(np.ceil(src_h / float(image_ds))))
+            tile_w = max(1, int(np.ceil(src_w / float(image_ds))))
+            sample = cv2.resize(sample, (tile_w, tile_h), interpolation=resize_interp)
+            print(
+                "[ScanStitcher] Projection tile decimation: "
+                f"1/{image_ds} ({src_w}x{src_h} -> {tile_w}x{tile_h})."
+            )
 
         stride_x = max(1, tile_w + int(max(frame_padding, 0)))
         stride_y = max(1, tile_h + int(max(frame_padding, 0)))
@@ -705,7 +722,7 @@ class ScanStitcher:
             if frame_rgb.shape[0] == 0 or frame_rgb.shape[1] == 0:
                 continue
             if frame_rgb.shape[:2] != (tile_h, tile_w):
-                frame_rgb = cv2.resize(frame_rgb, (tile_w, tile_h), interpolation=cv2.INTER_LINEAR)
+                frame_rgb = cv2.resize(frame_rgb, (tile_w, tile_h), interpolation=resize_interp)
 
             frame_rgb = np.clip(frame_rgb, 0, 255).astype(np.uint8)
 
@@ -732,7 +749,7 @@ class ScanStitcher:
         print("[ScanStitcher] Canvas build complete.")
         return canvas
 
-    def _create_pixel_drift_canvas(self, coordinates, camera_frames):
+    def _create_pixel_drift_canvas(self, coordinates, camera_frames, image_downsample=1):
         print("[ScanStitcher] Building pixel-drift stitched canvas...")
         coords_arr = np.asarray(coordinates, dtype=float)
         frames_list = list(camera_frames)
@@ -750,11 +767,22 @@ class ScanStitcher:
             raise ValueError("camera frames must be 2D grayscale or 3-channel arrays.")
         sample = sample[:, :, :3]
         tile_h, tile_w = sample.shape[:2]
+        image_ds = self._validate_downsample(image_downsample)
+        resize_interp = cv2.INTER_AREA if image_ds > 1 else cv2.INTER_LINEAR
+        if image_ds > 1:
+            src_h, src_w = tile_h, tile_w
+            tile_h = max(1, int(np.ceil(src_h / float(image_ds))))
+            tile_w = max(1, int(np.ceil(src_w / float(image_ds))))
+            sample = cv2.resize(sample, (tile_w, tile_h), interpolation=resize_interp)
+            print(
+                "[ScanStitcher] Drift tile decimation: "
+                f"1/{image_ds} ({src_w}x{src_h} -> {tile_w}x{tile_h})."
+            )
 
         # Zero at first point so drift is relative to acquisition start.
         drift = coords_arr[:, :2] - coords_arr[0, :2]
-        dx = np.rint(drift[:, 0]).astype(int)
-        dy = np.rint(drift[:, 1]).astype(int)
+        dx = np.rint(drift[:, 0] / float(image_ds)).astype(int)
+        dy = np.rint(drift[:, 1] / float(image_ds)).astype(int)
 
         min_dx = int(np.min(dx))
         min_dy = int(np.min(dy))
@@ -793,7 +821,7 @@ class ScanStitcher:
                 continue
             frame_rgb = frame_rgb[:, :, :3]
             if frame_rgb.shape[:2] != (tile_h, tile_w):
-                frame_rgb = cv2.resize(frame_rgb, (tile_w, tile_h), interpolation=cv2.INTER_LINEAR)
+                frame_rgb = cv2.resize(frame_rgb, (tile_w, tile_h), interpolation=resize_interp)
             frame_rgb = np.clip(frame_rgb, 0, 255).astype(np.uint8)
 
             left = int(dx[int(draw_idx)] - min_dx)
@@ -823,11 +851,18 @@ class ScanStitcher:
 
         print("[ScanStitcher] Starting streaming stitch pipeline...")
         frame_timestamps, coords, frame_paths = self._align_all_frames_to_movement()
+        n_aligned = len(frame_paths)
         frame_timestamps, coords, frame_paths = self._sample_aligned_data(
             frame_timestamps, coords, frame_paths
         )
+        n_sampled = len(frame_paths)
         frame_timestamps, coords, frame_paths = self._downsample_aligned_data(
             frame_timestamps, coords, frame_paths
+        )
+        n_downsampled = len(frame_paths)
+        print(
+            "[ScanStitcher] Streaming frame counts: "
+            f"aligned={n_aligned}, sampled={n_sampled}, final={n_downsampled}."
         )
         aligned_coords = self._aligned_coords_from_raw(coords)
         if len(frame_paths) == 0:
@@ -840,11 +875,22 @@ class ScanStitcher:
             raise ValueError("camera frames must be 2D grayscale or 3-channel arrays.")
         sample = sample[:, :, :3]
         tile_h, tile_w = sample.shape[:2]
+        image_ds = self.downsample
+        resize_interp = cv2.INTER_AREA if image_ds > 1 else cv2.INTER_LINEAR
+        if image_ds > 1:
+            src_h, src_w = tile_h, tile_w
+            tile_h = max(1, int(np.ceil(src_h / float(image_ds))))
+            tile_w = max(1, int(np.ceil(src_w / float(image_ds))))
+            sample = cv2.resize(sample, (tile_w, tile_h), interpolation=resize_interp)
+            print(
+                "[ScanStitcher] Streaming drift tile decimation: "
+                f"1/{image_ds} ({src_w}x{src_h} -> {tile_w}x{tile_h})."
+            )
 
         # Zero at first point so drift is relative to acquisition start.
         drift = aligned_coords[:, :2] - aligned_coords[0, :2]
-        dx = np.rint(drift[:, 0]).astype(int)
-        dy = np.rint(drift[:, 1]).astype(int)
+        dx = np.rint(drift[:, 0] / float(image_ds)).astype(int)
+        dy = np.rint(drift[:, 1] / float(image_ds)).astype(int)
 
         min_dx = int(np.min(dx))
         min_dy = int(np.min(dy))
@@ -906,7 +952,7 @@ class ScanStitcher:
                 continue
             frame_bgr = frame_bgr[:, :, :3]
             if frame_bgr.shape[:2] != (tile_h, tile_w):
-                frame_bgr = cv2.resize(frame_bgr, (tile_w, tile_h), interpolation=cv2.INTER_LINEAR)
+                frame_bgr = cv2.resize(frame_bgr, (tile_w, tile_h), interpolation=resize_interp)
             frame_bgr = np.clip(frame_bgr, 0, 255).astype(np.uint8)
 
             left = int(dx[draw_idx] - min_dx)
@@ -964,11 +1010,18 @@ class ScanStitcher:
     def stitch(self):
         print("[ScanStitcher] Starting stitch pipeline...")
         frame_timestamps, coords, frame_paths = self._align_all_frames_to_movement()
+        n_aligned = len(frame_paths)
         frame_timestamps, coords, frame_paths = self._sample_aligned_data(
             frame_timestamps, coords, frame_paths
         )
+        n_sampled = len(frame_paths)
         frame_timestamps, coords, frame_paths = self._downsample_aligned_data(
             frame_timestamps, coords, frame_paths
+        )
+        n_downsampled = len(frame_paths)
+        print(
+            "[ScanStitcher] Stitch frame counts: "
+            f"aligned={n_aligned}, sampled={n_sampled}, final={n_downsampled}."
         )
         aligned_coords = self._aligned_coords_from_raw(coords)
         print(f"[ScanStitcher] Loading {len(frame_paths)} frames into memory...")
@@ -980,6 +1033,7 @@ class ScanStitcher:
             self.canvas = self._create_pixel_drift_canvas(
                 coordinates=aligned_coords,
                 camera_frames=camera_frames,
+                image_downsample=self.downsample,
             )
         else:
             self.canvas = self._create_projection_canvas(
@@ -988,6 +1042,7 @@ class ScanStitcher:
                 camera_frames=camera_frames,
                 coordinate_scale=1.0,
                 frame_padding=0,
+                image_downsample=self.downsample,
             )
         print("[ScanStitcher] Stitch complete.")
         return self.canvas
@@ -1021,9 +1076,6 @@ class ScanStitcher:
             frame_timestamps, coords, frame_paths = self._sample_aligned_data(
                 frame_timestamps, coords, frame_paths
             )
-        frame_timestamps, coords, frame_paths = self._downsample_aligned_data(
-            frame_timestamps, coords, frame_paths
-        )
 
         aligned_coords = self._aligned_coords_from_raw(coords)
 
@@ -1039,9 +1091,19 @@ class ScanStitcher:
         if len(keep) < 2:
             raise RuntimeError("Not enough horizontal-motion frames to build overlap image.")
 
+        h_timestamps = np.asarray(frame_timestamps)[keep]
         h_coords = aligned_coords[keep]
         h_paths = [frame_paths[i] for i in keep]
-        print(f"[ScanStitcher] Horizontal overlap frames selected: {len(h_paths)} / {n}")
+        _, h_coords, h_paths = self._downsample_aligned_data(
+            h_timestamps, h_coords, h_paths
+        )
+        if len(h_paths) < 2:
+            raise RuntimeError("Not enough horizontal-motion frames to build overlap image after downsampling.")
+
+        print(
+            "[ScanStitcher] Horizontal overlap frames selected: "
+            f"{len(h_paths)} / {len(keep)} horizontal-motion frames ({n} total aligned)."
+        )
         h_frames = [
             self._to_rgb(path)
             for path in tqdm(h_paths, desc="Loading horizontal overlap frames", unit="frame")
@@ -1268,7 +1330,7 @@ def main():
     use_pixel_drift_stitch = True
     use_streaming_stitch = True
     downsample = 1
-    date_time_folder = "2026_02_24-19_14"
+    date_time_folder = "2026_02_26-16_38"
     stitcher = ScanStitcher(
         date_time_folder=date_time_folder,
         use_calibration=True,
@@ -1278,26 +1340,26 @@ def main():
     )
     h_overlap = stitcher.save_horizontal_overlap_from_dataset("horizontal_overlap_stitched.tif")
     print(f"Saved horizontal overlap image: {h_overlap}")
-    # v_overlap = stitcher.save_vertical_overlap_from_dataset("vertical_overlap_stitched.tif")
-    # print(f"Saved vertical overlap image: {v_overlap}")
-    # h_dbg, v_dbg = stitcher.save_axis_debug_images(
-    #     "horizontal_only_debug.tif",
-    #     "vertical_only_debug.tif",
-    # )
-    # print(f"Saved horizontal debug image: {h_dbg}")
-    # print(f"Saved vertical debug image: {v_dbg}")
+    v_overlap = stitcher.save_vertical_overlap_from_dataset("vertical_overlap_stitched.tif")
+    print(f"Saved vertical overlap image: {v_overlap}")
+    h_dbg, v_dbg = stitcher.save_axis_debug_images(
+        "horizontal_only_debug.tif",
+        "vertical_only_debug.tif",
+    )
+    print(f"Saved horizontal debug image: {h_dbg}")
+    print(f"Saved vertical debug image: {v_dbg}")
     # saved_projection = stitcher.save_projection_from_dataset("projection_image.tif")
     # print(f"Saved projection image: {saved_projection}")
-    # if use_streaming_stitch and use_pixel_drift_stitch:
-    #     saved_scan = stitcher.stitch_streaming(
-    #         output_path="stitched_scan.tif",
-    #         metadata_path="meta.json",
-    #         cleanup_memmap=True,
-    #     )
-    # else:
-    #     stitcher.stitch()
-    #     saved_scan = stitcher.save("stitched_scan.tif", "meta.json")
-    # print(f"Saved stitched scan: {saved_scan}")
+    if use_streaming_stitch and use_pixel_drift_stitch:
+        saved_scan = stitcher.stitch_streaming(
+            output_path="stitched_scan.tif",
+            metadata_path="meta.json",
+            cleanup_memmap=True,
+        )
+    else:
+        stitcher.stitch()
+        saved_scan = stitcher.save("stitched_scan.tif", "meta.json")
+    print(f"Saved stitched scan: {saved_scan}")
     # stitcher.plot()
 
 
