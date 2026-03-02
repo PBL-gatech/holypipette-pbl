@@ -1,6 +1,7 @@
 ﻿import os
 import glob
 import json
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import cv2
@@ -54,6 +55,11 @@ class ScanStitcher:
 
         self.coord_data = self._load_coords(self.coord_file)
         self.time_stamps = self.coord_data[:, 0]
+        self.scan_area_window = None
+        self.scan_area_source_session = None
+        self.scan_area_source_attempt = None
+        self.scan_area_source_json = None
+        self.scan_area_window = self._resolve_scan_area_window()
         self.canvas = None
         self._streaming_canvas_path = None
         self._streaming_canvas_shape = None
@@ -117,6 +123,8 @@ class ScanStitcher:
 
         calibration_file = os.path.join(dataset_dir, "calibration.json")
 
+        self.dataset_dir = dataset_dir
+        self.dataset_folder_name = os.path.basename(os.path.normpath(dataset_dir))
         self.coord_file = movement_path
         self.photo_dir = photo_dir
         self.calibration_file = calibration_file
@@ -266,10 +274,178 @@ class ScanStitcher:
         print(f"[ScanStitcher] Parsed {len(out)} movement rows from spreadsheet.")
         return out
 
+    @staticmethod
+    def _parse_session_folder_datetime(folder_name):
+        try:
+            return datetime.strptime(folder_name, "%Y_%m_%d-%H_%M")
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _parse_attempt_number(attempt_name):
+        if not attempt_name.startswith("attempt_"):
+            return None
+        suffix = attempt_name.split("_", 1)[1]
+        if not suffix.isdigit():
+            return None
+        return int(suffix)
+
+    @staticmethod
+    def _load_scan_area_window_from_json(json_path):
+        stem = os.path.splitext(os.path.basename(json_path))[0]
+        parts = stem.split("_")
+        if len(parts) < 3:
+            return None
+        state_name = "_".join(parts[1:-1]).lower()
+        if state_name != "scan_area":
+            return None
+
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return None
+
+        started = payload.get("started")
+        finished = payload.get("finished")
+        if started is None or finished is None:
+            return None
+        try:
+            started = float(started)
+            finished = float(finished)
+        except (TypeError, ValueError):
+            return None
+        if finished <= started:
+            return None
+        return started, finished
+
+    def _select_scan_area_attempt_in_session(self, session_dir):
+        attempt_windows = []
+        for attempt_name in sorted(os.listdir(session_dir)):
+            attempt_path = os.path.join(session_dir, attempt_name)
+            if not os.path.isdir(attempt_path):
+                continue
+            attempt_num = self._parse_attempt_number(attempt_name)
+            if attempt_num is None:
+                continue
+
+            scan_entries = []
+            for json_path in sorted(glob.glob(os.path.join(attempt_path, "*.json"))):
+                window = self._load_scan_area_window_from_json(json_path)
+                if window is None:
+                    continue
+                scan_entries.append((window[0], window[1], json_path))
+
+            if not scan_entries:
+                continue
+
+            # If multiple scan_area JSON files exist in one attempt, use the latest one.
+            scan_entries.sort(key=lambda item: item[0])
+            started, finished, json_path = scan_entries[-1]
+            attempt_windows.append((attempt_num, started, finished, json_path))
+
+        if not attempt_windows:
+            return None
+
+        # If multiple attempts have scan_area logs, use the highest attempt number.
+        attempt_windows.sort(key=lambda item: item[0])
+        return attempt_windows[-1]
+
+    def _resolve_scan_area_window(self):
+        rig_data_root = os.path.dirname(os.path.abspath(self.dataset_dir))
+        data_root = os.path.dirname(rig_data_root)
+        state_root = os.path.join(data_root, "state_recorder_data")
+        if not os.path.isdir(state_root):
+            print(f"[ScanStitcher] state_recorder_data not found at {state_root}; frame timestamps will not be cropped.")
+            return None
+
+        rig_folder = self.dataset_folder_name
+        day_token = rig_folder.split("-", 1)[0]
+        movement_ts = np.asarray(self.coord_data[:, 0], dtype=float)
+        valid_ts = movement_ts[np.isfinite(movement_ts)]
+        if valid_ts.size == 0:
+            print("[ScanStitcher] No valid movement timestamps; frame timestamps will not be cropped.")
+            return None
+        movement_start = float(np.min(valid_ts))
+        movement_end = float(np.max(valid_ts))
+        movement_center = 0.5 * (movement_start + movement_end)
+        rig_dt = self._parse_session_folder_datetime(rig_folder)
+
+        session_candidates = []
+        for session_name in sorted(os.listdir(state_root)):
+            session_dir = os.path.join(state_root, session_name)
+            if not os.path.isdir(session_dir):
+                continue
+            if not session_name.startswith(day_token):
+                continue
+
+            selected = self._select_scan_area_attempt_in_session(session_dir)
+            if selected is None:
+                continue
+            attempt_num, started, finished, json_path = selected
+            overlap = max(0.0, min(movement_end, finished) - max(movement_start, started))
+            window_center = 0.5 * (started + finished)
+            center_delta = abs(window_center - movement_center)
+            session_dt = self._parse_session_folder_datetime(session_name)
+            if session_dt is not None and rig_dt is not None:
+                folder_delta = abs((session_dt - rig_dt).total_seconds())
+            else:
+                folder_delta = float("inf")
+            exact_folder = int(session_name == rig_folder)
+            session_candidates.append(
+                (
+                    exact_folder,
+                    overlap,
+                    center_delta,
+                    folder_delta,
+                    attempt_num,
+                    session_name,
+                    started,
+                    finished,
+                    json_path,
+                )
+            )
+
+        if not session_candidates:
+            print(
+                f"[ScanStitcher] No scan_area state JSON found for day '{day_token}' in {state_root}; "
+                "frame timestamps will not be cropped."
+            )
+            return None
+
+        session_candidates.sort(
+            key=lambda item: (
+                -item[0],   # exact session-name match first
+                -item[1],   # then maximize overlap with movement timestamps
+                item[2],    # then closest window center
+                item[3],    # then closest folder datetime
+                -item[4],   # then highest attempt number
+                item[5],    # deterministic tie-break
+            )
+        )
+        best = session_candidates[0]
+        self.scan_area_source_session = best[5]
+        self.scan_area_source_attempt = int(best[4])
+        self.scan_area_source_json = best[8]
+        print(
+            "[ScanStitcher] Using scan_area window from state recorder: "
+            f"session={self.scan_area_source_session}, attempt={self.scan_area_source_attempt}, "
+            f"json={os.path.basename(self.scan_area_source_json)}, "
+            f"start={best[6]:.6f}, end={best[7]:.6f}"
+        )
+        return float(best[6]), float(best[7])
+
     def _build_frame_catalog(self):
         print(f"[ScanStitcher] Indexing frames in: {self.photo_dir}")
         records = []
+        skipped_outside_window = 0
         prefer_exts = tuple(ext.lower() for ext in self.prefer_exts)
+        time_window = self.scan_area_window
+        if time_window is not None:
+            print(
+                "[ScanStitcher] Cropping frames by scan_area timestamps: "
+                f"{time_window[0]:.6f} <= t <= {time_window[1]:.6f}"
+            )
         all_files = sorted(glob.glob(os.path.join(self.photo_dir, "*")), key=lambda p: self._camera_order_key(os.path.basename(p)))
         for frame_path in tqdm(all_files, desc="Indexing frame timestamps", unit="file"):
             if not os.path.isfile(frame_path):
@@ -277,13 +453,25 @@ class ScanStitcher:
             if os.path.splitext(frame_path)[1].lower() not in prefer_exts:
                 continue
             ts = self._extract_timestamp_from_name(frame_path)
-            if ts is not None:
-                records.append((ts, frame_path))
+            if ts is None:
+                continue
+            if time_window is not None and not (time_window[0] <= ts <= time_window[1]):
+                skipped_outside_window += 1
+                continue
+            records.append((ts, frame_path))
 
         if not records:
+            if time_window is not None:
+                raise FileNotFoundError(
+                    "No images found within the scan_area timestamp window "
+                    f"[{time_window[0]:.6f}, {time_window[1]:.6f}] in {self.photo_dir} "
+                    f"(source JSON: {self.scan_area_source_json})."
+                )
             raise FileNotFoundError(f"No images found in {self.photo_dir} for extensions {self.prefer_exts}")
 
         print(f"[ScanStitcher] Indexed {len(records)} timestamped frames.")
+        if time_window is not None:
+            print(f"[ScanStitcher] Skipped {skipped_outside_window} frame(s) outside scan_area time window.")
         return sorted(records, key=lambda item: item[0])
 
     @staticmethod
@@ -1330,7 +1518,7 @@ def main():
     use_pixel_drift_stitch = True
     use_streaming_stitch = True
     downsample = 1
-    date_time_folder = "2026_02_26-16_38"
+    date_time_folder = "2026_03_02-16_06"
     stitcher = ScanStitcher(
         date_time_folder=date_time_folder,
         use_calibration=True,
