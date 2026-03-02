@@ -3,12 +3,14 @@ import os
 import csv
 import bisect
 import json
+import logging
+import importlib.util
 from pathlib import Path
 from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton,
     QFileDialog, QShortcut, QHBoxLayout, QFrame, QSlider, QMessageBox, QSizePolicy, QStackedWidget,
-    QLineEdit, QGraphicsDropShadowEffect
+    QLineEdit, QGraphicsDropShadowEffect, QDialog, QProgressBar
 )
 from PyQt5.QtGui import QPixmap, QColor, QKeySequence
 from PyQt5.QtCore import Qt, QTimer
@@ -17,6 +19,37 @@ import pyqtgraph.opengl as gl
 import numpy as np
 from collections import deque
 import re
+
+try:
+    import cv2
+except Exception:  # pragma: no cover - dependency may be unavailable in some environments
+    cv2 = None
+
+logger = logging.getLogger(__name__)
+
+
+def _bootstrap_repo_import_path():
+    """Ensure the repository root is importable when running this file directly."""
+    try:
+        repo_root = Path(__file__).resolve().parents[4]
+    except Exception:
+        return
+    candidate_paths = [
+        repo_root,
+        repo_root / "patcherbot" / "deepLearning",
+    ]
+    for candidate in candidate_paths:
+        try:
+            if not candidate.exists():
+                continue
+        except Exception:
+            continue
+        candidate_str = str(candidate)
+        if candidate_str not in sys.path:
+            sys.path.insert(0, candidate_str)
+
+
+_bootstrap_repo_import_path()
 
 # ------------------- 3D Mesh Creation Functions -------------------
 
@@ -762,6 +795,162 @@ class DataManager:
             index_str, timestamp_str = 0, 0.0  # Default values in case of error
         return index_str, timestamp_str
 
+
+class DirectoryLoadWorker(QtCore.QObject):
+    finished = QtCore.pyqtSignal(object)
+    error = QtCore.pyqtSignal(str, str)
+    progress = QtCore.pyqtSignal(str)
+
+    def __init__(self, directory, scaling_factor):
+        super().__init__()
+        self.directory = directory
+        self.scaling_factor = scaling_factor
+
+    @QtCore.pyqtSlot()
+    def run(self):
+        try:
+            self.progress.emit("Loading camera, movement, and graph recordings...")
+            manager = DataManager(scaling_factor=self.scaling_factor)
+            manager.load_directory(self.directory)
+            self.finished.emit(manager)
+        except FileNotFoundError as exc:
+            self.error.emit("File Not Found", str(exc))
+        except IOError as exc:
+            self.error.emit("IO Error", str(exc))
+        except Exception as exc:
+            self.error.emit("Error", f"An unexpected error occurred: {exc}")
+
+
+class InferenceEnableWorker(QtCore.QObject):
+    finished = QtCore.pyqtSignal(object)
+    error = QtCore.pyqtSignal(str)
+    progress = QtCore.pyqtSignal(str)
+
+    def __init__(
+        self,
+        *,
+        enable_pipette_detector,
+        enable_cell_detector,
+        enable_pipette_focuser,
+        should_init_tracker,
+        tracker_image_path,
+    ):
+        super().__init__()
+        self.enable_pipette_detector = bool(enable_pipette_detector)
+        self.enable_cell_detector = bool(enable_cell_detector)
+        self.enable_pipette_focuser = bool(enable_pipette_focuser)
+        self.should_init_tracker = bool(should_init_tracker)
+        self.tracker_image_path = tracker_image_path
+
+    @QtCore.pyqtSlot()
+    def run(self):
+        result = {
+            "pipette_detector": None,
+            "cell_detector": None,
+            "pipette_focuser": None,
+            "cell_track_helper": None,
+            "cell_track_helper_dims": None,
+            "pipette_detector_init_failed": False,
+            "cell_detector_init_failed": False,
+            "pipette_focuser_init_failed": False,
+            "cell_track_helper_init_failed": False,
+            "warnings": [],
+        }
+        try:
+            if self.enable_pipette_detector:
+                self.progress.emit("Initializing pipette detector...")
+                try:
+                    from patcherbot.deepLearning.pipetteDetector import PipetteDetectorYOLO1
+                    result["pipette_detector"] = PipetteDetectorYOLO1()
+                except Exception as exc:
+                    result["pipette_detector_init_failed"] = True
+                    result["warnings"].append(
+                        f"PipetteDetectorYOLO1 init failed; disabling pipette overlay: {exc}"
+                    )
+
+            if self.enable_cell_detector:
+                self.progress.emit("Initializing cell detector...")
+                try:
+                    from patcherbot.deepLearning.CellDetector import CellDetectorYOLO1
+                    result["cell_detector"] = CellDetectorYOLO1()
+                except Exception as exc:
+                    result["cell_detector_init_failed"] = True
+                    result["warnings"].append(
+                        f"CellDetectorYOLO1 init failed; disabling cell overlay: {exc}"
+                    )
+
+            if self.enable_pipette_focuser:
+                self.progress.emit("Initializing pipette focuser...")
+                try:
+                    from patcherbot.deepLearning.pipetteFocuser import PipetteFocuser
+                    result["pipette_focuser"] = PipetteFocuser()
+                except Exception as exc:
+                    result["pipette_focuser_init_failed"] = True
+                    result["warnings"].append(
+                        f"PipetteFocuser init failed; disabling focus readout: {exc}"
+                    )
+
+            if self.should_init_tracker:
+                self.progress.emit("Initializing hunt-cell tracker...")
+                try:
+                    if importlib.util.find_spec("transformers") is None:
+                        raise ModuleNotFoundError(
+                            "CellTrackHelper dependency missing: transformers (required by PointMatcher/LightGlue backend)"
+                        )
+
+                    helper_path = (
+                        Path(__file__).resolve().parents[4]
+                        / "patcherbot"
+                        / "devices"
+                        / "manipulator"
+                        / "CellTrackHelper.py"
+                    )
+                    if not helper_path.is_file():
+                        raise FileNotFoundError(f"CellTrackHelper.py not found at expected path: {helper_path}")
+
+                    module_name = "_rig_replay_cell_track_helper"
+                    helper_module = sys.modules.get(module_name)
+                    if helper_module is None:
+                        spec = importlib.util.spec_from_file_location(module_name, str(helper_path))
+                        if spec is None or spec.loader is None:
+                            raise ImportError(f"Could not create import spec for {helper_path}")
+                        helper_module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(helper_module)
+                        sys.modules[module_name] = helper_module
+
+                    CellTrackHelper = getattr(helper_module, "CellTrackHelper", None)
+                    if CellTrackHelper is None:
+                        raise ImportError("CellTrackHelper class not found in CellTrackHelper.py")
+
+                    if cv2 is None:
+                        raise RuntimeError("OpenCV (cv2) is unavailable for tracker image sizing.")
+                    if not self.tracker_image_path:
+                        raise RuntimeError("No frame available to initialize hunt-cell tracker dimensions.")
+                    frame_bgr = cv2.imread(str(self.tracker_image_path), cv2.IMREAD_COLOR)
+                    if frame_bgr is None:
+                        raise RuntimeError(f"Unable to read frame for tracker init: {self.tracker_image_path}")
+                    h, w = frame_bgr.shape[:2]
+
+                    class _ReplayStage:
+                        pass
+
+                    class _ReplayCamera:
+                        def __init__(self, width, height):
+                            self.width = int(width)
+                            self.height = int(height)
+
+                    result["cell_track_helper"] = CellTrackHelper(_ReplayStage(), _ReplayCamera(w, h))
+                    result["cell_track_helper_dims"] = (int(w), int(h))
+                except Exception as exc:
+                    result["cell_track_helper_init_failed"] = True
+                    result["warnings"].append(
+                        f"CellTrackHelper init failed; disabling hunt_cell tracking overlay: {exc}"
+                    )
+
+            self.finished.emit(result)
+        except Exception as exc:
+            self.error.emit(f"Inference initialization failed: {exc}")
+
 # ------------------- Main Integrated Window -------------------
 
 class IntegratedTimeline(QMainWindow):
@@ -957,6 +1146,13 @@ class IntegratedTimeline(QMainWindow):
         self.buttons_layout.addWidget(self.toggle_view_button)
         self.update_toggle_button_text()
 
+        # Toggle Inference Button
+        self.toggle_inference_button = QPushButton("")
+        self.toggle_inference_button.setCheckable(True)
+        self.toggle_inference_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.toggle_inference_button.clicked.connect(self.toggle_replay_inference)
+        self.buttons_layout.addWidget(self.toggle_inference_button)
+
         # Add a spacer to push buttons to the left
         self.buttons_layout.addStretch()
 
@@ -971,6 +1167,43 @@ class IntegratedTimeline(QMainWindow):
 
         # Initialize Data Manager
         self.data_manager = DataManager()
+
+        # Inference/overlay settings (configure in-file as needed)
+        self.enable_replay_inference = False
+        self.enable_pipette_detector = True
+        self.enable_cell_detector = True
+        self.enable_pipette_focuser = True
+        self.enable_hunt_cell_tracker = True
+        self.hunt_cell_state_name = "hunt_cell"
+        self.overlay_point_radius = 6
+        self.overlay_text_margin = 10
+
+        # Lazy-loaded model holders and runtime state
+        self._pipette_detector = None
+        self._cell_detector = None
+        self._pipette_focuser = None
+        self._cell_track_helper = None
+        self._cell_track_helper_dims = None
+
+        self._pipette_detector_init_failed = False
+        self._cell_detector_init_failed = False
+        self._pipette_focuser_init_failed = False
+        self._cell_track_helper_init_failed = False
+
+        self._hunt_cell_template_image = None
+        self._frame_overlay_results = None
+        self._cv2_unavailable_warned = False
+        self._inference_disabled_notice_printed = False
+        self._loading_dialog = None
+        self._loading_elapsed_timer = None
+        self._load_thread = None
+        self._load_worker = None
+        self._pending_directory = None
+        self._inference_enable_thread = None
+        self._inference_enable_worker = None
+
+        self.toggle_inference_button.setChecked(self.enable_replay_inference)
+        self.update_inference_toggle_button_text()
 
         # Initialize variables
         self.current_index = 0
@@ -1112,6 +1345,276 @@ class IntegratedTimeline(QMainWindow):
             return
         self.toggle_view_button.setText(f"Switch to {self.view_labels[next_view]}")
 
+    def update_inference_toggle_button_text(self):
+        if self.enable_replay_inference:
+            self.toggle_inference_button.setText("Disable Inference")
+        else:
+            self.toggle_inference_button.setText("Enable Inference")
+
+    def _show_loading_popup(self, message):
+        self._close_loading_popup()
+        dialog = QDialog(self)
+        dialog.setModal(True)
+        dialog.setWindowTitle("Loading Replay")
+        dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        dialog.setMinimumWidth(420)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        title_label = QLabel("Loading data into view...")
+        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        title_label.setStyleSheet("color: #7dff9b; font-weight: 700; font-size: 14px;")
+        layout.addWidget(title_label)
+
+        self._loading_message_label = QLabel(message)
+        self._loading_message_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._loading_message_label.setStyleSheet("color: #d9ffe3;")
+        layout.addWidget(self._loading_message_label)
+
+        self._loading_elapsed_label = QLabel("Elapsed: 0.0 s")
+        self._loading_elapsed_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._loading_elapsed_label.setStyleSheet("color: #9dffb6;")
+        layout.addWidget(self._loading_elapsed_label)
+
+        bar = QProgressBar(dialog)
+        bar.setRange(0, 0)
+        bar.setTextVisible(False)
+        bar.setFixedHeight(14)
+        bar.setStyleSheet(
+            "QProgressBar {"
+            "border: 1px solid #2e7d44; border-radius: 6px; background-color: #132318;"
+            "}"
+            "QProgressBar::chunk {"
+            "background-color: #2ee66f;"
+            "}"
+        )
+        layout.addWidget(bar)
+
+        self._loading_dialog = dialog
+        self._loading_elapsed_timer = QtCore.QElapsedTimer()
+        self._loading_elapsed_timer.start()
+
+        self._loading_tick_timer = QTimer(self)
+        self._loading_tick_timer.setInterval(100)
+        self._loading_tick_timer.timeout.connect(self._update_loading_popup_elapsed)
+        self._loading_tick_timer.start()
+
+        dialog.show()
+        QApplication.processEvents()
+
+    def _update_loading_popup_elapsed(self):
+        if self._loading_dialog is None or self._loading_elapsed_timer is None:
+            return
+        try:
+            elapsed_s = self._loading_elapsed_timer.elapsed() / 1000.0
+        except Exception:
+            elapsed_s = 0.0
+        if hasattr(self, "_loading_elapsed_label") and self._loading_elapsed_label is not None:
+            self._loading_elapsed_label.setText(f"Elapsed: {elapsed_s:.1f} s")
+        QApplication.processEvents()
+
+    def _set_loading_popup_message(self, message):
+        if self._loading_dialog is None:
+            return
+        if hasattr(self, "_loading_message_label") and self._loading_message_label is not None:
+            self._loading_message_label.setText(message)
+        QApplication.processEvents()
+
+    def _close_loading_popup(self):
+        tick_timer = getattr(self, "_loading_tick_timer", None)
+        if tick_timer is not None:
+            try:
+                tick_timer.stop()
+            except Exception:
+                pass
+            self._loading_tick_timer = None
+        dialog = self._loading_dialog
+        self._loading_dialog = None
+        self._loading_elapsed_timer = None
+        self._loading_message_label = None
+        self._loading_elapsed_label = None
+        if dialog is not None:
+            try:
+                dialog.close()
+            except Exception:
+                pass
+
+    def _start_directory_load_worker(self, directory):
+        if self._load_thread is not None and self._load_thread.isRunning():
+            self._close_loading_popup()
+            QMessageBox.warning(self, "Loading In Progress", "A directory load is already running.")
+            return
+
+        self._pending_directory = directory
+        self._load_thread = QtCore.QThread(self)
+        self._load_worker = DirectoryLoadWorker(
+            directory=directory,
+            scaling_factor=self.data_manager.scaling_factor,
+        )
+        self._load_worker.moveToThread(self._load_thread)
+
+        self._load_thread.started.connect(self._load_worker.run)
+        self._load_worker.progress.connect(self._set_loading_popup_message)
+        self._load_worker.finished.connect(self._on_directory_load_finished)
+        self._load_worker.error.connect(self._on_directory_load_error)
+
+        self._load_worker.finished.connect(self._load_thread.quit)
+        self._load_worker.error.connect(self._load_thread.quit)
+        self._load_worker.finished.connect(self._load_worker.deleteLater)
+        self._load_worker.error.connect(self._load_worker.deleteLater)
+        self._load_thread.finished.connect(self._load_thread.deleteLater)
+        self._load_thread.finished.connect(self._on_directory_load_thread_finished)
+
+        self._load_thread.start()
+
+    def _on_directory_load_thread_finished(self):
+        self._load_thread = None
+        self._load_worker = None
+        self._pending_directory = None
+
+    def _on_directory_load_finished(self, loaded_manager):
+        try:
+            self.data_manager = loaded_manager
+            self.directory = loaded_manager.directory or self._pending_directory
+            self.info.setText(f"Loaded data from {self.directory}")
+            self._last_state_indicator_key = ("__unset__", "__unset__")
+            self.current_view_key = 'graphs'
+            self.graph_stack.setCurrentWidget(self.view_widgets[self.current_view_key])
+            self._reset_inference_state()
+            self.refresh_view_order()
+
+            self.current_index = 0
+            self.slider.blockSignals(True)
+            try:
+                self._set_loading_popup_message("Preparing timeline controls...")
+                self.slider.setMinimum(0)
+                self.slider.setMaximum(len(self.data_manager.image_paths) - 1)
+                self.slider.setValue(self.current_index)
+            finally:
+                self.slider.blockSignals(False)
+
+            self._set_loading_popup_message("Rendering first frame...")
+            self.update_view()
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {exc}")
+        finally:
+            self._close_loading_popup()
+
+    def _on_directory_load_error(self, title, message):
+        self._close_loading_popup()
+        QMessageBox.critical(self, title, message)
+
+    def _start_inference_enable_worker(self):
+        if self._inference_enable_thread is not None and self._inference_enable_thread.isRunning():
+            return
+
+        should_init_tracker = False
+        tracker_image_path = None
+        if self.data_manager.timestamps and 0 <= self.current_index < len(self.data_manager.timestamps):
+            try:
+                current_timestamp = self.data_manager.timestamps[self.current_index]
+                active_state, _ = self.data_manager.get_active_state_for_timestamp(current_timestamp)
+                should_init_tracker = self.enable_hunt_cell_tracker and self._is_hunt_cell_state(active_state)
+                if should_init_tracker and 0 <= self.current_index < len(self.data_manager.image_paths):
+                    tracker_image_path = self.data_manager.image_paths[self.current_index]
+            except Exception:
+                should_init_tracker = False
+                tracker_image_path = None
+
+        self._inference_enable_thread = QtCore.QThread(self)
+        self._inference_enable_worker = InferenceEnableWorker(
+            enable_pipette_detector=self.enable_pipette_detector,
+            enable_cell_detector=self.enable_cell_detector,
+            enable_pipette_focuser=self.enable_pipette_focuser,
+            should_init_tracker=should_init_tracker,
+            tracker_image_path=tracker_image_path,
+        )
+        self._inference_enable_worker.moveToThread(self._inference_enable_thread)
+
+        self._inference_enable_thread.started.connect(self._inference_enable_worker.run)
+        self._inference_enable_worker.progress.connect(self._set_loading_popup_message)
+        self._inference_enable_worker.finished.connect(self._on_inference_enable_worker_finished)
+        self._inference_enable_worker.error.connect(self._on_inference_enable_worker_error)
+
+        self._inference_enable_worker.finished.connect(self._inference_enable_thread.quit)
+        self._inference_enable_worker.error.connect(self._inference_enable_thread.quit)
+        self._inference_enable_worker.finished.connect(self._inference_enable_worker.deleteLater)
+        self._inference_enable_worker.error.connect(self._inference_enable_worker.deleteLater)
+        self._inference_enable_thread.finished.connect(self._inference_enable_thread.deleteLater)
+        self._inference_enable_thread.finished.connect(self._on_inference_enable_thread_finished)
+
+        self._inference_enable_thread.start()
+
+    def _on_inference_enable_thread_finished(self):
+        self._inference_enable_thread = None
+        self._inference_enable_worker = None
+
+    def _on_inference_enable_worker_finished(self, result):
+        try:
+            self._pipette_detector = result.get("pipette_detector")
+            self._cell_detector = result.get("cell_detector")
+            self._pipette_focuser = result.get("pipette_focuser")
+            self._cell_track_helper = result.get("cell_track_helper")
+            self._cell_track_helper_dims = result.get("cell_track_helper_dims")
+
+            self._pipette_detector_init_failed = bool(result.get("pipette_detector_init_failed", False))
+            self._cell_detector_init_failed = bool(result.get("cell_detector_init_failed", False))
+            self._pipette_focuser_init_failed = bool(result.get("pipette_focuser_init_failed", False))
+            self._cell_track_helper_init_failed = bool(result.get("cell_track_helper_init_failed", False))
+
+            for warning_text in result.get("warnings", []):
+                logger.warning(warning_text)
+        except Exception as exc:
+            logger.error("Failed to apply inference initialization results: %s", exc)
+            self._on_inference_enable_worker_error(f"Inference initialization failed: {exc}")
+            return
+
+        self._complete_enable_inference()
+
+    def _on_inference_enable_worker_error(self, message):
+        logger.error("%s", message)
+        self.enable_replay_inference = False
+        self.toggle_inference_button.setChecked(False)
+        self.update_inference_toggle_button_text()
+        self.toggle_inference_button.setEnabled(True)
+        self._close_loading_popup()
+        QMessageBox.critical(self, "Inference Error", message)
+
+    def _complete_enable_inference(self):
+        try:
+            logger.info("Replay deep-learning inference enabled.")
+            if self.data_manager.image_paths and 0 <= self.current_index < len(self.data_manager.image_paths):
+                self._set_loading_popup_message("Rendering first inferred frame...")
+                self.update_view()
+        except Exception as exc:
+            logger.error("Failed while enabling replay inference: %s", exc)
+            self.enable_replay_inference = False
+            self.toggle_inference_button.setChecked(False)
+            self.update_inference_toggle_button_text()
+            QMessageBox.critical(self, "Inference Error", f"Failed to enable inference: {exc}")
+        finally:
+            self.toggle_inference_button.setEnabled(True)
+            self._close_loading_popup()
+
+    def toggle_replay_inference(self, checked):
+        self.enable_replay_inference = bool(checked)
+        self.update_inference_toggle_button_text()
+
+        if self.enable_replay_inference:
+            self._inference_disabled_notice_printed = False
+            self._show_loading_popup("Enabling deep-learning inference...")
+            self._set_loading_popup_message("Initializing inference and loading models...")
+            self.toggle_inference_button.setEnabled(False)
+            self._start_inference_enable_worker()
+            return
+
+        logger.error("Replay deep-learning inference disabled by toggle; continuing without inference overlays.")
+        self._frame_overlay_results = None
+        if self.data_manager.image_paths and 0 <= self.current_index < len(self.data_manager.image_paths):
+            self.display_image(self.data_manager.image_paths[self.current_index])
+
     def refresh_view_order(self):
         self.view_order = ['graphs', 'three_d']
         if self.data_manager.has_aux_images():
@@ -1129,40 +1632,278 @@ class IntegratedTimeline(QMainWindow):
 
         self.update_toggle_button_text()
 
+    def _reset_inference_state(self):
+        self._hunt_cell_template_image = None
+        self._frame_overlay_results = None
+        self._cell_track_helper = None
+        self._cell_track_helper_dims = None
+        self._cell_track_helper_init_failed = False
+
+    def _ensure_pipette_detector(self):
+        if self._pipette_detector is not None:
+            return self._pipette_detector
+        if self._pipette_detector_init_failed:
+            return None
+        try:
+            from patcherbot.deepLearning.pipetteDetector import PipetteDetectorYOLO1
+            self._pipette_detector = PipetteDetectorYOLO1()
+        except Exception as exc:
+            self._pipette_detector_init_failed = True
+            logger.warning("PipetteDetectorYOLO1 init failed; disabling pipette overlay: %s", exc)
+            self._pipette_detector = None
+        return self._pipette_detector
+
+    def _ensure_cell_detector(self):
+        if self._cell_detector is not None:
+            return self._cell_detector
+        if self._cell_detector_init_failed:
+            return None
+        try:
+            from patcherbot.deepLearning.CellDetector import CellDetectorYOLO1
+            self._cell_detector = CellDetectorYOLO1()
+        except Exception as exc:
+            self._cell_detector_init_failed = True
+            logger.warning("CellDetectorYOLO1 init failed; disabling cell overlay: %s", exc)
+            self._cell_detector = None
+        return self._cell_detector
+
+    def _ensure_pipette_focuser(self):
+        if self._pipette_focuser is not None:
+            return self._pipette_focuser
+        if self._pipette_focuser_init_failed:
+            return None
+        try:
+            from patcherbot.deepLearning.pipetteFocuser import PipetteFocuser
+            self._pipette_focuser = PipetteFocuser()
+        except Exception as exc:
+            self._pipette_focuser_init_failed = True
+            logger.warning("PipetteFocuser init failed; disabling focus readout: %s", exc)
+            self._pipette_focuser = None
+        return self._pipette_focuser
+
+    def _ensure_cell_track_helper(self, width, height):
+        if self._cell_track_helper is not None and self._cell_track_helper_dims == (int(width), int(height)):
+            return self._cell_track_helper
+        if self._cell_track_helper_init_failed:
+            return None
+        try:
+            if importlib.util.find_spec("transformers") is None:
+                raise ModuleNotFoundError(
+                    "CellTrackHelper dependency missing: transformers (required by PointMatcher/LightGlue backend)"
+                )
+
+            helper_path = Path(__file__).resolve().parents[4] / "patcherbot" / "devices" / "manipulator" / "CellTrackHelper.py"
+            if not helper_path.is_file():
+                raise FileNotFoundError(f"CellTrackHelper.py not found at expected path: {helper_path}")
+
+            module_name = "_rig_replay_cell_track_helper"
+            helper_module = sys.modules.get(module_name)
+            if helper_module is None:
+                spec = importlib.util.spec_from_file_location(module_name, str(helper_path))
+                if spec is None or spec.loader is None:
+                    raise ImportError(f"Could not create import spec for {helper_path}")
+                helper_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(helper_module)
+                sys.modules[module_name] = helper_module
+
+            CellTrackHelper = getattr(helper_module, "CellTrackHelper", None)
+            if CellTrackHelper is None:
+                raise ImportError("CellTrackHelper class not found in CellTrackHelper.py")
+
+            class _ReplayStage:
+                pass
+
+            class _ReplayCamera:
+                def __init__(self, w, h):
+                    self.width = int(w)
+                    self.height = int(h)
+
+            self._cell_track_helper = CellTrackHelper(_ReplayStage(), _ReplayCamera(width, height))
+            self._cell_track_helper_dims = (int(width), int(height))
+        except Exception as exc:
+            self._cell_track_helper_init_failed = True
+            self._cell_track_helper = None
+            self._cell_track_helper_dims = None
+            logger.warning("CellTrackHelper init failed; disabling hunt_cell tracking overlay: %s", exc)
+        return self._cell_track_helper
+
+    @staticmethod
+    def _normalize_point(point, width, height):
+        if point is None:
+            return None
+        try:
+            x = float(point[0])
+            y = float(point[1])
+        except Exception:
+            return None
+        if not np.isfinite([x, y]).all():
+            return None
+        x_i = int(round(x))
+        y_i = int(round(y))
+        if x_i < 0 or y_i < 0 or x_i >= int(width) or y_i >= int(height):
+            return None
+        return x_i, y_i
+
+    def _is_hunt_cell_state(self, active_state):
+        return isinstance(active_state, str) and active_state == self.hunt_cell_state_name
+
+    def _infer_hunt_cell_tracking_point(self, frame_bgr):
+        h, w = frame_bgr.shape[:2]
+        tracked_point = None
+
+        try:
+            if self._hunt_cell_template_image is None:
+                tracked_point = (w // 2, h // 2)
+            else:
+                helper = self._ensure_cell_track_helper(w, h)
+                if helper is not None:
+                    template_h, template_w = self._hunt_cell_template_image.shape[:2]
+                    template_prompt = (template_w / 2.0, template_h / 2.0)
+                    centroid = helper.find_centroid(
+                        self._hunt_cell_template_image,
+                        frame_bgr,
+                        use_centroid=True,
+                        prompt_point=template_prompt,
+                    )
+                    tracked_point = self._normalize_point(centroid, w, h)
+        except Exception as exc:
+            logger.warning("CellTrackHelper inference failed on replay frame: %s", exc)
+        finally:
+            self._hunt_cell_template_image = frame_bgr.copy()
+
+        return tracked_point
+
+    def _run_frame_inference(self, image_path, active_state):
+        self._frame_overlay_results = {
+            "image_path": image_path,
+            "pipette_point": None,
+            "cell_point": None,
+            "track_point": None,
+            "focus_value": None,
+        }
+
+        if not self.enable_replay_inference:
+            if not self._inference_disabled_notice_printed:
+                logger.error("Replay deep-learning inference is disabled; continuing without inference overlays.")
+                self._inference_disabled_notice_printed = True
+            return
+        self._inference_disabled_notice_printed = False
+        if cv2 is None:
+            if not self._cv2_unavailable_warned:
+                logger.warning("OpenCV (cv2) is unavailable; replay inference overlays are disabled.")
+                self._cv2_unavailable_warned = True
+            return
+
+        try:
+            frame_bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        except Exception as exc:
+            logger.warning("Failed to read replay frame for inference %s: %s", image_path, exc)
+            return
+
+        if frame_bgr is None:
+            logger.warning("Failed to read replay frame for inference: %s", image_path)
+            return
+
+        h, w = frame_bgr.shape[:2]
+
+        if self.enable_pipette_detector:
+            detector = self._ensure_pipette_detector()
+            if detector is not None:
+                try:
+                    point = detector.detect_pipette(frame_bgr)
+                    self._frame_overlay_results["pipette_point"] = self._normalize_point(point, w, h)
+                except Exception as exc:
+                    logger.warning("Pipette detector inference failed on replay frame: %s", exc)
+
+        if self.enable_cell_detector:
+            detector = self._ensure_cell_detector()
+            if detector is not None:
+                try:
+                    point = detector.detect_cell(frame_bgr)
+                    self._frame_overlay_results["cell_point"] = self._normalize_point(point, w, h)
+                except Exception as exc:
+                    logger.warning("Cell detector inference failed on replay frame: %s", exc)
+
+        if self.enable_pipette_focuser:
+            focuser = self._ensure_pipette_focuser()
+            if focuser is not None:
+                try:
+                    focus_value = float(focuser.get_pipette_focus_value(frame_bgr))
+                    if np.isfinite(focus_value):
+                        self._frame_overlay_results["focus_value"] = focus_value
+                except Exception as exc:
+                    logger.warning("Pipette focus inference failed on replay frame: %s", exc)
+
+        if self.enable_hunt_cell_tracker and self._is_hunt_cell_state(active_state):
+            self._frame_overlay_results["track_point"] = self._infer_hunt_cell_tracking_point(frame_bgr)
+
+    def _draw_overlay_point(self, painter, point, color):
+        if point is None:
+            return
+        try:
+            x, y = int(point[0]), int(point[1])
+        except Exception:
+            return
+        painter.setPen(QtGui.QPen(color, 2))
+        painter.setBrush(QtGui.QBrush(color))
+        painter.drawEllipse(QtCore.QPointF(float(x), float(y)), float(self.overlay_point_radius), float(self.overlay_point_radius))
+
+    def _apply_frame_overlays(self, pixmap, image_path):
+        if pixmap is None or pixmap.isNull():
+            return pixmap
+        if not self._frame_overlay_results:
+            return pixmap
+        if self._frame_overlay_results.get("image_path") != image_path:
+            return pixmap
+
+        painter = QtGui.QPainter(pixmap)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+
+        self._draw_overlay_point(
+            painter,
+            self._frame_overlay_results.get("pipette_point"),
+            QtGui.QColor(255, 0, 0),
+        )
+        self._draw_overlay_point(
+            painter,
+            self._frame_overlay_results.get("cell_point"),
+            QtGui.QColor(0, 255, 0),
+        )
+        self._draw_overlay_point(
+            painter,
+            self._frame_overlay_results.get("track_point"),
+            QtGui.QColor(0, 0, 255),
+        )
+
+        focus_value = self._frame_overlay_results.get("focus_value")
+        if focus_value is not None:
+            text_rect = pixmap.rect().adjusted(
+                self.overlay_text_margin,
+                self.overlay_text_margin,
+                -self.overlay_text_margin,
+                -self.overlay_text_margin,
+            )
+            font = painter.font()
+            font.setPointSize(12)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QtGui.QPen(QtGui.QColor(0, 255, 0)))
+            painter.drawText(
+                text_rect,
+                Qt.AlignTop | Qt.AlignRight,
+                f"Focus: {focus_value:.2f}",
+            )
+
+        painter.end()
+        return pixmap
+
     def open_directory(self):
         """Open a directory dialog to select data directory."""
         directory = QFileDialog.getExistingDirectory(self, "Open Directory", "")
         if directory:
-            try:
-                self.data_manager.load_directory(directory)
-                self.directory = directory
-                self.info.setText(f"Loaded data from {directory}")
-                self._last_state_indicator_key = ("__unset__", "__unset__")
-                self.current_view_key = 'graphs'
-                self.graph_stack.setCurrentWidget(self.view_widgets[self.current_view_key])
-                self.refresh_view_order()
-
-                # Initialize timeline
-                self.current_index = 0
-
-                # Prevent valueChanged feedback while reconfiguring the slider
-                self.slider.blockSignals(True)
-                try:
-                    self.slider.setMinimum(0)
-                    self.slider.setMaximum(len(self.data_manager.image_paths) - 1)
-                    self.slider.setValue(self.current_index)
-                finally:
-                    self.slider.blockSignals(False)
-
-                # Display first timepoint
-                self.update_view()
-
-            except FileNotFoundError as e:
-                QMessageBox.critical(self, "File Not Found", str(e))
-            except IOError as e:
-                QMessageBox.critical(self, "IO Error", str(e))
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"An unexpected error occurred: {e}")
+            self._show_loading_popup("Scanning files...")
+            self._set_loading_popup_message("Loading camera, movement, and graph recordings...")
+            self._start_directory_load_worker(directory)
 
     def check_data_loaded(self):
         """Check if data is loaded before allowing navigation."""
@@ -1223,9 +1964,11 @@ class IntegratedTimeline(QMainWindow):
 
     def update_view(self):
         """Update image, 2D graphs, and 3D plot based on current index."""
-        self.display_image(self.data_manager.image_paths[self.current_index])
+        image_path = self.data_manager.image_paths[self.current_index]
         current_timestamp = self.data_manager.timestamps[self.current_index]
         active_state, outcome_code = self.data_manager.get_active_state_for_timestamp(current_timestamp)
+        self._run_frame_inference(image_path, active_state)
+        self.display_image(image_path)
         indicator_key = (active_state, outcome_code)
         if indicator_key != self._last_state_indicator_key:
             self._set_state_indicator(active_state, outcome_code)
@@ -1245,6 +1988,7 @@ class IntegratedTimeline(QMainWindow):
         if pixmap.isNull():
             QMessageBox.warning(self, "Error", "Unable to load image.")
         else:
+            pixmap = self._apply_frame_overlays(pixmap, image_path)
             # Scale the pixmap to fit the label while maintaining aspect ratio
             scaled_pixmap = pixmap.scaled(
                 self.image.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
