@@ -121,7 +121,7 @@ class AutoPatchInterface(TaskInterface):
                       description='Scan the stored corner coordinates',
                       task_description='Scanning plate area')
     def start_scan(self):
-        self.execute(self.pipette_controller.calibrated_stage.scan_area)
+        self.execute(self.current_autopatcher.scan_area)
 
     @blocking_command(category='Stage',
                       description='Move stage to the stored scan start coordinate',

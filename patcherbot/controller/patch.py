@@ -694,6 +694,15 @@ class AutoPatcher(TaskController):
         self.calibrated_stage.safe_move(np.array(cell_pos_planar))
         self.calibrated_stage.wait_until_still()
 
+    @record_state("scan_area")
+    def scan_area(self, speed=None):
+        '''
+        Scan the currently selected plate area using stored corners.
+        '''
+        self.calibrated_stage.scan_area(speed=speed)
+        self.success_requested = True
+        self.success_if_requested()
+
     @record_state("locate_cell") 
     def locate_cell(self, cell):
         '''
