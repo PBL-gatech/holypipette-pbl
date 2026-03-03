@@ -21,7 +21,7 @@ class PipetteFocuser:
                        from the consuming repository; otherwise expect a TorchScript file.
         """
         cur_dir = Path(__file__).parent.resolve()
-        model_path = Path(model_path) if model_path is not None else cur_dir / "pipetteModel" / "PipetteFocuserNet.pt"
+        model_path = Path(model_path) if model_path is not None else cur_dir / "pipetteModel" / "cropped" / "PipetteFocuserNetCropped.pt"
 
         self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
         self.backend = None
@@ -158,7 +158,10 @@ if __name__ == '__main__':
     # Adjust image path as needed
     # cur_dir = Path(__file__).parent.absolute()
     # image_path = os.path.join(cur_dir, "", "neg7_focus.png")
-    image_path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
+    # image_path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
+    # image_path = r"C:\Users\sa-forest\Documents\GitHub\pipetteFindingCNN\pipettedata\3DPrelimData\compiled\cropped_camera_frames\2051_1770343660.202234.webp" # cropped example
+    # image_path = r"C:\Users\sa-forest\Documents\GitHub\pipetteFindingCNN\pipettedata\3DPrelimData\compiled\cropped_camera_frames\2051_1769809540.821779.webp" # cropped example, different focus
+    image_path = r"C:\Users\sa-forest\Documents\GitHub\pipetteFindingCNN\pipettedata\3DPrelimData\compiled\cropped_camera_frames\2070_1770056951.261588.webp" # cropped example, different focus
     
     if not os.path.exists(image_path):
         print(f"Image not found: {image_path}")

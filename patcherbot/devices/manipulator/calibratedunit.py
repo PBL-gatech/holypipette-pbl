@@ -199,9 +199,14 @@ class CalibratedUnit(ManipulatorUnit):
     def autofocus_pipette(self):
         '''Use the microscope image to put the pipette in focus
         '''
-        self.debug('Autofocusing pipette')
-        self.abort_if_requested()
-        self.pipetteFocusHelper.focus()
+        if not self.config.pipette_focus_crop_feature:
+            self.debug('Autofocusing pipette without cropping')
+            self.abort_if_requested()
+            self.pipetteFocusHelper.focus()
+        else:
+            self.debug('Autofocusing pipette with cropping')
+            self.abort_if_requested()
+            self.autofocus_cropped_pipette()
 
     def autofocus_cropped_pipette(self,crop_size=256):
         ''' use pipette detector to crop ROI of pipette tip, then feed directly into focushelpers focuser'''

@@ -70,6 +70,8 @@ class CalibrationConfig(Config):
                                           doc="Pipette detector model path")
     pipette_focuser_model = param.String(default="",
                                          doc="Pipette focuser model path")
+    pipette_focus_crop_feature = Boolean(False,
+                                         doc="Whether to crop the image around the pipette tip for the focus model")
     use_ai_features = Boolean(False,
                               doc="Enable AI-based vision features (SAM/LightGlue/robomimic)")
 
@@ -96,6 +98,7 @@ class CalibrationConfig(Config):
             "pipette_k_scale",
             "pipette_detector_model",
             "pipette_focuser_model",
+            "pipette_focus_crop_feature",
             "use_ai_features",
         ]),
         ("Display", ["position_update"]),
