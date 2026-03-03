@@ -152,6 +152,8 @@ class ImageDatasetPreparer:
         *,
         use_detector1: bool = True,
         filter_images: bool = True,
+        focus_with_detector_crop: bool = False,
+        focus_crop_size: int = 256,
     ) -> None:
         self.rig_data_root = Path(rig_data_root)
         if not self.rig_data_root.exists():
@@ -170,6 +172,14 @@ class ImageDatasetPreparer:
                 logging.info("Frame filtering enabled for ImageDatasetPreparer")
         else:
             self._filter_helper = None
+
+        self.focus_with_detector_crop = bool(focus_with_detector_crop)
+        try:
+            self.focus_crop_size = int(focus_crop_size)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"focus_crop_size must be an integer, got {focus_crop_size!r}") from exc
+        if self.focus_crop_size <= 0:
+            raise ValueError(f"focus_crop_size must be > 0, got {self.focus_crop_size}")
 
         self.detector = PipetteDetectorYOLO1() if use_detector1 else PipetteDetector2()
         self.focuser = PipetteFocuser()
@@ -281,6 +291,38 @@ class ImageDatasetPreparer:
         ]
         return frame_paths
 
+    @staticmethod
+    def _crop_around_point(img: np.ndarray, point: Sequence[float], crop_size: int) -> Optional[np.ndarray]:
+        if img is None or point is None:
+            return None
+        if len(point) < 2:
+            return None
+        half = int(crop_size) // 2
+        if half <= 0:
+            return None
+
+        h, w = img.shape[:2]
+        try:
+            cx = int(round(float(point[0])))
+            cy = int(round(float(point[1])))
+        except Exception:
+            return None
+
+        x_min = max(cx - half, 0)
+        x_max = min(cx + half, w)
+        y_min = max(cy - half, 0)
+        y_max = min(cy + half, h)
+        if x_max <= x_min or y_max <= y_min:
+            return None
+        return img[y_min:y_max, x_min:x_max]
+
+    def _resolve_focus_input_image(self, img: np.ndarray, detected_xy: Optional[Tuple[int, int]]) -> Optional[np.ndarray]:
+        if not self.focus_with_detector_crop:
+            return img
+        if detected_xy is None:
+            return None
+        return self._crop_around_point(img, detected_xy, self.focus_crop_size)
+
     def _apply_frame_filter(self, frame_paths: Sequence[Path], demo_path: Path) -> List[Path]:
         if not self.filter_images or self._filter_helper is None:
             return list(frame_paths)
@@ -322,6 +364,8 @@ class ImageDatasetPreparer:
         skipped_without_timestamp = 0
         failed_to_load = 0
         failed_detection = 0
+        failed_focus_crop = 0
+        failed_focus_inference = 0
 
         total_frames = len(frame_paths) if hasattr(frame_paths, "__len__") else None
         iterable = (
@@ -352,7 +396,17 @@ class ImageDatasetPreparer:
                 else:
                     pi_x, pi_y = float(xy[0]), float(xy[1])
 
-                pi_z = float(self.focuser.get_pipette_focus_value(img))
+                focus_img = self._resolve_focus_input_image(img, xy)
+                if focus_img is None:
+                    failed_focus_crop += 1
+                    pi_z = np.nan
+                else:
+                    try:
+                        pi_z = float(self.focuser.get_pipette_focus_value(focus_img))
+                    except Exception as exc:
+                        failed_focus_inference += 1
+                        pi_z = np.nan
+                        logging.debug("Focuser inference failed for %s: %s", img_path, exc)
                 records.append(FrameRecord(timestamp=timestamp, pi_x=pi_x, pi_y=pi_y, pi_z=pi_z))
         finally:
             if tqdm is not None and hasattr(iterable, "close"):
@@ -364,6 +418,10 @@ class ImageDatasetPreparer:
             logging.warning("Failed to load %d frames", failed_to_load)
         if failed_detection:
             logging.info("Detector returned no result for %d frames", failed_detection)
+        if failed_focus_crop:
+            logging.info("Skipped focus inference for %d frames due to missing detector crop", failed_focus_crop)
+        if failed_focus_inference:
+            logging.warning("Focuser inference failed for %d frames", failed_focus_inference)
         return records
 
     @staticmethod
@@ -391,11 +449,15 @@ def run_preparer(
     output_name: str = "cv_movement_recording.csv",
     use_detector1: bool = False,
     filter_images: bool = False,
+    focus_with_detector_crop: bool = False,
     verbose: bool = False,
 ) -> None:
     _configure_logging(verbose)
     preparer = ImageDatasetPreparer(
-        rig_data_root, use_detector1=use_detector1, filter_images=filter_images
+        rig_data_root,
+        use_detector1=use_detector1,
+        filter_images=filter_images,
+        focus_with_detector_crop=focus_with_detector_crop,
     )
     total_folders = len(rig_recorder_data_folder_set) if hasattr(rig_recorder_data_folder_set, "__len__") else None
     iterator = (
@@ -445,6 +507,7 @@ if __name__ == "__main__":
     use_detector1 = False
     verbose = True
     filter_images = True
+    focus_with_detector_crop = False
 
     run_preparer(
         rig_data_root,
@@ -452,5 +515,6 @@ if __name__ == "__main__":
         output_name=output_name,
         use_detector1=use_detector1,
         filter_images=filter_images,
+        focus_with_detector_crop=focus_with_detector_crop,
         verbose=verbose,
     )
