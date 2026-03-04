@@ -174,6 +174,13 @@ class DatasetBuilderGUI(QWidget):
         self.cv_focus_with_detector_crop.setToolTip(
             "If checked, pipette focus inference runs on a detector-centered crop instead of the full frame."
         )
+        self.cv_use_kalman_focus_fusion = QCheckBox(
+            "CV generation: Kalman fuse encoder Z + focuser Z"
+        )
+        self.cv_use_kalman_focus_fusion.setChecked(False)
+        self.cv_use_kalman_focus_fusion.setToolTip(
+            "Encoder Z dominates motion while focuser Z gradually realigns focal-plane reference."
+        )
 
         self.enable_filter = QCheckBox("Enable random image filter")
         self.filter_prob = QDoubleSpinBox()
@@ -201,6 +208,7 @@ class DatasetBuilderGUI(QWidget):
         form.addRow(self.use_cv_defined_coords)
         form.addRow(self.cv_filter_images)
         form.addRow(self.cv_focus_with_detector_crop)
+        form.addRow(self.cv_use_kalman_focus_fusion)
         form.addRow(self.enable_filter)
         form.addRow("Filter Probability:", self.filter_prob)
         form.addRow(self.filter_train_only)
@@ -332,6 +340,7 @@ class DatasetBuilderGUI(QWidget):
         enabled = self.use_cv_defined_coords.isChecked()
         self.cv_filter_images.setEnabled(enabled)
         self.cv_focus_with_detector_crop.setEnabled(enabled)
+        self.cv_use_kalman_focus_fusion.setEnabled(enabled)
 
     def _with_blocked_signals(self, *widgets):
         class _Blocker:
@@ -585,6 +594,10 @@ class DatasetBuilderGUI(QWidget):
         self._set_if(self.use_cv_defined_coords, settings.get("prefer_cv_movement"))
         self._set_if(self.cv_filter_images, settings.get("cv_filter_images"))
         self._set_if(self.cv_focus_with_detector_crop, settings.get("cv_focus_with_detector_crop"))
+        self._set_if(
+            self.cv_use_kalman_focus_fusion,
+            settings.get("cv_use_kalman_focus_fusion"),
+        )
         self._set_if(self.omit_stage_movement, settings.get("omit_stage_movement"))
         self._set_if(self.center_crop, settings.get("center_crop"))
         self._set_if(self.pipette_dot, settings.get("pipette_final_pos_color_dot"))
@@ -711,17 +724,20 @@ class DatasetBuilderGUI(QWidget):
             raise FileNotFoundError(f"Rig data root not found: {rig_root}")
         filter_images = self.cv_filter_images.isChecked()
         focus_with_detector_crop = self.cv_focus_with_detector_crop.isChecked()
+        use_kalman_focus_fusion = self.cv_use_kalman_focus_fusion.isChecked()
         preparer = ImageDatasetPreparer(
             rig_root,
             use_detector1=False,
             filter_images=filter_images,
             focus_with_detector_crop=focus_with_detector_crop,
+            use_kalman_focus_fusion=use_kalman_focus_fusion,
         )
 
         self._append(
             "Generating cv_movement_recording.csv files "
             f"(filter_images={'on' if filter_images else 'off'}, "
-            f"focus_crop={'on' if focus_with_detector_crop else 'off'})..."
+            f"focus_crop={'on' if focus_with_detector_crop else 'off'}, "
+            f"kalman={'on' if use_kalman_focus_fusion else 'off'})..."
         )
         for i, folder in enumerate(folders, 1):
             self._append(f"[cv {i}/{len(folders)}] {folder}")

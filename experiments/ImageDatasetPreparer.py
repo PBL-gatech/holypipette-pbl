@@ -41,6 +41,56 @@ class FrameRecord:
     pi_y: float
     pi_z: float
 
+
+class _EncoderDominantKalman1D:
+    """Fuse noisy absolute focus with precise encoder motion.
+
+    State is an encoder-to-focus offset:
+      focus_estimate = encoder_z + offset
+
+    The encoder drives step-to-step motion. The focuser updates only the offset.
+    """
+
+    def __init__(
+        self,
+        *,
+        process_variance: float,
+        measurement_variance: float,
+        initial_variance: float,
+    ) -> None:
+        self.process_variance = max(float(process_variance), 0.0)
+        self.measurement_variance = max(float(measurement_variance), 1e-9)
+        self.initial_variance = max(float(initial_variance), 1e-9)
+        self.offset_estimate: Optional[float] = None
+        self.covariance = self.initial_variance
+
+    def step(self, encoder_z: float, focus_measurement: float) -> float:
+        encoder_valid = np.isfinite(encoder_z)
+        focus_valid = np.isfinite(focus_measurement)
+        if not encoder_valid:
+            if focus_valid:
+                return float(focus_measurement)
+            return np.nan
+
+        encoder_z = float(encoder_z)
+        if self.offset_estimate is None:
+            self.offset_estimate = (
+                float(focus_measurement) - encoder_z if focus_valid else 0.0
+            )
+            self.covariance = self.initial_variance
+
+        self.covariance += self.process_variance
+
+        if focus_valid:
+            predicted_focus = encoder_z + self.offset_estimate
+            innovation = float(focus_measurement) - predicted_focus
+            denom = self.covariance + self.measurement_variance
+            gain = self.covariance / denom if denom > 0.0 else 0.0
+            self.offset_estimate += gain * innovation
+            self.covariance = (1.0 - gain) * self.covariance
+
+        return float(encoder_z + self.offset_estimate)
+
 class _DatasetFilterHelper(SimpleDatasetBuilder):
     """Lightweight SimpleDatasetBuilder adapter to reuse attempt filtering utilities."""
 
@@ -145,6 +195,26 @@ class _DatasetFilterHelper(SimpleDatasetBuilder):
 
 class ImageDatasetPreparer:
     _REQUIRED_STAGE_COLUMNS: Tuple[str, ...] = ("timestamp", "st_x", "st_y", "st_z")
+    _OPTIONAL_PIPETTE_COLUMNS: Tuple[str, ...] = ("pi_x", "pi_y", "pi_z")
+    _HEADERLESS_COLUMNS: Tuple[str, ...] = (
+        "timestamp",
+        "st_x",
+        "st_y",
+        "st_z",
+        "pi_x",
+        "pi_y",
+        "pi_z",
+    )
+    _COLUMN_ALIASES = {
+        "time_stamp": "timestamp",
+        "time": "timestamp",
+        "stage_x": "st_x",
+        "stage_y": "st_y",
+        "stage_z": "st_z",
+        "pipette_x": "pi_x",
+        "pipette_y": "pi_y",
+        "pipette_z": "pi_z",
+    }
 
     def __init__(
         self,
@@ -154,6 +224,10 @@ class ImageDatasetPreparer:
         filter_images: bool = True,
         focus_with_detector_crop: bool = False,
         focus_crop_size: int = 256,
+        use_kalman_focus_fusion: bool = False,
+        kalman_process_variance: float = 0.25,
+        kalman_measurement_variance: float = 100.0,
+        kalman_initial_variance: float = 400.0,
     ) -> None:
         self.rig_data_root = Path(rig_data_root)
         if not self.rig_data_root.exists():
@@ -180,6 +254,11 @@ class ImageDatasetPreparer:
             raise ValueError(f"focus_crop_size must be an integer, got {focus_crop_size!r}") from exc
         if self.focus_crop_size <= 0:
             raise ValueError(f"focus_crop_size must be > 0, got {self.focus_crop_size}")
+
+        self.use_kalman_focus_fusion = bool(use_kalman_focus_fusion)
+        self.kalman_process_variance = max(float(kalman_process_variance), 0.0)
+        self.kalman_measurement_variance = max(float(kalman_measurement_variance), 1e-9)
+        self.kalman_initial_variance = max(float(kalman_initial_variance), 1e-9)
 
         self.detector = PipetteDetectorYOLO1() if use_detector1 else PipetteDetector2()
         self.focuser = PipetteFocuser()
@@ -222,16 +301,32 @@ class ImageDatasetPreparer:
         frame_df = pd.DataFrame([record.__dict__ for record in frame_records])
         frame_df = frame_df.sort_values("timestamp").reset_index(drop=True)
 
+        movement_merge_columns = ["timestamp", "st_x", "st_y", "st_z"]
+        if "pi_z" in movement_df.columns:
+            movement_merge_columns.append("pi_z")
         merged = pd.merge_asof(
             frame_df,
-            movement_df[["timestamp", "st_x", "st_y", "st_z"]].sort_values("timestamp"),
+            movement_df[movement_merge_columns].sort_values("timestamp"),
             on="timestamp",
             direction="nearest",
+            suffixes=("", "_enc"),
         )
 
         missing_stage = merged[["st_x", "st_y", "st_z"]].isna().any(axis=1).sum()
         if missing_stage:
             logging.warning("Stage data missing for %d frames", missing_stage)
+
+        if self.use_kalman_focus_fusion:
+            if "pi_z_enc" not in merged.columns:
+                logging.warning(
+                    "Kalman focus fusion is enabled, but encoder pi_z is unavailable in "
+                    "movement_recording.csv. Falling back to raw focuser pi_z."
+                )
+            else:
+                merged["pi_z"] = self._fuse_focus_with_encoder(
+                    focus_values=merged["pi_z"],
+                    encoder_values=merged["pi_z_enc"],
+                )
 
         merged = merged[["timestamp", "st_x", "st_y", "st_z", "pi_x", "pi_y", "pi_z"]]
         output_path = demo_path / output_name
@@ -247,23 +342,32 @@ class ImageDatasetPreparer:
         except Exception as exc:
             raise ValueError(f"Failed to read movement CSV: {movement_path}\n{exc}") from exc
 
-        normalized = [str(col).strip().lower() for col in movement_df.columns]
-        if "time_stamp" in normalized:
-            normalized = ["timestamp" if col == "time_stamp" else col for col in normalized]
-        movement_df.columns = normalized
-
+        movement_df = self._normalize_movement_columns(movement_df)
         missing_columns = set(self._REQUIRED_STAGE_COLUMNS) - set(movement_df.columns)
         if missing_columns:
-            first_line = movement_path.read_text(encoding="utf-8", errors="replace").splitlines()
-            header_preview = first_line[0] if first_line else "<empty file>"
-            raise ValueError(
-                "movement_recording.csv missing required columns "
-                f"{sorted(missing_columns)}. Expected header columns include "
-                f"{list(self._REQUIRED_STAGE_COLUMNS)}. Found columns: {list(movement_df.columns)}. "
-                f"Header preview: {header_preview}"
-            )
+            try:
+                headerless_df = pd.read_csv(movement_path, sep=";", header=None)
+            except Exception:
+                headerless_df = pd.DataFrame()
 
-        for col in self._REQUIRED_STAGE_COLUMNS:
+            if headerless_df.shape[1] >= len(self._HEADERLESS_COLUMNS):
+                movement_df = headerless_df.iloc[:, : len(self._HEADERLESS_COLUMNS)].copy()
+                movement_df.columns = list(self._HEADERLESS_COLUMNS)
+            else:
+                first_line = movement_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                header_preview = first_line[0] if first_line else "<empty file>"
+                raise ValueError(
+                    "movement_recording.csv missing required columns "
+                    f"{sorted(missing_columns)}. Expected header columns include "
+                    f"{list(self._REQUIRED_STAGE_COLUMNS)}. Found columns: {list(movement_df.columns)}. "
+                    f"Header preview: {header_preview}"
+                )
+
+        numeric_columns = list(self._REQUIRED_STAGE_COLUMNS)
+        numeric_columns.extend(
+            [col for col in self._OPTIONAL_PIPETTE_COLUMNS if col in movement_df.columns]
+        )
+        for col in numeric_columns:
             movement_df[col] = pd.to_numeric(movement_df[col], errors="coerce")
         movement_df = movement_df.dropna(subset=list(self._REQUIRED_STAGE_COLUMNS))
         if movement_df.empty:
@@ -272,6 +376,57 @@ class ImageDatasetPreparer:
                 f"{list(self._REQUIRED_STAGE_COLUMNS)}: {movement_path}"
             )
         return movement_df.sort_values("timestamp").reset_index(drop=True)
+
+    def _normalize_movement_columns(self, movement_df: pd.DataFrame) -> pd.DataFrame:
+        normalized = [str(col).strip().lower() for col in movement_df.columns]
+        movement_df = movement_df.copy()
+        movement_df.columns = normalized
+        for source, target in self._COLUMN_ALIASES.items():
+            if source in movement_df.columns and target not in movement_df.columns:
+                movement_df = movement_df.rename(columns={source: target})
+        return movement_df
+
+    def _fuse_focus_with_encoder(
+        self,
+        *,
+        focus_values: pd.Series,
+        encoder_values: pd.Series,
+    ) -> np.ndarray:
+        focuser = pd.to_numeric(focus_values, errors="coerce").to_numpy(dtype=np.float64, copy=False)
+        encoder = pd.to_numeric(encoder_values, errors="coerce").to_numpy(dtype=np.float64, copy=False)
+        fused = np.full(focuser.shape[0], np.nan, dtype=np.float64)
+
+        kalman = _EncoderDominantKalman1D(
+            process_variance=self.kalman_process_variance,
+            measurement_variance=self.kalman_measurement_variance,
+            initial_variance=self.kalman_initial_variance,
+        )
+        focus_update_count = 0
+        encoder_only_count = 0
+        focus_only_count = 0
+        missing_count = 0
+        for idx, (focus_z, encoder_z) in enumerate(zip(focuser, encoder)):
+            focus_valid = np.isfinite(focus_z)
+            encoder_valid = np.isfinite(encoder_z)
+            if encoder_valid and focus_valid:
+                focus_update_count += 1
+            elif encoder_valid:
+                encoder_only_count += 1
+            elif focus_valid:
+                focus_only_count += 1
+            else:
+                missing_count += 1
+            fused[idx] = kalman.step(encoder_z=encoder_z, focus_measurement=focus_z)
+
+        logging.info(
+            "Applied Kalman focus fusion (encoder-dominant): %d fused with focus updates, "
+            "%d encoder-only, %d focus-only, %d missing",
+            focus_update_count,
+            encoder_only_count,
+            focus_only_count,
+            missing_count,
+        )
+        return fused
 
     def _resolve_demo_path(self, demo_folder: str) -> Path:
         candidate = Path(demo_folder)
@@ -450,6 +605,7 @@ def run_preparer(
     use_detector1: bool = False,
     filter_images: bool = False,
     focus_with_detector_crop: bool = False,
+    use_kalman_focus_fusion: bool = False,
     verbose: bool = False,
 ) -> None:
     _configure_logging(verbose)
@@ -458,6 +614,7 @@ def run_preparer(
         use_detector1=use_detector1,
         filter_images=filter_images,
         focus_with_detector_crop=focus_with_detector_crop,
+        use_kalman_focus_fusion=use_kalman_focus_fusion,
     )
     total_folders = len(rig_recorder_data_folder_set) if hasattr(rig_recorder_data_folder_set, "__len__") else None
     iterator = (
@@ -508,6 +665,7 @@ if __name__ == "__main__":
     verbose = True
     filter_images = True
     focus_with_detector_crop = False
+    use_kalman_focus_fusion = False
 
     run_preparer(
         rig_data_root,
@@ -516,5 +674,6 @@ if __name__ == "__main__":
         use_detector1=use_detector1,
         filter_images=filter_images,
         focus_with_detector_crop=focus_with_detector_crop,
+        use_kalman_focus_fusion=use_kalman_focus_fusion,
         verbose=verbose,
     )
