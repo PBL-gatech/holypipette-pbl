@@ -27,6 +27,19 @@ from patcherbot.devices.camera.FakeCalCamera import FakeCalCamera
 setup_logging()  # Log to the standard console as well
 
 def main():
+    """
+    Starts the Patch GUI application and prepares the rig for use.
+
+    This function creates the graphical applications, prompts the user to select a rig configuration, 
+    builds all required hardware device objects (stage, microscope, amplifier, etc.), and connects them to
+    the appropriate controller and interface classes.
+
+    It then creates the main window and signal graph displays, links all components together, and starts the Qt
+    event loop so the program can respond to user input.
+
+    If any configuration or hardware initialization step fails, the error is displayed and the program exists
+    safely.
+    """
     app = QApplication(sys.argv)
     manager = RigConfigManager()
     manager.ensure_default_config()
