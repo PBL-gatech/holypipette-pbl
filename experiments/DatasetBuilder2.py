@@ -67,6 +67,15 @@ ATL_TO_UTC_TIME_DELTA = 4  # March 9 - Nov 1: 4 hours, otherwise 5 hours
 
 @dataclass(slots=True)
 class FilterSettings:
+    """
+    Stores settings for optional image filtering during dataset preparation.
+
+    Attributes:
+        enable_random_filter (bool): Enable Albumentations-based random image filters.
+        image_filter_prob (float): Probability that a filter is applied to each image.
+        filter_train_only (bool): Apply filtering only to training data if True.
+        filter_same_per_demo (bool): Apply the same filter to all frames within a single demo if True.
+    """
     enable_random_filter: bool = False # set to true to enable albumentations filtering
     image_filter_prob: float = 0.65
     filter_train_only: bool = False
@@ -75,6 +84,20 @@ class FilterSettings:
 
 @dataclass(slots=True)
 class AxisToggle:
+    """
+    Represents the enabled/disabled state of the 3 axes (x, y, z).
+
+    Provides convenience methods to retrieve enables axes as either
+    indices or labels.
+
+    Attributes:
+        x (bool): Whether the x axis is enabled. Defaults to True.
+        y (bool): Whether the y axis is enabled. Defaults to True.
+        z (bool): Whether the z axis is enabled. Defaults to True.
+
+    Class Attributes:
+        AXIS_NAMES (Tuple[str, str, str]): Labels for the axes ("x", "y", "z").
+    """
     x: bool = True
     y: bool = True
     z: bool = True
@@ -82,14 +105,43 @@ class AxisToggle:
     AXIS_NAMES: ClassVar[Tuple[str, str, str]] = ("x", "y", "z")
 
     def enabled_indices(self) -> List[int]:
+        """
+        Return a list of indices corresponding to enables axes.
+        
+        Returns:
+            List[int]: Indicies of currently enabled axes (x = 0, y = 1, z = 2)
+        """
         return [idx for idx, enabled in enumerate((self.x, self.y, self.z)) if enabled]
 
     def enabled_labels(self) -> List[str]:
+        """
+        Return a list of labels corresponding to enabled axes.
+        
+        Returns:
+            List[str]: Labels of currently enabled axes ("x", "y", "z").
+        """
         return [label for label, enabled in zip(self.AXIS_NAMES, (self.x, self.y, self.z)) if enabled]
 
 
 @dataclass(slots=True)
 class ObservationSelector:
+    """
+    Controls which experimental observations are included in dataset processing.
+
+    Supports electrophysiology signals, stage/pipette positions, and camera frames.
+    Provides methods to retrieve enabled axis indicides and labels for stage and pipette.
+
+    Attributes:
+        include_pressure (bool): Whether to include pressure signals.
+        include_resistance (bool): Whether to include resistance signals.
+        include_current (bool): Whether to include current signals.
+        include_voltage (bool): Whether to include voltage signals.
+        include_stage (bool): Whether to include stage positions.
+        include_pipette (bool): Whether to include pipette positions.
+        include_camera (bool): Whether to include camera frames.
+        stage_axes (AxisToggle): Axes to include for stage positions.
+        pipette_axes (AxisToggle): Axes to include for pipette positions.
+    """
     include_pressure: bool = False
     include_resistance: bool = False
     include_current: bool = False
@@ -101,24 +153,70 @@ class ObservationSelector:
     pipette_axes: AxisToggle = field(default_factory=AxisToggle)
 
     def stage_indices(self, available: int) -> List[int]:
+        """
+        Return indices of stage axes that should be included.
+
+        Args:
+            available (int): Number of available stage axes.
+
+        Returns:
+            List[int]: Enabled axis indices within the available range.
+        """
         if not self.include_stage:
             return []
         return [idx for idx in self.stage_axes.enabled_indices() if idx < available]
 
     def pipette_indices(self, available: int) -> List[int]:
+        """
+        Return indices of pipette axes that should be included.
+
+        Args:
+            available (int): Number of available pipette axes.
+
+        Returns:
+            List[int]: Enabled axis indices within the available range.
+        """
         if not self.include_pipette:
             return []
         return [idx for idx in self.pipette_axes.enabled_indices() if idx < available]
 
     def stage_axis_labels(self) -> List[str]:
+        """
+        Return labels of stage axes that should be included.
+
+        Returns:
+            List[str]: Axis labels ("x", "y", "z") if stage is included, else
+                empty list.
+        """
         return self.stage_axes.enabled_labels() if self.include_stage else []
 
     def pipette_axis_labels(self) -> List[str]:
+        """
+        Return labels of pipette axes that should be included.
+
+        Returns:
+            List[str]: Axis labels ("x", "y", "z") if pipette is included, else
+                empty list.
+        """
         return self.pipette_axes.enabled_labels() if self.include_pipette else []
 
 
 @dataclass(slots=True)
 class ActionSelector:
+    """
+    Controls which action-related signals are included in dataset processing.
+
+    Supports stage positions, pipette positions, pressure, and high-level actions.
+    Provides methods to retrieve enabled axis indices and prefixed labels.
+
+    Attributes:
+        include_stage (bool): Include stage position actions.
+        include_pipette (bool): Include pipette position actions.
+        include_pressure (bool): Include pressure actions.
+        include_high_level (bool): Include high-level abstract actions.
+        stage_axes (AxisToggle): Axes to include for stage positions.
+        pipette_axes (AxisToggle): Axes to include for pipette positions.
+    """
     include_stage: bool = False
     include_pipette: bool = True
     include_pressure: bool = False
@@ -127,21 +225,53 @@ class ActionSelector:
     pipette_axes: AxisToggle = field(default_factory=AxisToggle)
 
     def stage_indices(self, available: int) -> List[int]:
+        """
+        Return indices of stage axes to include in the dataset.
+
+        Args:
+            available (int): Number of available stage axes.
+
+        Returns:
+            List[int]: Enabled axis indices within the available range.
+        """
         if not self.include_stage:
             return []
         return [idx for idx in self.stage_axes.enabled_indices() if idx < available]
 
     def pipette_indices(self, available: int) -> List[int]:
+        """
+        Return indices of pipette axes to include in the dataset.
+
+        Args:
+            available (int): Number of available pipette axes.
+
+        Returns:
+            List[int]: Enabled axis indices within the available range.
+        """
         if not self.include_pipette:
             return []
         return [idx for idx in self.pipette_axes.enabled_indices() if idx < available]
 
     def stage_axis_labels(self) -> List[str]:
+        """
+        Return labels of stage axes that should be included.
+
+        Returns:
+            List[str]: Axis labels prefixed with "stage_" for included axes, 
+                or empty list if stage is excluded.
+        """
         if not self.include_stage:
             return []
         return [f"stage_{axis}" for axis in self.stage_axes.enabled_labels()]
 
     def pipette_axis_labels(self) -> List[str]:
+        """
+        Return labels of pipette axes that should be included.
+
+        Returns:
+            List[str]: Axis labels prefixed with "pipette_" for included axes, 
+                or empty list if pipette is excluded.
+        """
         if not self.include_pipette:
             return []
         return [f"pipette_{axis}" for axis in self.pipette_axes.enabled_labels()]
@@ -149,6 +279,36 @@ class ActionSelector:
 
 @dataclass(slots=True)
 class DatasetBuilderSettings:
+    """
+    Configuration for constructing and preprocessing experiment datasets.
+
+    Encapsulates all settings for data selection, coordinate transforms,
+    image processing, augmentation, and legacy toggles for DatasetBuilder.
+
+    Attributes:
+        dataset_name (str): Name of the dataset.
+        calfile (Optional[str]): Optional calibration file.
+        val_ratio (float): Fraction of demos reserved for validation.
+        omit_stage_movement (bool): Record only stationary-stage demos.
+        random_seed (int): Seed for reproducibility.
+        rotate_valid (bool): Rotate validation set for augmentation.
+        stage_y_axis_flip (bool): Flip Y-axis of stage coordinates if inverted.
+        pipette_rotation_deg (float): Rotation angle for pipette coordinates.
+        transform_pipette_positions (bool): Align pipette coordinates to stage frame.
+        load_next_obs (bool): Pre-load next observation for goal conditioning.
+        frequency_mod (int): Downsample factor for dataset.
+        displacement (float): Minimum stage/pipette displacement to record.
+        filter (FilterSettings): Image filter configuration.
+        image_resize (int): Resize images to this dimension.
+        pipette_final_pos_color_dot (bool): Draw final pipette position dot.
+        observation_selector (ObservationSelector): Controls which observations are included.
+        action_selector (ActionSelector): Controls which actions are included.
+        calibrate (bool): Apply calibration transform (legacy).
+        zero_values (bool): Zero starting positions (legacy).
+        center_crop (bool): Center crop images (legacy).
+        rotate (bool): Augment dataset with rotations (legacy).
+        inaction (int): Max consecutive zero-action steps to keep (legacy).
+    """
     dataset_name: str
     calfile: Optional[str] = None
     val_ratio: float = 1 / 6 # fraction of demos to reserve for validation
@@ -184,6 +344,21 @@ class DatasetBuilderSettings:
 
 @dataclass(slots=True)
 class _StateDatasetContext:
+    """
+    Context object storing dataset information for a specific experiment state.
+
+    Encapsulates dataset paths, metadata filename, split keys, and processed
+    folder tracking for efficient dataset management.
+
+    Attributes:
+        state_name (str): Name of the experiment state.
+        dataset_name (str): Name of the dataset.
+        dataset_dir (Path): Directory containing the dataset.
+        dataset_path (Path): Full path to the dataset file.
+        metadata_filename (str): Name of the metadata file for the dataset.
+        split_keys (Dict[str, List[str]]): Dictionary of split keys (e.g., train/val/test).
+        processed_folders (List[str]): List of folders that have already been processed.
+    """
     state_name: str
     dataset_name: str
     dataset_dir: Path
@@ -1268,6 +1443,18 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
 
     @staticmethod
     def _camera_order_key(name: str) -> str:
+        """
+        Normalize a camera frame filename for proper numerical sorting
+
+        Filenames with numeric segments bet '_' and '.' are zero-padded
+        to ensure correct order when sorting strings.
+
+        Args:
+            name (str): Camera frame filename.
+        
+        Returns:
+            str: Normalized filename suitable as a sorting key.
+        """
         underscore_index = name.find('_')
         dot_index = name.rfind('.')
         if underscore_index == -1: return name
@@ -1277,6 +1464,16 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return f"{name[:underscore_index + 1]}{segment}{suffix}"
 
     def _get_camera_frame_shape(self, rig_recorder_data_folder: str) -> Optional[Tuple[int, int]]:
+        """
+        Determine dimensions of camera frames in a given dataset folder.
+
+        Args:
+            rig_recorder_data_folder (str): Folder containing camera frame images.
+
+        Returns:
+            Optional[Tuple[int, int]]: (width, height) of a camera frame. None if no
+                frames are found.
+        """
         cache = self._camera_frame_shape_cache
         if rig_recorder_data_folder in cache:
             return cache[rig_recorder_data_folder]
@@ -1297,6 +1494,18 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     def _apply_camera_crop_and_resize(
         self, pipette_positions: np.ndarray, frame_shape: Tuple[int, int]
     ) -> np.ndarray:
+        """
+        Crops and resize pipette coordinates to match the processed camera frame.
+
+        Applies optional center cropping and scales coordinates to the target image size.
+
+        Args:
+            pipette_positions (np.ndarray): Arry of pipette (x, y) positions.
+            frame_shape (Tupple[int, int]): Original (width, height) of the camera frame.
+        
+        Returns:
+            np.ndarray: Scaled and optionally cropped pipette positions.
+        """
         if pipette_positions.ndim < 2 or pipette_positions.shape[1] < 2:
             return pipette_positions
         width, height = frame_shape

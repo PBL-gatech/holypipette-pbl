@@ -31,6 +31,7 @@ from experiments.DatasetBuilder2 import DatasetBuilder2, _read_csv_with_fallback
 
 @dataclass
 class FrameRecord:
+    """Represents a single recorded fram with its timestamp and pipette position"""
     timestamp: float
     pi_x: float
     pi_y: float
@@ -40,6 +41,12 @@ class _DatasetFilterHelper(DatasetBuilder2):
     """Lightweight DatasetBuilder2 adapter to reuse demo filtering utilities."""
 
     def __init__(self, rig_data_root: Path) -> None:
+        """
+        Initialize the preparer with the rig data directory.
+
+        Args:
+            rig_data_root (Path): Path to directory containing raw rig data.
+        """
         self._rig_data_root = Path(rig_data_root)
         self._data_root = self._rig_data_root.parent
         self._log_data_root = self._data_root / "log_data"
@@ -55,6 +62,14 @@ class _DatasetFilterHelper(DatasetBuilder2):
         self._cached_metadata = self._collect_metadata()
 
     def load_graph_values(self, folder: str) -> Optional[pd.DataFrame]:
+        """Load graph_recording.csv from a folder if it exists.
+        
+        Args:
+            folder (str): Subdirectory under the rig data root.
+
+        Returns:
+            DataFrame of graph values if the file exists and loads successfully, otherwise None.
+        """
         graph_path = self._rig_data_root / folder / "graph_recording.csv"
         if not graph_path.exists():
             return None
@@ -64,6 +79,15 @@ class _DatasetFilterHelper(DatasetBuilder2):
             return None
 
     def load_log_values(self, folder: str) -> Optional[pd.DataFrame]:
+        """Load log values for a recording based on its data.
+        
+        Args:
+            folder (str): Recording foler name containing a date prefix.
+
+        Returns:
+            DataFrame of log values if the corresponding log file loads successfully,
+                otherwise None.
+        """
         day_token = folder[:10]
         log_path = self._log_data_root / f"logs_{day_token}.csv"
         if not log_path.exists():
@@ -79,6 +103,17 @@ class _DatasetFilterHelper(DatasetBuilder2):
         log_values: pd.DataFrame,
         graph_values: pd.DataFrame,
     ) -> List[Tuple[float, float]]:
+        """
+        Compute merged time windows of successful state attempts during an experiment.
+
+        Args:
+            folder (str): Recording folder identifier.
+            log_values(DataFrame): DataFrame containing experiment log entries.
+            graph_values (DataFrame): DataFrame containing graph recording timestamps.
+
+        Returns:
+            List[Tuple[float, float]]: Merged (start, end) timestamp windows for successful attempts.
+        """
         if graph_values.empty:
             return []
         timestamps = graph_values.iloc[:, 0].to_numpy(dtype=float)
@@ -103,6 +138,14 @@ class _DatasetFilterHelper(DatasetBuilder2):
 
     @staticmethod
     def _merge_windows(windows: Iterable[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        """Merge overlapping or adjacent time windows.
+
+        Args:
+            windows (Iterable[Tuple[float, float]]): Iterable of (start, end) timestamp pairs
+        
+        Returns:
+            List[Tuple[float, float]]: Merged (start, end) windows sorted by start time.
+        """
         ordered = sorted((float(start), float(end)) for start, end in windows if start < end)
         if not ordered:
             return []
@@ -121,6 +164,10 @@ class _DatasetFilterHelper(DatasetBuilder2):
 
 
 class ImageDatasetPreparer:
+    """
+    Prepare image datasets from rig recorder data, optionally filtering frames
+    and applying pipette detection and focusing.
+    """
     def __init__(
         self,
         rig_data_root: Path,
@@ -128,6 +175,17 @@ class ImageDatasetPreparer:
         use_detector1: bool = True,
         filter_images: bool = True,
     ) -> None:
+        """
+        Initialize an ImageDatasetPreparer.
+
+        Args:
+            rig_data_root (Path): Root folder for rig recorder data.
+            use_detector1 (bool): Toggle which pipette detector to use (default True).
+            filter_images (bool): Whether to apply frame filtering (default True).
+
+        Raises:
+            FileNotFoundError: If 'rig_data_root' does not exist.
+        """
         self.rig_data_root = Path(rig_data_root)
         if not self.rig_data_root.exists():
             raise FileNotFoundError(f"Rig-recorder root not found: {self.rig_data_root}")
@@ -156,6 +214,24 @@ class ImageDatasetPreparer:
         output_name: str = "cv_movement_recording.csv",
         camera_subdir: str = "camera_frames",
     ) -> Path:
+        """
+        Build a merged CSV of stage and pipette positions for a demo
+        
+        Collects camera frames and movement data from the demo folder, optionally filters
+        frames, infers pipette coordinates, merges with stage movement timestamps, and
+        writes a semicolon-delimited csv containing: timestamp, st_x, st_y, st_z, pi_x, pi_y,
+        pi_z.
+
+        Args:
+            demo_folder (str): Name of the demo folder.
+            output_name (str, optional): Name for the output CSV.
+                Defaults to "cv_movement_recording.csv".
+            camera_subdir (str, optional): Subdirectory containing camera frames.
+                Defaults to "camera_frames".
+        
+                Returns:
+                    Path: Path to generated CSV file.
+        """
         demo_path = self._resolve_demo_path(demo_folder)
         movement_path = demo_path / "movement_recording.csv"
         if not movement_path.exists():
@@ -210,6 +286,20 @@ class ImageDatasetPreparer:
         return output_path
 
     def _resolve_demo_path(self, demo_folder: str) -> Path:
+        """
+        Resolve the full path to a demo folder.
+        
+        Checks if 'demo_folder' exists as given or relative to the rig data root.
+
+        Args:
+            demo_folder (str): Name or path of the demo folder.
+
+        Returns:
+            Path: Resolved Path object pointing to the demo folder.
+        
+        Raises:
+            FileNotFoundError: If the folder cannot be found.
+        """
         candidate = Path(demo_folder)
         if candidate.is_dir():
             return candidate
@@ -220,6 +310,15 @@ class ImageDatasetPreparer:
 
     @staticmethod
     def _collect_frame_paths(camera_dir: Path) -> List[Path]:
+        """
+        Collect all image file paths in a folder.
+
+        Args:
+            camera_dir (Path): Directory containing camera frames.
+
+        Returns:
+            List[Path]: Sorted listed of image file paths with common image extensions.
+        """
         frame_paths = [
             path
             for path in sorted(camera_dir.iterdir())
@@ -228,6 +327,16 @@ class ImageDatasetPreparer:
         return frame_paths
 
     def _apply_frame_filter(self, frame_paths: Sequence[Path], demo_path: Path) -> List[Path]:
+        """
+        Filter image frames to include only those within demonstration windows.
+
+        Args:
+            frame_paths (Sequence[Path]): Paths of all camera frames.
+            demo_path (Path): Path to the demo folder.
+        
+        Returns:
+            List[Path]: Filtered list of frame paths within detected demo windows.
+        """
         if not self.filter_images or self._filter_helper is None:
             return list(frame_paths)
 
@@ -269,6 +378,15 @@ class ImageDatasetPreparer:
 
 
     def _infer_pipette_coordinates(self, frame_paths: Sequence[Path]) -> List[FrameRecord]:
+        """
+        Infer pipette (x, y, z) coordinates for each frame.
+
+        Args:
+            frame_paths (Sequence[Path]): Paths to image frames.
+
+        Returns:
+            List[FrameRecord]: List of frame records with timestamp and pipette coordinates.
+        """
         records: List[FrameRecord] = []
         skipped_without_timestamp = 0
         failed_to_load = 0
@@ -319,6 +437,16 @@ class ImageDatasetPreparer:
 
     @staticmethod
     def _parse_timestamp(filename: str) -> Optional[float]:
+        """
+        Extract a numeric timestamp from an image filename.
+
+        Args:
+            filename (str): Name of the file, expected format includes an underscore
+                before the timestamp.
+            
+        Returns:
+            Optional[float]: Parsed timestamp as a float, or None if parsing fails.
+        """
         stem = Path(filename).stem
         parts = stem.split("_")
         if len(parts) < 2:
@@ -331,6 +459,12 @@ class ImageDatasetPreparer:
 
 
 def _configure_logging(verbose: bool) -> None:
+    """
+    Configure the root logger with a simple format and verbosity.
+
+    Args:
+        verbose (bool): If True, set logging level to DEBUG; otherwise INFO.
+    """
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(format="[%(levelname)s] %(message)s", level=level)
 
@@ -344,6 +478,20 @@ def run_preparer(
     filter_images: bool = False,
     verbose: bool = False,
 ) -> None:
+    """
+    Process a set of rig-recorder demo folders to generate movement CSVs.
+
+    Args:
+        rig_data_root (Path): Root directory containing rig-recorder data.
+        rig_recorder_data_folder_set (Sequence[str | Path]): List of demo folder names or paths.
+        output_name (str, optional): Name for the generated CSV file. Defaults to "cv_movement_recording.csv".
+        use_detector1 (bool, optional): If True, use PipetteDetector1; otherwise alternate detector. Defaults to False.
+        filter_images (bool, optional): If True, filter frames using demonstration windows. Defaults to False.
+        verbose (bool, optional): If True, enable debug-level logging. Defaults to False.
+
+    Returns:
+        None
+    """
     _configure_logging(verbose)
     preparer = ImageDatasetPreparer(
         rig_data_root, use_detector1=use_detector1, filter_images=filter_images

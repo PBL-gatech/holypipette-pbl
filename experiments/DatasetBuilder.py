@@ -11,6 +11,28 @@ import hashlib
 
 ATL_TO_UTC_TIME_DELTA = 4 #March 9 - Nov 1: 4 hours, otherwise 5 hours
 class DatasetBuilder():
+    """
+    Initializes a DatasetBuilder for preprocessing and constructing experiment datasets.
+
+    Configures dataset metadata, data splitting, stage/pipette alignment, image filtering,
+    and optional preprocessing parameters.
+
+    Args:
+         dataset_name (str): Name of the dataset.
+        calfile (optional, file): Calibration file for experimental measurements.
+        val_ratio (float): Fraction of the dataset to use as validation.
+        omit_stage_movement (bool): Whether to skip stage movement data.
+        random_seed (int): Seed for reproducible dataset generation.
+        rotate_valid (bool): Whether to rotate validation images.
+        stage_y_axis_flip (bool): Flip the Y-axis of stage coordinates.
+        pipette_rotation_deg (float): Angle to rotate pipette coordinates.
+        load_next_obs (bool): Pre-load the next observation for efficiency.
+        frequency_mod (int): Sampling frequency modifier.
+        enable_random_filter (bool): Enable random image filtering.
+        image_filter_prob (float): Probability of applying the random filter.
+        filter_train_only (bool): Apply filtering only to training images.
+        filter_same_per_demo (bool): Apply the same filter to all images in a demo.
+    """
     def __init__(self,
              dataset_name,
              calfile = None,
@@ -321,6 +343,21 @@ class DatasetBuilder():
         return out
 
     def convert_graph_recording_csv_to_new_format(self, demo_file_path):
+        """
+        Converts a raw graph recording CSV to a semicolon-delimited format.
+
+        The source file is parsed using a colon delimiter, numeric fields are
+        trimmed of trailing precision or formatting characters. The resulting
+        rows are rewritten using the standardized column structure:
+
+            timestamp;pressure;resistance;current;voltage
+
+        The converted data overwrites the original file.
+
+        Args:
+            demo_file_path (str): Name of folder containing the graph recording file
+                inside the rig recorder data directory.
+        """
         graph_recording_file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/graph_recording.csv')
         graph_values = pd.read_csv(graph_recording_file, delimiter=':') #.to_numpy()
 
@@ -352,6 +389,20 @@ class DatasetBuilder():
         print(graph_values_new)
 
     def convert_movement_recording_csv_to_new_format(self, demo_file_path):
+        """
+        Converts a legacy movement recording CSV to a semicolon-delimited format.
+
+        The source file is parsed using a colon delimter, numeric fields are trimmed of trailing precision
+        characters. The resulting rows are rewritten using the standardized column structure:
+
+            timestamp;st_x;st_y;st_z;pi_x;pi_y;pi_z
+
+        The converted data overwrites the original file.
+
+        Args:
+            demo_file_path (str): Name of folder containing the movement recording file inside the rid recorder
+            data directory
+        """
         movement_recording_file = open(f'experiments/Data/rig_recorder_data/{demo_file_path}/movement_recording.csv')
         movement_values = pd.read_csv(movement_recording_file, delimiter=':') #.to_numpy()
 
@@ -719,10 +770,42 @@ class DatasetBuilder():
     
 
     def _stable_int_seed(self, *parts) -> int:
+        """
+        Return a deterministic integer seed derived from the provided parts.
+
+        The inputs are concatenated, hashed with SHA-256, and the first 4 bytes of the 
+        digest are converted to a 32-bit integer. Identical inputs produce the same seed.
+
+        Args:
+            *parts: Any values used to generate the seed. Each value is converted to a string
+            and included in the hash.
+
+        Returns:
+            int: a deterministic 32-bit integer derived from the SHA-256 hash of the provided
+            inputs.
+        """
         data = ("||".join(map(str, parts))).encode("utf-8")
         return int.from_bytes(hashlib.sha256(data).digest()[:4], "big")
 
     def _begin_demo_filter_context(self, split_label: str, demo_seed: int) -> None:
+        """
+        Initializes the image filtering configuration for a demo.
+
+        Determines whether random image filtering should be applied for the current demo based
+        on configuration flags such as 'enable_random_filter' and 'filter_train_only'. If filtering
+        is enabled and configured to be consistent across a demo, an Albumentations ReplayCompose
+        pipeline if created to apply a randomly selected filter (e.g., Gaussian blur, color shift,
+        or sharpening).
+
+        Randomness is seeded using 'demo_seed' to ensure deterministic behavior across runs.
+
+        Args:
+            split_label (str): Dataset split label.
+            demo_seed (int): Seed used to make filter selection replicable.
+
+        Returns:
+            None
+        """
         if not self.enable_random_filter:
             self._filter_active_for_demo = False
             self._albu_replay_comp = None
@@ -750,11 +833,37 @@ class DatasetBuilder():
             self._albu_replay_state = None
 
     def _end_demo_filter_context(self) -> None:
+        """
+        Disables image filtering for the current demo and reset the related state.
+
+        This clears the augmentation pipeline and replay state so that subsequent
+        demos can start with a clean configuration.
+
+        Returns:
+            None
+        """
         self._filter_active_for_demo = False
         self._albu_replay_comp = None
         self._albu_replay_state = None
 
     def _apply_albu_filter_to_pil(self, pil_image: Image.Image) -> Image.Image:
+        """
+        Applies the Albumentations filter pipeline to a PIL image if filtering is active.
+
+        Depending of the current demo configuration, this function either:
+        - applies a replayable augmentation pipeline (_albu_replay_comp) to ensure consistent
+          transformations across all images in the demo, or
+        - applies a single-use augmentation (_albu_filter) to the image.
+
+        If filtering is inactive or no filter is configured, the original image is returned
+        unchanged.
+
+        Args:
+            pil_image (Image.Image): Input image to augment
+
+        Returns:
+            Image.Image: The filtered image, or the original if no filtering is applied
+        """
         if not self._filter_active_for_demo:
             return pil_image
         if self._albu_filter is None and self._albu_replay_comp is None:
@@ -772,6 +881,23 @@ class DatasetBuilder():
         return Image.fromarray(np_img)
 
     def get_attempt_camera_frames(self, rig_recorder_data_folder, attempt_graph_values, rotation_angle=None):
+        """
+        Retrieve and process camera frames corresponding to a single attempt.
+
+        For each timestamp in 'attempt_graph_values', finds the camera from with the closest
+        timestamp, applies optional Albumentations filtering, rotation, center cropping, and 
+        resizes to 85x85 pixels.
+
+        Args:
+            rig_recorder_data_folder (str): Folder name containing rig recorder data
+            attempt_graph_values (List[Tuple[float, ...]]): Time series of graph values; the
+                first element of each tuple is used as the target timestamp.
+            rotation_angle (float, optional): Angle to rotate each image, in degrees. Defaults
+                to none.
+
+        Returns:
+            np.ndarray: Array of processed framed with shape (num_frames, 85, 85, 3).
+        """
         camera_files = os.listdir(f'experiments/Data/rig_recorder_data/{rig_recorder_data_folder}/camera_frames')
         camera_files.sort()
         frames_list = []
@@ -841,6 +967,31 @@ class DatasetBuilder():
         return pil_image.crop((left, top, right, bottom))
 
     def get_attempt_observations(self, attempt_graph_values, attempt_movement_values, rig_recorder_data_folder, include_camera=True, rotation_angle=None):
+        """
+        Collect all relevant observations for a single experiment attempt.
+
+        This includes pressure, resistance, current, voltage, stage positions, pipette
+        positions, and optionally aligned camera frames. Positions can optionally be 
+        rotated to match a specified reference frame.
+
+        Args:
+            attempt_graph_values (List[Tuple[float, ...]]): Time-aligned graph values.
+            attempt_movement_values (List[Tuple[float, ...]]): Stage/pipette movement data.
+            rig_recorder_data_folder (str): Folder containing camera frame images.
+            include_camera (bool, optional): Whether to include camera frames. Defaults to True.
+            rotation_angle (float, optional): Angle (degrees) to rotate positions and camera frames.
+                Defaults to none
+        
+        Returns:
+            Tuple:
+                pressure_values (np.ndarray)
+                resistance_values (np.ndarray)
+                current_values (np.ndarray)
+                voltage_values (np.ndarray)
+                stage_positions (np.ndarray)
+                pipette positions (np.ndarray)
+                camera_frames (np.ndarray, optional)
+        """
         # Pressure
         pressure_values = self.get_attempt_pressure_values(attempt_graph_values)
         # Resistance
