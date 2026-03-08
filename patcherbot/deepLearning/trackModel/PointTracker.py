@@ -32,6 +32,7 @@ class PointTracker(ABC):
     Design goals:
       - Swap flow models easily (Farneback now, deep model later).
       - Single-call per incoming frame: update(image, points=...)
+      - Optionally persist a sparse point set via set_points(...).
       - Optional ROI and mask to ignore pipette / background.
 
     Coordinate conventions:
@@ -64,6 +65,7 @@ class PointTracker(ABC):
         self.prev_proc: Optional[np.ndarray] = None
         self.prev_raw_shape: Optional[Tuple[int, int]] = None  # (H, W) of processed frame
         self.frame_index: int = 0
+        self._persistent_points_px: Optional[np.ndarray] = None
 
     # ----------------------------
     # Public API
@@ -86,17 +88,37 @@ class PointTracker(ABC):
         """
         self.mask = mask
 
+    def set_points(self, points: Optional[Any]) -> None:
+        """
+        Set persistent full-frame points to track on every update when update(points=None).
+
+        Accepts:
+          - Nx2 array-like
+          - single (x, y) point
+          - Python set/list/tuple of points
+        """
+        if points is None:
+            self._persistent_points_px = None
+            return
+        self._persistent_points_px = self._normalize_points_input(points).copy()
+
+    def clear_points(self) -> None:
+        """Clear persistent points previously set with set_points()."""
+        self._persistent_points_px = None
+
     def update(
         self,
         image: np.ndarray,
-        points: Optional[np.ndarray] = None,  # (N,2) points in PIXELS, full-frame coordinates
+        points: Optional[Any] = None,  # (N,2) points in PIXELS, full-frame coordinates
         meta: Optional[Dict[str, Any]] = None,
     ) -> TrackingResult:
         """
         Process one frame online.
 
         image: current frame (grayscale or BGR).
-        points: optional Nx2 points to track (in full-frame pixel coordinates).
+        points: optional points to track (in full-frame pixel coordinates).
+                Accepts Nx2 array-like, single (x, y), or set/list/tuple of (x, y).
+                If None, tracker uses points previously set with set_points(...).
                 If ROI is set, points are internally shifted into ROI coordinates.
 
         Returns a TrackingResult. On the very first frame, no flow can be computed,
@@ -149,8 +171,14 @@ class PointTracker(ABC):
         # Track points if provided
         t_points = time.perf_counter()
         points_px_out = disp_px_out = None
-        if points is not None:
-            points = np.asarray(points, dtype=np.float32).reshape(-1, 2)
+        points_src = points
+        use_persistent_points = False
+        if points_src is None and self._persistent_points_px is not None:
+            points_src = self._persistent_points_px
+            use_persistent_points = True
+
+        if points_src is not None:
+            points = self._normalize_points_input(points_src)
 
             # Convert full-frame points -> ROI coords (if ROI exists)
             points_roi = points.copy()
@@ -167,6 +195,9 @@ class PointTracker(ABC):
 
             points_px_out = points_new
             disp_px_out = disp_px
+            if use_persistent_points:
+                # Keep persistent points aligned with tracked positions.
+                self._persistent_points_px = points_new.copy()
         points_ms = (time.perf_counter() - t_points) * 1e3
 
         # Advance state
@@ -193,6 +224,25 @@ class PointTracker(ABC):
             scores=scores,
             meta=dict(meta),
         )
+
+    @staticmethod
+    def _normalize_points_input(points: Any) -> np.ndarray:
+        """
+        Normalize point inputs to float32 Nx2.
+        """
+        if isinstance(points, set):
+            points = list(points)
+
+        pts = np.asarray(points, dtype=np.float32)
+        if pts.size == 0:
+            return np.empty((0, 2), dtype=np.float32)
+        if pts.ndim == 1:
+            if pts.shape[0] != 2:
+                raise ValueError("points must be shape (2,) or (N,2).")
+            pts = pts.reshape(1, 2)
+        elif pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError("points must be shape (2,) or (N,2).")
+        return pts.astype(np.float32, copy=False)
 
     # ----------------------------
     # Model interface (swap these)

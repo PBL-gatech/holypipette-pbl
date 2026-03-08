@@ -820,8 +820,13 @@ class AutoPatcher(TaskController):
 
         self.align(cell, cell_distance,self.config.use_centroid)
                 
+        
+        
         if self.config.cell_type_toggle and self.config.cell_type == "Slice":
             self.clear_to_cell(cell)
+            self.align(cell, cell_distance,self.config.use_centroid)
+
+        
 
         self.info("Located Cell")
         self.success_requested = True
