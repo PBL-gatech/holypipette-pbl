@@ -23,6 +23,7 @@ from patcherbot.devices.manipulator import *
 from numpy.linalg import inv, pinv, norm
 from threading import Thread
 from .StageCalHelper import FocusHelper, StageCalHelper
+from .StageScanHelper import StageScanHelper
 from .PipetteCalHelper import PipetteCalHelper, PipetteFocusHelper
 
 __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
@@ -722,6 +723,7 @@ class CalibratedStage(CalibratedUnit):
 
         self.focusHelper = FocusHelper(microscope, camera)
         self.stageCalHelper = StageCalHelper(unit, camera, self.config.frame_lag)
+        self.stageScanHelper = StageScanHelper(camera, config=self.config)
         self.cellTrackHelper = None
         if self.config.use_ai_features:
             from .CellTrackHelper import CellTrackHelper
@@ -795,6 +797,31 @@ class CalibratedStage(CalibratedUnit):
         self.abort_if_requested()
         pos_microns = dot(self.Minv, pos_pix)
         self.relative_move(pos_microns)
+
+    @property
+    def is_collecting_scan_corners(self):
+        return self.stageScanHelper.is_collecting
+
+    @property
+    def scan_corner_positions(self):
+        return self.stageScanHelper.corner_positions
+
+    def start_selecting_scan_corners(self):
+        self.stageScanHelper.start_corner_collection(self)
+
+    def reset_scan_corners(self):
+        self.stageScanHelper.reset()
+
+    def store_scan_corner(self, click_position):
+        return self.stageScanHelper.record_corner_from_click(
+            self, self.microscope, click_position
+        )
+
+    def move_to_scan_start(self, speed=None):
+        self.stageScanHelper.move_to_scan_start(self, speed=speed)
+
+    def scan_area(self, speed=None):
+        self.stageScanHelper.scan_area(self, speed=speed)
 
     def calibrate(self):
         '''

@@ -62,6 +62,7 @@ class AutoPatchInterface(TaskInterface):
         self.current_autopatcher = autopatcher
 
         self.is_selecting_cells = False
+        self.is_selecting_corners = False
         self.cells_to_patch = []
         self.movement_file_path = ''
 
@@ -125,6 +126,32 @@ class AutoPatchInterface(TaskInterface):
 
     def start_selecting_cells(self):
         self.is_selecting_cells = True
+
+    def start_selecting_corners(self):
+        self.is_selecting_corners = True
+        self.pipette_controller.calibrated_stage.start_selecting_scan_corners()
+
+    @blocking_command(category='Stage',
+                      description='Scan the stored corner coordinates',
+                      task_description='Scanning plate area')
+    def start_scan(self):
+        self.execute(self.current_autopatcher.scan_area)
+
+    @blocking_command(category='Stage',
+                      description='Move stage to the stored scan start coordinate',
+                      task_description='Moving to scan start')
+    def move_to_scan_start(self):
+        self.execute(self.pipette_controller.calibrated_stage.move_to_scan_start)
+
+    @command(category='Patch',
+             description='Select a corner on right-click while Store Corners is active')
+    def handle_corner_right_click(self, position):
+        if self.is_selecting_corners:
+            corners_complete = self.pipette_controller.calibrated_stage.store_scan_corner(position)
+            if corners_complete:
+                self.is_selecting_corners = False
+            return
+        self.execute(self.pipette_controller.move_stage, argument=position)
 
     def remove_last_cell(self):
         if self.cells_to_patch:
