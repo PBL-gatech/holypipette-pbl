@@ -21,7 +21,7 @@ class PipetteFocuser:
                        from the consuming repository; otherwise expect a TorchScript file.
         """
         cur_dir = Path(__file__).parent.resolve()
-        model_path = Path(model_path) if model_path is not None else cur_dir / "pipetteModel" / "cropped" / "PipetteFocuserNetCropped.pt"
+        model_path = Path(model_path) if model_path is not None else cur_dir / "pipetteModel"/ "PipetteFocuserNet.pt"
 
         self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
         self.backend = None

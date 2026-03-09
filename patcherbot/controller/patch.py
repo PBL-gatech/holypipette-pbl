@@ -828,12 +828,10 @@ class AutoPatcher(TaskController):
         self.amplifier.start_patch()
 
         self.align(cell, cell_distance,self.config.use_centroid)
-                
-        
         
         if self.config.cell_type_toggle and self.config.cell_type == "Slice":
             self.clear_to_cell(cell)
-            self.align(cell, cell_distance,self.config.use_centroid)
+            self.align(cell, self.config.cell_distance,self.config.use_centroid)
 
         
 
@@ -899,9 +897,9 @@ class AutoPatcher(TaskController):
         if self.config.cell_type_toggle and self.config.cell_type == "Slice":
             self.info("Moving pipette to slice position")
             speed = [0,0,self.config.max_clearing_speed]
-            cell_hover_pos = self.config.cell_distance - self.config.slice_start_distance
+            cell_hover_pos =  self.config.cell_distance - self.config.slice_start_distance
             # move the stage up to the cell hover position
-            self.microscope.relative_move(cell_hover_pos)
+            self.microscope.relative_move(-self.config.cell_distance)
             start_pos = self.calibrated_unit.position()
             self.calibrated_unit.absolute_move_group_velocity(speed)
             self.info(f"Cell hover position: {cell_hover_pos} um")
