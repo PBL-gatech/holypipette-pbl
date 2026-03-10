@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import threading
 from typing import Iterable, Optional, Sequence, Tuple
 
 import cv2
@@ -60,14 +61,56 @@ class CellTrackHelper:
         (0.0, 18.0),
         (0.0, -18.0),
     )
+    _SHARED_INIT_LOCK = threading.Lock()
+    _SHARED_SEGMENTOR: Optional[CellSegmentor2] = None
+    _SHARED_MATCHERS: dict[Tuple[Tuple[str, str], ...], PatchMatcher] = {}
 
     def __init__(self, stage, camera, **matcher_kwargs: object) -> None:
         self.stage = stage
         self.camera = camera
         self.width = int(getattr(camera, "width", 0) or 0)
         self.height = int(getattr(camera, "height", 0) or 0)
-        self.segmentor = CellSegmentor2()
-        self._matcher = PatchMatcher(**matcher_kwargs)
+        self.segmentor = self._get_shared_segmentor()
+        self._matcher = self._get_shared_matcher(dict(matcher_kwargs))
+        self._template_centroid_cache: dict[
+            Tuple[int, int, int, float, float], np.ndarray
+        ] = {}
+
+    @classmethod
+    def _matcher_key(cls, matcher_kwargs: dict[str, object]) -> Tuple[Tuple[str, str], ...]:
+        if not matcher_kwargs:
+            return ()
+        return tuple(sorted((str(key), repr(value)) for key, value in matcher_kwargs.items()))
+
+    @classmethod
+    def _get_shared_segmentor(cls) -> CellSegmentor2:
+        if cls._SHARED_SEGMENTOR is not None:
+            return cls._SHARED_SEGMENTOR
+        with cls._SHARED_INIT_LOCK:
+            if cls._SHARED_SEGMENTOR is None:
+                logging.info("CellTrackHelper: initializing shared SAM2 segmentor.")
+                cls._SHARED_SEGMENTOR = CellSegmentor2()
+        return cls._SHARED_SEGMENTOR
+
+    @classmethod
+    def _get_shared_matcher(cls, matcher_kwargs: dict[str, object]) -> PatchMatcher:
+        key = cls._matcher_key(matcher_kwargs)
+        cached = cls._SHARED_MATCHERS.get(key)
+        if cached is not None:
+            return cached
+        with cls._SHARED_INIT_LOCK:
+            cached = cls._SHARED_MATCHERS.get(key)
+            if cached is None:
+                if matcher_kwargs:
+                    logging.info(
+                        "CellTrackHelper: initializing shared LightGlue matcher with kwargs=%s.",
+                        matcher_kwargs,
+                    )
+                else:
+                    logging.info("CellTrackHelper: initializing shared LightGlue matcher.")
+                cached = PatchMatcher(**matcher_kwargs)
+                cls._SHARED_MATCHERS[key] = cached
+        return cached
 
     # ------------------------------------------------------------------ #
     def find_centroid(
@@ -136,9 +179,27 @@ class CellTrackHelper:
             expected = self._clamp_point(expected_raw[:2], curr_width, curr_height)
 
         # Step 1: Segment template to obtain the true centroid.
-        reference_centroid: Optional[np.ndarray] = (
-            self._segment_centroid(tmpl_np, prompt) if use_centroid else None
-        )
+        reference_centroid: Optional[np.ndarray] = None
+        if use_centroid:
+            cache_key = (
+                id(reference_image),
+                int(tmpl_height),
+                int(tmpl_width),
+                float(prompt[0]),
+                float(prompt[1]),
+            )
+            cached = self._template_centroid_cache.get(cache_key)
+            if cached is not None:
+                reference_centroid = np.array(cached, dtype=np.float32, copy=True)
+            else:
+                reference_centroid = self._segment_centroid(tmpl_np, prompt)
+                if reference_centroid is not None:
+                    if len(self._template_centroid_cache) > 512:
+                        self._template_centroid_cache.clear()
+                    self._template_centroid_cache[cache_key] = np.asarray(
+                        reference_centroid,
+                        dtype=np.float32,
+                    )
         if reference_centroid is None:
             reference_centroid = prompt
 

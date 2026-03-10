@@ -11,7 +11,14 @@ import logging
 
 
 class PipetteFocuser:
-    def __init__(self, model_path=None, device=None, model_factory=None):
+    def __init__(
+        self,
+        model_path=None,
+        device=None,
+        model_factory=None,
+        enable_contrast_stretch: bool = False,
+        preprocess_config_path: str | None = None,
+    ):
         """
         model_path: path to an ONNX (.onnx) or PyTorch (.pt/.pth) file.
                     Defaults to pipetteModel/regression_model2.onnx next to this file.
@@ -34,6 +41,8 @@ class PipetteFocuser:
         self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
         self.z_mean = None
         self.z_std = None
+        self.enable_contrast_stretch = bool(enable_contrast_stretch)
+        self._load_preprocess_config(model_path.parent, preprocess_config_path=preprocess_config_path)
 
         suffix = model_path.suffix.lower()
         if suffix == ".onnx":
@@ -108,16 +117,82 @@ class PipetteFocuser:
             except Exception as exc:
                 logging.warning(f"Failed to load {z_path}: {exc}")
 
+    def _load_preprocess_config(
+        self,
+        stats_dir: Path,
+        preprocess_config_path: str | None = None,
+    ):
+        """
+        Load preprocessing config if present.
+        Expected file: preprocess_config.json (beside the model) or explicit path.
+        """
+        cfg_path = Path(preprocess_config_path) if preprocess_config_path else (stats_dir / "preprocess_config.json")
+        if not cfg_path.is_file():
+            return
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            if "enable_contrast_stretch" in cfg:
+                self.enable_contrast_stretch = bool(cfg["enable_contrast_stretch"])
+        except Exception as exc:
+            logging.warning(f"Failed to load {cfg_path}: {exc}")
+
+    @staticmethod
+    def contrast_stretch_mu_2sigma_uint8(image: np.ndarray) -> np.ndarray:
+        """
+        Per-image contrast stretch:
+          low = mean - 2*std
+          high = mean + 2*std
+          out = clip((x-low)/(high-low), 0, 1)
+        Returns uint8 image in [0, 255].
+        """
+        img = np.asarray(image)
+        if img.size == 0:
+            return img.copy()
+
+        if img.dtype != np.uint8:
+            if np.issubdtype(img.dtype, np.floating):
+                max_val = float(np.nanmax(img)) if img.size else 0.0
+                scale = 255.0 if max_val <= 1.0 else 1.0
+                img_uint8 = np.clip(img * scale, 0, 255).astype(np.uint8)
+            else:
+                img_uint8 = np.clip(img, 0, 255).astype(np.uint8)
+        else:
+            img_uint8 = img
+
+        img_float = img_uint8.astype(np.float32)
+        mu = float(np.mean(img_float))
+        sigma = float(np.std(img_float))
+
+        if not np.isfinite(mu) or not np.isfinite(sigma) or sigma <= 1e-6:
+            return img_uint8.copy()
+
+        low = mu - 2.0 * sigma
+        high = mu + 2.0 * sigma
+        if high <= low + 1e-6:
+            return img_uint8.copy()
+
+        stretched = (img_float - low) / (high - low)
+        stretched = np.clip(stretched, 0.0, 1.0)
+        return np.round(stretched * 255.0).astype(np.uint8)
+
     def preprocess(self, img):
         """
         Preprocess the image:
+          - Optional contrast stretching (mu +/- 2*sigma) when enabled.
           - Resize to self.imgSize x self.imgSize.
           - Convert BGR (OpenCV) to RGB.
           - Scale pixel values to [0, 1].
           - Normalize with mean and std.
           - Rearrange dimensions from HWC to CHW and add a batch dimension.
         """
-        img_resized = cv2.resize(img, (self.imgSize, self.imgSize))
+        working_img = img
+        if working_img.ndim == 2:
+            working_img = cv2.cvtColor(working_img, cv2.COLOR_GRAY2BGR)
+        if self.enable_contrast_stretch:
+            working_img = self.contrast_stretch_mu_2sigma_uint8(working_img)
+
+        img_resized = cv2.resize(working_img, (self.imgSize, self.imgSize))
         img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
         img_float = img_rgb.astype(np.float32) / 255.0
         img_normalized = (img_float - self.mean) / self.std
@@ -159,9 +234,9 @@ if __name__ == '__main__':
     # cur_dir = Path(__file__).parent.absolute()
     # image_path = os.path.join(cur_dir, "", "neg7_focus.png")
     # image_path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Pipette CNN Training Data\20191016\3654098923.png"
-    # image_path = r"C:\Users\sa-forest\Documents\GitHub\pipetteFindingCNN\pipettedata\3DPrelimData\compiled\cropped_camera_frames\2051_1770343660.202234.webp" # cropped example
+    image_path = r"C:\Users\sa-forest\Documents\GitHub\pipetteFindingCNN\pipettedata\3DPrelimData\compiled\cropped_camera_frames\2051_1770343660.202234.webp" # cropped example
     # image_path = r"C:\Users\sa-forest\Documents\GitHub\pipetteFindingCNN\pipettedata\3DPrelimData\compiled\cropped_camera_frames\2051_1769809540.821779.webp" # cropped example, different focus
-    image_path = r"C:\Users\sa-forest\Documents\GitHub\pipetteFindingCNN\pipettedata\3DPrelimData\compiled\cropped_camera_frames\2070_1770056951.261588.webp" # cropped example, different focus
+    # image_path = r"C:\Users\sa-forest\Documents\GitHub\pipetteFindingCNN\pipettedata\3DPrelimData\compiled\cropped_camera_frames\2070_1770056951.261588.webp" # cropped example, different focus
     
     if not os.path.exists(image_path):
         print(f"Image not found: {image_path}")

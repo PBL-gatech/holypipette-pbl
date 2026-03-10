@@ -72,3 +72,5 @@ patcherbot/deepLearning/patchModel/PipetteFinder/models/bc_PipetteFinder_v0_003.
 *.dot
 /experiments/Analysis/Rig_Recorder/Reconstruct/controlsystems
 /codex
+/manuals
+/.vscode

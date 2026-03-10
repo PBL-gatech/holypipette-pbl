@@ -201,11 +201,11 @@ class CalibratedUnit(ManipulatorUnit):
         '''Use the microscope image to put the pipette in focus
         '''
         if not self.config.pipette_focus_crop_feature:
-            self.debug('Autofocusing pipette without cropping')
+            self.info('Autofocusing pipette without cropping')
             self.abort_if_requested()
             self.pipetteFocusHelper.focus()
         else:
-            self.debug('Autofocusing pipette with cropping')
+            self.info('Autofocusing pipette with cropping')
             self.abort_if_requested()
             self.autofocus_cropped_pipette()
 
@@ -735,6 +735,16 @@ class CalibratedStage(CalibratedUnit):
         if len(self.axes) != 2:
             raise CalibrationError('The unit should have exactly two axes for horizontal calibration.')
 
+    def _ensure_cell_track_helper(self):
+        if not self.config.use_ai_features:
+            raise NotImplementedError(
+                "Cell tracking is disabled. Set calibration.use_ai_features to true before use."
+            )
+        if self.cellTrackHelper is None:
+            from .CellTrackHelper import CellTrackHelper
+            self.cellTrackHelper = CellTrackHelper(self, self.camera)
+        return self.cellTrackHelper
+
     def reference_position(self):
         '''Returns the offset (in pixels) of the stage compared to where it was when calibrated
         '''
@@ -931,7 +941,8 @@ class CalibratedStage(CalibratedUnit):
         template_prompt = np.array([ref_w / 2.0, ref_h / 2.0], dtype=np.float32)
 
         self.info(f"Centering on cell at approx. {expected_px} px")
-        centroid = self.cellTrackHelper.find_centroid(
+        cell_track_helper = self._ensure_cell_track_helper()
+        centroid = cell_track_helper.find_centroid(
             reference_image,
             image,
             use_centroid=use_centroid,
@@ -981,12 +992,7 @@ class CalibratedStage(CalibratedUnit):
 
         Returns the centroid position (in pixels) as a numpy array.
         """
-        if not self.config.use_ai_features:
-            raise NotImplementedError(
-                "Cell tracking is disabled. Set calibration.use_ai_features to true before use."
-            )
-        if self.cellTrackHelper is None:
-            raise RuntimeError("CellTrackHelper is not initialized.")
+        cell_track_helper = self._ensure_cell_track_helper()
 
         _cell_coords, reference_image, _position = cell
 
@@ -1002,7 +1008,7 @@ class CalibratedStage(CalibratedUnit):
         template_prompt = np.array([ref_w / 2.0, ref_h / 2.0], dtype=np.float32)
 
         self.info(f"Getting position of cell at approx. {expected_px} px")
-        centroid = self.cellTrackHelper.find_centroid(
+        centroid = cell_track_helper.find_centroid(
             reference_image,
             image,
             use_centroid=use_centroid,
