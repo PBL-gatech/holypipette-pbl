@@ -25,7 +25,7 @@ class CalibrationConfig(Config):
                                      doc="number of frames between for computing change with optical flow",
                                      bounds=(1, 20))
 
-    y_delta_scan = NumberWithUnit(1340, unit="um",
+    y_delta_scan = NumberWithUnit(750, unit="um",
                                   doc="configured vertical scan distance for stage scans",
                                   bounds=(0, 100000))
 
@@ -52,6 +52,9 @@ class CalibrationConfig(Config):
     microscope_units_per_um = Number(5.0,
                                      doc="Microscope controller units per micron",
                                      bounds=(0.001, 1000))
+    objective_lift_um = NumberWithUnit(10000, unit="um",
+                                     doc="Distance to lift the microscope objective during objective switches",
+                                        bounds=(0, 20000))
     home_position_delta_um = NumberWithUnit(-1000, unit="um",
                                            doc="Vertical offset from stage cell surface to pipette home position",
                                              bounds=(-100000, 100000))
@@ -94,6 +97,7 @@ class CalibrationConfig(Config):
             "stage_x_axis_flip",
             "stage_y_axis_flip",
             "microscope_units_per_um",
+            "objective_lift_um",
         ]),
         ("Pipette Calibration", [
             "pipette_diag_move",

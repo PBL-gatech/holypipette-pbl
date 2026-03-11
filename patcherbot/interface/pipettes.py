@@ -39,6 +39,9 @@ class PipetteInterface(TaskInterface):
             self.calibration_config.from_dict(cleaned)
         self.microscope.config = self.calibration_config
         self.microscope.units_per_um = float(self.calibration_config.microscope_units_per_um)
+        self.microscope.objective_lift_um = float(self.calibration_config.objective_lift_um)
+        if hasattr(self.microscope, 'dev'):
+            self.microscope.dev.objective_lift_um = float(self.calibration_config.objective_lift_um)
         self.calibrated_stage = CalibratedStage(stage, None, microscope, camera,
                                                 config=self.calibration_config)
         self.calibrated_unit = CalibratedUnit(unit,

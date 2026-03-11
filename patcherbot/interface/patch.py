@@ -143,6 +143,13 @@ class AutoPatchInterface(TaskInterface):
     def move_to_scan_start(self):
         self.execute(self.pipette_controller.calibrated_stage.move_to_scan_start)
 
+
+    @blocking_command(category='Microscope',
+                      description='Switch objective',
+                      task_description='Switching objective')
+    def toggle_objective(self):
+        self.execute(self.pipette_controller.microscope.toggle_objective)
+
     @command(category='Patch',
              description='Select a corner on right-click while Store Corners is active')
     def handle_corner_right_click(self, position):

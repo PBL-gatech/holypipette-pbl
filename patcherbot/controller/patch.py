@@ -139,7 +139,6 @@ class AutoPatcher(TaskController):
             #         holding_current = -50
             return holding_current
 
-
     @record_state("find_pipette")
     def find_pipette(self):
         self.info("Finding pipette")

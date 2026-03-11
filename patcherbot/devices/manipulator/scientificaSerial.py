@@ -36,6 +36,7 @@ class SerialCommands():
     SET_BAUD = 'BAUD {}\r'
 
     STOP = 'STOP\r'
+    SET_OBJECTIVE = 'OBJ {}\r'
 
 
 _number_re = re.compile(r'-?\d+')
@@ -174,7 +175,8 @@ class ScientificaSerialEncoder(Manipulator):
                  max_speed=None,
                  max_accel=None,
                  polling_freq=None,
-                 stageUnitsPerEncoderPulse=None):
+                 stageUnitsPerEncoderPulse=None,
+                 objective_lift_um=None):
         self.comPort : serial.Serial = comPort
 
         self.zAxisComPort : serial.Serial = zAxisComPort
@@ -190,12 +192,14 @@ class ScientificaSerialEncoder(Manipulator):
         self._lock = threading.Lock()
         self._supports_stage_z_profile = None
         self.current_pos = [0, 0, 0]
+        self._current_objective = 1
         self._polling_freq = self.DEFAULT_POLLING_FREQ if polling_freq is None else polling_freq
 
         # self.info(f"Baud Rate: {self.get_baud_rate()}")
 
         self.set_max_accel(self.DEFAULT_MAX_ACCEL if max_accel is None else max_accel)
         self.set_max_speed(self.DEFAULT_MAX_SPEED if max_speed is None else max_speed)
+        self.objective_lift_um = 10000.0 if objective_lift_um is None else float(objective_lift_um)
 
         self._encoder_acq = EncoderCorrectionAcquisitionThread(
             parent=self,
@@ -310,6 +314,7 @@ class ScientificaSerialEncoder(Manipulator):
         self._encoder_acq.run_loop(freq=freq)
 
     def absolute_move(self, pos, axis):
+        print(f'[OBJDBG] {self.__class__.__name__}.absolute_move axis={axis} pos_um={pos}')
 
         if axis == 1:
             yPos = self.position(axis=2)
@@ -421,16 +426,52 @@ class ScientificaSerialEncoder(Manipulator):
     def stop(self):
         self._sendCmd(SerialCommands.STOP)
 
+    def get_current_objective(self):
+        return self._current_objective
+
+    def switch_objective(self, target):
+        try:
+            target = int(target)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'Invalid objective target: {target}') from exc
+
+        if target not in (1, 2):
+            raise ValueError(f'Objective target must be 1 or 2, got {target}')
+
+        print(f'[OBJDBG] {self.__class__.__name__}.switch_objective target={target}')
+        try:
+            print(f'[OBJDBG] {self.__class__.__name__}.pre-OBJ stage_pos={self.position()}')
+        except Exception as exc:
+            print(f'[OBJDBG] {self.__class__.__name__}.pre-OBJ stage_pos read failed: {exc}')
+        resp = self._sendCmd(SerialCommands.SET_OBJECTIVE.format(target))
+        resp_text = str(resp).strip()
+        print(f'[OBJDBG] {self.__class__.__name__}.switch_objective response={resp_text}')
+        if resp_text != 'A':
+            if resp_text.startswith('E,'):
+                raise RuntimeError(f'Scientifica OBJ {target} failed: {resp_text}')
+            raise RuntimeError(
+                f'Scientifica OBJ {target} returned unexpected response: {resp_text or "<empty>"}'
+            )
+        self.wait_until_still()
+        try:
+            print(f'[OBJDBG] {self.__class__.__name__}.post-OBJ stage_pos={self.position()}')
+        except Exception as exc:
+            print(f'[OBJDBG] {self.__class__.__name__}.post-OBJ stage_pos read failed: {exc}')
+        self._current_objective = target
+        print(f'[OBJDBG] {self.__class__.__name__}.switch_objective done current={self._current_objective}')
+
 class ScientificaSerialNoEncoder(Manipulator):
 
-    def __init__(self, comPort: serial.Serial):
+    def __init__(self, comPort: serial.Serial, objective_lift_um=None):
         self.comPort : serial.Serial = comPort
         self._lock = threading.Lock()
         self._supports_stage_z_profile = None
         self.current_pos = [0, 0, 0]
+        self._current_objective = 1
 
         self.set_max_accel(1000)
         self.set_max_speed(100000)
+        self.objective_lift_um = 10000.0 if objective_lift_um is None else float(objective_lift_um)
 
         #start constantly polling position in a new thread
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
@@ -557,6 +598,7 @@ class ScientificaSerialNoEncoder(Manipulator):
                 time.sleep(sleepTime)
 
     def absolute_move(self, pos, axis, speed=None):
+        print(f'[OBJDBG] {self.__class__.__name__}.absolute_move axis={axis} pos_um={pos}')
         '''Moves the device to an absolute position in um.
         '''
         # print(f"absolute move {pos} {axis}")
@@ -662,4 +704,36 @@ class ScientificaSerialNoEncoder(Manipulator):
     def stop(self):
         self._sendCmd(SerialCommands.STOP)
 
+    def get_current_objective(self):
+        return self._current_objective
 
+    def switch_objective(self, target):
+        try:
+            target = int(target)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'Invalid objective target: {target}') from exc
+
+        if target not in (1, 2):
+            raise ValueError(f'Objective target must be 1 or 2, got {target}')
+
+        print(f'[OBJDBG] {self.__class__.__name__}.switch_objective target={target}')
+        try:
+            print(f'[OBJDBG] {self.__class__.__name__}.pre-OBJ stage_pos={self.position()}')
+        except Exception as exc:
+            print(f'[OBJDBG] {self.__class__.__name__}.pre-OBJ stage_pos read failed: {exc}')
+        resp = self._sendCmd(SerialCommands.SET_OBJECTIVE.format(target))
+        resp_text = str(resp).strip()
+        print(f'[OBJDBG] {self.__class__.__name__}.switch_objective response={resp_text}')
+        if resp_text != 'A':
+            if resp_text.startswith('E,'):
+                raise RuntimeError(f'Scientifica OBJ {target} failed: {resp_text}')
+            raise RuntimeError(
+                f'Scientifica OBJ {target} returned unexpected response: {resp_text or "<empty>"}'
+            )
+        self.wait_until_still()
+        try:
+            print(f'[OBJDBG] {self.__class__.__name__}.post-OBJ stage_pos={self.position()}')
+        except Exception as exc:
+            print(f'[OBJDBG] {self.__class__.__name__}.post-OBJ stage_pos read failed: {exc}')
+        self._current_objective = target
+        print(f'[OBJDBG] {self.__class__.__name__}.switch_objective done current={self._current_objective}')

@@ -179,6 +179,19 @@ class Manipulator(TaskController):
                 current_position = self.position_group(axes)
             self.sleep(0.1)  # 100 ms
             
+
+    def get_current_objective(self):
+        """
+        Return the currently selected objective, or ``None`` if unavailable.
+        """
+        return None
+
+    def switch_objective(self, target):
+        """
+        Switch to the requested objective.
+        """
+        raise RuntimeError("Objective switching is not supported for this device.")
+
     def get_max_speed(self):
         ''' returns the max speed of the device, (if possible)
         '''
