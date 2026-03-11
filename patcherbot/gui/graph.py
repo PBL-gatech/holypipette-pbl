@@ -349,6 +349,8 @@ class OptogeneticBaseGraph(ProtocolGraph):
             ephys_filename="OptogeneticProtocol",
         )
         self.protocol_key = protocol_key
+        self._last_logged_index = None
+        self._last_logged_count = 0
 
     def update_plot(self):
         daq = self.graph_interface.daq
@@ -357,6 +359,9 @@ class OptogeneticBaseGraph(ProtocolGraph):
             return
 
         index = self.recording_state_manager.sample_number
+        if self._last_logged_index != index:
+            self._last_logged_index = index
+            self._last_logged_count = 0
 
         if self.isHidden():
             self.setHidden(False)
@@ -410,6 +415,7 @@ class OptogeneticBaseGraph(ProtocolGraph):
             segment = 1.0 / max(len(power_keys), 1)
 
         color_map = EPhysGraph.laserColorMap
+        first_new_idx = min(max(self._last_logged_count, 0), len(data))
         for idx, trace in enumerate(data):
             if trace is None or len(trace) < 3:
                 continue
@@ -470,19 +476,24 @@ class OptogeneticBaseGraph(ProtocolGraph):
             safe_label = str(color_label).strip().lower().replace(" ", "")
             rep_tag = f"rep{rep_index}"
             marker = f"{protocol_label}_{safe_label}_{rep_tag}_{color_hex}"
-            self.ephys_logger.write_ephys_data(
-                index,
-                timeData,
-                readData,
-                respData,
-                marker
-            )
+            if idx >= first_new_idx:
+                self.ephys_logger.write_ephys_data(
+                    index,
+                    timeData,
+                    readData,
+                    respData,
+                    marker
+                )
 
-            if idx == pulse_range - 1:
+            if entry.get("is_final") and idx == pulse_range - 1:
                 self.ephys_logger.save_optogenetic_plot(index, self.plotWidget, protocol_type)
 
-        if stim_data:
+        if entry.get("is_final") and stim_data:
             self.ephys_logger.write_optogenetic_stim_data(index, stim_data, protocol_type)
+            self._last_logged_count = 0
+            self._last_logged_index = None
+        else:
+            self._last_logged_count = max(self._last_logged_count, len(data))
 
         self.latestDisplayedData = entry
         daq.optogenetic_protocol_data = None

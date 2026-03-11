@@ -707,10 +707,10 @@ class ClassicPatchButtons(ButtonTabWidget):
         # self.pipette_location = [self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
         # self.pipette_location = [self.patch_interface.find_pipette]
         # add a box for testing controllability of the pipette and stage
-        # buttonList = [['Follow Stage','Move Pipette Random','Find Pipette']]
-        # cmds = [[self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
-        #         ]
-        # self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
+        buttonList = [['Follow Stage','Move Pipette Random','Find Pipette']]
+        cmds = [[self.pipette_interface.follow_stage, self.pipette_interface.move_pipette_random,self.patch_interface.find_pipette]
+                ]
+        self.addButtonList('testing', layout, buttonList, cmds,sequential=True)
 
         # Add a box for light controls
         buttonList = [['toggle Light', 'toggle fluorescense'],

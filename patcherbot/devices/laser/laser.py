@@ -125,8 +125,6 @@ class Laser(TaskController):
         raw_stabilize_time = float(stabilize_time)
         # Laser is on for raw_on_time; recording window is 3x longer.
         record_time = raw_on_time * 3.0
-        adjusted_off_time = raw_off_time - record_time
-        adjusted_stabilize_time = raw_stabilize_time - record_time
 
         fixed_wavelength = wavelengths[0]
         fixed_power = powers[0]
@@ -141,9 +139,9 @@ class Laser(TaskController):
         self.info(f"Optogenetic protocol {target} sequence: {expanded}")
 
         steps = []
-        if adjusted_stabilize_time > 0:
+        if raw_stabilize_time > 0:
             steps.append({
-                "duration_s": float(adjusted_stabilize_time),
+                "duration_s": float(raw_stabilize_time),
                 "state": "off",
                 "wavelength": "off",
                 "power_percent": 0.0,
@@ -176,7 +174,7 @@ class Laser(TaskController):
             })
 
             if raw_off_time > 0 and idx < (total_count - 1):
-                off_duration = adjusted_off_time
+                off_duration = raw_off_time
                 if off_duration > 0:
                     steps.append({
                         "duration_s": float(off_duration),

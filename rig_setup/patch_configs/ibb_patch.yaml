@@ -20,7 +20,7 @@ measurement_speed: 0.2
 seal_min_time: 15
 seal_deadline: 150
 pressure_ramp_increment: -5
-pressure_ramp_max: -30
+pressure_ramp_max: -45.0
 zap: false
 pulse_pressure_break_in: -345
 pulse_pressure_duration: 1
