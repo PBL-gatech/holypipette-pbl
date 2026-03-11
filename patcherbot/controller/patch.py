@@ -557,6 +557,8 @@ class AutoPatcher(TaskController):
         holding = float(self.protocol_config.vclamp_hold)
         self.amplifier.set_holding(holding)
         self.info(f'holding at {holding} mV')
+        self.amplifier.switch_holding(True)
+        self.info('enabled holding')
         self.sleep(0.25)
 
         results = []

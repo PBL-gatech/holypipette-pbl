@@ -24,7 +24,7 @@ class SensapexManip(Manipulator):
     DEFAULT_MAX_ACCELERATION = 1
 
     def __init__(self, deviceID=None, ump: UMP = None, poll_hz: float = 100.0,
-                 max_speed=None, max_acceleration=None, tilt_angle_deg=-25.7):
+                 max_speed=None, max_acceleration=None, tilt_angle_deg=-24.7):
         Manipulator.__init__(self)
 
         # UMP connection and device selection

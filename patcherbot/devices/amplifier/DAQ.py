@@ -71,7 +71,9 @@ class DAQAcquisitionThread(threading.Thread):
 
         while self.running:
             # ---------- wait until resumed ---------------------------------
+            self._idle_evt.set()
             self._pause_evt.wait()
+            self._idle_evt.clear()
             if not self.running:
                 break
 
@@ -146,6 +148,8 @@ class DAQAcquisitionThread(threading.Thread):
     def stop(self):
         """Stop the acquisition thread."""
         self.running = False
+        # Ensure a paused thread wakes up so join() cannot hang.
+        self._pause_evt.set()
 
 class DAQ(TaskController):
     """
@@ -544,6 +548,37 @@ class DAQ(TaskController):
             self._wave_samples = wave.size
 
         return wave, rate, wave.size
+
+    def createSquareWaveOpto(
+        self,
+        wave_freq,
+        samplesPerSec,
+        dutyCycle,
+        recordingTime,
+        *,
+        store: bool = False,
+    ):
+        """
+        Build the optogenetic AO train buffer.
+
+        The AO command remains at 0 V for the full train; light timing is
+        controlled by the laser software schedule.
+        """
+        wave, rate, numSamples = self.createSquareWaveVoltage(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=0.0,
+            recordingTime=recordingTime,
+            store=False,
+        )
+
+        if store:
+            self.wave = wave
+            self._wave_rate = rate
+            self._wave_samples = numSamples
+
+        return wave, rate, numSamples
 
     def createSquareWaveCurrent(self,
                                 wave_freq,          # test-pulse frequency (Hz)
@@ -1052,25 +1087,6 @@ class NiDAQ(DAQ):
         self.ao_task.start()
         self.ai_task.start()
 
-    def _build_optogenetic_timeline(self, protocol_steps: list[dict]):
-        stim_timeline: list[dict] = []
-        cursor = 0.0
-        for step in protocol_steps:
-            duration = float(step.get("duration_s", 0.0))
-            if duration <= 0:
-                continue
-            entry = dict(step)
-            entry["start_s"] = cursor
-            cursor += duration
-            entry["end_s"] = cursor
-            stim_timeline.append(entry)
-
-        if not stim_timeline:
-            raise ValueError("protocol_steps must contain positive durations")
-
-        protocol_type = stim_timeline[0].get("protocol_type")
-        return stim_timeline, cursor, protocol_type
-
     def _wait_until(self, deadline_s: float, *, tight_timing: bool = True) -> None:
         """
         Sleep until deadline_s; optionally spin for the last few ms to reduce jitter.
@@ -1085,28 +1101,34 @@ class NiDAQ(DAQ):
             while time.perf_counter() < deadline_s:
                 pass
 
-    def _run_optogenetic_timeline(
-        self,
-        laser,
-        stim_timeline: list[dict],
-        *,
-        t0: float | None = None,
-        tight_timing: bool = True,
-    ) -> list[dict]:
-        if laser is None:
-            raise ValueError("laser is required")
-        if t0 is None:
-            t0 = time.perf_counter()
-        actual = []
-        for step in stim_timeline:
-            start_s = float(step.get("start_s", 0.0))
-            end_s = float(step.get("end_s", start_s))
-            if end_s <= start_s:
+    def _buildOptogeneticTrainPlan(self, protocol_steps: list[dict]):
+        """
+        Construct fixed-length optogenetic train metadata.
+
+        This performs the full step normalization and expansion in one method:
+        1) normalize protocol steps and build absolute protocol timeline
+        2) derive and validate train duration from active (on) steps
+        3) validate consistent inter-stim off-time
+        4) expand each protocol step into train-sized segments
+        5) precompute laser timing/color/power lists used at runtime
+        """
+        # ------------------------------------------------------------------
+        # 1) Normalize incoming steps and build base protocol timeline.
+        # ------------------------------------------------------------------
+        base_steps: list[dict] = []
+        cursor_s = 0.0
+        protocol_type = None
+
+        for raw_step in protocol_steps:
+            duration_s = float(raw_step.get("duration_s", 0.0))
+            if duration_s <= 0:
                 continue
-            self._wait_until(t0 + start_s, tight_timing=tight_timing)
-            state = step.get("state", "on")
-            wavelength = step.get("wavelength")
-            power_percent = step.get("power_percent")
+
+            state = str(raw_step.get("state", "on")).strip().lower()
+            wavelength = raw_step.get("wavelength")
+            power_percent = raw_step.get("power_percent")
+
+            # Treat OFF wavelength entries as off-state regardless of requested state.
             if state == "on":
                 if isinstance(wavelength, str) and wavelength.strip().lower() == "off":
                     state = "off"
@@ -1114,50 +1136,188 @@ class NiDAQ(DAQ):
                     name = getattr(wavelength, "name", None)
                     if isinstance(name, str) and name.upper() == "OFF":
                         state = "off"
-            step_start = time.perf_counter() - t0
-            if state == "on":
-                if wavelength is not None:
-                    laser.set_wavelength(wavelength)
-                if power_percent is not None:
-                    laser.set_power_level(power_percent, wavelength)
-                laser.power_on()
-            else:
-                laser.power_off()
-            self._wait_until(t0 + end_s, tight_timing=tight_timing)
-            step_end = time.perf_counter() - t0
 
-            entry = dict(step)
-            entry["state"] = state
+            if state not in ("on", "off"):
+                state = "off"
+
+            step = dict(raw_step)
+            step["duration_s"] = duration_s
+            step["state"] = state
+            step["wavelength"] = wavelength
             if power_percent is not None:
-                entry["power_percent"] = power_percent
-            entry["start_s"] = step_start
-            entry["end_s"] = step_end
-            actual.append(entry)
-        return actual
+                step["power_percent"] = power_percent
+            step["start_s"] = cursor_s
+            cursor_s += duration_s
+            step["end_s"] = cursor_s
+            base_steps.append(step)
 
-    def _setup_optogenetic_ai_task(self, rate_hz: int, num_samples: int):
-        ai = nidaqmx.Task()
-        ai.ai_channels.add_ai_voltage_chan(
-            f"{self.readDev}/{self.readChannel}",
-            terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF,
-            min_val=-10.0, max_val=10.0)
-        ai.ai_channels.add_ai_voltage_chan(
-            f"{self.respDev}/{self.respChannel}",
-            terminal_config=nidaqmx.constants.TerminalConfiguration.DIFF,
-            min_val=-10.0, max_val=10.0)
-        ai.timing.cfg_samp_clk_timing(
-            rate=rate_hz,
-            sample_mode=nidaqmx.constants.AcquisitionType.FINITE,
-            samps_per_chan=num_samples)
-        return ai
+            if protocol_type is None:
+                protocol_type = step.get("protocol_type")
 
-    def _read_optogenetic_ai(self, ai_task, num_samples: int, duration_s: float):
-        raw = ai_task.read(
-            number_of_samples_per_channel=num_samples,
-            timeout=duration_s + 2.0)
-        ai_task.stop()
-        ai_task.close()
-        return np.asarray(raw, dtype=float)
+        if not base_steps:
+            raise ValueError("protocol_steps must contain positive durations")
+
+        # ------------------------------------------------------------------
+        # 2) Derive train duration from active steps and validate.
+        # ------------------------------------------------------------------
+        on_steps = [step for step in base_steps if step.get("state") == "on"]
+        train_duration_s = float(on_steps[0]["duration_s"] if on_steps else base_steps[0]["duration_s"])
+        if train_duration_s <= 0:
+            raise ValueError("train duration must be positive")
+
+        tol = max(1e-9, train_duration_s * 1e-6)
+        for step in on_steps:
+            if abs(float(step["duration_s"]) - train_duration_s) > tol:
+                raise ValueError(
+                    "All optogenetic 'on' steps must share the same duration for train acquisition."
+                )
+
+        # ------------------------------------------------------------------
+        # 3) Validate non-stabilize off-time consistency.
+        # ------------------------------------------------------------------
+        reference_off_duration = None
+        for step in base_steps:
+            if step.get("state") != "off":
+                continue
+            try:
+                rep_idx = int(step.get("replicate", -1))
+            except (TypeError, ValueError):
+                rep_idx = -1
+            if rep_idx < 0:
+                continue
+            duration_s = float(step["duration_s"])
+            if reference_off_duration is None:
+                reference_off_duration = duration_s
+            elif abs(duration_s - reference_off_duration) > tol:
+                raise ValueError("All inter-stim optogenetic off times must be identical.")
+
+        # ------------------------------------------------------------------
+        # 4) Expand into execution segments and 5) build laser metadata lists.
+        # ------------------------------------------------------------------
+        train_steps: list[dict] = []
+        laser_timing_s: list[dict] = []
+        laser_colors: list = []
+        laser_power_percents: list = []
+        cursor_s = 0.0
+
+        for step in base_steps:
+            source_duration_s = float(step["duration_s"])
+            segment_durations: list[float] = []
+
+            if step.get("state") == "on":
+                if abs(source_duration_s - train_duration_s) > tol:
+                    raise ValueError(
+                        "Each optogenetic 'on' step duration must match the optogenetic train duration."
+                    )
+                segment_durations = [train_duration_s]
+            else:
+                remaining_s = source_duration_s
+                while remaining_s > tol:
+                    chunk_s = min(train_duration_s, remaining_s)
+                    if remaining_s - chunk_s <= tol:
+                        chunk_s = remaining_s
+                    segment_durations.append(float(chunk_s))
+                    remaining_s -= chunk_s
+                if not segment_durations:
+                    segment_durations = [source_duration_s]
+
+            for segment_index, segment_duration_s in enumerate(segment_durations):
+                seg = dict(step)
+                seg["source_duration_s"] = source_duration_s
+                seg["duration_s"] = segment_duration_s
+                seg["segment_index"] = segment_index
+                seg["segment_count"] = len(segment_durations)
+                seg["train_index"] = len(train_steps)
+                seg["record_start_plan_s"] = cursor_s
+                seg["record_end_plan_s"] = cursor_s + segment_duration_s
+                cursor_s += segment_duration_s
+
+                if seg.get("state") == "on":
+                    laser_on_delay_s = segment_duration_s / 3.0
+                    laser_off_delay_s = 2.0 * segment_duration_s / 3.0
+                    seg["laser_enabled"] = True
+                    seg["laser_on_delay_s"] = laser_on_delay_s
+                    seg["laser_off_delay_s"] = laser_off_delay_s
+                    seg["laser_on_plan_s"] = seg["record_start_plan_s"] + laser_on_delay_s
+                    seg["laser_off_plan_s"] = seg["record_start_plan_s"] + laser_off_delay_s
+                    seg["laser_on_duration_s"] = laser_off_delay_s - laser_on_delay_s
+
+                    laser_colors.append(seg.get("wavelength"))
+                    power_value = seg.get("power_percent")
+                    if power_value is not None:
+                        try:
+                            power_value = float(power_value)
+                        except (TypeError, ValueError):
+                            power_value = None
+                    laser_power_percents.append(power_value)
+                else:
+                    seg["laser_enabled"] = False
+                    seg["laser_on_delay_s"] = None
+                    seg["laser_off_delay_s"] = None
+                    seg["laser_on_plan_s"] = None
+                    seg["laser_off_plan_s"] = None
+                    seg["laser_on_duration_s"] = 0.0
+
+                    laser_colors.append("off")
+                    laser_power_percents.append(0.0)
+
+                laser_timing_s.append({
+                    "train_index": seg["train_index"],
+                    "laser_on_delay_s": seg["laser_on_delay_s"],
+                    "laser_off_delay_s": seg["laser_off_delay_s"],
+                    "laser_on_plan_s": seg["laser_on_plan_s"],
+                    "laser_off_plan_s": seg["laser_off_plan_s"],
+                })
+                train_steps.append(seg)
+
+        return {
+            "train_steps": train_steps,
+            "train_duration_s": train_duration_s,
+            "protocol_type": protocol_type,
+            "laser_timing_s": laser_timing_s,
+            "laser_colors": laser_colors,
+            "laser_power_percents": laser_power_percents,
+        }
+
+    def _setupAcquisitionOpto(self, *, rate_hz: int, train_duration_s: float, buffer_trains: int):
+        """
+        Configure optogenetic acquisition using the proven voltage setup path.
+        AO command stays at 0 V; light provides stimulation.
+        """
+        samplesPerSec = int(rate_hz)
+        dutyCycle = 0.5
+        recordingTime = float(train_duration_s)
+        wave_freq = max(1e-6, 1.0 / recordingTime)
+        exp_samples = int(samplesPerSec * recordingTime)
+
+        self._setupAcquisitionVoltage(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            recordingTime=recordingTime,
+            exp_samples=exp_samples,
+            buffer_trains=max(int(buffer_trains), 4),
+        )
+
+        return {
+            "wave_freq": wave_freq,
+            "samplesPerSec": samplesPerSec,
+            "dutyCycle": dutyCycle,
+            "recordingTime": recordingTime,
+            "exp_samples": exp_samples,
+        }
+
+    def _sendSquareWaveOpto(self, wave_freq, samplesPerSec, dutyCycle, recordingTime):
+        """
+        Queue the next optogenetic train using voltage send path at zero amplitude.
+        """
+        self._sendSquareWaveVoltage(
+            wave_freq=wave_freq,
+            samplesPerSec=samplesPerSec,
+            dutyCycle=dutyCycle,
+            amplitude=0.0,
+            recordingTime=recordingTime,
+        )
 
     def _setupAcquisitionVoltage(self,
                                  *,
@@ -1873,10 +2033,57 @@ class NiDAQ(DAQ):
         if protocol_steps is None or len(protocol_steps) == 0:
             raise ValueError("protocol_steps must contain at least one step")
 
-        stim_timeline, _, protocol_type = self._build_optogenetic_timeline(protocol_steps)
+        plan = self._buildOptogeneticTrainPlan(protocol_steps)
+        train_steps = plan["train_steps"]
+        train_duration_s = float(plan["train_duration_s"])
+        protocol_type = plan["protocol_type"]
+        laser_timing_s = plan["laser_timing_s"]
+        laser_colors = plan["laser_colors"]
+        laser_power_percents = plan["laser_power_percents"]
+        if not train_steps:
+            raise ValueError("protocol_steps must contain positive durations")
+
+        plan_preview = []
+        for step in train_steps:
+            wavelength = step.get("wavelength")
+            if isinstance(wavelength, str):
+                wavelength_label = wavelength.strip().lower() or "unknown"
+            elif wavelength is None:
+                wavelength_label = "off" if step.get("state") == "off" else "unknown"
+            else:
+                wavelength_label = getattr(wavelength, "name", str(wavelength))
+                if isinstance(wavelength_label, str):
+                    wavelength_label = wavelength_label.strip().lower() or "unknown"
+
+            power_percent = step.get("power_percent")
+            if power_percent is None:
+                power_percent = 0.0 if step.get("state") == "off" else None
+            else:
+                try:
+                    power_percent = float(power_percent)
+                except (TypeError, ValueError):
+                    power_percent = None
+
+            plan_preview.append({
+                "train_index": int(step.get("train_index", 0)),
+                "state": step.get("state", "off"),
+                "wavelength": wavelength_label,
+                "power_percent": power_percent,
+                "record_start_plan_s": float(step.get("record_start_plan_s", 0.0)),
+                "record_end_plan_s": float(step.get("record_end_plan_s", 0.0)),
+                "laser_on_plan_s": (
+                    None if step.get("laser_on_plan_s") is None else float(step.get("laser_on_plan_s"))
+                ),
+                "laser_off_plan_s": (
+                    None if step.get("laser_off_plan_s") is None else float(step.get("laser_off_plan_s"))
+                ),
+            })
+
+        self.info(
+            f"Optogenetic train plan ({len(plan_preview)} trains): {plan_preview}"
+        )
 
         self.pause_acquisition()
-        ai = None
         actual_timeline = []
 
         try:
@@ -1884,71 +2091,127 @@ class NiDAQ(DAQ):
                 laser.power_off()
             except Exception:
                 pass
+            for task_name in ("ai_task", "ao_task"):
+                task = getattr(self, task_name, None)
+                if task is not None:
+                    try:
+                        task.stop()
+                    except Exception:
+                        pass
+                    try:
+                        task.close()
+                    except Exception:
+                        pass
+
+            setup = self._setupAcquisitionOpto(
+                rate_hz=int(rate_hz),
+                train_duration_s=train_duration_s,
+                buffer_trains=max(len(train_steps) + 2, 4),
+            )
+            samples_per_sec = int(setup["samplesPerSec"])
+            duty_cycle = float(setup["dutyCycle"])
+            prime_exp_samples = int(setup["exp_samples"])
+            prime_recording_time = float(setup["recordingTime"])
+            prime_read_timeout = max(2.0, prime_recording_time + 2.0)
+
+            # Prime queue and discard first train while laser stays dark.
+            first_duration_s = float(train_steps[0].get("duration_s", train_duration_s))
+            first_wave_freq = max(1e-6, 1.0 / first_duration_s)
+            self._sendSquareWaveOpto(
+                wave_freq=first_wave_freq,
+                samplesPerSec=samples_per_sec,
+                dutyCycle=duty_cycle,
+                recordingTime=first_duration_s,
+            )
+            try:
+                laser.power_off()
+            except Exception:
+                pass
+            while self.ai_task.in_stream.avail_samp_per_chan < prime_exp_samples:
+                self.sleep(0.002)
+            _ = self.ai_task.read(prime_exp_samples, timeout=prime_read_timeout)
+            try:
+                laser.power_off()
+            except Exception:
+                pass
+
             t0 = time.perf_counter()
             aligned_traces: list[list[np.ndarray]] = []
             aligned_pulses: list[dict] = []
+            protocol_key = self._normalize_optogenetic_protocol_key(protocol_type)
+            stim_on_timeline: list[dict] = []
 
-            for step in stim_timeline:
-                duration_s = float(step.get("duration_s", 0.0))
-                if duration_s <= 0:
-                    continue
+            for idx, step in enumerate(train_steps):
+                segment_duration_s = float(step.get("duration_s", train_duration_s))
+                segment_samples = max(1, int(samples_per_sec * segment_duration_s))
+                segment_timeout = max(2.0, segment_duration_s + 2.0)
+                if idx + 1 < len(train_steps):
+                    next_duration_s = float(train_steps[idx + 1].get("duration_s", train_duration_s))
+                    next_wave_freq = max(1e-6, 1.0 / next_duration_s)
+                    self._sendSquareWaveOpto(
+                        wave_freq=next_wave_freq,
+                        samplesPerSec=samples_per_sec,
+                        dutyCycle=duty_cycle,
+                        recordingTime=next_duration_s,
+                    )
 
-                planned_start = float(step.get("start_s", 0.0))
-                planned_end = float(step.get("end_s", planned_start + duration_s))
-                self._wait_until(t0 + planned_start, tight_timing=True)
+                timing = laser_timing_s[idx]
+                wavelength = laser_colors[idx]
+                power_percent = laser_power_percents[idx]
+                state = step.get("state", "off")
+                laser_enabled = bool(step.get("laser_enabled"))
+                stim_start_s = None
+                stim_end_s = None
+                train_start_clock = time.perf_counter()
+                record_start_s = train_start_clock - t0
 
-                state = step.get("state", "on")
-                wavelength = step.get("wavelength")
-                power_percent = step.get("power_percent")
-                if state == "on":
-                    if isinstance(wavelength, str) and wavelength.strip().lower() == "off":
-                        state = "off"
-                    else:
-                        name = getattr(wavelength, "name", None)
-                        if isinstance(name, str) and name.upper() == "OFF":
-                            state = "off"
-
-                step_start = time.perf_counter() - t0
-                if state == "on":
+                if laser_enabled:
+                    laser_on_delay_s = timing.get("laser_on_delay_s")
+                    laser_off_delay_s = timing.get("laser_off_delay_s")
                     if wavelength is not None:
                         laser.set_wavelength(wavelength)
                     if power_percent is not None:
                         laser.set_power_level(power_percent, wavelength)
-                    try:
-                        laser.power_off()
-                    except Exception:
-                        pass
-
-                    num_samples = int(rate_hz * duration_s)
-                    if num_samples <= 0:
-                        laser.power_off()
-                        continue
-
-                    ai = self._setup_optogenetic_ai_task(rate_hz, num_samples)
-                    ai.start()
-
-                    # Laser on from 1/3 to 2/3 of the recording window.
-                    record_start = time.perf_counter()
-                    laser_on_at = record_start + (duration_s / 3.0)
-                    laser_off_at = record_start + (2.0 * duration_s / 3.0)
-
-                    self._wait_until(laser_on_at, tight_timing=True)
+                    if laser_on_delay_s is not None:
+                        self._wait_until(train_start_clock + float(laser_on_delay_s), tight_timing=True)
                     try:
                         laser.power_on()
-                    except Exception:
-                        pass
-                    self._wait_until(laser_off_at, tight_timing=True)
+                    except Exception as exc:
+                        raise RuntimeError("Failed to turn laser on during optogenetic train.") from exc
+                    stim_start_s = time.perf_counter() - t0
+                    if laser_off_delay_s is not None:
+                        self._wait_until(train_start_clock + float(laser_off_delay_s), tight_timing=True)
+                    try:
+                        laser.power_off()
+                    except Exception as exc:
+                        raise RuntimeError("Failed to turn laser off during optogenetic train.") from exc
+                    stim_end_s = time.perf_counter() - t0
+                else:
                     try:
                         laser.power_off()
                     except Exception:
                         pass
 
-                    raw = self._read_optogenetic_ai(ai, num_samples, duration_s)
-                    ai = None
+                while self.ai_task.in_stream.avail_samp_per_chan < segment_samples:
+                    self.sleep(0.002)
+                raw = np.asarray(
+                    self.ai_task.read(
+                        segment_samples,
+                        timeout=segment_timeout,
+                    ),
+                    dtype=float,
+                )
+                record_end_s = time.perf_counter() - t0
+                if laser_enabled:
+                    if stim_start_s is None or stim_end_s is None:
+                        raise RuntimeError(
+                            "Exact laser on/off timestamps are unavailable; "
+                            "aborting to avoid synthetic stimulation timing."
+                        )
 
                     resp = raw[1] * self.V_CLAMP_VOLT_PER_AMP
                     read = raw[0] * self.V_CLAMP_VOLT_PER_VOLT
-                    t = np.linspace(0, duration_s, num_samples, dtype=float)
+                    t = np.linspace(0, segment_duration_s, segment_samples, dtype=float)
 
                     aligned_traces.append([t, resp, read])
                     aligned_pulses.append({
@@ -1961,24 +2224,37 @@ class NiDAQ(DAQ):
                         laser.power_off()
                     except Exception:
                         pass
-                else:
-                    try:
-                        laser.power_off()
-                    except Exception:
-                        pass
-
-                self._wait_until(t0 + planned_end, tight_timing=True)
-                step_end = time.perf_counter() - t0
 
                 entry = dict(step)
                 entry["state"] = state
-                if power_percent is not None:
-                    entry["power_percent"] = power_percent
-                entry["start_s"] = step_start
-                entry["end_s"] = step_end
+                entry["wavelength"] = wavelength
+                entry["power_percent"] = power_percent
+                entry["record_start_s"] = record_start_s
+                entry["record_end_s"] = record_end_s
+                if laser_enabled and stim_start_s is not None and stim_end_s is not None:
+                    entry["start_s"] = stim_start_s
+                    entry["end_s"] = stim_end_s
+                else:
+                    entry["start_s"] = record_start_s
+                    entry["end_s"] = record_end_s
                 actual_timeline.append(entry)
+                if laser_enabled and stim_start_s is not None and stim_end_s is not None:
+                    stim_on_timeline.append(entry)
 
-            stim_used = actual_timeline or stim_timeline
+                if laser_enabled:
+                    partial_entry = {
+                        "data": list(aligned_traces),
+                        "pulses": list(aligned_pulses),
+                        "pulse_range": len(aligned_pulses),
+                        "stim_data": None,
+                        "protocol_type": protocol_type,
+                        "protocol_key": protocol_key,
+                        "is_final": False,
+                    }
+                    with self._optogenetic_queue_lock:
+                        self.optogenetic_protocol_queue.append(partial_entry)
+
+            stim_used = stim_on_timeline
             if not aligned_traces:
                 aligned_traces = []
                 aligned_pulses = []
@@ -1991,7 +2267,6 @@ class NiDAQ(DAQ):
             self.optogenetic_pulses = aligned_pulses
             self.optogenetic_pulseRange = len(aligned_pulses)
 
-            protocol_key = self._normalize_optogenetic_protocol_key(protocol_type)
             entry = {
                 "data": aligned_traces,
                 "pulses": aligned_pulses,
@@ -1999,6 +2274,7 @@ class NiDAQ(DAQ):
                 "stim_data": stim_used,
                 "protocol_type": protocol_type,
                 "protocol_key": protocol_key,
+                "is_final": True,
             }
             with self._optogenetic_queue_lock:
                 self.optogenetic_protocol_queue.append(entry)
@@ -2010,8 +2286,17 @@ class NiDAQ(DAQ):
             except Exception:
                 pass
             try:
-                if ai is not None:
-                    ai.stop(); ai.close()
+                for task_name in ("ai_task", "ao_task"):
+                    task = getattr(self, task_name, None)
+                    if task is not None:
+                        try:
+                            task.stop()
+                        except Exception:
+                            pass
+                        try:
+                            task.close()
+                        except Exception:
+                            pass
             except Exception:
                 pass
             self.resume_acquisition()
