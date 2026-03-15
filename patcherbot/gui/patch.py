@@ -709,15 +709,18 @@ class ClassicPatchButtons(ButtonTabWidget):
             ['Move to Safe Position','Move to Home Position'],
             ['Move to cell plane','Focus Stage'],
             ['Store corners', 'Start Scan'],
+            ['Move group up', 'Move group down'],
             ['Center Pipette','Clean pipette','Focus Pipette'],
         ]
         cmds = [
             [self.patch_interface.move_to_safe_space, self.patch_interface.move_to_home_space],
+
             [self.pipette_interface.go_to_floor,self.pipette_interface.focus_stage],
             [
                 self.patch_interface.start_selecting_corners,
                 [[self.patch_interface.move_to_scan_start, self.start_recording, self.patch_interface.start_scan, self.stop_recording]],
             ],
+            [self.patch_interface.move_group_up, self.patch_interface.move_group_down],
             [self.pipette_interface.center_pipette,self.patch_interface.clean_pipette,self.pipette_interface.focus_pipette]
         ]
         self.addButtonList('movement', layout, buttonList, cmds, sequential=True)

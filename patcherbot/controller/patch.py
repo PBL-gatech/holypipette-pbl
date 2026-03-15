@@ -773,7 +773,6 @@ class AutoPatcher(TaskController):
         '''
         Performs regional pipette localization to bring pipette above the cell.
         '''
-         # regional pipette localization: 
         # move stage and pipette to safe space
         self.info("Moving to safe space")
         self.move_to_safe_space()
@@ -784,9 +783,7 @@ class AutoPatcher(TaskController):
         self.move_to_home_space()
         # center pipette on cell xy 
         self.info("Centering pipette")
-        self.calibrated_unit.center_pipette()
-        self.calibrated_unit.wait_until_still()
-        self.calibrated_unit.center_pipette()
+        self.fine_calibrate_pipette()
         
         # move to cell_distance above cell.
         cell_pos, cell_img,pos = cell
@@ -810,10 +807,16 @@ class AutoPatcher(TaskController):
         disp[1] = stage_pos[1] - self.home_stage_position[1]
         disp[2] = 0
         # print(f"Disp: {disp}")
+        # center pipette on cell xy 
         pipette_disp = self.calibrated_unit.rotate(disp,2)
         self.calibrated_unit.relative_move(pipette_disp)
         self.calibrated_unit.wait_until_still() 
-        # center pipette on cell xy 
+
+       
+ #drop speed to approach cell
+        self.calibrated_stage.set_max_speed(1000)
+        self.calibrated_unit.set_max_speed(1000)
+
         self.fine_calibrate_pipette()
         zdist_cell = self.home_stage_position[2] - cell_pos[2]
         self.move_group_down(-zdist_cell/2)# on real rig
@@ -833,7 +836,8 @@ class AutoPatcher(TaskController):
             self.align(cell, self.config.cell_distance,self.config.use_centroid)
 
         
-
+        self.calibrated_stage.set_max_speed(10000)
+        self.calibrated_unit.set_max_speed(100000)
         self.info("Located Cell")
         self.success_requested = True
         self.success_if_requested()
@@ -846,6 +850,10 @@ class AutoPatcher(TaskController):
         self.calibrated_unit.center_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.center_pipette()
+        self.calibrated_unit.wait_until_still()
+        self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
         self.calibrated_unit.autofocus_pipette()
         self.calibrated_unit.wait_until_still()
@@ -1645,12 +1653,10 @@ class AutoPatcher(TaskController):
         self.info('MOVING GROUP DOWN')
 
         try:
-            self.calibrated_unit.relative_move(dist, axis=2)
-            self.calibrated_unit.wait_until_still(2)
             self.microscope.relative_move(dist)
             self.microscope.wait_until_still()
-            # end = time.perf_counter_ns()
-            # print(f"Time taken to move down: {(end-start)/1e6} ms")
+            self.calibrated_unit.relative_move(dist, axis=2)
+            self.calibrated_unit.wait_until_still(2)
         finally:
             pass
     
@@ -1658,12 +1664,13 @@ class AutoPatcher(TaskController):
         '''
         Moves the microscope and manipulator up by input distance in the z axis
         '''
+        self.info('MOVING GROUP UP')
     
         try:
-            self.calibrated_unit.relative_move(-dist, axis=2)
-            self.calibrated_unit.wait_until_still(2)
             self.microscope.relative_move(-dist)
             self.microscope.wait_until_still()
+            self.calibrated_unit.relative_move(-dist, axis=2)
+            self.calibrated_unit.wait_until_still(2)
         finally:
             pass
 

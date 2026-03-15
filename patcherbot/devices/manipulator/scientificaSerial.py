@@ -472,28 +472,15 @@ class ScientificaSerialNoEncoder(Manipulator):
         self.set_max_accel(1000)
         self.set_max_speed(100000)
         self.objective_lift_um = 10000.0 if objective_lift_um is None else float(objective_lift_um)
+        self.info(f"Maximum Speed: {self.get_max_speed()} um/s, "f"Maximum Acceleration: {self.get_max_accel()} um/s^2")
 
         #start constantly polling position in a new thread
         self._polling_thread = threading.Thread(target=self.update_pos_continuous, daemon=True)
         self._polling_thread.start()
         self._polling_thread.deamon = True
 
-        self.info(f"Baud Rate: {self.get_baud_rate()}")
 
-    
 
-    def get_baud_rate(self):
-        '''
-        gets the baud rate of the serial port
-
-        '''
-        resp = self._sendCmd(SerialCommands.GET_BAUD)
-        return (resp)
-
-    def set_baud_rate(self, baud_rate : int):
-        '''Sets the baud rate of the serial port.  
-        '''
-        self._sendCmd(SerialCommands.SET_BAUD.format(int(baud_rate)))
 
     def _get_optional_stage_profile_value(self, command):
         if self._supports_stage_z_profile is False:
