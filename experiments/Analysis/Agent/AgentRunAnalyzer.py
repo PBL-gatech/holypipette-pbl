@@ -32,6 +32,15 @@ FILENAME_METHOD_HINTS = {
 
 @dataclass
 class MethodRecord:
+    """
+    Represents a recorded method attempt with timing and outcome metadata.
+
+    Attributes:
+        method (str): Name of the method executed.
+        start (float): Start timestamp (seconds since epoch).
+        end (float); End timestamp (seconds since epoch).
+        outcome (Optional[str]): Outcome label for the method.
+    """
     method: str
     start: float
     end: float
@@ -40,19 +49,46 @@ class MethodRecord:
 
     @property
     def duration_s(self) -> float:
+        """
+        Return the duration of the method attempt in seconds.
+
+        Returns:
+            float: Duration computed as end - start.
+        """
         return float(self.end - self.start)
 
     @property
     def start_utc(self) -> str:
+        """
+        Return the start timestamp as a UTC ISO-8601 string.
+
+        Returns:
+            str: Start time formatted in UTC.
+        """
         return datetime.fromtimestamp(self.start, tz=timezone.utc).isoformat()
 
     @property
     def end_utc(self) -> str:
+        """
+        Returns the start timestamp as a UTC ISO-8601 string.
+
+        Returns:
+            str: End time formatted in UTC.
+        """
         return datetime.fromtimestamp(self.end, tz=timezone.utc).isoformat()
 
 
 def infer_method_name_from_filename(p: Path) -> Optional[str]:
-    """Infer the method name from the filename using hints."""
+    """
+    Infer the method name from the filename using hints.
+    
+    Args:
+        p (Path): Path to the file whose name will be inspected.
+
+    Returns:
+        Optional[str]: The canonical method names if a matching hint
+            is found; otherwise None.
+    """
     name = p.name.lower()
     for hint, canonical in FILENAME_METHOD_HINTS.items():
         if hint in name:
@@ -64,6 +100,18 @@ def read_json_fields(p: Path) -> Optional[Tuple[float, float, Optional[str], Opt
     """
     Read a JSON file and return (started, finished, outcome, mode).
     If any required field is missing, None is returned.
+
+    Args:
+        p (Path): Path to the JSON file to read.
+
+    Returns:
+        Optional[Tuple[float, float, Optional[str], Optional[str]]]:
+            A tuple containing:
+            - start (float): Start timestamp.
+            - end (float): End timestamp.
+            - outcome (Optional[str]): Outcome label if present.
+            - mode (Optional[str]): Mode label if present.
+        None if file cannot be read ot required fields are missing.
     """
     try:
         with p.open("r") as f:
@@ -82,6 +130,14 @@ def choose_patch_window(records: List[MethodRecord]) -> Optional[Tuple[float, fl
     """
     Among records whose method == 'patch', choose the patch interval.
     If multiple exist, pick the widest window (max duration).
+
+    Args:
+        records (List[MethodRecord]): List of method records to search.
+    
+    Returns:
+        Optional[Tuple[float, float]]: A tuple containing the start and end timestamps
+            of the selected patch interval.
+        None if no patch records are present.
     """
     patch_records = [r for r in records if r.method == "patch"]
     if not patch_records:
@@ -94,6 +150,13 @@ def summarize_attempt(attempt_dir: Path) -> List[Dict[str, object]]:
     """
     Build rows for a single attempt directory.
     Returns a list of dict rows ready for CSV.
+
+    Args:
+        attempt_dir (Path): Directory containing JSOn files for a single attempt.
+    
+    Returns:
+        List[Dict[str, object]]: A list of row dictionaries ready for CSV output.
+        Empty list if no valid records are found.
     """
     records: List[MethodRecord] = []
 
@@ -145,6 +208,18 @@ def summarize_attempt(attempt_dir: Path) -> List[Dict[str, object]]:
 
 
 def main():
+    """
+    Aggregate method records from attempt directories and writes a summary CSV.
+
+    Scans 'PARENT_DIR' for subdirectories named with the prefix "attempt_". For
+    each attempt directory, it extracts method records using 'summarize_attempt',
+    aggregates the results, and writes them to "attempt_summary.csv" in the 
+    parent directory.
+
+    If the parent directory is invalid, no attempt directories are found, or no
+    records are extracted, the function prints a message and exits without creating
+    a CSV.
+    """
     if not PARENT_DIR.exists() or not PARENT_DIR.is_dir():
         print(f"Error: '{PARENT_DIR}' is not a directory.")
         return

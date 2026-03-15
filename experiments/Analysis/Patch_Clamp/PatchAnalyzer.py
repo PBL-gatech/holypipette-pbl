@@ -29,12 +29,29 @@ class DataLoaderThread(QThread):
     finished = pyqtSignal(dict)  # Emit a dictionary containing all loaded data
 
     def __init__(self, protocol, protocol_dir, run_groups=None):
+        """
+        Initialize the DataLoaderThread.
+
+        Args:
+            protocol (str): Name of the protocol to load. Examples: "CurrentProtocol", "VoltageProtocol", "HoldingProtocol".
+            protocol_dir (str or Path): Directory containing CSV files for this protocol.
+            run_groups (dict, optional): Only used for "CurrentProtocol". A mapping of run numbers to lists of CSV filenames.
+        """
         super().__init__()
         self.protocol = protocol
         self.protocol_dir = protocol_dir
         self.run_groups = run_groups  # Only for CurrentProtocol
 
     def run(self):
+        """
+        Main thread execution method. Loads CSV files in the background.
+
+        Emits:
+            progress (int): Percentage of files loaded (0–100) as files are processed.
+            finished (dict): Nested dictionary with structure:
+                - For CurrentProtocol: {run_number: {csv_filename: {'time': np.ndarray, 'command': np.ndarray, 'response': np.ndarray} or None}}
+                - For other protocols: {'files': {csv_filename: {'time': np.ndarray, 'command': np.ndarray, 'response': np.ndarray} or None}}
+        """
         loaded_data = {}
         try:
             if self.protocol == "CurrentProtocol" and self.run_groups:
@@ -95,8 +112,9 @@ class DataLoaderThread(QThread):
         self.finished.emit(loaded_data)
 
 class PatchAnalyzer(QMainWindow):
-
+    """Main application window for visualizing and analyzing patch-clamp data."""
     def __init__(self):
+        """Initialize the PatchAnalyzer GUI."""
         super().__init__()
         self.setWindowTitle('PatchAnalyzer')
         self.setGeometry(100, 100, 1200, 800)
@@ -280,7 +298,12 @@ class PatchAnalyzer(QMainWindow):
                 logging.error("No valid protocols found in the selected directory.")
 
     def load_protocol(self, protocol):
-        """Load all CSV data for the selected protocol."""
+        """
+        Load all CSV data for the selected protocol.
+        
+        Args:
+            protocol (tuple): Tuple containing (protocol_name, protocol_dir).
+        """
         protocol_name, protocol_dir = protocol
         self.current_protocol_name = protocol_name
         self.current_protocol_dir = protocol_dir
@@ -392,7 +415,12 @@ class PatchAnalyzer(QMainWindow):
 
 
     def plot_csv_file(self, index):
-        """Plot data for non-CurrentProtocol protocols."""
+        """
+        Plot data for non-CurrentProtocol protocols.
+
+        Args:
+            index (int): Index of the CSV file to plot.
+        """
         if not self.current_protocol_name or self.current_protocol_name == "CurrentProtocol":
             return
 
@@ -432,7 +460,12 @@ class PatchAnalyzer(QMainWindow):
         logging.info(f"Data from {csv_file} plotted successfully.")
 
     def plot_current_file(self, index):
-        """Plot data for CurrentProtocol."""
+        """
+        Plot data for CurrentProtocol.
+        
+        Args:
+            index (int): Index of the CSV file to plot.
+        """
         if self.current_protocol_name != "CurrentProtocol":
             return
 
@@ -472,7 +505,12 @@ class PatchAnalyzer(QMainWindow):
         logging.info(f"Data from {csv_file} plotted successfully.")
 
     def on_slider_value_changed(self, value):
-        """Handle the slider value change event to load a specific file."""
+        """
+        Handle the slider value change event to load a specific file.
+        
+        Args:
+            index (int): Index of the CSV file to plot within the current run.
+        """
         logging.info(f"Slider value changed: {value}")
         if self.current_protocol_name == "CurrentProtocol":
             self.plot_current_file(value)
@@ -519,7 +557,12 @@ class PatchAnalyzer(QMainWindow):
         logging.info("Toggle video button clicked.")
 
     def on_run_selected(self, run_index):
-        """Handle run selection from the dropdown."""
+        """
+        Handle run selection from the dropdown.
+        
+        Args:
+            run_index (int): Index of the selected run.
+        """
         logging.info(f"Run selected: {run_index}")
         if self.current_protocol_name == "CurrentProtocol":
             # Handle CurrentProtocol run selection
@@ -543,6 +586,7 @@ class PatchAnalyzer(QMainWindow):
 
 
 def main():
+    """Launch the PatchAnalyzer PyQt application."""
     app = QApplication(sys.argv)
     window = PatchAnalyzer()
     window.show()

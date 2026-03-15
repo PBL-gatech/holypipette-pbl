@@ -1,3 +1,34 @@
+"""
+Evaluate the timing accuracy of the EPhysGraph update method.
+
+This script analyzes rig recorder log data to measure how consistently the
+`update()` method in `EPhysGraph` (defined in graph.py) is executed. It relies
+on a debug log message ("graph updated") emitted inside the update method.
+To use this script, the following line must be enabled in `graph.py`
+(approximately line 417):
+
+    logging.debug('graph updated')
+
+The script performs the following steps:
+
+1. Loads the rig recorder `logs.csv` file.
+2. Reconstructs precise timestamps using the `Time(HH:MM:SS)` and `Time(ms)` columns.
+3. Identifies the most recent "Program Started" event and analyzes only log
+   entries after that point.
+4. Extracts all log messages containing "graph updated".
+5. Removes duplicate updates with identical timestamps.
+6. Computes the time interval (in milliseconds) between consecutive update events.
+7. Calculates a running average of the update interval to smooth fluctuations.
+8. Computes the overall average update interval.
+9. Locates the "closing GUI" event to mark when the graphical interface
+   terminates.
+10. Plots the interval sequence, running average, global average interval,
+    and the GUI closing point.
+
+The resulting visualization helps assess whether the graph update loop
+operates at a stable rate and whether performance degrades before the
+application closes.
+"""
 # This script assesses how accurate the update method in EPhysGraph is in the graph.py file. to use you need to uncomment #logging.debug('graph updated') in the update method in graph.py on approximately line 417
 import pandas as pd
 import numpy as np

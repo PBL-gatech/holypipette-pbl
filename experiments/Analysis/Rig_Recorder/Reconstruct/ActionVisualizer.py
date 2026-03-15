@@ -25,6 +25,13 @@ class ActionVisualizer(QWidget):
     """Visualize aggregated action deltas across an entire HDF5 dataset."""
 
     def __init__(self, hdf5_path):
+        """
+        Visualize aggregated action deltas stored in an HDF5 dataset.
+        
+        Args:
+            hdf5_path (str or Path): Path to the HDF5 file containing the dataset
+                with action values to visualize.
+        """
         super().__init__()
         self.hdf5_path = hdf5_path
         self.actions = None
@@ -37,6 +44,9 @@ class ActionVisualizer(QWidget):
 
     # ------------------------------------------------------------------
     def _init_ui(self):
+        """
+        Initialize and configure the graphical user interface for the action histogram viewer.
+        """
         self.setWindowTitle("Action Histogram Viewer")
         self.resize(900, 600)
 
@@ -78,6 +88,9 @@ class ActionVisualizer(QWidget):
 
     # ------------------------------------------------------------------
     def _load_dataset(self):
+        """
+        Load and aggregate action data from an HDF5 dataset.
+        """
         try:
             h5_file = h5py.File(self.hdf5_path, "r")
         except OSError as exc:
@@ -149,6 +162,9 @@ class ActionVisualizer(QWidget):
 
     # ------------------------------------------------------------------
     def update_histogram(self):
+        """
+        Compute and render a histogram of the selected action component.
+        """
         if self.actions is None or self.actions.size == 0:
             self.hist_scene.clear()
             self.hist_scene.addText("No action data to display")

@@ -1,3 +1,20 @@
+"""
+Entry point to visualize agent trajectories from a rig-recorder dataset.
+
+This script sets up paths for importing the 'AgentVisualizer' module, 
+defines user-configurable parameters, and runs the visualizer on the
+specified input folder.
+
+Configuration:
+    INPUT_FOLDER (Path): Directory containing the dataset to visualize.
+    FPS (float): Frame rate for playback.
+    RED_THRESHOLDS (tuple[int, int, int]): Thresholds for detecting red pixels.
+    AXIS_LIMIT (int): Maximum axis value for visual scaling.
+
+Usage:
+    Run this script directly to launch the visualizer with the configured parameters.
+"""
+
 from pathlib import Path
 import sys
 

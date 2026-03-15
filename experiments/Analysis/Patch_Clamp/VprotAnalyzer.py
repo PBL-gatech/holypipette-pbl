@@ -5,7 +5,31 @@ import scipy.optimize
 import matplotlib.pyplot as plt
 
 class VoltageProtocolAnalyzer:
+    """
+    Analyzer for voltage-clamp protocol recordings.
+
+    Attributes:
+    file_path (str or Path): Path to the CSV file containing the voltage
+        protocol recording.
+    data (pd.DataFrame or None): Loaded data from the CSV file.
+    holding_current (float or None): Calculated holding current.
+    latestAccessResistance (float or None): Most recent estimate of
+        access resistance.
+    latestMembraneResistance (float or None): Most recent estimate of
+        membrane resistance.
+    latestMembraneCapacitance (float or None): Most recent estimate of
+        membrane capacitance.
+    totalResistance (float or None): Computed total resistance of the
+        recording.
+    """
     def __init__(self, file_path):
+        """
+        Initialize the VoltageProtocolAnalyzer.
+
+        Args:
+            file_path (str or Path): Path to the voltage protocol CSV file
+                to be analyzed.
+        """
         self.file_path = file_path
         self.data = None
         self.holding_current = None
@@ -78,9 +102,38 @@ class VoltageProtocolAnalyzer:
         return sub_data, sub_time, sub_command, [peak_time, peak_current_index, negative_peak_time, negative_peak_index], mean_pre_peak, mean_post_peak
 
     def monoExp(self, x, m, t, b):
+        """
+        Compute a monoexponential decay model.
+
+        Args:
+            x (array-like | float): Independent variable values.
+            m (float): Amplitude scaling coefficient.
+            t (float): Decay rate constant.
+            b (float): Baseline offset.
+
+        Returns:
+            np.ndarray | float: Model output evaluated at `x`.
+        """
         return m * np.exp(-t * x) + b
 
     def optimizer(self, fit_data, I_peak_pA, I_peak_time, I_ss):
+        """
+        Fit a mono-exponential model to response current data using nonlinear least squares.
+
+        Args:
+            fit_data (pd.DataFrame): DataFrame containing the data to fit. Must include
+                the columns 'Time (ms)' and 'Response Current (pA)'.
+            I_peak_pA (float): Initial guess for the exponential amplitude parameter.
+            I_peak_time (float): Initial guess for the time constant parameter.
+            I_ss (float): Initial guess for the steady-state offset.
+
+        Returns:
+            tuple:
+                m (float or None): Estimated amplitude parameter from the fit.
+                t (float or None): Estimated time constant parameter from the fit.
+                b (float or None): Estimated steady-state offset parameter.
+                Returns (None, None, None) if fitting fails.
+        """
         start = fit_data['Time (ms)'].iloc[0]
         fit_data['Time (ms)'] = fit_data['Time (ms)'] - start
         p0 = (I_peak_pA, I_peak_time, I_ss)
@@ -93,6 +146,22 @@ class VoltageProtocolAnalyzer:
             return None, None, None
 
     def calc_param(self, tau, mean_voltage, I_peak, I_prev, I_ss):
+        """
+        Calculate electrophysiological parameters from voltage-clamp data.
+
+        Args:
+            tau (float): Time constant of the exponential decay (ms).
+            mean_voltage (float): Mean command voltage during the pulse (mV).
+            I_peak (float): Peak response current (pA).
+            I_prev (float): Baseline current before the voltage step (pA).
+            I_ss (float): Steady-state current after the transient response (pA).
+
+        Returns:
+            tuple:
+                R_a_Mohms (float): Estimated access resistance (MΩ).
+                R_m_Mohms (float): Estimated membrane resistance (MΩ).
+                C_m_pF (float): Estimated membrane capacitance (pF).
+        """
         I_d = I_peak - I_prev  # in pA
         I_dss = I_ss - I_prev  # in pA
 
@@ -103,6 +172,19 @@ class VoltageProtocolAnalyzer:
         return R_a_Mohms, R_m_Mohms, C_m_pF
 
     def analyze_voltage_protocol(self):
+        """
+        Perform a full analysis of the voltage protocol recording.
+
+        Returns:
+            tuple:
+                R_a_MOhms (float or None): Estimated access resistance (MΩ).
+                R_m_MOhms (float or None): Estimated membrane resistance (MΩ).
+                C_m_pF (float or None): Estimated membrane capacitance (pF).
+                totalResistance (float or None): Sum of access and membrane
+                resistance (MΩ).
+            Returns (None, None, None, None) if the exponential fitting step
+                fails.
+        """
         self.read_and_convert_data()
         filtered_data, filtered_time, filtered_command, plot_params, I_prev_pA, I_post_pA = self.filter_data()
         I_peak_pA = self.data.loc[plot_params[1] + 1, 'Response Current (pA)']
@@ -128,6 +210,11 @@ class VoltageProtocolAnalyzer:
     def plot_data(self):
         """
         Plot the command data and response data.
+
+        Raises:
+            ValueError: If `self.data` is None, indicating that the dataset has
+                not been loaded yet. The user should run `read_and_convert_data()`
+                before calling this method.
         """
         if self.data is None:
             raise ValueError("Data has not been loaded. Please run read_and_convert_data() first.")

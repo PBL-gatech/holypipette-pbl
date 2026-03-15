@@ -38,7 +38,18 @@ except Exception:
     SCIPY_OK = False
 
 def interpolate_nans(y):
-    """Linear interpolation across NaNs to keep spacing."""
+    """
+    Linear interpolation across NaNs to keep spacing.
+    
+    Args:
+        y (array-like): Numeric sequences possibly containing NaN values.
+    
+    Returns:
+        np.ndarray: Array with NaN values linearly interpolated where possible.
+
+    Raises:
+        TypeError: If `y` cannot be interpreted as a numeric sequence.
+    """
     if 'pd' in globals():
         return pd.Series(y).interpolate(method="linear", limit_direction="both").to_numpy()
     x = np.arange(len(y))
@@ -54,7 +65,15 @@ def bessel_lowpass_zero_phase(x, fs, fc, order):
     return filtfilt(b, a, x)
 
 def style_axes(ax):
-    """GraphPad-style cosmetics."""
+    """
+    GraphPad-style cosmetics.
+    
+    Args:
+        ax (matplotlib.axes.Axes): The Axes object to style.
+
+    Raises:
+        AttributeError: If `ax` does not support spine or tick configuration methods.
+    """
     for spine in ax.spines.values():
         spine.set_linewidth(2.0)
     ax.xaxis.set_tick_params(direction='out', width=1.8, length=6)
@@ -63,7 +82,18 @@ def style_axes(ax):
     ax.set_facecolor('none')   # transparent axes bg
 
 def save_plot(fig, label, suffix):
-    """Persist a Matplotlib figure using sanitized filenames when SAVE_PLOTS is True."""
+    """
+    Persist a Matplotlib figure using sanitized filenames when SAVE_PLOTS is True.
+    
+    Args:
+        fig (matplotlib.figure.Figure): The figure object to save.
+        label (str): Primary label used to build the output filename.
+        suffix (str): Additional descriptor appended to the filename.
+
+    Raises:
+        OSError: If the output directory cannot be created or the file cannot be written.
+        TypeError: If `fig` is not a valid Matplotlib Figure object.
+    """
     if not SAVE_PLOTS:
         return
 
@@ -81,9 +111,27 @@ def save_plot(fig, label, suffix):
     )
 
 def find_demos(h5):
+    """
+    Return the sorted list of demonstration group names in an HDF5 dataset.
+
+    Args:
+        h5: An open HDF5 file or group object containing a "/data" group.
+
+    Returns:
+        List[str]: Sorted list of demo group names (e.g., ["demo_0", "demo_1", ...]).
+    """
     return sorted([k for k in h5["/data"].keys() if k.startswith("demo_")])
 
 def plot_dataset(file_path, label, resistance_hline):
+    """
+    Plot resistance traces for all demonstrations in an HDF5 dataset.
+
+    Args:
+        file_path (str | Path): Path to the HDF5 dataset file.
+        label (str): Label used for the dataset in the plot legend or title.
+        resistance_hline (float): Resistance threshold value to as a horizontal
+            reference line on the plot.
+    """
     with h5py.File(file_path, "r") as h5:
         demos = find_demos(h5)
         cmap = get_cmap(COLORMAP_NAME, len(demos) if len(demos) > 0 else None)

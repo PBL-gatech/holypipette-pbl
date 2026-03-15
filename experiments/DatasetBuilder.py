@@ -12,26 +12,7 @@ import hashlib
 ATL_TO_UTC_TIME_DELTA = 4 #March 9 - Nov 1: 4 hours, otherwise 5 hours
 class DatasetBuilder():
     """
-    Initializes a DatasetBuilder for preprocessing and constructing experiment datasets.
-
-    Configures dataset metadata, data splitting, stage/pipette alignment, image filtering,
-    and optional preprocessing parameters.
-
-    Args:
-         dataset_name (str): Name of the dataset.
-        calfile (optional, file): Calibration file for experimental measurements.
-        val_ratio (float): Fraction of the dataset to use as validation.
-        omit_stage_movement (bool): Whether to skip stage movement data.
-        random_seed (int): Seed for reproducible dataset generation.
-        rotate_valid (bool): Whether to rotate validation images.
-        stage_y_axis_flip (bool): Flip the Y-axis of stage coordinates.
-        pipette_rotation_deg (float): Angle to rotate pipette coordinates.
-        load_next_obs (bool): Pre-load the next observation for efficiency.
-        frequency_mod (int): Sampling frequency modifier.
-        enable_random_filter (bool): Enable random image filtering.
-        image_filter_prob (float): Probability of applying the random filter.
-        filter_train_only (bool): Apply filtering only to training images.
-        filter_same_per_demo (bool): Apply the same filter to all images in a demo.
+    Class for building and processing datasets from rig-recorder demonstrations.
     """
     def __init__(self,
              dataset_name,
@@ -51,9 +32,26 @@ class DatasetBuilder():
              filter_same_per_demo: bool = False
              ):
         """
-        Parameters
-        ----------
+        Initializes a DatasetBuilder for preprocessing and constructing experiment datasets.
 
+        Configures dataset metadata, data splitting, stage/pipette alignment, image filtering,
+        and optional preprocessing parameters.
+
+        Args:
+            dataset_name (str): Name of the dataset.
+            calfile (optional, file): Calibration file for experimental measurements.
+            val_ratio (float): Fraction of the dataset to use as validation.
+            omit_stage_movement (bool): Whether to skip stage movement data.
+            random_seed (int): Seed for reproducible dataset generation.
+            rotate_valid (bool): Whether to rotate validation images.
+            stage_y_axis_flip (bool): Flip the Y-axis of stage coordinates.
+            pipette_rotation_deg (float): Angle to rotate pipette coordinates.
+            load_next_obs (bool): Pre-load the next observation for efficiency.
+            frequency_mod (int): Sampling frequency modifier.
+            enable_random_filter (bool): Enable random image filtering.
+            image_filter_prob (float): Probability of applying the random filter.
+            filter_train_only (bool): Apply filtering only to training images.
+            filter_same_per_demo (bool): Apply the same filter to all images in a demo.
         """
         self.dataset_name = dataset_name
         self.calfile = calfile
@@ -117,10 +115,15 @@ class DatasetBuilder():
         2.  Rotate raw pipette XY by `self.pipette_rotation_deg`.  
         3.  Add the transformed stage coordinates to the rotated pipette
             coordinates.
-
-        Returns
-        -------
-        np.ndarray      shape (N, 3)
+            
+        Args:
+            stage_positions (np.ndarray): Array of shape (N, 3) with the stage X, Y, Z
+                coordinates.
+            pipette_positions (np.ndarray): Array of shape (N, 3) with raw pipette
+                X, Y, Z coordinates.    
+        Returns:
+            np.ndarray: Array of shape (N, 3) which pipette coordinates expressed
+                in stage frame.
         """
         stage_adj = stage_positions.copy()
         if self.stage_y_axis_flip:
@@ -145,8 +148,16 @@ class DatasetBuilder():
         2. multiply matrix transform to stage coordinates.
         3. add offset to stage coordinates.
         
+        Args:
+            stage_positions (np.ndarray): Array of shape (N, 3) with the stage X, Y, Z
+                coordinates.
+            pipette_positions (np.ndarray): Array of shape (N, 3) with raw pipette
+                X, Y, Z coordinates.    
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Array of shape (N, 3) which pipette 
+                coordinates expressed in camera frame.
+        
         """
-
         #load file and extract matrix
 
         M,r0 = self._load_calfile()
@@ -178,6 +189,10 @@ class DatasetBuilder():
         """
         apply M matrix tranformation to the X and Y coordinates of the pipette and stage
 
+        Args:
+            stage_positions (np.ndarray): Array of stage coordinates (e.g., X, Y).
+            pipette_positions (np.ndarray): Array of pipette coordinates (e.g., X, Y).
+            M (np.ndarray): Calibration transformation matrix.
         """
         stage_pixels = np.dot()
 
@@ -212,6 +227,13 @@ class DatasetBuilder():
         """
         Rotate x and y coordinates in a positions array by angle_degrees.
         Assumes positions is an array of shape (n, 3) where column 0 is x and column 1 is y.
+
+        Args:
+            positions (np.ndarray): Array of shape (N, 3), columns 0 and 1 are X and Y coordinates.
+            angle_degrees (float): Rotation angle in degrees.
+
+        Returns:
+            np.ndarray: Array of shape (N, 3) with rotated X and Y coordinates; Z remains unchanged.
         """
         rad = np.deg2rad(angle_degrees)
         cos_val = np.cos(rad)
@@ -226,6 +248,15 @@ class DatasetBuilder():
         Rotates the (x, y) components of each action vector by the specified angle.
         Assumes actions is an (N, D) array where columns 0 is x, 1 is y, 2 is z (z unchanged).
         Any extra dimensions are passed through unchanged.
+
+        Args:
+            actions (np.ndarray): Array of shape (N, D) where columns 0 and 1 are X, Y of stage,
+                column 2 is Z, columns 3 and 4 (optional) are X, Y of pipette.
+            angle_degrees (float): Rotation angle in degrees.
+
+        Returns:
+            np.ndarray: Array of same shape as `actions` with rotated XY components for stage
+                and pipette. Z and any extra dimensions are unchanged.
         """
         rad = np.deg2rad(angle_degrees)
         cos_val = np.cos(rad)
@@ -249,6 +280,15 @@ class DatasetBuilder():
         """
         Vectorised run-length detection of ≥ self.inaction consecutive zero-rows.
         Much faster than the original while-loop; behaviour is unchanged.
+        
+        Args:
+            actions (np.ndarray): Array of shape (N, D) containing action vectors.
+            *arrays (np.ndarray): Optional additional arrays of length N to filter alongside
+                actions.
+
+        Returns:
+            Tuple[np.ndarray, ...]: Tuple containing the filtered actions and corresponding
+                filtered arrays.
         """
         if self.inaction == 0:
             return (actions,) + tuple(arrays)
@@ -275,6 +315,16 @@ class DatasetBuilder():
 
         The final index is optionally forced in so terminal flags (e.g., dones)
         are preserved even if the length isn't divisible by the stride.
+        
+        Args:
+            *arrays (np.ndarray): Arrays of equals length along axis 0 to decimate.
+            keep_last (bool, optional): If True, ensure the last index is included.
+                Defaults to True.
+        
+        Returns:
+            Tuple[Tuple[np.ndarray, ...], np.ndarray | None]:
+                - Decimated arrays in the same order as inputs (None inputs preserved).
+                - The indices used for decimation (or None if no decimation applied).
         """
         step = int(getattr(self, "frequency_mod", 1) or 1)
         if step <= 1:
@@ -595,11 +645,22 @@ class DatasetBuilder():
 
     def truncate_graph_values(self, graph_values, first_timestamp, last_timestamp):
         """
+        Truncate a 2D array of graph values to a specified timestamp range.
+
         Optimised by replacing the row-by-row scan with two np.searchsorted calls
         (binary search) on the monotonic timestamp column.  Output is identical.
 
         Alternative considered: np.argmin(abs(timestamps-ts)) for each boundary
         (still O(N)); rejected in favour of searchsorted.
+
+        Args:
+            graph_values (np.ndarray): Array with timestamps in column 0.
+            first_timestamp (float): Lower bound timestamp (inclusive).
+            last_timestamp (float): Upper bound timestamp (inclusive).
+
+        Returns:
+            np.ndarray: Subarray of `graph_values` containing only rows within the
+                timestamp range.
         """
         ts = graph_values[:, 0]
 
@@ -621,9 +682,19 @@ class DatasetBuilder():
 
     def associate_attempt_movement_and_graph_values(self, attempt_graph_values, movement_values):
         """
+        Align graph timestamps with movement data using nearest-neighbor search.
+
         Uses np.searchsorted to find, for each graph timestamp, the closest movement
         timestamp in O(T log M) total.  Eliminates the nested Python loops while
         returning identical alignments.
+
+        Args:
+            attempt_graph_values (np.ndarray): Graph data with timestamps in column 0.
+            movement_values (np.ndarray): Movement data with timestamps in column 0.
+
+        Returns:
+            np.ndarray: Rows from `movement_values` corresponding to the closest timestamps
+                for each graph value.
         """
         g_ts = attempt_graph_values[:, 0]
         m_ts = movement_values[:, 0]
@@ -708,6 +779,13 @@ class DatasetBuilder():
         """
         Parses JSON once per row via list-comprehension, pads in NumPy
         (no per-element .append loops).  Output exactly matches the original.
+
+        Args:
+            attempt_graph_values (np.ndarray): Graph array where column 3 contains JSON-encoded
+                current lists.
+
+        Returns:
+            np.ndarray: 2D array of floats, padded to the maximum list length.
         """
         lists = [json.loads(s) for s in attempt_graph_values[:, 3]]
         max_len = max(len(lst) for lst in lists)
@@ -717,6 +795,13 @@ class DatasetBuilder():
     def get_attempt_voltage_values(self, attempt_graph_values):
         """
         Same optimisation as for current values: fast JSON parse & vectorised pad.
+
+        Args:
+            attempt_graph_values (np.ndarray): Graph array where column 3 contains JSON-encoded
+                current lists.
+
+        Returns:
+            np.ndarray: 2D array of floats, padded to the maximum list length.
         """
         lists = [json.loads(s) for s in attempt_graph_values[:, 4]]
         max_len = max(len(lst) for lst in lists)
@@ -792,19 +877,15 @@ class DatasetBuilder():
         Initializes the image filtering configuration for a demo.
 
         Determines whether random image filtering should be applied for the current demo based
-        on configuration flags such as 'enable_random_filter' and 'filter_train_only'. If filtering
-        is enabled and configured to be consistent across a demo, an Albumentations ReplayCompose
-        pipeline if created to apply a randomly selected filter (e.g., Gaussian blur, color shift,
-        or sharpening).
+        on configuration flags. If filtering is enabled and configured to be consistent across a demo, 
+        an Albumentations ReplayCompose pipeline is created to apply a randomly selected filter 
+        (e.g., Gaussian blur, color shift, or sharpening).
 
         Randomness is seeded using 'demo_seed' to ensure deterministic behavior across runs.
 
         Args:
             split_label (str): Dataset split label.
             demo_seed (int): Seed used to make filter selection replicable.
-
-        Returns:
-            None
         """
         if not self.enable_random_filter:
             self._filter_active_for_demo = False
@@ -838,9 +919,6 @@ class DatasetBuilder():
 
         This clears the augmentation pipeline and replay state so that subsequent
         demos can start with a clean configuration.
-
-        Returns:
-            None
         """
         self._filter_active_for_demo = False
         self._albu_replay_comp = None
@@ -980,7 +1058,7 @@ class DatasetBuilder():
             rig_recorder_data_folder (str): Folder containing camera frame images.
             include_camera (bool, optional): Whether to include camera frames. Defaults to True.
             rotation_angle (float, optional): Angle (degrees) to rotate positions and camera frames.
-                Defaults to none
+                Defaults to none.
         
         Returns:
             Tuple:
@@ -1091,6 +1169,8 @@ class DatasetBuilder():
                             log_values,
                             include_high_level_actions: bool = False):
         """
+        Compute low-level and optional high-level actions for an attempt.
+
         Low-level actions  (Δstage + Δpipette)  
         • Stage-Y may be flipped.  
         • Pipette-XY is first rotated by `self.pipette_rotation_deg`
@@ -1098,6 +1178,18 @@ class DatasetBuilder():
         • Pipette-Z **never** receives any stage-Z contribution.
 
         Optionally appends one extra column with a hashed high-level command.
+
+        Args:
+            attempt_movement_values (np.ndarray): Array of stage + pipette positions (N, 7) with timestamp
+                in column 0.
+            attempt_graph_values (np.ndarray): Array of graph values with timestamps in column 0.
+            log_values (pd.DataFrame): Log DataFrame containing messages and timestamps.
+            include_high_level_actions (bool, optional): Whether to append a hashed high-level command column.
+                Defaults to False.
+        
+        Returns:
+            np.ndarray: Action array of shape (N, 6) for low level actions, or
+                (N, 7) if high-level column is included.
         """
         # ───────────────────── raw frame deltas ────────────────────────
         movement_actions_list = list(
@@ -1291,6 +1383,10 @@ class DatasetBuilder():
         Parse one rig-recorder folder, extract each successful hunt-cell attempt,
         and store them as demos with a train / valid split.  Rotation augmentation
         is optional for validation demos, controlled by `self.rotate_valid`.
+
+        Args:
+            rig_recorder_data_folder (Path): Path to the folder containing rig-recorder CSV/log data.
+            record_to_file (bool, optional): Whether to write demos to disk. Defaults to False.
         """
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
 

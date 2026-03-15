@@ -1,3 +1,21 @@
+"""
+Convert CSV patch-clamp experiment data to ABF1 format for analysis.
+
+This script reads raw CSV files from a specified rig-recorded patch-clamp experiment folder, 
+groups them by the experiment prefix, converts the raw current and voltage traces according 
+to the protocol type (current clamp, voltage clamp, or holding), and writes the processed 
+data into ABF1 files using the `pyabf` library. Separate ABF files are generated for 
+command (input) and response (output) signals.
+
+Behavior:
+    1. Finds all CSV files in `csv_folder`.
+    2. Groups CSVs by text before the first '#' in their filenames.
+    3. For each group:
+        a. Loads time, raw current, and raw voltage columns.
+        b. Ensures all CSVs in a group have the same number of samples.
+        c. Converts raw values to physical units based on `prottype`.
+        d. Stacks data across sweeps and writes ABF1 files for command and response signals.
+"""
 import os
 import glob
 import pandas as pd

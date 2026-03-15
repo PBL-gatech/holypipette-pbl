@@ -348,8 +348,16 @@ class _StateDatasetContext:
 # ---------------------------------------------------------------------------
 
 def _slugify_state_name(name: str) -> str:
-    """Return a filesystem friendly slug for a state name."""
+    """
+    Return a filesystem friendly slug for a state name.
+    
+    Args:
+        name (str): Original state name.
 
+    Returns:
+        str: Lowercase slug with spaces and invalid characters replaced by underscores.
+             Returns "state" if the resulting slug would otherwise be empty.
+    """
     cleaned = name.strip().lower().replace(" ", "_")
     slug = ''.join(ch if (ch.isalnum() or ch == '_') else '_' for ch in cleaned)
     slug = slug.strip('_')
@@ -357,21 +365,47 @@ def _slugify_state_name(name: str) -> str:
 
 
 def _stable_int_seed(*parts: object) -> int:
-    """Create a deterministic 32-bit integer seed from arbitrary parts."""
+    """
+    Create a deterministic 32-bit integer seed from arbitrary parts.
+    
+    Args:
+        *parts (object): Values used to construct the seed. Each part is converted
+            to string and concatenated deterministically.
+
+    Returns:
+        int: Deterministic 32-bit integer seed derived from the input values.
+    """
     data = ("||".join(map(str, parts))).encode("utf-8")
     return int.from_bytes(hashlib.sha256(data).digest()[:4], "big")
 
 
 def _shift_forward(arr: np.ndarray) -> np.ndarray:
-    """Return a copy of ``arr`` shifted left with the final element repeated."""
+    """
+    Return a copy of ``arr`` shifted left with the final element repeated.
+    
+    Args:
+        arr (np.ndarray): Input array to shift.
 
+    Returns:
+        np.ndarray: Array of the same shape where each element is replaced by the
+            next element in the original array, and the final element is repeated.
+    """
     out = np.empty_like(arr)
     out[:-1] = arr[1:]
     out[-1] = arr[-1]
     return out
 
 def _parse_waveform_column(column: Sequence[str]) -> np.ndarray:
-    """Parse JSON-encoded voltage/current columns and pad to equal length."""
+    """
+    Parse JSON-encoded voltage/current columns and pad to equal length.
+    
+    Args:
+        column (Sequence[str]): Iterable of JSON strings representing waveform lists.
+
+    Returns:
+        np.ndarray: 2D array of waveform values with equal length, padded by
+            repeating the final value in shorter sequences.
+    """
 
     lists = [json.loads(value) for value in column]
     max_len = max(len(lst) for lst in lists)
@@ -380,7 +414,17 @@ def _parse_waveform_column(column: Sequence[str]) -> np.ndarray:
 
 
 def _resolve_dataset_paths(dataset_name: str) -> Tuple[Path, Path]:
-    """Return dataset directory and HDF5 file path for ``dataset_name``."""
+    """
+    Return dataset directory and HDF5 file path for ``dataset_name``.
+    
+    Args:
+        dataset_name (str): Dataset filename or path.
+
+    Returns:
+        Tuple[Path, Path]:
+            - Dataset directory path.
+            - Full HDF5 dataset file path.
+    """
 
     datasets_root = Path("experiments/Datasets")
     name_path = Path(dataset_name)
@@ -392,7 +436,19 @@ def _resolve_dataset_paths(dataset_name: str) -> Tuple[Path, Path]:
 
 
 def _ensure_dataset_stub(dataset_name: str, create_file: bool = False) -> Tuple[Path, Path]:
-    """Ensure dataset directory exists and optionally prepare an empty HDF5 stub."""
+    """
+    Ensure dataset directory exists and optionally prepare an empty HDF5 stub.
+    
+    Args:
+        dataset_name (str): Dataset filename or path.
+        create_file (bool, optional): If True, create a new HDF5 dataset file if
+            one does not already exist. Defaults to False.
+
+    Returns:
+        Tuple[Path, Path]:
+            - Dataset directory path.
+            - Dataset HDF5 file path.
+    """
 
     dataset_dir, dataset_path = _resolve_dataset_paths(dataset_name)
     dataset_dir.mkdir(parents=True, exist_ok=True)
@@ -412,7 +468,13 @@ class RandomFilterMixin:
     """Albumentations augmentation wrapper kept functionally identical."""
 
     def __init__(self, settings: DatasetBuilderSettings):
-        """Configure Albumentations filters from :class:`DatasetBuilderSettings`."""
+        """
+        Configure Albumentations filters from :class:`DatasetBuilderSettings`.
+        
+        Args:
+            settings (DatasetBuilderSettings): Configuration object containing
+                filter settings and random seed.
+        """
         self._filter_settings = settings.filter
         self._rng_seed = settings.random_seed
         self._albu_filter = None
@@ -443,15 +505,14 @@ class RandomFilterMixin:
     def begin_filter_context(self, split_label: str, demo_seed: int) -> None:
         """Prepare Albumentations state for a demo.
 
-        Parameters
-        ----------
-        split_label:
-            Either ``"train"`` or ``"valid"`` to indicate which dataset split
-            the demo belongs to.  The flag controls whether filtering is
-            enabled when ``filter_train_only`` is set.
-        demo_seed:
-            Integer seed that keeps per-demo replay filters deterministic when
-            ``filter_same_per_demo`` is active.
+        Args:
+            split_label (str):
+                Either ``"train"`` or ``"valid"`` to indicate which dataset split
+                the demo belongs to.  The flag controls whether filtering is
+                enabled when ``filter_train_only`` is set.
+            demo_seed (int):
+                Integer seed that keeps per-demo replay filters deterministic when
+                ``filter_same_per_demo`` is active.
         """
         cfg = self._filter_settings
         if not cfg.enable_random_filter or (
@@ -496,17 +557,15 @@ class RandomFilterMixin:
     def apply_albu_filter_to_pil(self, pil_image: Image.Image) -> Image.Image:
         """Apply the configured Albumentations pipeline to a PIL image.
 
-        Parameters
-        ----------
-        pil_image:
-            RGB or grayscale :class:`PIL.Image.Image` frame from the rig
-            recorder dataset.
+        Args:
+            pil_image (PIL.Image.Image):
+                RGB or grayscale :class:`PIL.Image.Image` frame from the rig
+                recorder dataset.
 
-        Returns
-        -------
-        PIL.Image.Image
-            The potentially augmented frame.  If filtering is disabled the
-            input image object is returned unchanged.
+        Returns:
+            PIL.Image.Image:
+                The potentially augmented frame.  If filtering is disabled the
+                input image object is returned unchanged.
         """
         if not self._filter_active_for_demo:
             return pil_image
@@ -534,12 +593,11 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def __init__(self, **kwargs):
         """Initialise the builder with keyword arguments from DatasetBuilder.
 
-        Parameters
-        ----------
-        **kwargs:
-            Any parameter accepted by the legacy :class:`DatasetBuilder`
-            constructor.  See :class:`DatasetBuilderSettings` for the full list
-            and default values.
+        Args:
+            **kwargs:
+                Any parameter accepted by the legacy :class:`DatasetBuilder`
+                constructor.  See :class:`DatasetBuilderSettings` for the full list
+                and default values.
         """
         settings = DatasetBuilderSettings(**kwargs)
         self.settings = settings
@@ -610,7 +668,18 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 obs.include_pipette = False
 
     def _ensure_state_context(self, state_name: str) -> _StateDatasetContext:
-        """Create or return cached dataset bookkeeping for ``state_name``."""
+        """
+        Create or return cached dataset bookkeeping for ``state_name``.
+         
+        Args:
+            state_name (str): Name of the experiment state whose dataset context
+                should be created or retrieved.
+
+        Returns:
+            _StateDatasetContext: Cached or newly created dataset context containing
+                dataset paths, split keys, metadata filename, and processed folders
+                associated with the given state.
+        """
 
         slug = _slugify_state_name(state_name)
         if slug in self._state_contexts:
@@ -645,7 +714,15 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
     @contextmanager
     def _use_state_context(self, state_name: str):
-        """Temporarily switch builder bookkeeping to a state-specific dataset."""
+        """
+        Temporarily switch builder bookkeeping to a state-specific dataset.
+        
+        Args:
+            state_name (str): Name of the state whose dataset context should be used.
+
+        Yields:
+            None: Execution occurs within the selected state dataset context.
+        """
 
         context = self._ensure_state_context(state_name)
         original_name = self.dataset_name
@@ -675,7 +752,20 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     # ------------------------------------------------------------------
     # --- filtering --------------------------------------------------------
     def filter_inactive_actions(self, actions: np.ndarray, *arrays: np.ndarray) -> tuple:
-        """Drop contiguous segments where all action components remain zero."""
+        """
+        Drop contiguous segments where all action components remain zero.
+        
+        Args:
+            actions (np.ndarray): Array of action values with shape (T, A), where
+                T is the number of timesteps and A is the number of action components.
+            *arrays (np.ndarray): Additional arrays aligned with the action
+                timesteps (same first dimension) that should be filtered using
+                the same mask.
+
+        Returns:
+            tuple: Tuple containing the filtered `actions` array followed by each
+            filtered array from `arrays`, all with matching timesteps.
+        """
         if self.inaction == 0:
             return (actions,) + arrays
 
@@ -701,10 +791,9 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def convert_graph_recording_csv_to_new_format(self, demo_file_path: str) -> None:
         """Rewrite ``graph_recording.csv`` with semicolon-separated fields.
 
-        Parameters
-        ----------
-        demo_file_path:
-            Name of the rig-recorder folder containing ``graph_recording.csv``.
+        Args:
+            demo_file_path (str):
+                Name of the rig-recorder folder containing ``graph_recording.csv``.
         """
         file_path = Path("experiments/Data/rig_recorder_data") / demo_file_path / "graph_recording.csv"
         graph_values = pd.read_csv(file_path, delimiter=":")
@@ -726,7 +815,13 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         print(pd.read_csv(file_path, delimiter=";"))
 
     def convert_movement_recording_csv_to_new_format(self, demo_file_path: str) -> None:
-        """Rewrite ``cv_movement_recording.csv`` into the new semicolon format."""
+        """
+        Rewrite ``cv_movement_recording.csv`` into the new semicolon format.
+        
+        Args:
+            demo_file_path (str): Name of the rig-recorder folder containing
+                `cv_movement_recording.csv`.
+        """
         file_path = Path("experiments/Data/rig_recorder_data") / demo_file_path / "cv_movement_recording.csv"
         movement_values = pd.read_csv(file_path, delimiter=":")
 
@@ -752,7 +847,18 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def load_experiment_data(
         self, rig_recorder_data_folder: str
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Load graph and movement tables for a given experiment folder."""
+        """
+        Load graph and movement tables for a given experiment folder.
+        
+        Args:
+            rig_recorder_data_folder (str): Name of the rig-recorder data folder
+                containing experiment CSV files.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]:
+                - Graph recording values as a NumPy array.
+                - Movement recording values as a NumPy array.
+        """
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder
         movement_path = None
         for name in ("cv_movement_recording.csv", "movement_recording.csv"):
@@ -794,8 +900,19 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         valid_start: float,
         valid_end: float,
     ) -> Dict[str, List[Tuple[float, float]]]:
-        """Extract successful attempt windows for each state using JSON logs."""
+        """
+        Extract successful attempt windows for each state using JSON logs.
+         
+        Args:
+            rig_recorder_data_folder (str): Name of the rig-recorder folder used
+                to determine the experiment day token.
+            valid_start (float): Earliest valid timestamp for attempts.
+            valid_end (float): Latest valid timestamp for attempts.
 
+        Returns:
+            Dict[str, List[Tuple[float, float]]]: Mapping from state slug to a list
+            of `(start_timestamp, end_timestamp)` attempt intervals.
+        """
         state_attempts: Dict[str, List[Tuple[float, float]]] = {}
         state_root = Path("experiments/Data/state_recorder_data")
         day_token = rig_recorder_data_folder.split('-', 1)[0]
@@ -844,7 +961,19 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def truncate_graph_values(
         self, graph_values: np.ndarray, first_timestamp: float, last_timestamp: float
     ) -> np.ndarray:
-        """Return graph rows closest to the provided time interval (inclusive)."""
+        """
+        Return graph rows closest to the provided time interval (inclusive).
+        
+        Args:
+            graph_values (np.ndarray): Graph recording array where the first column
+                contains timestamps.
+            first_timestamp (float): Start timestamp of the desired interval.
+            last_timestamp (float): End timestamp of the desired interval.
+
+        Returns:
+            np.ndarray: Subarray of `graph_values` containing rows whose timestamps
+            are closest to the provided start and end bounds.
+        """
         ts = graph_values[:, 0]
         i0 = np.searchsorted(ts, first_timestamp, side="left")
         if i0 == len(ts):
@@ -863,7 +992,19 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def associate_attempt_movement_and_graph_values(
         attempt_graph_values: np.ndarray, movement_values: np.ndarray
     ) -> np.ndarray:
-        """Align each graph row with the closest movement sample in time."""
+        """
+        Align each graph row with the closest movement sample in time.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Graph recording values for a single
+                attempt. The first column must contain timestamps.
+            movement_values (np.ndarray): Movement recording values where the
+                first column contains timestamps.
+
+        Returns:
+            np.ndarray: Movement rows whose timestamps are closest to each graph
+            timestamp, producing an array aligned to `attempt_graph_values`.
+        """
         g_ts = attempt_graph_values[:, 0]
         m_ts = movement_values[:, 0]
         right = np.searchsorted(m_ts, g_ts)
@@ -875,39 +1016,111 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
     # --- Attempt level feature extraction --------------------------------
     def get_attempt_dones(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Generate a dones vector with a terminal 1 at the final timestep."""
+        """
+        Generate a dones vector with a terminal 1 at the final timestep.
+              
+        Args:
+            attempt_graph_values (np.ndarray): Graph values for a single attempt.
+
+        Returns:
+            np.ndarray: Array of zeros with the same length as the number of
+            timesteps, with the final element set to 1 to indicate termination.
+        """
         dones = np.zeros(len(attempt_graph_values))
         dones[-1] = 1
         return dones
 
     def get_attempt_pressure_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Return the pressure column for the current attempt."""
+        """
+        Return the pressure column for the current attempt.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Graph recording values where the
+                pressure column is stored at index 1.
+
+        Returns:
+            np.ndarray: Pressure values converted to float64.
+        """
         return attempt_graph_values[:, 1].astype(np.float64)
 
     def get_attempt_resistance_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Return resistance values for the current attempt."""
+        """
+        Return resistance values for the current attempt.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Graph recording values where the
+                resistance column is stored at index 2.
+
+        Returns:
+            np.ndarray: Resistance values converted to float64.
+        """
         return attempt_graph_values[:, 2].astype(np.float64)
 
     def get_attempt_current_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Parse JSON-encoded current waveform samples for the attempt."""
+        """
+        Parse JSON-encoded current waveform samples for the attempt.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Graph recording values where the
+                current waveform column is stored at index 3 as JSON-encoded lists.
+
+        Returns:
+            np.ndarray: 2D array of current waveform samples padded to equal length.
+        """
         return _parse_waveform_column(attempt_graph_values[:, 3])
 
     def get_attempt_voltage_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Parse JSON-encoded voltage waveform samples for the attempt."""
+        """
+        Parse JSON-encoded voltage waveform samples for the attempt.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Graph recording values where the
+                voltage waveform column is stored at index 4 as JSON-encoded lists.
+
+        Returns:
+            np.ndarray: 2D array of voltage waveform samples padded to equal length.
+        """
         return _parse_waveform_column(attempt_graph_values[:, 4])
 
     def get_attempt_stage_positions(self, attempt_movement_values: np.ndarray) -> np.ndarray:
-        """Return stage XYZ positions."""
+        """
+        Return stage XYZ positions.
+        
+        Args:
+            attempt_movement_values (np.ndarray): Movement recording values where
+                stage coordinates are stored in columns 1–3.
+
+        Returns:
+            np.ndarray: Stage XYZ positions as a float64 array.
+        """
         return attempt_movement_values[:, 1:4].astype(np.float64)
 
     def get_attempt_pipette_positions(self, attempt_movement_values: np.ndarray) -> np.ndarray:
-        """Return pipette XYZ positions."""
+        """
+        Return pipette XYZ positions.
+        
+        Args:
+            attempt_movement_values (np.ndarray): Movement recording values where
+                pipette coordinates are stored in columns 4 onward.
+
+        Returns:
+            np.ndarray: Pipette XYZ positions as a float64 array.
+        """
         return attempt_movement_values[:, 4:].astype(np.float64)
 
     # --- Camera helpers --------------------------------------------------
     @staticmethod
     def crop_image_center(pil_image: Image.Image) -> Image.Image:
-        """Return a centred half-resolution crop of ``pil_image``."""
+        """
+        Return a centred half-resolution crop of ``pil_image``.
+        
+        Args:
+            pil_image (PIL.Image.Image): Input PIL image to crop.
+
+        Returns:
+            PIL.Image.Image: Cropped image containing the central half of the
+            original width and height.
+        """
         width, height = pil_image.size
         new_width = width // 2
         new_height = height // 2
@@ -919,7 +1132,19 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     
     @staticmethod
     def add_image_color_dot(numpy_image: np.ndarray, color_dot: Optional[Tuple[int, int]]) -> np.ndarray:
-        """Add a red dot to ``numpy_image`` at the given coordinates."""
+        """
+        Add a red dot to ``numpy_image`` at the given coordinates.
+        
+        Args:
+            numpy_image (np.ndarray): Image array with shape (H, W) or (H, W, C).
+            color_dot (Optional[Tuple[int, int]]): Pixel coordinates (x, y) where
+                the dot should be drawn. If None or outside the image bounds,
+                the image is returned unchanged.
+
+        Returns:
+            np.ndarray: Image array with the dot applied if valid coordinates
+                are provided.
+        """
         if color_dot is None or numpy_image.ndim < 2:
             return numpy_image
 
@@ -1033,7 +1258,24 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         rotation_angle: Optional[float] = None,
         pipette_final_pos: Optional[tuple[int, int]] = None
     ) -> np.ndarray:
-        """Load rig camera frames aligned to ``attempt_graph_values`` timestamps."""
+        """
+        Load rig camera frames aligned to ``attempt_graph_values`` timestamps.
+        
+        Args:
+            rig_recorder_data_folder (str): Name of the rig-recorder data folder
+                containing the `camera_frames` directory.
+            attempt_graph_values (np.ndarray): Graph values for the attempt where
+                the first column contains timestamps.
+            rotation_angle (Optional[float], optional): Angle in degrees used to
+                rotate frames. If None, no rotation is applied.
+            pipette_final_pos (Optional[tuple[int, int]], optional): Pixel
+                coordinates used to draw a dot on each frame if
+                `pipette_final_pos_color_dot` is enabled.
+
+        Returns:
+            np.ndarray: Array of resized camera frames aligned with the attempt
+                timestamps.
+        """
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder / "camera_frames"
         camera_files = sorted(os.listdir(base), key=self._camera_order_key)
         frames_list: List[np.ndarray] = []
@@ -1102,7 +1344,39 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         include_camera: bool = True,
         rotation_angle: Optional[float] = None,
     ):
-        """Return pressure, resistance, waveform, position, and optional image arrays."""
+        """
+        Return pressure, resistance, waveform, position, and optional image arrays.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Graph recording values for the
+                attempt where the first column contains timestamps.
+            attempt_movement_values (np.ndarray): Movement recording values
+                aligned with the attempt timestamps.
+            rig_recorder_data_folder (str): Name of the rig-recorder data folder
+                used to locate associated camera frames and metadata.
+            include_camera (bool, optional): Whether camera frames should be
+                included if enabled by the observation selector. Defaults to True.
+            rotation_angle (Optional[float], optional): Angle in degrees used
+                to rotate camera frames. If None, no rotation is applied.
+
+        Returns:
+            Tuple[
+                Optional[np.ndarray],
+                Optional[np.ndarray],
+                Optional[np.ndarray],
+                Optional[np.ndarray],
+                Optional[np.ndarray],
+                Optional[np.ndarray],
+                Optional[np.ndarray]
+            ]: Tuple containing:
+                - pressure_values
+                - resistance_values
+                - current_values
+                - voltage_values
+                - stage_positions
+                - pipette_positions
+                - camera_frames (or None if not requested)
+        """
         selector = self.observation_selector
 
         pressure_values: Optional[np.ndarray]
@@ -1210,7 +1484,28 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         include_next_obs: bool = False,
         include_camera: bool = True,
     ):
-        """Compute next-step observation arrays using :func:`_shift_forward`."""
+        """
+        Compute next-step observation arrays using :func:`_shift_forward`.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Graph recording for the attempt.
+            current_values (Optional[np.ndarray]): Current waveform values.
+            voltage_values (Optional[np.ndarray]): Voltage waveform values.
+            stage_positions (Optional[np.ndarray]): Stage XYZ positions.
+            pipette_positions (Optional[np.ndarray]): Pipette XYZ positions.
+            camera_frames (Optional[np.ndarray]): Camera frames for the attempt.
+            include_next_obs (bool): Whether to compute next-step observations.
+            include_camera (bool): Whether to include next-step camera frames.
+
+        Returns:
+            Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray],
+                    Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray],
+                    Optional[np.ndarray]]:
+                Tuple containing next-step values for:
+                pressure, resistance, current, voltage, stage_positions,
+                pipette_positions, and camera_frames.
+                Each entry is None if not requested or unavailable.
+        """
         if not include_next_obs:
             return (None,) * 7
 
@@ -1266,7 +1561,15 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
     # --- Action computation ----------------------------------------------
     def get_attempt_actions(self, attempt_movement_values: np.ndarray) -> np.ndarray:
-        """Return low-level deltas (and optional command hashes) per timestep."""
+        """
+        Return low-level deltas (and optional command hashes) per timestep.
+        
+        Args:
+            attempt_movement_values (np.ndarray): Movement recording for the attempt.
+
+        Returns:
+            np.ndarray: Actions array of shape (timesteps, selected_dims).
+        """
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
 
@@ -1347,7 +1650,34 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         include_camera: bool = True,
         split_label: str = "train",
     ) -> str:
-        """Persist a demo to disk and return the HDF5 key used for the group."""
+        """
+        Persist a demo to disk and return the HDF5 key used for the group.
+        
+        Args:
+            num_samples (int): Number of timesteps in the attempt before filtering.
+            actions (np.ndarray): Array of low-level movement deltas or commands per timestep.
+            dones (np.ndarray): Binary array indicating episode termination per timestep.
+            pressure_values (Optional[np.ndarray]): Pressure measurements per timestep, or None if not recorded.
+            resistance_values (Optional[np.ndarray]): Resistance measurements per timestep, or None if not recorded.
+            current_values (Optional[np.ndarray]): Current waveform per timestep, or None if not recorded.
+            voltage_values (Optional[np.ndarray]): Voltage waveform per timestep, or None if not recorded.
+            stage_positions (Optional[np.ndarray]): Stage XYZ positions per timestep, or None if not included.
+            pipette_positions (Optional[np.ndarray]): Pipette XYZ positions per timestep, or None if not included.
+            camera_frames (Optional[np.ndarray]): Camera frames aligned to timesteps, or None if not included.
+            next_pressure_values (Optional[np.ndarray]): Pressure values at the next timestep.
+            next_resistance_values (Optional[np.ndarray]): Resistance values at the next timestep.
+            next_current_values (Optional[np.ndarray]): Current waveform at the next timestep.
+            next_voltage_values (Optional[np.ndarray]): Voltage waveform at the next timestep.
+            next_stage_positions (Optional[np.ndarray]): Stage positions at the next timestep.
+            next_pipette_positions (Optional[np.ndarray]): Pipette positions at the next timestep.
+            next_camera_frames (Optional[np.ndarray]): Camera frames at the next timestep.
+            include_next_obs (bool, default=False): Whether to include next-step observation arrays.
+            include_camera (bool, default=True): Whether to include camera frames in the dataset.
+            split_label (str, default="train"): Dataset split label, e.g., "train", "val", or "test".
+
+        Returns:
+            str: The HDF5 group name used to store this demonstration (e.g., "demo_0").
+        """
         selector = self.observation_selector
         effective_include_camera = include_camera and selector.include_camera
 
@@ -1510,7 +1840,17 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         return demo_name
 
     def _load_existing_processed_folders(self, metadata_path: Path) -> List[str]:
-        """Return stored processed folder names from an existing metadata file."""
+        """
+        Return stored processed folder names from an existing metadata file.
+        
+        Args:
+            metadata_path (Path): Path to the metadata JSON file.
+
+        Returns:
+            List[str]: List of processed folder names found in the metadata file. 
+                   Returns an empty list if the file cannot be read or the data is invalid.
+
+        """
         try:
             with open(metadata_path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -1522,7 +1862,16 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         return [str(item) for item in folders if isinstance(item, str)]
 
     def _register_processed_folder(self, folder: str) -> bool:
-        """Record a processed folder for the current context and base dataset."""
+        """
+        Record a processed folder for the current context and base dataset.
+        
+        Args:
+            folder (str): Name of the folder that has been processed.
+
+        Returns:
+            bool: True if the folder was newly added to the base dataset's processed folder list; 
+                False if it was already present.
+        """
         added_to_base = False
         if folder not in self._processed_folders:
             self._processed_folders.append(folder)
@@ -1534,7 +1883,18 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         return added_to_base
 
     def _selector_overview(self) -> Dict[str, Any]:
-        """Return a JSON-friendly summary of active observation/action selectors."""
+        """
+        Return a JSON-friendly summary of active observation/action selectors.
+        
+        Returns:
+            Dict[str, Any]: Dictionary summarizing the configuration of the observation and action selectors.
+                - "observations": Dictionary containing:
+                    - Boolean flags indicating which observations are included.
+                    - Lists of axis labels for stage and pipette observations.
+                - "actions": Dictionary containing:
+                    - Boolean flags indicating which actions are included.
+                    - Lists of axis labels for stage and pipette actions.
+        """
 
         obs = self.observation_selector
         act = self.action_selector
@@ -1562,8 +1922,24 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
     # --- Dataset bookkeeping --------------------------------------------
     def _collect_metadata(self) -> dict:
-        """Aggregate dataset metadata for JSON/CSV export."""
-
+        """
+        Aggregate dataset metadata for JSON/CSV export.
+        
+        Returns:
+            dict: Metadata dictionary containing:
+                - dataset_name (str): Name of the dataset.
+                - dataset_directory (str): Directory containing dataset files.
+                - dataset_path (str): Full path to the HDF5 dataset file.
+                - num_demos (int): Total number of demos in the dataset.
+                - split_counts (dict): Number of demos per split (e.g., "train", "valid").
+                - split_keys (dict): Mapping of split names to demo names.
+                - settings (dict): Dataset settings serialized as a dictionary.
+                - toggles (dict): Various boolean and numeric flags (e.g., center_crop, image_resize).
+                - processed_folders (List[str]): Names of processed experiment folders.
+                - selectors (dict): Overview of active observation and action selectors.
+                - created_at (str): ISO timestamp when the dataset was first created.
+                - updated_at (str): ISO timestamp of the most recent update.
+        """
         settings_dict = asdict(self.settings)
         toggles = {
             "center_crop": self.center_crop,
@@ -1674,11 +2050,25 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
     # Backward-compatible helper aliases
     def _stable_int_seed(self, *parts: object) -> int:
-        """Compatibility shim delegating to module-level :func:`_stable_int_seed`."""
+        """
+        Compatibility shim delegating to module-level :func:`_stable_int_seed`.
+        
+        Args:
+            *parts (object): One or more objects to use as the seed input.
+
+        Returns:
+            int: Deterministic integer seed generated from the input parts.
+        """
         return _stable_int_seed(*parts)
 
     def _begin_demo_filter_context(self, split_label: str, demo_seed: int) -> None:
-        """Compatibility shim for :meth:`begin_filter_context`."""
+        """
+        Compatibility shim for :meth:`begin_filter_context`.
+        
+        Args:
+            split_label (str): Label of the dataset split (e.g., "train" or "valid").
+            demo_seed (int): Integer seed for deterministic filtering of the demo.
+        """
         self.begin_filter_context(split_label, demo_seed)
 
     def _end_demo_filter_context(self) -> None:
@@ -1686,13 +2076,31 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.end_filter_context()
 
     def _apply_albu_filter_to_pil(self, pil_image: Image.Image) -> Image.Image:
-        """Compatibility shim for :meth:`apply_albu_filter_to_pil`."""
+        """
+        Compatibility shim for :meth:`apply_albu_filter_to_pil`.
+        
+        Args:
+            pil_image (PIL.Image.Image): Input image to be transformed.
+
+        Returns:
+            PIL.Image.Image: Transformed PIL image after applying the Albumentations filter.
+        """
         return self.apply_albu_filter_to_pil(pil_image)
 
     # --- High level orchestration ---------------------------------------
 
     def add_demo(self, rig_recorder_data_folder: str, record_to_file: bool = False) -> None:
-        """Parse a rig-recorder folder, extracting successful attempts into per-state datasets."""
+        """
+        Parse a rig-recorder folder, extracting successful attempts into per-state datasets.
+        
+        Args:
+            rig_recorder_data_folder (str): Path to the folder containing rig-recorder experiment data.
+            record_to_file (bool, optional): If True, persist the extracted demos to the HDF5 dataset. 
+                Defaults to False.
+
+        Raises:
+            RuntimeError: If high-level action extraction is requested, which requires unavailable log files.
+        """
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
 
         include_next_obs = self.load_next_obs

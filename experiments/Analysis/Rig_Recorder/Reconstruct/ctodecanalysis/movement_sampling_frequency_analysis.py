@@ -62,6 +62,20 @@ data['pipette_resultant'] = np.sqrt(data['pi_x']**2 + data['pi_y']**2 + data['pi
 
 # Define a function to apply a low-pass Butterworth filter
 def apply_low_pass_filter(data, cutoff_frequency, sampling_rate, order=4):
+    """
+    Apply a Butterworth low-pass filter to a one-dimensional signal.
+
+    Args:
+        data (array-like): Input signal to be filtered (e.g., displacement,
+            velocity, or acceleration).
+        cutoff_frequency (float): Cutoff frequency of the low-pass filter (Hz).
+        sampling_rate (float): Sampling rate of the signal (Hz).
+        order (int, optional): Order of the Butterworth filter. Higher orders
+            produce a steeper frequency cutoff. Defaults to 4.
+
+    Returns:
+        numpy.ndarray: Filtered signal with high-frequency noise attenuated.
+    """
     nyquist_frequency = 0.5 * sampling_rate
     normalized_cutoff = cutoff_frequency / nyquist_frequency
     b, a = butter(order, normalized_cutoff, btype='low', analog=False)

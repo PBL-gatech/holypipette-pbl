@@ -32,7 +32,22 @@ GRID_TO_PIXEL_SCALE = np.array(
 
 
 def load_manipulator_inverse(calibration_path: Path) -> np.ndarray:
-    """Load and invert the manipulator calibration matrix for px-to-um conversion."""
+    """
+    Load and invert the manipulator calibration matrix for px-to-um conversion.
+    
+    Args:
+        calibration_path (Path): Path to the JSON calibration file containing
+            the manipulator calibration data.
+
+    Returns:
+        np.ndarray: A 3x3 NumPy array representing the inverse manipulator
+        calibration matrix. If the calibration cannot be loaded or inverted,
+        an identity matrix is returned.
+
+    Raises:
+        KeyError: If the JSON file does not contain a "manip" entry or the
+            expected "M" matrix within it.
+    """
     try:
         with calibration_path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
@@ -52,12 +67,31 @@ MANIP_MINV = load_manipulator_inverse(CALIBRATION_PATH)
 
 
 def find_csv_files(csv_dir: Path) -> List[Path]:
-    """Return all CSV files directly under the directory, sorted alphabetically."""
+    """
+    Return all CSV files directly under the directory, sorted alphabetically.
+    
+    Args:
+        csv_dir (Path): Directory to search for CSV files.
+
+    Returns:
+        List[Path]: A list of paths to CSV files located directly inside
+        the specified directory, sorted alphabetically.
+    """
     return sorted(p for p in csv_dir.glob("*.csv") if p.is_file())
 
 
 def load_csv_data(csv_files: Sequence[Path]) -> List[dict]:
-    """Load each CSV and keep its DataFrame and metadata together."""
+    """
+    Load each CSV and keep its DataFrame and metadata together.
+    
+    Args:
+        csv_files (Sequence[Path]): Sequence of paths to CSV files to load.
+
+    Returns:
+        List[dict]: A list of dictionaries where each dictionary contains:
+            - "path": Path to the CSV file
+            - "df": pandas DataFrame containing the loaded data.
+    """
     datasets: List[dict] = []
     for csv_path in csv_files:
         df = pd.read_csv(csv_path).copy()
@@ -66,7 +100,17 @@ def load_csv_data(csv_files: Sequence[Path]) -> List[dict]:
 
 
 def compute_error_microns(df: pd.DataFrame) -> np.ndarray:
-    """Convert grid-based pipette errors to microns using calibration data."""
+    """
+    Convert grid-based pipette errors to microns using calibration data.
+    
+    Args:
+        df (pd.DataFrame): DataFrame containing coordinate columns
+            'red_x', 'red_y', 'white_x', and 'white_y'.
+
+    Returns:
+        np.ndarray: Array of positional errors in microns. Returns an empty
+        array if required columns are missing or if no valid data is present.
+    """
     required = {"red_x", "red_y", "white_x", "white_y"}
     if not required.issubset(df.columns):
         return np.empty(0, dtype=np.float64)
@@ -85,7 +129,18 @@ def compute_error_microns(df: pd.DataFrame) -> np.ndarray:
 
 
 def compute_elapsed_seconds(filenames: pd.Series) -> np.ndarray:
-    """Return elapsed seconds derived from camera filename timestamps."""
+    """
+    Return elapsed seconds derived from camera filename timestamps.
+    
+    Args:
+        filenames (pd.Series): Series containing camera image filenames
+            with embedded timestamps.
+
+    Returns:
+        np.ndarray: Array of elapsed time values in seconds corresponding
+        to each filename. If no valid timestamps are found, a sequential
+        array starting from zero is returned.
+    """
     if filenames.empty:
         return np.empty(0, dtype=np.float64)
 
@@ -109,6 +164,7 @@ def compute_elapsed_seconds(filenames: pd.Series) -> np.ndarray:
 
 
 def main() -> None:
+    """Generate trajectory overlay and positional error plots from CSV datasets."""
     csv_files = find_csv_files(CSV_DIR)
     if not csv_files:
         print(f"No CSV files found in {CSV_DIR}")

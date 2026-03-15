@@ -31,7 +31,15 @@ from experiments.DatasetBuilder2 import DatasetBuilder2, _read_csv_with_fallback
 
 @dataclass
 class FrameRecord:
-    """Represents a single recorded fram with its timestamp and pipette position"""
+    """
+    Represents a single recorded fram with its timestamp and pipette position
+    
+    Attributes:
+        timestamp (float): The time of the frame in seconds or experiment time units.
+        pi_x (float): Pipette x-coordinate at the time of the frame.
+        pi_y (float): Pipette y-coordinate at the time of the frame.
+        pi_z (float): Pipette z-coordinate at the time of the frame.
+    """
     timestamp: float
     pi_x: float
     pi_y: float
@@ -229,8 +237,8 @@ class ImageDatasetPreparer:
             camera_subdir (str, optional): Subdirectory containing camera frames.
                 Defaults to "camera_frames".
         
-                Returns:
-                    Path: Path to generated CSV file.
+        Returns:
+            Path: Path to generated CSV file.
         """
         demo_path = self._resolve_demo_path(demo_folder)
         movement_path = demo_path / "movement_recording.csv"
@@ -488,9 +496,6 @@ def run_preparer(
         use_detector1 (bool, optional): If True, use PipetteDetector1; otherwise alternate detector. Defaults to False.
         filter_images (bool, optional): If True, filter frames using demonstration windows. Defaults to False.
         verbose (bool, optional): If True, enable debug-level logging. Defaults to False.
-
-    Returns:
-        None
     """
     _configure_logging(verbose)
     preparer = ImageDatasetPreparer(

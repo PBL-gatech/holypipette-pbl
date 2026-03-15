@@ -1,3 +1,25 @@
+"""
+Analyze positive pipette action frequencies across demonstrations in an HDF5 dataset.
+
+This script loads a dataset containing multiple demonstrations of pipette
+movements and counts how many times the action along each spatial axis
+(X, Y, Z) is strictly positive. Each demonstration is treated independently,
+and the number of positive movements along each axis is recorded.
+
+If an explicit "action" dataset is available within each demonstration
+group, it is used directly. Otherwise, the script estimates actions by
+computing the finite difference of the pipette position sequence
+(`obs/pipette_positions`), treating changes in position as proxy actions.
+
+After computing counts, the script visualizes the results in a 3-D scatter
+plot where each point represents a demonstration. The coordinates of the
+point correspond to the number of positive actions along the X, Y, and Z
+axes. Color intensity indicates the total number of positive actions
+across all axes for that demonstration.
+
+This visualization helps identify differences in movement behavior across
+demonstrations and can reveal dataset imbalances or motion biases.
+"""
 # Build counts of positive pipette actions along X, Y, and Z, then visualise in 3‑D
 import h5py
 import numpy as np

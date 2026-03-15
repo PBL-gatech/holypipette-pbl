@@ -1,3 +1,23 @@
+"""
+Clean and normalize CurrentProtocol CSV files in a directory.
+
+This script scans a specified folder for CSV files whose names begin
+with "CurrentProtocol". For each matching file, the data is loaded,
+duplicate rows are removed, and the records are sorted by time before
+being written back to the same file in a whitespace-delimited format.
+
+Processing steps:
+1. Read the CSV file using whitespace as the delimiter.
+2. Assign column names: Time, CommandVoltage, Current.
+3. Remove duplicate rows.
+4. Sort rows by the Time column.
+5. Overwrite the original file with the cleaned data using space
+   separation and no header.
+
+Raises:
+    OSError: If the folder or files cannot be accessed.
+    pandas.errors.ParserError: If a CSV file cannot be parsed.
+"""
 import os
 import pandas as pd
 

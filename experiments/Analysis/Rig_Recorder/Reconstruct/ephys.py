@@ -3,6 +3,14 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 
 def extract_data_and_plot(file_path, output_path):
+    """
+    Parse a rig recorder CSV file and generate current–time plot images.
+    
+    Args:
+    file_path (str): Path to the input CSV file containing timestamped
+        current recordings.
+    output_path (str): Directory where generated plot images will be saved.
+    """
     print("Writing to:", output_path)
     i = 0
     previous_timestamp = None

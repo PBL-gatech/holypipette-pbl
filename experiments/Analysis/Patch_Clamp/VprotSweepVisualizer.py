@@ -3,6 +3,13 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 def plot_csv_folder(folder_path):
+    """
+    Generate plots for each CSV file in a folder and save them as PNG images.
+    
+    Args:
+    folder_path (str or Path): Path to the directory containing CSV files
+        to be plotted.
+    """
     folder = Path(folder_path)
     out_dir = folder / "plots"
     out_dir.mkdir(exist_ok=True)

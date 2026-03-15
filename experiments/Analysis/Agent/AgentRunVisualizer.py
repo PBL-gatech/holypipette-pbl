@@ -73,7 +73,19 @@ PRISM_TICK_PAD = 6
 
 
 def apply_prism_axes_style(ax):
-    """Apply consistent fonts, spine widths, and tick spacing."""
+    """
+    Apply consistent fonts, spine widths, and tick spacing.
+    
+    Args:
+        ax (matplotlib.axes.Axes): The Axes object to style.
+    
+        Returns:
+            matplotlib.spines.Spine: The left spine of the Axes after styling,
+                which can be further customized if needed.
+        
+        Raises:
+            AttributeError: If the provided `ax` does not have spines for tick_params.
+    """
     plt.rcParams.update(PRISM_RC_PARAMS)
     for side in ("right", "top"):
         ax.spines[side].set_visible(False)
@@ -92,7 +104,15 @@ def apply_prism_axes_style(ax):
 
 
 def normalize_method(name):
-    """Lowercase + spacing normalized method names for consistent comparisons."""
+    """
+    Lowercase + spacing normalized method names for consistent comparisons.
+    
+    Args:
+        name (Any): The input method name, which can be a string, float (NaN), or None.
+    
+    Returns:
+        str: A normalized string suitable for consistent comparisons.
+    """
     if name is None or (isinstance(name, float) and np.isnan(name)):
         return ""
     if pd.isna(name):
@@ -102,14 +122,34 @@ def normalize_method(name):
 
 
 def extract_first_int(s):
-    """Extract first integer from a string like 'attempt_12' -> 12 (or None)."""
+    """
+    Extract first integer from a string like 'attempt_12' -> 12 (or None).
+    
+    Args:
+        s (Any): Input string to search for an integer.
+
+    Returns:
+        int | None: The first integer found in the string, or None if no integer exists.
+    """
     s = str(s)
     m = re.search(r"-?\d+", s)
     return int(m.group(0)) if m else None
 
 
 def method_display_color(method_name: str, palette):
-    """Return a palette color (normalized by method name) or fallback."""
+    """
+    Return a palette color (normalized by method name) or fallback.
+    
+    Args:
+        method_name (str): The method name to look up.
+        palette (dict): Dictionary mapping normalized method names to hex colors.
+        
+    Returns:
+        str | None: The hex color corresponding to the method, or the fallback color.
+
+    Raises:
+        TypeError: If `palette` is not a dictionary. 
+    """
     if not palette:
         return None
     norm = normalize_method(method_name)
@@ -119,7 +159,15 @@ def method_display_color(method_name: str, palette):
 
 
 def build_method_palette(data: pd.DataFrame) -> dict:
-    """Assign each normalized method a color sampled from the cividis colormap."""
+    """
+    Assign each normalized method a color sampled from the cividis colormap.
+    
+    Args:
+        data (pd.DataFrame): DataFrame containing method names in column `METHOD_COL`.
+
+    Returns:
+        dict: Mapping of normalized method names to hex color codes, including "__fallback__".
+    """
     method_series = (
         data[METHOD_COL]
         .dropna()
@@ -151,7 +199,19 @@ def build_method_palette(data: pd.DataFrame) -> dict:
 
 
 def read_one_csv(path: Path) -> pd.DataFrame:
-    """Load one CSV and return parsed/filtered rows with a source_file column."""
+    """
+    Load one CSV and return parsed/filtered rows with a source_file column.
+    
+    Args:
+        path (Path): Path to the CSV file.
+    
+    Returns:
+        pd.DataFrame: Filtered DataFrame with columns [ATTEMPT_COL, METHOD_COL, START_COL, END_COL,
+                        "__start_ts__", "__end_ts__", "source_file"].
+   
+    Raises:
+        KeyError: If any required column (ATTEMPT_COL, METHOD_COL, START_COL, END_COL) is missing.
+    """
     df = pd.read_csv(path)
 
     # Fail fast if columns are missing
@@ -175,7 +235,25 @@ def read_one_csv(path: Path) -> pd.DataFrame:
 
 
 def load_folder(folder: Path) -> pd.DataFrame:
-    """Read all CSVs, concatenate, drop excluded methods, compute numeric attempt and labels."""
+    """
+    Read all CSVs, concatenate, drop excluded methods, compute numeric attempt and labels.
+    
+    Args:
+        folder (Path): Path to the folder containing CSV files to process.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing:
+            - Original CSV data with additional columns:
+                - "__method_norm__": Normalized method name.
+                - "__is_complete__": Boolean flag indicating whether the attempt contains all required methods.
+                - "__attempt_num__": Numeric attempt index for ordering.
+                - "__attempt_start__": Timestamp of the first start for the attempt.
+                - "__attempt_label__": Unique attempt label combining attempt number and first start time.
+
+    Raises:
+        FileNotFoundError: If no CSV files matching the pattern are found in the folder.
+        RuntimeError: If none of the CSV files contain valid rows with parseable start/end times.
+    """
     files = sorted(folder.glob(PATTERN))
     if not files:
         raise FileNotFoundError(f"No files matching {PATTERN!r} in {str(folder)!r}")
@@ -232,7 +310,23 @@ def load_folder(folder: Path) -> pd.DataFrame:
 
 
 def attempt_order(data: pd.DataFrame):
-    """Ordering: chronological by first start time; assign sequential attempt labels."""
+    """
+    Ordering: chronological by first start time; assign sequential attempt labels.
+    
+    Args:
+        data (pd.DataFrame): Input DataFrame containing experiment attempts with the
+            following required columns:
+                - "source_file": Source CSV or file identifier.
+                - ATTEMPT_COL: Original attempt identifier column.
+                - "__attempt_label__": Original unique attempt label.
+                - "__attempt_num__": Numeric attempt index.
+                - "__attempt_start__": Timestamp of the first start for the attempt.
+
+    Returns:
+        tuple[list[str], dict[str, str]]: 
+            - List of new sequential attempt labels in chronological order.
+            - Dictionary mapping original "__attempt_label__" values to the new sequential labels.
+    """
     order_meta = (
         data[["source_file", ATTEMPT_COL, "__attempt_label__", "__attempt_num__", "__attempt_start__"]]
         .drop_duplicates()
@@ -253,7 +347,21 @@ def draw_layered_by_method_datetime(
     out_path: Path,
     method_palette: dict,
 ):
-    """Combined Gantt with datetime x-axis; layer methods by total duration (longer first)."""
+    """
+    Combined Gantt with datetime x-axis; layer methods by total duration (longer first).
+    
+    Args:
+        data (pd.DataFrame): DataFrame containing attempt records with at least the columns:
+            - "__start_ts__": Attempt start datetime.
+            - "__end_ts__": Attempt end datetime.
+            - "__attempt_label__": Unique attempt label for plotting on the y-axis.
+            - "__is_complete__": Boolean indicating whether the attempt is complete.
+            - METHOD_COL: Method name associated with each attempt segment.
+        attempt_labels (list): Ordered list of attempt labels to display on the y-axis.
+        attempt_index (dict): Mapping from attempt labels to integer positions for plotting.
+        out_path (Path): File path where the resulting figure will be saved.
+        method_palette (dict): Mapping from method names to colors for consistent coloring.
+    """
     width_days = (data["__end_ts__"] - data["__start_ts__"]).dt.total_seconds() / (24 * 3600)
     data = data.assign(__width_days__=width_days)
 
@@ -334,7 +442,27 @@ def draw_zeroed_by_method_minutes(
     out_path: Path,
     method_palette: dict,
 ):
-    """Combined Gantt with x-axis in minutes since each attempt's first start (t=0 per attempt)."""
+    """
+    Combined Gantt with x-axis in minutes since each attempt's first start (t=0 per attempt).
+    
+    Args:
+        data (pd.DataFrame): DataFrame containing attempt records with at least the columns:
+            - "__start_ts__": Attempt start datetime.
+            - "__end_ts__": Attempt end datetime.
+            - "__attempt_start__": First start datetime of the attempt for zeroing the x-axis.
+            - "__attempt_label__": Unique attempt label for plotting on the y-axis.
+            - "__is_complete__": Boolean indicating whether the attempt is complete.
+            - METHOD_COL: Method name associated with each attempt segment.
+        attempt_labels (list): Ordered list of attempt labels to display on the y-axis.
+        attempt_index (dict): Mapping from attempt labels to integer positions for plotting.
+        out_path (Path): File path where the resulting figure will be saved.
+        method_palette (dict): Mapping from method names to colors for consistent coloring.
+
+    Raises:
+        KeyError: If any required columns ("__start_ts__", "__end_ts__", "__attempt_start__",
+            "__attempt_label__", "__is_complete__", METHOD_COL) are missing from the DataFrame.
+        ValueError: If `attempt_labels` or `attempt_index` do not align with the DataFrame's attempts.
+    """
     left_min  = (data["__start_ts__"] - data["__attempt_start__"]).dt.total_seconds() / 60.0
     right_min = (data["__end_ts__"]   - data["__attempt_start__"]).dt.total_seconds() / 60.0
     data = data.assign(__left_min__=left_min, __width_min__=(right_min - left_min))
@@ -419,7 +547,25 @@ def draw_average_attempt_gantt(
     out_path: Path,
     method_palette: dict,
 ):
-    """Single-row Gantt showing the mean timing and annotating per-method duration SD."""
+    """
+    Single-row Gantt showing the mean timing and annotating per-method duration SD.
+    
+    Args:
+        data (pd.DataFrame): DataFrame containing attempt records with at least the columns:
+            - "__start_ts__": Attempt start datetime.
+            - "__end_ts__": Attempt end datetime.
+            - "__attempt_start__": First start datetime of the attempt for zeroing the x-axis.
+            - "__is_complete__": Boolean indicating whether the attempt is complete.
+            - METHOD_COL: Method name associated with each attempt segment.
+        out_path (Path): File path where the resulting figure will be saved.
+        method_palette (dict): Mapping from method names to colors for consistent coloring.
+
+    Raises:
+        RuntimeError: If there are no complete attempts with finite durations to compute 
+            the average Gantt or if the resulting summary after grouping by method is empty.
+        KeyError: If any required columns ("__start_ts__", "__end_ts__", "__attempt_start__", 
+            "__is_complete__", METHOD_COL) are missing from the DataFrame.
+    """
     left_sec = (data["__start_ts__"] - data["__attempt_start__"]).dt.total_seconds()
     right_sec = (data["__end_ts__"] - data["__attempt_start__"]).dt.total_seconds()
     data = data.assign(__left_sec__=left_sec, __width_sec__=(right_sec - left_sec))
@@ -508,7 +654,21 @@ def draw_cumulative_success_rate(
     attempt_labels: list,
     out_path: Path,
 ):
-    """Plot cumulative success rate vs attempt index (Attempt 1..N)."""
+    """
+    Plot cumulative success rate vs attempt index (Attempt 1..N).
+    
+    Args:
+        data (pd.DataFrame): DataFrame containing at least the columns:
+            - "__attempt_label__": Unique attempt identifier.
+            - "__is_complete__": Boolean indicating if the attempt was successfully completed.
+        attempt_labels (list): Ordered list of attempt labels corresponding to the x-axis.
+        out_path (Path): File path to save the generated figure.
+
+    Raises:
+        RuntimeError: If `attempt_labels` is empty.
+        KeyError: If required columns "__attempt_label__" or "__is_complete__" are missing 
+            from `data`.
+    """
     if not attempt_labels:
         raise RuntimeError("No attempts available to plot cumulative success rate.")
 
@@ -652,6 +812,23 @@ def draw_cumulative_success_rate(
 
 
 def main():
+    """
+    Generate visualizations summarizing attempt method activity.
+
+    Loads attempt data from 'FOLDER', prepares method color assignments
+    and attempt ordering, and generates several plots that describe the 
+    timing and outcomes of methods across attempts.
+
+    The following visualizations are produced:
+
+    1. Layered Gantt chart by method using absolute timestamps.
+    2. Layered Gantt chart by method with attempts zeroed to start time.
+    3. Average attempt Gantt chart showing mean timing of methods.
+    4. Cumulative success rate plot across attempts.
+
+    Each plot is written to its corresponding output path:
+    'OUT_TIME', 'OUT_ZEROED', 'OUT_AVERAGE', and 'OUT_SUCCESS'.
+    """
     data = load_folder(FOLDER)
     method_palette = build_method_palette(data)
     attempt_labels, label_map = attempt_order(data)

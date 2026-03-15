@@ -13,7 +13,15 @@ DEFAULT_VOLTAGE_PROTOCOL_FOLDER = Path(
 )
 
 def robust_read(path: Path) -> pd.DataFrame:
-    """Try several common CSV dialects before normalizing whitespace runs to commas."""
+    """
+    Try several common CSV dialects before normalizing whitespace runs to commas.
+    
+    Args:
+        path (Path): Path to the CSV file to read.
+
+    Returns:
+        pd.DataFrame: DataFrame containing the parsed CSV data.
+    """
     # 1) Let pandas sniff the delimiter
     try:
         df = pd.read_csv(path, engine="python", sep=None, header=None)
@@ -45,6 +53,16 @@ def robust_read(path: Path) -> pd.DataFrame:
 
 
 def looks_like_number(s) -> bool:
+    """
+    Determine whether a value can be interpreted as a numeric value.
+
+    Args:
+        s (Any): Value to test for numeric convertibility.
+
+    Returns:
+        bool: True if the value can be converted to a float, otherwise False.
+    """
+
     try:
         float(str(s))
         return True
@@ -53,6 +71,20 @@ def looks_like_number(s) -> bool:
 
 
 def load_trace(csv_path: Path) -> Optional[pd.DataFrame]:
+    """
+    Load and clean a voltage trace from a CSV file.
+
+    Args:
+        csv_path (Path): Path to the CSV file containing trace data.
+
+    Returns:
+        Optional[pd.DataFrame]:
+            A cleaned DataFrame with columns:
+                - x (time values)
+                - y (response values)
+            Returns None if the file does not contain valid trace data.
+
+    """
     df = robust_read(csv_path)
 
     # If headers look numeric, rename them to generic names
@@ -83,6 +115,23 @@ def load_trace(csv_path: Path) -> Optional[pd.DataFrame]:
 
 
 def collect_voltage_traces(folder: Path) -> List[Tuple[Path, pd.DataFrame]]:
+    """
+    Collect usable voltage traces from CSV files within a folder.
+
+    Args:
+        folder (Path): Directory containing CSV files with voltage
+            protocol recordings.
+
+    Returns:
+        List[Tuple[Path, pd.DataFrame]]:
+            A list of tuples where each tuple contains:
+                - Path to the CSV file
+                - Cleaned DataFrame containing the trace data.
+
+    Raises:
+        FileNotFoundError: If no CSV files are found in the folder.
+        ValueError: If CSV files exist but none contain usable trace data.
+    """
     csv_files = sorted(p for p in folder.glob("*.csv") if p.is_file())
     if not csv_files:
         raise FileNotFoundError(f"No CSV files found in {folder}")
@@ -100,6 +149,19 @@ def collect_voltage_traces(folder: Path) -> List[Tuple[Path, pd.DataFrame]]:
 
 
 def plot_voltage_traces(traces: List[Tuple[Path, pd.DataFrame]], outfile: Path) -> None:
+    """
+    Plot multiple voltage traces and save the figure to a file.
+
+    Args:
+        traces (List[Tuple[Path, pd.DataFrame]]): List of trace data
+            where each entry contains the source file path and a
+            DataFrame with 'x' (time) and 'y' (response) columns.
+        outfile (Path): Path where the generated figure will be saved.
+
+    Raises:
+        OSError: If the output file cannot be written.
+        ValueError: If the traces list is empty or improperly formatted.
+    """
     plt.rcParams.update({
         "font.family": "sans-serif",
         "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],
@@ -144,6 +206,19 @@ def plot_voltage_traces(traces: List[Tuple[Path, pd.DataFrame]], outfile: Path) 
 
 
 def main(folder: str, outfile: Optional[str] = None) -> None:
+    """
+    Run the voltage protocol visualization pipeline.
+
+    Args:
+        folder (str): Path to the directory containing voltage
+            protocol CSV files.
+        outfile (Optional[str]): Optional path for the output figure.
+            If not provided, a file named "voltage_protocol.png"
+            will be saved inside the input folder.
+
+    Raises:
+        NotADirectoryError: If the provided folder path is not a directory.
+    """
     folder_path = Path(folder)
     if not folder_path.is_dir():
         raise NotADirectoryError(f"{folder} is not a directory.")

@@ -4,6 +4,22 @@ import scipy.optimize
 
 # Step 1: Read in the data
 def read_data(file_path):
+    """
+    Load and preprocess electrophysiology data from a tab-delimited file.
+
+    Performs the following steps:
+    - Reads the file with columns 'Color', 'X', 'Y'.
+    - Splits and cleans the 'Color' column if it contains extra values.
+    - Drops rows with missing values.
+    - Sorts by the X column and shifts X values to start at zero.
+    - Converts X from seconds to milliseconds and Y from amps to picoamps.
+
+    Args:
+        file_path (str | Path): Path to the tab-delimited data file.
+
+    Returns:
+        pd.DataFrame: Preprocessed DataFrame with columns ['Color', 'X', 'Y', 'X_ms', 'Y_pA'].
+    """
     data = pd.read_csv(file_path, sep='\t', header=None, names=['Color', 'X', 'Y'])
     # Cleaning the data by splitting and removing unnecessary spaces
     data[['Color', 'X', 'Y']] = data['Color'].str.split(expand=True)
@@ -20,6 +36,29 @@ def read_data(file_path):
     return data
 
 def filter_data(data):
+    """
+    Filter electrophysiology data to isolate post-peak decay and remove outliers.
+
+    Performs three main steps:
+    1. **Decay filter:** Extracts the segment between the response peak and minimum,
+    computes the first derivative, and removes points with extreme negative changes.
+    2. **Pre-peak filter:** Excludes pre-peak points exceeding three standard deviations
+    below the peak to estimate baseline mean.
+    3. **Post-peak filter:** Further cleans the post-peak segment to remove outliers and
+    computes the mean filtered current.
+
+    Args:
+        data (pd.DataFrame): DataFrame containing columns 'X_ms' and 'Y_pA'.
+
+    Returns:
+        tuple:
+            filtered_sub_data (pd.DataFrame): Cleaned post-peak segment used for fitting.
+            pre_peak_data (pd.DataFrame): Filtered pre-peak data.
+            post_peak_data (pd.DataFrame): Filtered post-peak data after derivative-based cleaning.
+            peak_info (list): [peak_time, peak_index, min_time, min_index].
+            mean_filtered_pre_peak (float): Mean of pre-peak filtered current.
+            mean_filtered_post_peak (float): Mean of post-peak filtered current.
+    """
     # Decay filter part
     peak_index = data['Y_pA'].idxmax()
     peak_time = data.loc[peak_index, 'X_ms']
@@ -55,9 +94,39 @@ def filter_data(data):
     return filtered_sub_data, pre_peak_data, post_peak_data, [peak_time, peak_index, min_time, min_index], mean_filtered_pre_peak, mean_filtered_post_peak
 
 def monoExp(x, m, t, b):
+    """
+    Compute a monoexponential decay model.
+
+    Args:
+        x (array-like | float): Independent variable values.
+        m (float): Amplitude scaling coefficient.
+        t (float): Decay rate constant.
+        b (float): Baseline offset.
+
+    Returns:
+        np.ndarray | float: Model output evaluated at `x`.
+    """
     return m * np.exp(-t * x) + b
 
 def optimizer(filtered_data):
+    """
+    Fit a monoexponential decay to filtered electrophysiology data using curve fitting.
+
+    Shifts the time axis to start at zero and applies `scipy.optimize.curve_fit` with
+    an initial guess to estimate the parameters of the function `m * exp(-t * x) + b`.
+
+    Args:
+        filtered_data (pd.DataFrame): DataFrame containing 'X_ms' (time in ms) and 
+            'Y_pA' (current in pA) for fitting.
+
+    Returns:
+        tuple[float | None, float | None, float | None]: Estimated parameters (m, t, b).
+            Returns (None, None, None) if fitting fails.
+
+    Raises:
+        RuntimeError: If curve fitting fails due to incompatible data or convergence issues.
+        KeyError: If required columns ('X_ms', 'Y_pA') are missing from `filtered_data`.
+    """
     start = filtered_data['X_ms'].iloc[0]
     # Shift the data to start at 0
     filtered_data['X_ms'] = filtered_data['X_ms'] - start
@@ -71,6 +140,26 @@ def optimizer(filtered_data):
         return None, None, None
 
 def calc_param(tau, dV, I_peak, I_prev, I_ss):
+    """
+    Calculate electrophysiological parameters from current response and voltage step.
+
+    Computes:
+    - Access resistance (R_a) in MΩ.
+    - Membrane resistance (R_m) in MΩ.
+    - Membrane capacitance (C_m) in pF.
+
+    All calculations use standard biophysical formulas, converting units as necessary.
+
+    Args:
+        tau (float): Time constant from exponential fit (ms).
+        dV (float): Voltage step (mV).
+        I_peak (float): Peak response current (pA).
+        I_prev (float): Pre-peak baseline current (pA).
+        I_ss (float): Steady-state post-peak current (pA).
+
+    Returns:
+        tuple[float, float, float]: Calculated parameters (R_a_MOhms, R_m_MOhms, C_m_pF).
+    """
     tau_s = tau / 1000  # Convert ms to seconds
     dV_V = dV * 1e-3  # Convert mV to V
     I_d = I_peak - I_prev  # in pA

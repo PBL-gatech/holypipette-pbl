@@ -373,8 +373,15 @@ class _StateDatasetContext:
 # ---------------------------------------------------------------------------
 
 def _slugify_state_name(name: str) -> str:
-    """Return a filesystem friendly slug for a state name."""
+    """
+    Return a filesystem friendly slug for a state name.
+    
+    Args:
+        name (str): State name to convert.
 
+    Returns:
+        str: Filesystem-friendly slug derived from the input name.
+    """
     cleaned = name.strip().lower().replace(" ", "_")
     slug = ''.join(ch if (ch.isalnum() or ch == '_') else '_' for ch in cleaned)
     slug = slug.strip('_')
@@ -382,14 +389,29 @@ def _slugify_state_name(name: str) -> str:
 
 
 def _stable_int_seed(*parts: object) -> int:
-    """Create a deterministic 32-bit integer seed from arbitrary parts."""
+    """
+    Create a deterministic 32-bit integer seed from arbitrary parts.
+    
+    Args:
+        *parts (object): Components used to construct the deterministic seed.
+
+    Returns:
+        int: Deterministic 32-bit integer seed.
+    """
     data = ("||".join(map(str, parts))).encode("utf-8")
     return int.from_bytes(hashlib.sha256(data).digest()[:4], "big")
 
 
 def _shift_forward(arr: np.ndarray) -> np.ndarray:
-    """Return a copy of ``arr`` shifted left with the final element repeated."""
+    """
+    Return a copy of ``arr`` shifted left with the final element repeated.
+    
+    Args:
+        arr (np.ndarray): Input NumPy array.
 
+    Returns:
+        np.ndarray: Shifted copy of the input array.
+    """
     out = np.empty_like(arr)
     out[:-1] = arr[1:]
     out[-1] = arr[-1]
@@ -401,8 +423,18 @@ def _read_csv_with_fallback(
     encodings: Sequence[str] = ("utf-8", "utf-8-sig", "cp1252", "latin-1"),
     **kwargs,
 ) -> pd.DataFrame:
-    """Load a CSV trying multiple encodings before replacing undecodable bytes."""
-
+    """
+    Load a CSV trying multiple encodings before replacing undecodable bytes.
+    
+    Args:
+        path (Path): Path to the CSV file.
+        encodings (Sequence[str], optional): Encodings to attempt in order.
+            Defaults to ("utf-8", "utf-8-sig", "cp1252", "latin-1:).
+        **kwargs: Additional keyword arguments passed to `pands.read_csv`.
+    
+    Returns:
+        pd.DataFrame: Parsed CSV data.
+    """
     last_error: Optional[Exception] = None
     for encoding in encodings:
         try:
@@ -421,8 +453,16 @@ def _read_csv_with_fallback(
 
 
 def _parse_waveform_column(column: Sequence[str]) -> np.ndarray:
-    """Parse JSON-encoded voltage/current columns and pad to equal length."""
+    """
+    Parse JSON-encoded voltage/current columns and pad to equal length.
+    
+    Args:
+        column (Sequence[str]): Iterable of JSON strings representing numeric lists.
 
+    Returns:
+        np.ndarray: 2D NumPy array of shape (n_rows, max_length) containing the
+            parsed and padded waveforms as float64 values.
+    """
     lists = [json.loads(value) for value in column]
     max_len = max(len(lst) for lst in lists)
     padded = [lst + [lst[-1]] * (max_len - len(lst)) for lst in lists]
@@ -430,8 +470,17 @@ def _parse_waveform_column(column: Sequence[str]) -> np.ndarray:
 
 
 def _resolve_dataset_paths(dataset_name: str) -> Tuple[Path, Path]:
-    """Return dataset directory and HDF5 file path for ``dataset_name``."""
-
+    """
+    Return dataset directory and HDF5 file path for ``dataset_name``.
+    
+    Args:
+        dataset_name (str): Dataset name or relative path.
+    
+    Returns:
+        Tuple[Path, Path]: 
+            - dataset_dir: Directory containing the dataset.
+            - dataset_path: Path to the dataset HDF5 file.
+    """
     datasets_root = Path("experiments/Datasets")
     name_path = Path(dataset_name)
     file_name = name_path.name
@@ -442,8 +491,19 @@ def _resolve_dataset_paths(dataset_name: str) -> Tuple[Path, Path]:
 
 
 def _ensure_dataset_stub(dataset_name: str, create_file: bool = False) -> Tuple[Path, Path]:
-    """Ensure dataset directory exists and optionally prepare an empty HDF5 stub."""
-
+    """
+    Ensure dataset directory exists and optionally prepare an empty HDF5 stub.
+    
+    Args:
+        dataset_name (str): Dataset name or path used to resolve storage location.
+        create_file (bool, optional): Whether to create an empty dataset file
+            if one does not exist. Defaults to False.
+    
+    Returns:
+        Tuple[Path, Path]:
+            - dataset_dir: Directory where the dataset resides.
+            - dataset_path: Full path to the dataset HDF5 file.
+    """
     dataset_dir, dataset_path = _resolve_dataset_paths(dataset_name)
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
@@ -460,23 +520,37 @@ def _ensure_dataset_stub(dataset_name: str, create_file: bool = False) -> Tuple[
 
 
 class CalibrationMixin:
-    """Retains the calibration-related API, mirroring DatasetBuilder."""
-
+    """
+    Retains the calibration-related API, mirroring DatasetBuilder.
+    
+    Attributes:
+        calfile (Optional[str]): Path to the calibration file containing
+            the transformation matrix or parameters.
+        calibrate (bool): Flag indicating whether calibration should be
+            applied during dataset processing.
+    """
     calfile: Optional[str]
     calibrate: bool
 
     def load_calfile(
         self,
     ) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]:
-        """Load and cache calibration transforms for stage and pipette."""
-
+        """
+        Load and cache calibration transforms for stage and pipette.
+        
+        Returns:
+            Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]:
+            A tuple containing:
+                - stage_cal: Parsed calibration transform for stage coordinates
+                - pip_cal: Parsed calibration transform for pipette/manipulator coordinates
+            ``(None, None)`` if calibration is disabled, the file is missing, or parsing fails.
+        """
         if not getattr(self, "calibrate", False) or not self.calfile:
             return None, None
 
         cache = getattr(self, "_calibration_cache", None)
         if cache is not None:
             return cache
-
         path = Path(self.calfile)
         if not path.exists():
             self._emit_calibration_warning(f"no calibration matrix found in {path}!")
@@ -519,8 +593,12 @@ class CalibrationMixin:
         return self._calibration_cache
 
     def _emit_calibration_warning(self, message: str) -> None:
-        """Print a calibration warning once per builder instance."""
-
+        """
+        Print a calibration warning once per builder instance.
+        
+        Args:
+            message (str): Warning message describing the calibration issue.
+        """
         if not getattr(self, "_calibration_warning_emitted", False):
             print(message)
             print("passing uncalibrated inputs...")
@@ -529,8 +607,18 @@ class CalibrationMixin:
     def _parse_calibration_entry(
         self, entry: Optional[Dict[str, Any]]
     ) -> Optional[Dict[str, np.ndarray]]:
-        """Convert a calibration dictionary into numeric matrices."""
+        """
+        Convert a calibration dictionary into numeric matrices.
+        
+        Args:
+            entry (Optional[Dict[str, Any]]): Calibration entry containing keys
+                such as ``"M"`` (matrix) and optionally ``"r0"`` (offset).
 
+        Returns:
+            Optional[Dict[str, np.ndarray]]: Dictionary containing:
+                - "matrix": transformation matrix
+                - "offset": translation/offset vector
+        """
         if not entry:
             return None
 
@@ -571,8 +659,24 @@ class CalibrationMixin:
         pipette_positions: np.ndarray,
         transforms: Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]],
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Convert stage/pipette coordinates into calibrated pixel space."""
-
+        """
+        Convert stage/pipette coordinates into calibrated pixel space.
+        
+        Args:
+            stage_positions (np.ndarray): Array of stage coordinates with shape
+                (N, D), where N is the number of samples and D is the number
+                of coordinate dimensions.
+            pipette_positions (np.ndarray): Array of pipette/manipulator
+                coordinates with shape (N, D).
+            transforms (Tuple[Optional[Dict[str, np.ndarray]],
+                            Optional[Dict[str, np.ndarray]]]):
+                Tuple containing calibration transforms for:
+                    - stage coordinates
+                    - pipette/manipulator coordinates
+        Returns:
+            Tuple[np.ndarray, np.ndarray]:
+                Calibrated stage and pipette coordinate arrays in pixel space.
+        """
         stage_pixels = np.asarray(stage_positions, dtype=np.float64).copy()
         pipette_pixels = np.asarray(pipette_positions, dtype=np.float64).copy()
 
@@ -603,14 +707,26 @@ class CalibrationMixin:
         *,
         pipette_in_stage_frame: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Convert stage/pipette coordinates into calibrated pixel space.
+        """
+        Convert stage/pipette coordinates into calibrated pixel space.
 
         When ``pipette_in_stage_frame`` is ``True`` the pipette coordinates are
         assumed to already live in the stage frame (e.g. after
         ``_transform_pipette_positions``) so the stage calibration, when
         available, is reused for the pipette as well.
+        
+        Args:
+            stage_positions (np.ndarray): Stage coordinate array of shape (N, D).
+            pipette_positions (np.ndarray): Pipette/manipulator coordinate array
+                of shape (N, D).
+            pipette_in_stage_frame (bool, optional): If True, apply the stage
+                calibration transform to both stage and pipette coordinates.
+        
+        Returns:
+            Tuple[np.ndarray, np.ndarray]:
+                Tuple containing the calibrated stage and pipette coordinates
+                in pixel space.
         """
-
         stage_cal, pip_cal = self.load_calfile()
         if stage_cal is None and pip_cal is None:
             return stage_positions, pipette_positions
@@ -623,10 +739,17 @@ class CalibrationMixin:
         return self.apply_transform(stage_positions, pipette_positions, (stage_cal, pip_transform))
 
 class RandomFilterMixin:
-    """Albumentations augmentation wrapper kept functionally identical."""
-
+    """
+    Albumentations augmentation wrapper kept functionally identical.
+    """
     def __init__(self, settings: DatasetBuilderSettings):
-        """Configure Albumentations filters from :class:`DatasetBuilderSettings`."""
+        """
+        Configure Albumentations filters from :class:`DatasetBuilderSettings`.
+        
+        Args:
+            settings (DatasetBuilderSettings): Settings object that defines random seed,
+                filter parameters, and probability of applying the filter.
+        """
         self._filter_settings = settings.filter
         self._rng_seed = settings.random_seed
         self._albu_filter = None
@@ -657,15 +780,14 @@ class RandomFilterMixin:
     def begin_filter_context(self, split_label: str, demo_seed: int) -> None:
         """Prepare Albumentations state for a demo.
 
-        Parameters
-        ----------
-        split_label:
-            Either ``"train"`` or ``"valid"`` to indicate which dataset split
-            the demo belongs to.  The flag controls whether filtering is
-            enabled when ``filter_train_only`` is set.
-        demo_seed:
-            Integer seed that keeps per-demo replay filters deterministic when
-            ``filter_same_per_demo`` is active.
+        Args:
+            split_label (str):
+                Either ``"train"`` or ``"valid"`` to indicate which dataset split
+                the demo belongs to.  The flag controls whether filtering is
+                enabled when ``filter_train_only`` is set.
+            demo_seed (int):
+                Integer seed that keeps per-demo replay filters deterministic when
+                ``filter_same_per_demo`` is active.
         """
         cfg = self._filter_settings
         if not cfg.enable_random_filter or (
@@ -710,17 +832,15 @@ class RandomFilterMixin:
     def apply_albu_filter_to_pil(self, pil_image: Image.Image) -> Image.Image:
         """Apply the configured Albumentations pipeline to a PIL image.
 
-        Parameters
-        ----------
-        pil_image:
-            RGB or grayscale :class:`PIL.Image.Image` frame from the rig
-            recorder dataset.
+        Args:
+            pil_image (Image.Image):
+                RGB or grayscale :class:`PIL.Image.Image` frame from the rig
+                recorder dataset.
 
-        Returns
-        -------
-        PIL.Image.Image
-            The potentially augmented frame.  If filtering is disabled the
-            input image object is returned unchanged.
+        Returns:
+            PIL.Image.Image
+                The potentially augmented frame.  If filtering is disabled the
+                input image object is returned unchanged.
         """
         if not self._filter_active_for_demo:
             return pil_image
@@ -748,12 +868,11 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     def __init__(self, **kwargs):
         """Initialise the builder with keyword arguments from DatasetBuilder.
 
-        Parameters
-        ----------
-        **kwargs:
-            Any parameter accepted by the legacy :class:`DatasetBuilder`
-            constructor.  See :class:`DatasetBuilderSettings` for the full list
-            and default values.
+        Args:
+            **kwargs:
+                Any parameter accepted by the legacy :class:`DatasetBuilder`
+                constructor.  See :class:`DatasetBuilderSettings` for the full list
+                and default values.
         """
         settings = DatasetBuilderSettings(**kwargs)
         self.settings = settings
@@ -831,8 +950,25 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
                 obs.include_pipette = False
 
     def _ensure_state_context(self, state_name: str) -> _StateDatasetContext:
-        """Create or return cached dataset bookkeeping for ``state_name``."""
+        """
+        Create or return cached dataset bookkeeping for ``state_name``.
+        
+        Args:
+            state_name (str): Name of the dataset state (e.g., experimental condition).
+                This name will be slugified to create filesystem-friendly identifiers.
 
+        Returns:
+            _StateDatasetContext: Context object storing all bookkeeping information
+                for the given state, including:
+                    - state_name: slugified state name
+                    - dataset_name: HDF5 filename for the state
+                    - dataset_dir: directory path for the dataset
+                    - dataset_path: full path to the HDF5 file
+                    - metadata_filename: name of the JSON metadata file
+                    - split_keys: dictionary containing 'train' and optionally 'valid' keys
+                    - processed_folders: list of folders already processed (from metadata)
+  
+        """
         slug = _slugify_state_name(state_name)
         if slug in self._state_contexts:
             return self._state_contexts[slug]
@@ -866,8 +1002,19 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
 
     @contextmanager
     def _use_state_context(self, state_name: str):
-        """Temporarily switch builder bookkeeping to a state-specific dataset."""
-
+        """
+        Temporarily switch builder bookkeeping to a state-specific dataset.
+        
+        Args:
+            state_name (str): Name of the dataset state to use temporarily. This
+                state will be slugified and its context retrieved or created via
+                `_ensure_state_context`.
+        
+        Yields:
+            None: All operations inside the context block operate on the state-specific
+            dataset. No explicit value is returned; the context only manages state
+            switching and restoration.
+        """
         context = self._ensure_state_context(state_name)
         original_name = self.dataset_name
         original_dir = self.dataset_dir
@@ -899,18 +1046,16 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     ) -> np.ndarray:
         """Express pipette coordinates in the stage frame.
 
-        Parameters
-        ----------
-        stage_positions:
-            Array of stage XYZ coordinates for each timestep.
-        pipette_positions:
-            Array of manipulator XYZ coordinates for each timestep.
+        Args:
+            stage_positions (np.ndarray):
+                Array of stage XYZ coordinates for each timestep.
+            pipette_positions (np.ndarray):
+                Array of manipulator XYZ coordinates for each timestep.
 
-        Returns
-        -------
-        np.ndarray
-            Pipette coordinates translated into the stage frame while keeping
-            the Z axis untouched.
+        Returns:
+            np.ndarray
+                Pipette coordinates translated into the stage frame while keeping
+                the Z axis untouched.
         """
         stage_adj = stage_positions.copy()
         if self.stage_y_axis_flip and stage_adj.shape[1] >= 2:
@@ -932,7 +1077,17 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     # --- rotation helpers -------------------------------------------------
     @staticmethod
     def _rotate_positions(positions: np.ndarray, angle_degrees: float) -> np.ndarray:
-        """Rotate XY coordinates by ``angle_degrees`` while keeping Z intact."""
+        """
+        Rotate XY coordinates by ``angle_degrees`` while keeping Z intact.
+        
+        Args:
+            positions (np.ndarray): Array of shape (N, >=2) representing XY(Z...) coordinates.
+            angle_degrees (float): Rotation angle in degrees. Positive values rotate counter-clockwise.
+
+        Returns:
+            np.ndarray: New array of the same shape with XY coordinates rotated,
+                other dimensions unchanged.   
+        """
         rad = np.deg2rad(angle_degrees)
         cos_val, sin_val = np.cos(rad), np.sin(rad)
         rotated = positions.copy()
@@ -941,7 +1096,16 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return rotated
 
     def _rotate_actions(self, actions: np.ndarray, angle_degrees: float) -> np.ndarray:
-        """Rotate stage and pipette XY velocity components by ``angle_degrees``."""
+        """
+        Rotate stage and pipette XY velocity components by ``angle_degrees``.
+        
+        Args:
+            actions (np.ndarray): Array of shape (N, M) containing action vectors.
+            angle_degrees (float): Rotation angle in degrees. Positive values rotate counter-clockwise.
+
+        Returns:
+            np.ndarray: New array of the same shape with XY velocity components rotated.
+        """
         rad = np.deg2rad(angle_degrees)
         cos_val, sin_val = np.cos(rad), np.sin(rad)
         actions_rot = actions.copy()
@@ -975,7 +1139,16 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
 
     # --- filtering --------------------------------------------------------
     def filter_inactive_actions(self, actions: np.ndarray, *arrays: np.ndarray) -> tuple:
-        """Drop contiguous segments where all action components remain zero."""
+        """
+        Drop contiguous segments where all action components remain zero.
+        
+        Args:
+            actions (np.ndarray): Array of shape (N, M) representing action vectors.
+            *arrays (np.ndarray): Optional additional arrays aligned with `actions` to filter simultaneously.
+
+        Returns:
+            tuple: Tuple containing filtered `actions` and the additional arrays in the same order.
+        """
         if self.inaction == 0:
             return (actions,) + arrays
 
@@ -995,7 +1168,17 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return filtered
 
     def _decimate_by_step(self, *arrays: Optional[np.ndarray], keep_last: bool = True):
-        """Downsample arrays and return the shared index used for decimation."""
+        """
+        Downsample arrays and return the shared index used for decimation.
+        
+        Args:
+            *arrays (Optional[np.ndarray]): Arrays to decimate; can include None.
+            keep_last (bool): Whether to always include the last element in the downsample.
+
+        Returns:
+            tuple: Tuple of downsampled arrays (or None if original was None) and the decimation indices (np.ndarray) used.
+
+        """
         step = self.frequency_mod
         if step <= 1:
             return arrays, None
@@ -1022,7 +1205,20 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     def _aggregate_actions_over_windows(
         self, actions: np.ndarray, idx: Optional[np.ndarray], mode: str = "sum"
     ) -> np.ndarray:
-        """Aggregate action vectors between successive decimated indices."""
+        """
+        Aggregate action vectors between successive decimated indices.
+        
+        Args:
+            actions (np.ndarray): Array of shape (N, M) representing action vectors.
+            idx (Optional[np.ndarray]): Indices that define window start positions.
+            mode (str): Aggregation mode, either 'sum' (sum within windows) or 'last' 
+                (take last element in window).
+
+        Returns:
+            np.ndarray: Aggregated action vectors of shape (len(idx), M) 
+                if idx is provided, else original `actions`.
+
+        """
         if idx is None or len(idx) == 0:
             return actions
 
@@ -1045,7 +1241,17 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         pipette_positions: np.ndarray,
         displacement: float,
     ) -> Optional[np.ndarray]:
-        """Return indices ensuring each retained step exceeds the displacement threshold."""
+        """
+        Return indices ensuring each retained step exceeds the displacement threshold.
+        
+        Args:
+            stage_positions (np.ndarray): Array of shape (N, 3) of stage coordinates.
+            pipette_positions (np.ndarray): Array of shape (N, 3) of pipette coordinates.
+            displacement (float): Minimum Euclidean displacement to retain a step.
+
+        Returns:
+            Optional[np.ndarray]: Array of selected indices, or None if all positions are retained.
+        """
         if displacement <= 0 or stage_positions.shape[0] <= 1:
             return None
 
@@ -1078,7 +1284,18 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         attempt_graph_values: np.ndarray,
         attempt_movement_values: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Downsample attempt arrays according to the minimum displacement rule."""
+        """
+        Downsample attempt arrays according to the minimum displacement rule.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Array of graph/voltage/current
+                values aligned with movements.
+            attempt_movement_values (np.ndarray): Array of movement data including
+                stage and pipette positions.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Downsampled graph and movement arrays.
+        """
         displacement = abs(getattr(self, "displacement", 0.0))
         if displacement <= 0 or attempt_movement_values.shape[0] <= 1:
             return attempt_graph_values, attempt_movement_values
@@ -1096,10 +1313,9 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     def convert_graph_recording_csv_to_new_format(self, demo_file_path: str) -> None:
         """Rewrite ``graph_recording.csv`` with semicolon-separated fields.
 
-        Parameters
-        ----------
-        demo_file_path:
-            Name of the rig-recorder folder containing ``graph_recording.csv``.
+        Args:
+            demo_file_path (str):
+                Name of the rig-recorder folder containing ``graph_recording.csv``.
         """
         file_path = Path("experiments/Data/rig_recorder_data") / demo_file_path / "graph_recording.csv"
         graph_values = pd.read_csv(file_path, delimiter=":")
@@ -1121,7 +1337,13 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         print(pd.read_csv(file_path, delimiter=";"))
 
     def convert_movement_recording_csv_to_new_format(self, demo_file_path: str) -> None:
-        """Rewrite ``cv_movement_recording.csv`` into the new semicolon format."""
+        """
+        Rewrite ``cv_movement_recording.csv`` into the new semicolon format.
+        
+        Args:
+            demo_file_path (str): Relative folder name under 
+                `experiments/Data/rig_recorder_data` where the CSV is located.
+        """
         file_path = Path("experiments/Data/rig_recorder_data") / demo_file_path / "cv_movement_recording.csv"
         movement_values = pd.read_csv(file_path, delimiter=":")
 
@@ -1147,7 +1369,22 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     def load_experiment_data(
         self, rig_recorder_data_folder: str
     ) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
-        """Load graph, movement, and log tables for a given experiment folder."""
+        """
+        Load graph, movement, and log tables for a given experiment folder.
+        
+        Args:
+            rig_recorder_data_folder (str): The folder name under
+                `experiments/Data/rig_recorder_data` corresponding to the experiment.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+                - graph_values: NumPy array containing the graph recording.
+                - movement_values: NumPy array containing the movement recording.
+                - log_values: Pandas DataFrame with log data (loaded with encoding fallbacks).
+
+        Raises:
+            FileNotFoundError: If no movement recording file is found in the folder.
+        """
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder
         graph_values = pd.read_csv(base / "graph_recording.csv", delimiter=";").to_numpy()
         movement_path = None
@@ -1171,7 +1408,18 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         experiment_first_timestamp: float,
         experiment_last_timestamp: float,
     ) -> List[Tuple[float, float]]:
-        """Return (start, end) timestamps for each recording within a session."""
+        """
+        Return (start, end) timestamps for each recording within a session.
+        
+        Args:
+            log_values (pd.DataFrame): Log table containing "Time(HH:MM:SS)", "Time(ms)", and "Message" columns.
+            experiment_first_timestamp (float): Unix timestamp marking the start of the experiment.
+            experiment_last_timestamp (float): Unix timestamp marking the end of the experiment.
+
+        Returns:
+            List[Tuple[float, float]]: List of (start, end) timestamp pairs for each recording found in the logs.
+
+        """
         started_mask = log_values["Message"].str.contains(
             "Recording started", na=False
         )
@@ -1223,8 +1471,19 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         log_values: pd.DataFrame,
         recording_timestamp_ranges: Iterable[Tuple[float, float]],
     ) -> Dict[str, List[Tuple[float, float]]]:
-        """Extract successful attempt windows for each state using JSON logs."""
+        """
+        Extract successful attempt windows for each state using JSON logs.
+        
+        Args:
+            rig_recorder_data_folder (str): Name of the rig recorder experiment folder.
+            log_values (pd.DataFrame): Log table from the experiment.
+            recording_timestamp_ranges (Iterable[Tuple[float, float]]): List of (start, end) timestamps for each recording.
 
+        Returns:
+            Dict[str, List[Tuple[float, float]]]:
+                Mapping of state slugs to lists of successful attempt windows.
+                Each window is a tuple (started_timestamp, finished_timestamp).
+        """
         state_attempts: Dict[str, List[Tuple[float, float]]] = {}
         rec_ranges = list(recording_timestamp_ranges)
         if not rec_ranges:
@@ -1287,7 +1546,17 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     def get_timestamps_for_all_successful_hunt_cell_attempts(
         self, log_values: pd.DataFrame, recording_timestamp_ranges: Iterable[Tuple[float, float]]
     ) -> List[Tuple[float, float]]:
-        """Extract attempt windows bracketed by resistance drop and cell events."""
+        """
+        Extract attempt windows bracketed by resistance drop and cell events.
+        
+        Args:
+            log_values (pd.DataFrame): Log table containing "Time(HH:MM:SS)", "Time(ms)", and "Message" columns.
+            recording_timestamp_ranges (Iterable[Tuple[float, float]]): List of (start, end) timestamps for recordings.
+
+        Returns:
+            List[Tuple[float, float]]: List of (start, end) timestamps for successful hunt_cell attempts.
+
+        """
         successful_ranges: List[Tuple[float, float]] = []
         for start_timestamp, end_timestamp in recording_timestamp_ranges:
             ir_mask = log_values["Message"].str.contains(
@@ -1333,7 +1602,18 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     def truncate_graph_values(
         self, graph_values: np.ndarray, first_timestamp: float, last_timestamp: float
     ) -> np.ndarray:
-        """Return graph rows closest to the provided time interval (inclusive)."""
+        """
+        Return graph rows closest to the provided time interval (inclusive).
+        
+        Args:
+            graph_values (np.ndarray): 2D array where the first column contains timestamps.
+            first_timestamp (float): Start of the desired time interval (inclusive).
+            last_timestamp (float): End of the desired time interval (inclusive).
+
+        Returns:
+            np.ndarray: Subarray of `graph_values` containing rows closest to the specified interval.
+
+        """
         ts = graph_values[:, 0]
         i0 = np.searchsorted(ts, first_timestamp, side="left")
         if i0 == len(ts):
@@ -1352,7 +1632,20 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     def associate_attempt_movement_and_graph_values(
         attempt_graph_values: np.ndarray, movement_values: np.ndarray
     ) -> np.ndarray:
-        """Align each graph row with the closest movement sample in time."""
+        """
+        Align each graph row with the closest movement sample in time.
+        
+        Args:
+            attempt_graph_values (np.ndarray): 2D array where the first column contains 
+                graph timestamps.
+            movement_values (np.ndarray): 2D array where the first column contains 
+                movement timestamps.
+
+        Returns:
+            np.ndarray: Subarray of `movement_values` corresponding to the 
+                closest movement sample for each graph row.
+
+        """
         g_ts = attempt_graph_values[:, 0]
         m_ts = movement_values[:, 0]
         right = np.searchsorted(m_ts, g_ts)
@@ -1364,39 +1657,95 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
 
     # --- Attempt level feature extraction --------------------------------
     def get_attempt_dones(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Generate a dones vector with a terminal 1 at the final timestep."""
+        """
+        Generate a dones vector with a terminal 1 at the final timestep.
+        
+        Args:
+            attempt_graph_values (np.ndarray): 2D array of graph data for the attempt.
+
+        Returns:
+            np.ndarray: 1D array of zeros with a terminal 1 at the final timestep.
+        """
         dones = np.zeros(len(attempt_graph_values))
         dones[-1] = 1
         return dones
 
     def get_attempt_pressure_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Return the pressure column for the current attempt."""
+        """
+        Return the pressure column for the current attempt.
+        
+        Args:
+            attempt_graph_values (np.ndarray): 2D array of graph data.
+
+        Returns:
+            np.ndarray: 1D array of float64 pressure values (column 1).
+        """
         return attempt_graph_values[:, 1].astype(np.float64)
 
     def get_attempt_resistance_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Return resistance values (optionally zero-offset)."""
+        """
+        Return resistance values (optionally zero-offset).
+        
+        Args:
+            attempt_graph_values (np.ndarray): 2D array of graph data.
+
+        Returns:
+            np.ndarray: 1D array of float64 resistance values (column 2), optionally zeroed relative to first value.
+        """
         resistance_values = attempt_graph_values[:, 2].astype(np.float64)
         if self.zero_values:
             resistance_values[:] -= resistance_values[0]
         return resistance_values
 
     def get_attempt_current_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Parse JSON-encoded current waveform samples for the attempt."""
+        """
+        Parse JSON-encoded current waveform samples for the attempt.
+        
+        Args:
+            attempt_graph_values (np.ndarray): 2D array of graph data.
+
+        Returns:
+            np.ndarray: 2D array of float64 current samples per timestep.
+        """
         return _parse_waveform_column(attempt_graph_values[:, 3])
 
     def get_attempt_voltage_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
-        """Parse JSON-encoded voltage waveform samples for the attempt."""
+        """
+        Parse JSON-encoded voltage waveform samples for the attempt.
+        
+        Args:
+            attempt_graph_values (np.ndarray): 2D array of graph data.
+
+        Returns:
+            np.ndarray: 2D array of float64 voltage samples per timestep.   
+        """
         return _parse_waveform_column(attempt_graph_values[:, 4])
 
     def get_attempt_stage_positions(self, attempt_movement_values: np.ndarray) -> np.ndarray:
-        """Return stage XYZ positions (optionally zero-offset)."""
+        """
+        Return stage XYZ positions (optionally zero-offset).
+        
+        Args:
+            attempt_movement_values (np.ndarray): 2D array of movement data.
+
+        Returns:
+            np.ndarray: 2D array of float64 stage positions, optionally zero-offset relative to first row.
+        """
         stage_positions = attempt_movement_values[:, 1:4].astype(np.float64)
         if self.zero_values:
             stage_positions -= stage_positions[0]
         return stage_positions
 
     def get_attempt_pipette_positions(self, attempt_movement_values: np.ndarray) -> np.ndarray:
-        """Return pipette XYZ positions (optionally zero-offset)."""
+        """
+        Return pipette XYZ positions (optionally zero-offset).
+        
+        Args:
+            attempt_movement_values (np.ndarray): 2D array of movement data.
+
+        Returns:
+            np.ndarray: 2D array of float64 pipette positions, optionally zero-offset relative to first row.
+        """
         pipette_positions = attempt_movement_values[:, 4:].astype(np.float64)
         if self.zero_values:
             pipette_positions -= pipette_positions[0]
@@ -1405,7 +1754,15 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     # --- Camera helpers --------------------------------------------------
     @staticmethod
     def crop_image_center(pil_image: Image.Image) -> Image.Image:
-        """Return a centred half-resolution crop of ``pil_image``."""
+        """
+        Return a centred half-resolution crop of ``pil_image``.
+        
+        Args:
+            pil_image (Image.Image): Input PIL image to be cropped.
+
+        Returns:
+            Image.Image: Cropped PIL image, centered, with half the original width and height.
+        """
         width, height = pil_image.size
         new_width = width // 2
         new_height = height // 2
@@ -1417,7 +1774,18 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
     
     @staticmethod
     def add_image_color_dot(numpy_image: np.ndarray, color_dot: Optional[Tuple[int, int]]) -> np.ndarray:
-        """Add a red dot to ``numpy_image`` at the given coordinates."""
+        """
+        Add a white dot to ``numpy_image`` at the given coordinates.
+        
+        Args:
+            numpy_image (np.ndarray): Image array of shape (H, W) or (H, W, C).
+            color_dot (Optional[Tuple[int, int]]): (x, y) coordinates where the dot will be placed.
+                If None or invalid, the image is returned unchanged.
+
+        Returns:
+            np.ndarray: Image array with a 3x3 white dot added at the specified coordinates.
+                If the image is grayscale, the dot is 255; if RGB, the dot is [255, 255, 255].
+        """
         if color_dot is None or numpy_image.ndim < 2:
             return numpy_image
 
@@ -1531,7 +1899,22 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         rotation_angle: Optional[float] = None,
         pipette_final_pos: Optional[tuple[int, int]] = None
     ) -> np.ndarray:
-        """Load rig camera frames aligned to ``attempt_graph_values`` timestamps."""
+        """
+        Load rig camera frames aligned to ``attempt_graph_values`` timestamps.
+        
+        Args:
+            rig_recorder_data_folder (str): Name of the folder containing rig recorder data.
+            attempt_graph_values (np.ndarray): Array of graph data for the attempt.
+                The first column is assumed to contain timestamps.
+            rotation_angle (Optional[float]): Degrees to rotate each frame clockwise. Default is None.
+            pipette_final_pos (Optional[tuple[int, int]]): (x, y) pixel coordinates for a dot
+                marking the final pipette position. Only applied if `pipette_final_pos_color_dot` is True.
+
+        Returns:
+            np.ndarray: Array of preprocessed camera frames corresponding to the attempt,
+                shape (num_frames, H, W, C). Returns None if no frame matches a graph timestamp.
+
+        """
         base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder / "camera_frames"
         camera_files = sorted(os.listdir(base), key=self._camera_order_key)
         frames_list: List[np.ndarray] = []
@@ -1600,7 +1983,26 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         include_camera: bool = True,
         rotation_angle: Optional[float] = None,
     ):
-        """Return pressure, resistance, waveform, position, and optional image arrays."""
+        """
+        Return pressure, resistance, waveform, position, and optional image arrays.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Graph data array for the attempt; timestamp in column 0.
+            attempt_movement_values (np.ndarray): Movement data array containing stage and pipette positions.
+            rig_recorder_data_folder (str): Folder containing the experiment's rig recorder data.
+            include_camera (bool): Whether to include camera frames in the returned observations. Default is True.
+            rotation_angle (Optional[float]): Degrees to rotate stage and pipette coordinates. Default is None.
+
+        Returns:
+            Tuple containing observation arrays in the following order:
+                - pressure_values (Optional[np.ndarray])
+                - resistance_values (Optional[np.ndarray])
+                - current_values (Optional[np.ndarray])
+                - voltage_values (Optional[np.ndarray])
+                - stage_positions (Optional[np.ndarray])
+                - pipette_positions (Optional[np.ndarray])
+                - camera_frames (Optional[np.ndarray]): None if not requested or unavailable.
+        """
         selector = self.observation_selector
 
         pressure_values: Optional[np.ndarray]
@@ -1702,7 +2104,29 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         include_next_obs: bool = False,
         include_camera: bool = True,
     ):
-        """Compute next-step observation arrays using :func:`_shift_forward`."""
+        """
+        Compute next-step observation arrays using :func:`_shift_forward`.
+        
+        Args:
+            attempt_graph_values (np.ndarray): Graph data array for the attempt; timestamp in column 0.
+            current_values (Optional[np.ndarray]): Current waveform array for the attempt.
+            voltage_values (Optional[np.ndarray]): Voltage waveform array for the attempt.
+            stage_positions (Optional[np.ndarray]): Stage XYZ positions.
+            pipette_positions (Optional[np.ndarray]): Pipette XYZ positions.
+            camera_frames (Optional[np.ndarray]): Preprocessed camera frames for the attempt.
+            include_next_obs (bool): If False, returns a tuple of Nones. Default is False.
+            include_camera (bool): Whether to compute next-step camera frames. Default is True.
+
+        Returns:
+            Tuple containing next-step observation arrays in the following order:
+                - next_pressure_values (Optional[np.ndarray])
+                - next_resistance_values (Optional[np.ndarray])
+                - next_current_values (Optional[np.ndarray])
+                - next_voltage_values (Optional[np.ndarray])
+                - next_stage_positions (Optional[np.ndarray])
+                - next_pipette_positions (Optional[np.ndarray])
+                - next_camera_frames (Optional[np.ndarray])
+        """
         if not include_next_obs:
             return (None,) * 7
 
@@ -1764,7 +2188,23 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         log_values: pd.DataFrame,
         include_high_level_actions: bool = False,
     ) -> np.ndarray:
-        """Return low-level deltas (and optional command hashes) per timestep."""
+        """
+        Return low-level deltas (and optional command hashes) per timestep.
+        
+        Args:
+            attempt_movement_values (np.ndarray): Movement array containing stage and pipette XYZ positions.
+            attempt_graph_values (np.ndarray): Graph array with timestamps in column 0.
+            log_values (pd.DataFrame): Log DataFrame from the experiment containing command messages and timestamps.
+            include_high_level_actions (bool): If True and the action selector allows, append hashed high-level commands
+                aligned to the closest timestep. Default is False.
+
+        Returns:
+            np.ndarray: Array of actions per timestep. Columns correspond to:
+                - Selected stage position deltas (low-level)
+                - Selected pipette deltas (low-level)
+                - Optional high-level command hash (if included)
+            If no low-level actions are selected, returns a shape `(num_timesteps, 0)` array.
+        """
         stage_positions = self.get_attempt_stage_positions(attempt_movement_values)
         pipette_positions = self.get_attempt_pipette_positions(attempt_movement_values)
 
@@ -1876,7 +2316,34 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         include_camera: bool = True,
         split_label: str = "train",
     ) -> str:
-        """Persist a demo to disk and return the HDF5 key used for the group."""
+        """
+        Persist a demo to disk and return the HDF5 key used for the group.
+        
+        Args:
+            num_samples (int): Number of timesteps in the raw attempt.
+            actions (np.ndarray): Array of low-level and optional high-level actions.
+            dones (np.ndarray): Binary terminal flags for each timestep.
+            pressure_values (Optional[np.ndarray]): Pressure observations per timestep.
+            resistance_values (Optional[np.ndarray]): Resistance observations per timestep.
+            current_values (Optional[np.ndarray]): Current waveform observations.
+            voltage_values (Optional[np.ndarray]): Voltage waveform observations.
+            stage_positions (Optional[np.ndarray]): Stage XYZ positions per timestep.
+            pipette_positions (Optional[np.ndarray]): Pipette XYZ positions per timestep.
+            camera_frames (Optional[np.ndarray]): Camera images aligned with timesteps.
+            next_pressure_values (Optional[np.ndarray]): Next-step pressure observations.
+            next_resistance_values (Optional[np.ndarray]): Next-step resistance observations.
+            next_current_values (Optional[np.ndarray]): Next-step current observations.
+            next_voltage_values (Optional[np.ndarray]): Next-step voltage observations.
+            next_stage_positions (Optional[np.ndarray]): Next-step stage positions.
+            next_pipette_positions (Optional[np.ndarray]): Next-step pipette positions.
+            next_camera_frames (Optional[np.ndarray]): Next-step camera frames.
+            include_next_obs (bool): Whether to store next-step observation arrays.
+            include_camera (bool): Whether to include camera frames.
+            split_label (str): Dataset split label, e.g., "train", "val", or "test".
+
+        Returns:
+            str: HDF5 group name assigned to this demo (e.g., "demo_0").
+        """
         selector = self.observation_selector
         effective_include_camera = include_camera and selector.include_camera
 
@@ -2101,7 +2568,16 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return demo_name
 
     def _load_existing_processed_folders(self, metadata_path: Path) -> List[str]:
-        """Return stored processed folder names from an existing metadata file."""
+        """
+        Return stored processed folder names from an existing metadata file.
+        
+        Args:
+            metadata_path (Path): Path to the JSON metadata file containing processed folder information.
+
+        Returns:
+            List[str]: List of folder names that have already been processed. Returns an empty list if the file
+                is missing, malformed, or contains no valid folders.
+        """
         try:
             with open(metadata_path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -2113,7 +2589,16 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return [str(item) for item in folders if isinstance(item, str)]
 
     def _register_processed_folder(self, folder: str) -> bool:
-        """Record a processed folder for the current context and base dataset."""
+        """
+        Record a processed folder for the current context and base dataset.
+        
+        Args:
+            folder (str): Name of the folder to register as processed.
+
+        Returns:
+            bool: True if the folder was newly added to the base processed folders list, False otherwise.
+
+        """
         added_to_base = False
         if folder not in self._processed_folders:
             self._processed_folders.append(folder)
@@ -2125,7 +2610,13 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         return added_to_base
 
     def _selector_overview(self) -> Dict[str, Any]:
-        """Return a JSON-friendly summary of active observation/action selectors."""
+        """
+        Return a JSON-friendly summary of active observation/action selectors.
+        
+        Returns:
+            Dict[str, Any]: Dictionary with keys "observations" and "actions", each containing the included flags
+                and axis labels for the active selectors.
+        """
 
         obs = self.observation_selector
         act = self.action_selector
@@ -2153,8 +2644,14 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
 
     # --- Dataset bookkeeping --------------------------------------------
     def _collect_metadata(self) -> dict:
-        """Aggregate dataset metadata for JSON/CSV export."""
-
+        """
+        Aggregate dataset metadata for JSON/CSV export.
+        
+        Returns:
+            dict: Dataset information including name, path, number of demos,
+                split counts, split keys, settings, toggle flags, processed folders,
+                selectors, creation and update timestamps.
+        """
         settings_dict = asdict(self.settings)
         toggles = {
             "calibrate": self.calibrate,
@@ -2267,19 +2764,41 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
 
     # Backward-compatible helper aliases
     def _stable_int_seed(self, *parts: object) -> int:
-        """Compatibility shim delegating to module-level :func:`_stable_int_seed`."""
+        """
+        Compatibility shim delegating to module-level :func:`_stable_int_seed`.
+        
+        Args:
+            *parts (object): Arbitrary objects used to construct the deterministic seed.
+
+        Returns:
+            int: A reproducible integer seed.
+        """
         return _stable_int_seed(*parts)
 
     def _begin_demo_filter_context(self, split_label: str, demo_seed: int) -> None:
-        """Compatibility shim for :meth:`begin_filter_context`."""
+        """
+        Compatibility shim for :meth:`begin_filter_context`.
+        
+        Args:
+            split_label (str): The dataset split label (e.g., "train" or "valid").
+            demo_seed (int): Seed used for deterministic demo filtering.
+        """
         self.begin_filter_context(split_label, demo_seed)
 
     def _end_demo_filter_context(self) -> None:
-        """Compatibility shim for :meth:`end_filter_context`."""
+        """Compatibility shim for :meth:`end_filter_context`.        """
         self.end_filter_context()
 
     def _apply_albu_filter_to_pil(self, pil_image: Image.Image) -> Image.Image:
-        """Compatibility shim for :meth:`apply_albu_filter_to_pil`."""
+        """
+        Compatibility shim for :meth:`apply_albu_filter_to_pil`.
+        
+        Args:
+            pil_image (Image.Image): Input PIL image to transform.
+
+        Returns:
+            Image.Image: Filtered PIL image.
+        """
         return self.apply_albu_filter_to_pil(pil_image)
 
     def _pixel_coordinate_transform(
@@ -2288,7 +2807,18 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         pipette_positions: np.ndarray,
         pipette_in_stage_frame: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compatibility shim for :meth:`pixel_coordinate_transform`."""
+        """
+        Compatibility shim for :meth:`pixel_coordinate_transform`.
+        
+        Args:
+            stage_positions (np.ndarray): NxM array of stage XYZ positions.
+            pipette_positions (np.ndarray): NxP array of pipette XYZ positions.
+            pipette_in_stage_frame (bool, optional): Whether pipette coordinates are
+                already in stage frame. Defaults to False.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Transformed stage and pipette positions.
+        """
         return self.pixel_coordinate_transform(
             stage_positions,
             pipette_positions,
@@ -2296,7 +2826,14 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         )
 
     def _load_calfile(self) -> Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]:
-        """Compatibility shim for :meth:`CalibrationMixin.load_calfile`."""
+        """
+        Compatibility shim for :meth:`CalibrationMixin.load_calfile`.
+        
+        Returns:
+            Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]:
+                - First dict: stage calibration parameters (or None if unavailable).
+                - Second dict: pipette calibration parameters (or None if unavailable).
+        """
         return self.load_calfile()
 
     def _apply_transform(
@@ -2305,13 +2842,31 @@ class DatasetBuilder2(CalibrationMixin, RandomFilterMixin):
         pipette_positions: np.ndarray,
         transforms: Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]],
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compatibility shim for :meth:`CalibrationMixin.apply_transform`."""
+        """
+        Compatibility shim for :meth:`CalibrationMixin.apply_transform`.
+        
+        Args:
+            stage_positions (np.ndarray): NxM array of stage XYZ positions.
+            pipette_positions (np.ndarray): NxP array of pipette XYZ positions.
+            transforms (Tuple[Optional[Dict[str, np.ndarray]], Optional[Dict[str, np.ndarray]]]):
+                Tuple of stage and pipette transform dictionaries or None.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Transformed stage and pipette positions.
+        """
         return self.apply_transform(stage_positions, pipette_positions, transforms)
 
     # --- High level orchestration ---------------------------------------
 
     def add_demo(self, rig_recorder_data_folder: str, record_to_file: bool = False) -> None:
-        """Parse a rig-recorder folder, extracting successful attempts into per-state datasets."""
+        """
+        Parse a rig-recorder folder, extracting successful attempts into per-state datasets.
+        
+        Args:
+            rig_recorder_data_folder (str): Path to the folder containing rig-recorder experiment data.
+            record_to_file (bool, optional): Whether to persist the processed demos to disk.
+                Defaults to False.
+        """
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
 
         include_next_obs = self.load_next_obs

@@ -1,3 +1,21 @@
+"""
+Remove specified demonstration groups from an HDF5 dataset and update mask splits.
+
+This script deletes selected demo groups (e.g., "demo_19", "demo_20") from the
+`data` group of an HDF5 dataset and ensures consistency by removing references
+to those demos from any dataset splits stored under the `mask` group
+(e.g., "train", "valid").
+
+For each demo key listed in `demo_folders_to_delete`, the script:
+1. Deletes the corresponding group under `data/<demo_key>` if it exists.
+2. Searches the `mask` group for split datasets (such as "train" and "valid").
+3. Removes the deleted demo key from those split lists if present.
+4. Rewrites the affected split dataset with the filtered list of keys.
+
+This maintains alignment between the dataset contents and the mask indices
+used for training/validation splits.
+"""
+
 import h5py
 import numpy as np
 

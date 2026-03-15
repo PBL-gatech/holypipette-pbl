@@ -4,7 +4,41 @@ import matplotlib.pyplot as plt
 import scipy.optimize
 
 class EPhysCalc:
+    """
+    Utility class for analyzing electrophysiology recordings and extracting
+    key signal features and metrics.
+
+    The class loads a recording file and stores intermediate results such as
+    peak indices, characteristic times, averaged regions, and parameters from
+    exponential curve fitting.
+
+    Args:
+        file_path (str | Path): Path to the electrophysiology data file to analyze.
+
+    Attributes:
+        file_path (str | Path): Location of the input data file.
+        data (Any): Loaded electrophysiology dataset.
+        positive_peak_index (int | None): Index of the detected positive peak.
+        negative_peak_index (int | None): Index of the detected negative peak.
+        peak_current_index (int | None): Index corresponding to peak current.
+        peak_current_time (float | None): Time associated with the peak current.
+        zero_gradient_time (float | None): Time where signal gradient approaches zero.
+        mean_highlighted_1 (float | None): Mean value of a highlighted signal region.
+        peak_value_response_current (float | None): Maximum response current value.
+        post_peak_current (float | None): Current value after the peak region.
+        exp_fit_params (tuple | None): Parameters from an exponential fit to the signal.
+    """
     def __init__(self, file_path):
+        """
+        Initialize an EPhysCalc instance and set default analysis state.
+
+        Stores the input file path and initializes all analysis attributes to None.
+        These attributes will be populated as electrophysiology processing steps
+        (e.g., peak detection, averaging, or curve fitting) are performed.
+
+        Args:
+            file_path (str | Path): Path to the electrophysiology data file.
+        """
         self.file_path = file_path
         self.data = None
         self.positive_peak_index = None
@@ -17,7 +51,15 @@ class EPhysCalc:
         self.post_peak_current = None
         self.exp_fit_params = None
 
+
     def read_and_convert_data(self):
+        """
+        Read electrophysiology data from a whitespace-delimited CSV file and convert units.
+
+        Loads the file into a DataFrame, assigns column names, shifts the time axis
+        so the first timestamp is zero, and generates additional columns with
+        converted units (milliseconds, millivolts, and picoamps).
+        """
         # Load the CSV file into a DataFrame
         try:
             self.data = pd.read_csv(self.file_path, delim_whitespace=True, header=None)
@@ -37,6 +79,15 @@ class EPhysCalc:
             print("Please check the file format and delimiter.")
 
     def calculate_peaks_and_averages(self):
+        """
+        Compute key signal features and summary statistics from the electrophysiology dataset.
+
+        Calculates the gradient of the command voltage, identifies positive and negative
+        derivative peaks, determines the peak response current and its time, and computes
+        mean current values in selected regions of the response. Also estimates the time
+        at which the post-peak response gradient approaches zero and calculates the mean
+        current after the peak within the defined interval.
+        """
         # Calculate the gradient of Command Voltage using np.gradient
         X_mV = self.data['Command Voltage (mV)'].to_numpy()
         T_ms = self.data['Time (ms)'].to_numpy()
@@ -79,9 +130,36 @@ class EPhysCalc:
             self.post_peak_current = None
 
     def monoExp(self, x, m, t, b):
+        """
+        Compute a monoexponential decay model.
+
+        Args:
+            x (array-like | float): Independent variable values.
+            m (float): Amplitude scaling coefficient.
+            t (float): Decay rate constant.
+            b (float): Baseline offset.
+
+        Returns:
+            np.ndarray | float: Model output evaluated at `x`.
+        """
         return m * np.exp(-t * x) + b
 
     def optimizer(self, filtered_data):
+        """
+        Fit a monoexponential decay model to filtered response current data.
+
+        Args:
+            filtered_data (pd.DataFrame): DataFrame containing 'Time (ms)' and
+                'Response Current (pA)' columns for fitting.
+
+        Returns:
+            tuple[float | None, float | None, float | None]: Estimated parameters (m, t, b).
+                Returns (None, None, None) if the fit fails.
+
+        Raises:
+            RuntimeError: If curve fitting fails due to incompatible data or convergence issues.
+            KeyError: If required columns are missing from `filtered_data`.
+        """
         p0 = (self.peak_value_response_current, 0.001 , self.post_peak_current)
         print(f"Initial guess: {p0}")
         try:
@@ -93,6 +171,17 @@ class EPhysCalc:
             return None, None, None
 
     def fit_exponential(self):
+        """
+        Fit an exponential decay to the post-peak response current.
+
+        Selects the portion of the response current between the peak time and the
+        zero-gradient time, shifts the time axis to start at zero, and fits the
+        monoexponential model using the `optimizer` method. Stores the resulting
+        parameters in `self.exp_fit_params`.
+
+        Returns:
+            tuple[float | None, float | None, float | None]: Fitted exponential parameters (m, t, b).
+        """
         # Extract the data for fitting
         fit_data = self.data[(self.data['Time (ms)'] >= self.peak_current_time) & (self.data['Time (ms)'] <= self.zero_gradient_time)]
         # shift the data to start at 0 again
@@ -104,6 +193,14 @@ class EPhysCalc:
         return self.exp_fit_params
 
     def plot_graphs(self):
+        """
+        Plot electrophysiology data and highlight key features.
+
+        Generates a 3-panel figure:
+        1. Command Voltage vs Time with peak and zero-gradient times.
+        2. Response Current vs Time with highlighted regions and optional exponential fit.
+        3. Derivative of Command Voltage vs Time with key markers.
+        """
         # Plotting the graphs with the highlighted portions on the response current plot
         plt.figure(figsize=(10, 12))
         # Top graph: Command Voltage vs Time
@@ -156,6 +253,16 @@ class EPhysCalc:
         plt.show()
 
     def fit_plotter(self):
+        """
+        Plot the extracted post-peak response current and its exponential fit.
+
+        Uses the data between the peak current time and zero-gradient time, shifts
+        the time axis to start at zero, and overlays the fitted monoexponential
+        curve on the scatter plot of the extracted data.
+
+        Raises:
+            AttributeError: If `self.exp_fit_params` is None or required data attributes are missing.
+        """
         if self.exp_fit_params is None:
             print("Exponential fit parameters not found. Please run fit_exponential() first.")
             return
@@ -182,6 +289,16 @@ class EPhysCalc:
         plt.show()
 
     def calc_param(self):
+        """
+        Calculate electrophysiological parameters from the fitted exponential and response data.
+
+        Computes:
+        - Tau (time constant) from the exponential decay.
+        - Peak, pre-peak, and steady-state currents.
+        - Current differences (I_d and I_dss).
+        - Voltage difference across highlighted region (dmV).
+        - Access resistance (R_a), membrane resistance (R_m), and membrane capacitance (C_m).
+        """
         tau = (1/self.exp_fit_params[1])
         I_peak = self.peak_value_response_current
         I_prev = self.mean_highlighted_1

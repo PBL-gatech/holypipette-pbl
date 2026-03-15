@@ -3,6 +3,22 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 def load_and_prepare_data(filepath):
+    """
+    Load the rig recorder log CSV and extract structured FPS information.
+
+    Args:
+        filepath (str): Path to the log CSV file containing rig recorder
+            messages and timestamps.
+
+    Returns:
+        pandas.DataFrame: DataFrame containing the original log data with
+            additional processed columns:
+            - "FPS Value" (float): Extracted FPS measurement.
+            - "FPS Type" (str): Source of the FPS value (e.g., Camera,
+              Acquisition Thread, LIVEFEED).
+            - "Time" (datetime): Combined timestamp constructed from
+              the time and millisecond columns.
+    """
     # Load the CSV file with updated argument for handling bad lines
     data = pd.read_csv(filepath, on_bad_lines='skip')
     
@@ -21,6 +37,20 @@ def load_and_prepare_data(filepath):
 
 
 def plot_fps_data_with_markers(data, title, program_start_time, recording_starts, recording_stops):
+    """
+    Plot FPS values over time with statistical summaries and event markers.
+
+    Args:
+        data (pandas.DataFrame): DataFrame containing processed log data
+            with timestamp and FPS columns.
+        title (str): Title for the generated plot.
+        program_start_time (datetime): Timestamp of the program start
+            for the analyzed segment.
+        recording_starts (pandas.DataFrame): Rows corresponding to
+            "recording started" events.
+        recording_stops (pandas.DataFrame): Rows corresponding to
+            "recording stopped" events.
+    """
     # Ensure data is sorted by time
     data = data.sort_values('Time')
 
@@ -74,6 +104,15 @@ def plot_fps_data_with_markers(data, title, program_start_time, recording_starts
     plt.show()
 
 def main():
+    """
+    Execute the FPS log analysis workflow.
+
+    Processing steps:
+        1. Load and preprocess the log data.
+        2. Identify program start, recording start, and recording stop events.
+        3. Isolate the final program execution segment.
+        4. Generate an FPS time-series plot with statistics and markers.
+    """
     directory = r'C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Analysis\Rig_Recorder'
     filepath = directory + '\logs.csv'
 

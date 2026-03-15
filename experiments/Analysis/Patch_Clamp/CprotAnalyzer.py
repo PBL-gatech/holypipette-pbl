@@ -5,6 +5,22 @@ import scipy.optimize
 import matplotlib.pyplot as plt
 
 class CurrentProtocolAnalyzer:
+    """
+    Analyze current protocol measurements stored in a data file.
+
+    Loads protocol data from the provided file and stores derived electrophysiological
+    metrics such as holding current, access resistance, membrane resistance, and total 
+    resistance.
+
+    Attributes:
+        file_path (str | Path): Path to the file containing the protocol data.
+        data: Loaded dataset or parsed representation of the file contents.
+        holding_current (Optional[float]): Measured holding current.
+        latestAccessResistance (Optional[float]): Most recent access resistance measurement.
+        latestMembraneResistance (Optional[float]): Most recent membrane resistance measurement.
+        latestMembraneCapacitance (Optional[float]): Most recent membrane capacitance measurement.
+        totalResistance (Optional[float]): Computed total resistance value.
+    """
     def __init__(self, file_path):
         self.file_path = file_path
         self.data = None
@@ -36,6 +52,9 @@ class CurrentProtocolAnalyzer:
     def filter_data(self):
         """
         Filter the data to extract key parameters from the response current.
+        
+        Raises:
+            ValueError: If 'self.data' has not been loaded prior to calling this function.
         """
         if self.data is None:
             raise ValueError("Data has not been loaded. Please run read_and_convert_data() first.")
@@ -92,6 +111,9 @@ class CurrentProtocolAnalyzer:
     def firing_frequency_analysis(self):
         """
         assess action poential frequency
+
+        Raises:
+            ValueError: If 'self.data' has not been loaded prior to calling this function.
         """
         if self.data is None:
             raise ValueError("Data has not been loaded. Please run read_and_convert_data() first.")
@@ -99,6 +121,19 @@ class CurrentProtocolAnalyzer:
     
 
     def monoExp(self, x, m, t, b):
+            """
+            Compute a mono-exponential decay function.
+
+            Args:
+                x (float | np.ndarray): Independent variable.
+                m (float): Amplitude scaling factor.
+                t (float): Decay rate constant.
+                b (float): Baseline offset.
+
+            Returns:
+                float | np.ndarray: Result of the mono-exponential function
+                    m * exp(-t * x) + b.
+            """
             return m * np.exp(-t * x) + b
     def  analyze_current_protocol(self):
         """
@@ -112,6 +147,10 @@ class CurrentProtocolAnalyzer:
     def plot_data(self):
         """
         Plot the command data and response data.
+
+        Raises:
+            ValueError: If 'self.data' has not been loaded prior to calling this function.
+
         """
         if self.data is None:
             raise ValueError("Data has not been loaded. Please run read_and_convert_data() first.")
