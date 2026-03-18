@@ -20,6 +20,7 @@ class PatchConfig(Config):
     max_access_R = NumberWithUnit(70, bounds=(0, 1000), doc='Maximum access resistance', unit='MΩ', magnitude=1)
     min_cell_C = NumberWithUnit(5e-12, bounds=(0, 1), doc='Minimum cell capacitance', unit='pF', magnitude=1e-12)
     cell_distance = NumberWithUnit(20, bounds=(0, 100), doc='Initial distance above target cell', unit='μm') # 50 for Neurons, 20 for HEK cells
+    max_locate_speed = NumberWithUnit(1000, bounds=(0, 10000), doc='Maximum speed for cell locating', unit='μm/s')
     slice_start_distance = NumberWithUnit(75, bounds=(0, 100), doc='Initial distance above target cell in slice', unit='μm') # 20 um default
     max_distance = NumberWithUnit(30, bounds=(0, 100), doc='Maximum movement during approach', unit='μm')
     max_descent_speed = Number(-10,bounds=(-50,50),doc='Maximum descent speed for Neuron Hunting')
@@ -52,7 +53,7 @@ class PatchConfig(Config):
     lamp = Selector(default= '2', objects = ['1', '2', '3','4','5','6'], doc='default fluorescence cube slot')
     auto_capture_fluo = Boolean(False, doc='Capture fluorescence image on cell selection')
     categories = [
-        ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance','max_distance', 'cell_R_increase','max_descent_speed','max_clearing_speed','use_centroid','track_cell']),
+        ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance','max_distance', 'cell_R_increase','max_locate_speed','max_descent_speed','max_clearing_speed','use_centroid','track_cell']),
         ('Sealing', ['pressure_sealing', 'gigaseal_R', 'gigaseal_min_delta_R', 'hold_switch', 'increase_slope_gate', 'constant_slope_gate', 'decrease_slope_gate', 'measurement_speed', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
         ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration','pulse_pressure_break_in','pulse_pressure_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('AutoPatching', ['cell_type_toggle','cell_type', 'mode','auto_clean_pipette']),

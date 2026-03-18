@@ -814,8 +814,8 @@ class AutoPatcher(TaskController):
 
        
  #drop speed to approach cell
-        self.calibrated_stage.set_max_speed(1000)
-        self.calibrated_unit.set_max_speed(1000)
+        self.calibrated_stage.set_max_speed(self.config.max_locate_speed)
+        self.calibrated_unit.set_max_speed(self.config.max_locate_speed)
 
         self.fine_calibrate_pipette()
         zdist_cell = self.home_stage_position[2] - cell_pos[2]
