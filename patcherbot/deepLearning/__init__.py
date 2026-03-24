@@ -1,4 +1,15 @@
+"""
+Module providing pipette detection, focuser utilities, and lazy-loading cell segmentors.
 
+This module exports the following classes:
+
+- PipetteDetector, PipetteDetector1, PipetteDetector2: Classes for detecting pipette positions in images.
+- PipetteFocuser: Class for controlling pipette focus.
+- CellSegmentor2, CellSegmentor3: Lazily loaded classes for cell segmentation (imported on demand).
+
+Lazy loading of CellSegmentor2 and CellSegmentor3 is implemented via __getattr__ to reduce
+startup overhead and avoid circular imports.
+"""
 from __future__ import absolute_import
 
 from typing import TYPE_CHECKING
@@ -20,6 +31,18 @@ if TYPE_CHECKING:
 
 
 def __getattr__(name: str):
+    """
+    Lazily import CellSegmentor classes on attribute access.
+
+    Args:
+        name (str): Attribute name being accessed.
+
+    Returns:
+        type: The requested CellSegmentor class (CellSegmentor2 or CellSegmentor3).
+
+    Raises:
+        AttributeError: If the requested attribute is not a known CellSegmentor.
+    """
     if name in {"CellSegmentor2", "CellSegmentor3"}:
         from .cellSegmentor import CellSegmentor2, CellSegmentor3
         globals().update({

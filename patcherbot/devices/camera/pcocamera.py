@@ -25,6 +25,13 @@ class PcoCamera(Camera):
     PCO_RECORDER_LATEST_IMAGE = 0xFFFFFFFF
 
     def __init__(self, width: int = 1280, height: int = 1280):
+        """
+        Initialize a PCO Panda camera and start continuous acquisition.
+
+        Args:
+            width (int, optional): Width of images to acquire. Defaults to 1280.
+            height (int, optional): Height of images to acquire. Defaults to 1280.
+        """
         super().__init__()
 
         self.width = width # update superclass img width / height vars
@@ -67,22 +74,37 @@ class PcoCamera(Camera):
         self.start_acquisition() #start thread that updates camera gui
 
     def set_exposure(self, value: float) -> None:
+        """
+        Set the exposure time of the camera.
+
+        Args:
+            value (float): Desired exposure time in milliseconds.
+        """
         self.cam.set_exposure_time(value / 1000)
 
     def get_exposure(self):
-        '''return the exposure time of the camera in ms
+        '''
+        return the exposure time of the camera in ms
+
+        Returns:
+            float: Exposure time in milliseconds.
         '''
         exposure = self.cam.get_exposure_time() # this is in seconds
         self.currExposure = exposure
         return exposure * 1000 #convert to ms
 
     def close(self):
+        """
+        Stop the camera and release resources.
+        """
         if self.cam:
             self.cam.stop()
             self.cam.close()
 
     def reset(self) -> None:
-        self.cam.close()
+        """
+        Reset the camera to default configuration and restart streaming.
+        """
         self.cam = pco.Camera()
         
         config = {'exposure time': 10e-3,
@@ -99,7 +121,14 @@ class PcoCamera(Camera):
         self.cam.wait_for_first_image()
 
     def normalize(self, img = None) -> None:
+        """
+        Set the normalization bounds (upper and lower) based on an image.
 
+        If no image is provided, the latest image from the camera is used.
+
+        Args:
+            img (np.ndarray, optional): Image used to compute normalization bounds. Defaults to None.
+        """
         if not self.auto_normalize:
             print("NORMALIZING")   
 
@@ -115,21 +144,48 @@ class PcoCamera(Camera):
         self.upperBound = img.max()
 
     def unnormalize(self, img = None) -> None:
+        """
+        Reset normalization bounds to default (0-255).
+
+        Args:
+            img (np.ndarray, optional): Image to reset (not used). Defaults to None.
+        """
         if not self.auto_normalize:
             print("UNNORMALIZING")
         self.lowerBound = 0
         self.upperBound = 255
 
     def autonormalize(self,flag = None):
+        """
+        Enable or disable automatic normalization.
+
+        Args:
+            flag (bool, optional): True to enable auto-normalization, False to disable.
+
+        Returns:
+            bool: Current state of auto-normalization.
+        """
         self.auto_normalize = flag
         return self.auto_normalize
 
     def get_frame_no(self) -> int:
+        """
+        Enable or disable automatic normalization.
+
+        Args:
+            flag (bool, optional): True to enable auto-normalization, False to disable.
+
+        Returns:
+            bool: Current state of auto-normalization.
+        """
         return self.frameno
         
     def get_16bit_image(self) -> np.ndarray:
         '''get a 16 bit color image from the camera (no normalization)
            this compares to raw_snap which returns a 8 bit image with normalization
+        
+        Returns:
+            np.ndarray: Latest image as a 16-bit array.
         '''
         # if self.frameno == self.cam.rec.get_status()['dwProcImgCount'] and self.lastFrame is not None:
         #     return self.lastFrame
@@ -156,6 +212,9 @@ class PcoCamera(Camera):
         '''
         Returns the current image (8 bit color, with normalization).
         This is a blocking call (wait until next frame is available)
+        
+        Returns:
+            np.ndarray: Normalized 8-bit image.
         '''
         img = self.get_16bit_image()
 
@@ -179,7 +238,16 @@ class PcoCamera(Camera):
 
 
     def apply_normalization(self, img: np.ndarray) -> np.ndarray:
-        '''Apply normalization to a given image'''
+        '''
+        Apply normalization to a given image
+        
+        Args:
+            img (np.ndarray): Image to normalize.
+
+        Returns:
+            np.ndarray: Normalized 8-bit image with values clipped between 0 and 255.
+                None if image is None
+        '''
         if img is None:
             return None
 

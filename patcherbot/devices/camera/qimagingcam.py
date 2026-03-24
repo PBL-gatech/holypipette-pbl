@@ -19,10 +19,16 @@ __all__ = ['QImagingCam']
 sys.path.append('C:\\Program Files\\Micro-Manager-2.0\\')
 class QImagingCam(Camera):
     '''A camera class for the Qimaging Rolera Bolt camera.
-  
     '''
 
     def __init__(self, width : int = 1280, height : int = 1024):
+        """
+        Initialize the QImaging Rolera Bolt camera.
+
+        Args:
+            width (int): Frame width in pixels.
+            height (int): Frame height in pixels.
+        """
         super(QImagingCam, self).__init__()
 
         self.width = width #update superclass img width / height vars
@@ -79,20 +85,51 @@ class QImagingCam(Camera):
         self.start_acquisition() #start thread that updates camera gui
 
     def set_exposure(self, value):
+        """
+        Set the camera exposure.
+
+        Args:
+            value (float): Exposure time in milliseconds.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented.
+        """
         pass
 
     def get_exposure(self):
-        '''return the exposure time of the camera in ms
+        '''
+        return the exposure time of the camera in ms
+    
+        Returns:
+            float: Exposure time in milliseconds.
         '''
         return 0 #convert to ms
 
     def get_frame_rate(self):
+        """
+        Get the camera frame rate.
+
+        Returns:
+            float: Frame rate in frames per second.
+        """
         return 0
 
     def reset(self):
+        """
+        Reset the camera and reinitialize acquisition.
+        """
         pass 
 
     def normalize(self, img = None):
+        """
+        Normalize the current frame.
+
+        Calculates the minimum and maximum pixel values to set
+        the lowerBound and upperBound for later normalization.
+
+        Args:
+            img (np.ndarray, optional): Image to normalize. If None, grabs the latest frame.
+        """
         if img is None:
             img = self.get_16bit_image()
 
@@ -103,15 +140,34 @@ class QImagingCam(Camera):
 
 
     def autonormalize(self,flag = False):
+        """
+        Enable or disable automatic normalization of frames.
+
+        Args:
+            flag (bool): True to enable auto-normalization, False to disable.
+
+        Returns:
+            bool: The new state of auto_normalize.
+        """
         self.auto_normalize = flag
 
         return self.auto_normalize
     def get_frame_no(self):
+        """
+        Get the current frame number.
+
+        Returns:
+            int: Current frame number.
+        """
         return 0 # TODO: is this ok?
         
     def get_16bit_image(self):
-        '''get a 16 bit color image from the camera (no normalization)
-           this compares to raw_snap which returns a 8 bit image with normalization
+        '''
+        get a 16 bit color image from the camera (no normalization)
+        this compares to raw_snap which returns a 8 bit image with normalization
+        
+        Returns:
+            np.ndarray: 16-bit image array.
         '''
         
         if self.mmc.getRemainingImageCount() > 0:
@@ -125,6 +181,9 @@ class QImagingCam(Camera):
         '''
         Returns the current image (8 bit color, with normalization).
         This is a blocking call (wait until next frame is available)
+        
+        Returns:
+            np.ndarray: 8-bit normalized image array.
         '''
         img = self.get_16bit_image()
         
@@ -157,6 +216,9 @@ class QImagingCam(Camera):
         return img
     
     def close(self):
+        """
+        Stop acquisition and unload all devices.
+        """
         logging.info("closing camera in definition")
         self.stop_acquisition()
         # self.mmc.stopSequenceAcquisition()
@@ -167,12 +229,18 @@ class QImagingCam(Camera):
         return
 
     def __del__(self):
+        """
+        Destructor: stops acquisition and unloads the camera device.
+        """
         self.mmc.stopSequenceAcquisition()
         self.mmc.unloadDevice('Camera')
 
     def new_frame(self):
         '''
-        Returns True if a new frame is available
+        Check if a new frame is available.
+
+        Returns:
+            bool: True if a new frame is available, False otherwise.
         '''
         return (self.mmc.getRemainingImageCount() > 0)
 

@@ -21,8 +21,21 @@ class RequestedSuccessException(Exception):
 
 
 def check_for_abort(obj, func):
-    """Decorator to raise the appropriate request exception if
-       ``success_requested`` or ``abort_requested`` is set."""
+    """
+    Decorator to raise the appropriate request exception if
+    ``success_requested`` or ``abort_requested`` is set.
+       
+    Args:
+        obj (object): Object containing `abort_requested` and `success_requested` attributes.
+        func (Callable): Function to wrap.
+
+    Returns:
+        Callable: Wrapped function that checks request flags before execution.
+
+    Raises:
+        RequestedSuccessException: If `obj.success_requested` is True.
+        RequestedAbortException: If `obj.abort_requested` is True.
+    """
     @functools.wraps(func)
     def decorated(*args, **kwds):
         if getattr(obj, 'success_requested', False):
@@ -53,6 +66,9 @@ class TaskController(LoggingObject):
     periodically check for abort/success requests during the sleep time.
     """
     def __init__(self):
+        """
+        Initialize the TaskController with default request flags and state.
+        """
         super(TaskController, self).__init__()
         self.abort_requested = False
         self.success_requested = False
@@ -69,10 +85,9 @@ class TaskController(LoggingObject):
         necessary. Can be explicitly called during long-running tasks, but will
         also be called automatically by the logging functions `debug`, `info`,
         `warn`, or the wait function `sleep`.
-        Raises
-        ------
-        RequestedAbortException
-            If the `abort_requested` attribute is set
+        
+        Raises:
+            RequestedAbortException: If the `abort_requested` attribute is set
         """
         if self.abort_requested:
             raise RequestedAbortException()
@@ -82,17 +97,24 @@ class TaskController(LoggingObject):
         Checks for a manual success request and interrupts the current task
         if necessary. Can be explicitly called during long-running tasks.
 
-        Raises
-        -------
-        RequestedSuccessException
-            If the `success_requested` attribute is set
+        Raises:
+            RequestedSuccessException: If the `success_requested` attribute is set
         """
         if self.success_requested:
             raise RequestedSuccessException()
 
     def sleep(self, seconds):
-        """Convenience function that sleeps (as `time.sleep`) but remains
-        sensitive to abort/success requests"""
+        """
+        Convenience function that sleeps (as `time.sleep`) but remains
+        sensitive to abort/success requests
+        
+        Args:
+            seconds (float): Duration to sleep in seconds.
+
+        Raises:
+            RequestedAbortException: If an abort is requested during sleep.
+            RequestedSuccessException: If a success is requested during sleep.
+        """
         check_every = 0.25
         start = time.time()
         self.abort_if_requested()
@@ -130,11 +152,9 @@ class TaskController(LoggingObject):
         Whether this object has a saved state that can be recovered with
         `recover_state`.
 
-        Returns
-        -------
-        has_state : bool
-            Whether this object has a saved state. By default, checks whether
-            the `saved_state` attribute is not ``None``.
+        Returns:
+            has_state (bool): Whether this object has a saved state. By default, checks whether
+                the `saved_state` attribute is not ``None``.
         """
         return self.saved_state is not None
 

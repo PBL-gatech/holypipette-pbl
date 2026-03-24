@@ -11,7 +11,13 @@ import pyqtgraph as pg
 from collections import deque
 
 class Timeline(QMainWindow):
+    """
+    A PyQt-based GUI application for visualizing time-series experimental data.
+    """
     def __init__(self):
+        """
+        Initialize the Timeline GUI.
+        """
         super().__init__()
         self.setWindowTitle("Timeline")
         self.setGeometry(50, 50, 1600, 800)  # Initial size; will be resizable
@@ -211,6 +217,9 @@ class Timeline(QMainWindow):
             self.update_view()
 
     def open_directory(self):
+        """
+        Open a directory dialog and load associated experiment data.
+        """
         self.directory = QFileDialog.getExistingDirectory(self, "Open Directory", "")
         if self.directory:
             camera_frames_dir = os.path.join(self.directory, 'camera_frames')
@@ -353,7 +362,12 @@ class Timeline(QMainWindow):
         self.plots[3].plot(list(self.resistance_deque), pen=pg.mkPen(color='m', width=2))  # Resistance
 
     def load_images_from_directory(self, directory):
-        """Load images from the directory"""
+        """
+        Load images from the directory
+        
+        Args:
+            directory (str): Path to the directory containing image files.
+        """
         print(f"Loading images from {directory}")
         if not os.path.exists(directory):
             print(f"Directory {directory} does not exist")
@@ -387,7 +401,12 @@ class Timeline(QMainWindow):
         return
 
     def load_movement_data(self, file_path):
-        """Load movement data from the file"""
+        """
+        Load movement data from the file
+        
+        Args:
+            file_path (str): Path to the movement data file.
+        """
         print(f"Loading movement data from {file_path}")
         self.movement_data.clear()
         try:
@@ -423,7 +442,12 @@ class Timeline(QMainWindow):
             QMessageBox.critical(self, "Error Loading Movement Data", f"An error occurred while loading movement data: {e}")
 
     def load_graph_data(self, file_path):
-        """Load graph data from the file"""
+        """
+        Load graph data from the file
+        
+        Args:
+            file_path (str): Path to the movement data file.
+        """
         print(f"Loading graph data from {file_path}")
         self.graph_data.clear()  # This will hold the list of dictionaries for each row
 
@@ -470,7 +494,17 @@ class Timeline(QMainWindow):
             QMessageBox.critical(self, "Error Loading Graph Data", f"An error occurred while loading graph data: {e}")
 
     def extract_image_data(self, image_path):
-        """Extract the image data based on file path"""
+        """
+        Extract the image data based on file path
+        
+        Args:
+            image_path (str): Full path to the image file.
+
+        Returns:
+            tuple:
+                - index_str (int): Extracted frame index
+                - timestamp_str (float): Extracted timestamp
+        """
         try:
             filename = os.path.basename(image_path)
             index_str = int(filename.split('_')[0])
@@ -481,7 +515,12 @@ class Timeline(QMainWindow):
         return index_str, timestamp_str
 
     def display_image(self, image_path):
-        """Display the image on the QLabel"""
+        """
+        Display the image on the QLabel
+        
+        Args:
+            image_path (str): Path to the image file to display.
+        """
         if not os.path.exists(image_path):
             QMessageBox.warning(self, "Error", f"Image file {image_path} does not exist.")
             return  # Exit if image path is invalid
@@ -499,7 +538,12 @@ class Timeline(QMainWindow):
         self.slider.blockSignals(False)
 
     def resizeEvent(self, event):
-        """Handle window resize events to scale the image appropriately"""
+        """
+        Handle window resize events to scale the image appropriately
+        
+        Args:
+            event (QResizeEvent): The resize event triggered by the window.
+        """
         if self.image_paths and 0 <= self.current_index < len(self.image_paths):
             self.display_image(self.image_paths[self.current_index])
         super().resizeEvent(event)  # Ensure the base class resizeEvent is also called

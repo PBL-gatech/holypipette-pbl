@@ -9,7 +9,21 @@ import time
 from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 
 class FakeCalCamera(Camera):
+    """
+    Simulated calibration camera that generates synthetic microscope images
+    using stage, pipette, and optional cell sorter manipulators.
+    """
     def __init__(self, stageManip=None, pipetteManip=None, image_z=0, targetFramerate=40, cellSorterManip=None):
+        """
+        Initialize the fake calibration camera.
+
+        args:
+            stageManip (Manipulator, optional): Stage manipulator providing position data.
+            pipetteManip (Manipulator, optional): Pipette manipulator.
+            image_z (float): Z-plane corresponding to focus.
+            targetFramerate (float): Desired frame rate for simulation.
+            cellSorterManip (CellSorterManip, optional): Cell sorter manipulator.
+        """
         super(FakeCalCamera, self).__init__()
         self.width : int = 1024
         self.height : int = 1024
@@ -48,16 +62,47 @@ class FakeCalCamera(Camera):
         self.start_acquisition()
 
     def normalize(self):
+        """
+        Placeholder normalization method.
+
+        notes:
+            Not implemented for this simulated camera.
+        """
         print('normalize not implemented for FakeCalCamera')
 
     def set_exposure(self, value):
+        """
+        Set exposure time.
+
+        args:
+            value (float): Exposure value.
+
+        notes:
+            Only values between 0 and 200 are accepted.
+        """
         if 0 < value <= 200:
             self.exposure_time = value
 
     def get_exposure(self):
+        """
+        Get current exposure time.
+
+        returns:
+            float: Exposure time.
+        """
         return self.exposure_time
 
     def get_microscope_image(self, x, y):
+        """
+        Generate a cropped background image based on stage position.
+
+        args:
+            x (float): X position in pixels.
+            y (float): Y position in pixels.
+
+        returns:
+            PIL.Image.Image: Cropped microscope image.
+        """
         if self.last_img is None or self.last_stage_pos[0] != x or self.last_stage_pos[1] != y:
             #we need to recalculate what the stage sees
             frame = np.roll(self.frame, int(y), axis=0)
@@ -75,16 +120,35 @@ class FakeCalCamera(Camera):
         return Image.fromarray(frame)
 
     def get_16bit_image(self):
+        """
+        Get current frame as a 16-bit image.
+
+        returns:
+            np.ndarray: 16-bit image scaled from 8-bit frame.
+        """
         #Note: use float 32 rather than int16 for opencv sobel filter compatability (focus score)
         return (self.raw_snap().astype(np.float32) / 255) * 65535 
 
     def get_frame_no(self):
+        """
+        Get current frame number.
+
+        returns:
+            int: Frame index.
+        """
         return self.frameno
 
     def raw_snap(self):
         '''
         Returns the current image.
         This is a blocking call (wait until next frame is available)
+
+        returns:
+            np.ndarray: Simulated image frame.
+
+        notes:
+            Includes stage translation, focus blur, pipette overlay,
+            noise injection, and frame rate limiting.
         '''
         start = time.time()
         # Use the part of the image under the microscope
@@ -130,13 +194,35 @@ class FakeCalCamera(Camera):
         return frame
     
 class FakeCellSorterHandler():
+    """
+    Simulates rendering of a cell sorter pipette overlay onto an image.
+    """
     def __init__(self, stage : Manipulator, cellSorterManip : CellSorterManip, cellSorterOffset : np.ndarray, pixels_per_micron : float):
+        """
+        Initialize the cell sorter handler.
+
+        args:
+            stage (Manipulator): Stage manipulator.
+            cellSorterManip (CellSorterManip): Cell sorter manipulator.
+            cellSorterOffset (np.ndarray): Offset of sorter relative to stage.
+            pixels_per_micron (float): Conversion factor.
+        """
         self.stage = stage
         self.cellSorterManip = cellSorterManip
         self.cellSorterOffset = cellSorterOffset
         self.pixels_per_micron = pixels_per_micron
 
     def add_cellsorter_to_img(self, img : np.ndarray, stage_pos : np.ndarray):
+        """
+        Overlay a simulated cell sorter onto an image.
+
+        args:
+            img (np.ndarray): Input image.
+            stage_pos (np.ndarray): Stage position.
+
+        returns:
+            np.ndarray: Image with cell sorter overlay.
+        """
         stage_x, stage_y, stage_z = stage_pos
 
         # get cellsorter pos
@@ -168,7 +254,19 @@ class FakeCellSorterHandler():
 
             
 class FakePipetteManipulator(FakeManipulator):
+    """
+    Simulated pipette manipulator with coordinate transformations between
+    raw actuator space and real-world space.
+    """
     def __init__(self, min=None, max=None, armAngle=np.pi/6):
+        """
+        Initialize the fake pipette manipulator.
+
+        args:
+            min (np.ndarray, optional): Minimum bounds.
+            max (np.ndarray, optional): Maximum bounds.
+            armAngle (float): Angle of the pipette arm.
+        """
         super(FakePipetteManipulator, self).__init__(min, max)
         self.armAngle = armAngle
 
@@ -182,17 +280,44 @@ class FakePipetteManipulator(FakeManipulator):
 
 
     def raw_to_real(self, raw_pos : np.ndarray):
+        """
+        Convert raw actuator coordinates to real-world coordinates.
+
+        args:
+            raw_pos (np.ndarray): Raw position.
+
+        returns:
+            np.ndarray: Real-world position.
+        """
         raw_pos = raw_pos.copy()
         # raw_pos[0] = raw_pos[0] * np.cos(self.armAngle)
         real_pos = np.matmul(self.raw_to_real_mat, np.array(raw_pos).T)
         return real_pos
 
     def real_to_raw(self, real_pos : np.ndarray):
+        """
+        Convert real-world coordinates to raw actuator coordinates.
+
+        args:
+            real_pos (np.ndarray): Real-world position.
+
+        returns:
+            np.ndarray: Raw actuator position.
+        """
         real_pos = real_pos.copy()
         raw_pos = np.matmul(self.real_to_raw_mat, np.array(real_pos).T)
         return raw_pos
 
     def position(self, axis=None):
+        """
+        Get current position in real-world coordinates.
+
+        args:
+            axis (int, optional): Specific axis (1-based).
+
+        returns:
+            np.ndarray | float: Position vector or axis value.
+        """
         raw_pos = self.raw_position() 
         real_pos = self.raw_to_real(raw_pos)
         
@@ -202,10 +327,26 @@ class FakePipetteManipulator(FakeManipulator):
             return real_pos[axis-1]
 
     def raw_position(self, axis=None):
+        """
+        Get raw actuator position.
+
+        args:
+            axis (int, optional): Axis index.
+
+        returns:
+            np.ndarray | float: Raw position.
+        """
         return super().position(axis).copy()
 
 
     def absolute_move(self, x, axis):
+        """
+        Move manipulator along a specified axis.
+
+        args:
+            x (float): Target position.
+            axis (int): Axis index (1-based).
+        """
         print(f"Moving axis {axis} to {x}\t{self.position()}\t{self.raw_position()}")
         new_setpoint_raw = np.empty((3,)) * np.nan
         if axis == 1:
@@ -231,6 +372,13 @@ class FakePipetteManipulator(FakeManipulator):
                 super().absolute_move(pos, axis+1)
 
     def absolute_move_group(self, x, axes):
+        """
+        Move multiple axes simultaneously.
+
+        args:
+            x (list[float]): Target positions.
+            axes (list[int]): Axes indices.
+        """
         new_setpoint_raw = self.raw_position()
         curr_pos_real = self.position()
         x = np.array(x)
@@ -258,9 +406,19 @@ class FakePipetteManipulator(FakeManipulator):
             super().absolute_move(x, i+1)
 
 class FakePipette():
-
+    """
+    Simulates rendering of a pipette overlay onto microscope images.
+    """
     def __init__(self, manipulator:Manipulator, microscope_pixels_per_micron, stage_to_pipette=np.eye(4,4), pipetteAngle=np.pi/6):
+        """
+        Initialize the fake pipette.
 
+        args:
+            manipulator (Manipulator): Pipette manipulator.
+            microscope_pixels_per_micron (float): Conversion factor.
+            stage_to_pipette (np.ndarray): Transformation matrix.
+            pipetteAngle (float): Angle of pipette.
+        """
         # stage_to_pipette = np.array([[0.7,  -0.3,   0,      0], 
         #                              [0.3,  1,      0,      0], 
         #                              [0,    0,      (1), 600], 
@@ -302,7 +460,15 @@ class FakePipette():
         self.alphaMask = filter.enhance(1.2)
         
     def add_pipette_to_img(self, frame:Image, stagePos:list):
+        """
+        Initialize the fake pipette.
 
+        args:
+            manipulator (Manipulator): Pipette manipulator.
+            microscope_pixels_per_micron (float): Conversion factor.
+            stage_to_pipette (np.ndarray): Transformation matrix.
+            pipetteAngle (float): Angle of pipette.
+        """
         # print(self.manipulator.position(), self.manipulator.raw_position())
         #get stage micron coords
         stage_x, stage_y, stage_z = stagePos

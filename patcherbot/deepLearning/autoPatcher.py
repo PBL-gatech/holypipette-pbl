@@ -7,6 +7,12 @@ from collections import deque
 
 
 def _default_providers():
+    """
+    Determine the preferred ONNX Runtime execution providers in order of priority.
+    
+    Returns:
+        List[str]: Ordered list of available providers (GPU preferred, CPU last).
+    """
     available = list(ort.get_available_providers())
     preferred_order = [
         "CUDAExecutionProvider",
@@ -28,12 +34,32 @@ def _default_providers():
 
 
 class _ModelIO:
+    """Helper class for ONNX model input/output processing and state management."""
     @staticmethod
     def matches(name: str, logical: str) -> bool:
+        """
+        Check if a name matches a logical key (exact or prefix match).
+
+        Args:
+            name (str): Actual input/output name.
+            logical (str): Logical name to match.
+
+        Returns:
+            bool: True if matches, False otherwise.
+        """
         return name == logical or name.startswith(f"{logical}.")
 
     @staticmethod
     def shape_from_desc(desc):
+        """
+        Extract shape tuple from ONNX input/output descriptor.
+
+        Args:
+            desc: ONNX descriptor with `shape` attribute.
+
+        Returns:
+            tuple[int] | None: Shape as a tuple or None if unavailable.
+        """
         shape = getattr(desc, "shape", None)
         if not shape:
             return None
@@ -47,6 +73,15 @@ class _ModelIO:
 
     @staticmethod
     def dtype_from_desc(desc):
+        """
+        Convert ONNX descriptor type string to NumPy dtype.
+
+        Args:
+            desc: ONNX descriptor with `type` attribute.
+
+        Returns:
+            np.dtype | None: Corresponding NumPy dtype or None if unknown.
+        """
         dtype_str = getattr(desc, "type", None)
         mapping = {
             "tensor(float)": np.float32,
@@ -63,6 +98,15 @@ class _ModelIO:
 
     @staticmethod
     def infer_action_horizon(desc):
+        """
+        Infer the action horizon length from descriptor shape.
+
+        Args:
+            desc: ONNX input descriptor.
+
+        Returns:
+            int | None: Length of action sequence dimension, or None.
+        """
         if desc is None:
             return None
         shape = _ModelIO.shape_from_desc(desc)
@@ -75,6 +119,15 @@ class _ModelIO:
 
     @staticmethod
     def expand_for_desc(desc, array):
+        """
+        Infer the action horizon length from descriptor shape.
+
+        Args:
+            desc: ONNX input descriptor.
+
+        Returns:
+            int | None: Length of action sequence dimension, or None.
+        """
         arr = np.asarray(array)
         target_rank = len(getattr(desc, "shape", ())) if desc else arr.ndim
         while arr.ndim < target_rank:
@@ -85,6 +138,16 @@ class _ModelIO:
 
     @staticmethod
     def resize_for_desc(desc, img_hwc):
+        """
+        Expand an array to match descriptor rank and convert dtype if necessary.
+
+        Args:
+            desc: ONNX input descriptor.
+            array: Input array.
+
+        Returns:
+            np.ndarray: Expanded array compatible with descriptor.
+        """
         if desc is None:
             return np.asarray(img_hwc)
         shape = getattr(desc, "shape", None)
@@ -109,12 +172,30 @@ class _ModelIO:
 
     @staticmethod
     def ensure_three_channel(arr: np.ndarray) -> np.ndarray:
+        """
+        Ensure an image array has three channels.
+
+        Args:
+            arr: Input 2D or 3D array.
+
+        Returns:
+            np.ndarray: 3-channel HWC array.
+        """
         if arr.ndim == 2:
             return np.stack([arr] * 3, axis=-1)
         return arr
 
     @staticmethod
     def center_crop(arr: np.ndarray) -> np.ndarray:
+        """
+        Center-crop an image array to half its height and width.
+
+        Args:
+            arr: Input HWC or 2D array.
+
+        Returns:
+            np.ndarray: Center-cropped array.
+        """
         if arr.ndim == 2:
             arr = np.stack([arr] * 3, axis=-1)
         h, w = arr.shape[:2]
@@ -125,6 +206,17 @@ class _ModelIO:
 
     @staticmethod
     def prepare_image(image, img_size: int, center_crop: bool) -> np.ndarray:
+        """
+        Convert PIL or array image to normalized CxHxW tensor.
+
+        Args:
+            image: PIL.Image or ndarray.
+            img_size (int): Target image size.
+            center_crop (bool): Whether to center crop before resize.
+
+        Returns:
+            np.ndarray: Transposed (C,H,W) float32 array in [0,1].
+        """
         if isinstance(image, Image.Image):
             arr = np.asarray(image)
         else:
@@ -141,6 +233,17 @@ class _ModelIO:
         return np.transpose(arr, (2, 0, 1))
     @staticmethod
     def coerce_stage(stage):
+        """
+        Convert PIL or array image to normalized CxHxW tensor.
+
+        Args:
+            image: PIL.Image or ndarray.
+            img_size (int): Target image size.
+            center_crop (bool): Whether to center crop before resize.
+
+        Returns:
+            np.ndarray: Transposed (C,H,W) float32 array in [0,1].
+        """
         s = np.asarray(stage, np.float32).reshape(-1)
         if s.shape[0] == 2:
             s = np.concatenate([s, [0.0]]).astype(np.float32)
@@ -150,6 +253,19 @@ class _ModelIO:
 
     @staticmethod
     def default_state_value(name, desc, num_layers, hidden_size, action_horizon):
+        """
+        Generate default state value for RNN or cached input.
+
+        Args:
+            name (str): Input name.
+            desc: Descriptor with shape and type.
+            num_layers (int): Number of RNN layers.
+            hidden_size (int): Hidden state size.
+            action_horizon (int): Sequence length.
+
+        Returns:
+            np.ndarray: Default initialized state array.
+        """
         shape = _ModelIO.shape_from_desc(desc)
         dtype = _ModelIO.dtype_from_desc(desc) or np.float32
         if shape is None:
@@ -166,12 +282,30 @@ class _ModelIO:
 
     @staticmethod
     def copy_value(value):
+        """
+        Make a copy of a NumPy array or None.
+
+        Args:
+            value: Input array or None.
+
+        Returns:
+            np.ndarray | None: Copied array or None.
+        """
         if value is None:
             return None
         return np.array(value, copy=True)
 
     @staticmethod
     def coerce_state_value(name, value, template):
+        """
+        Make a copy of a NumPy array or None.
+
+        Args:
+            value: Input array or None.
+
+        Returns:
+            np.ndarray | None: Copied array or None.
+        """
         if value is None:
             return None
         arr = np.asarray(value)
@@ -189,7 +323,15 @@ class _ModelIO:
 
 
 class _StateManager:
+    """Manages RNN-style state inputs and outputs for ONNX models."""
     def __init__(self, num_layers: int, hidden_size: int):
+        """
+        Initialize the state manager with network parameters and empty state structures.
+
+        Args:
+            num_layers (int): Number of recurrent layers.
+            hidden_size (int): Size of the hidden state per layer.
+        """
         self.num_layers = num_layers
         self.hidden_size = hidden_size
         self.input_desc = {}
@@ -204,6 +346,17 @@ class _StateManager:
         self.action_horizon = None
 
     def configure(self, input_desc, input_names, output_names):
+        """
+        Configure state manager with ONNX input/output descriptors.
+
+        Args:
+            input_desc (dict): Mapping of name -> ONNX input descriptor.
+            input_names (iterable): Names of model inputs.
+            output_names (iterable): Names of model outputs.
+
+        Returns:
+            _StateManager: self
+        """
         self.input_desc = input_desc or {}
         self.input_names = tuple(input_names or ())
         self.output_names = tuple(output_names or ())
@@ -277,11 +430,28 @@ class _StateManager:
         self.reset()
         return self
     def reset(self):
+        """
+        Reset all state buffers to default values.
+
+        Returns:
+            _StateManager: self
+        """
         self.buffers = {name: _ModelIO.copy_value(template) for name, template in self.templates.items()}
         self.wrapper_history = {}
         return self
 
     def prepare(self, feed_dict, *, h_override=None, c_override=None, input_names=None):
+        """
+        Prepare feed dict with coerced state values.
+
+        Args:
+            feed_dict (dict): Initial inputs.
+            h_override, c_override: Optional RNN overrides.
+            input_names (iterable, optional): Subset of names to prepare.
+
+        Returns:
+            tuple[dict, np.ndarray|None, np.ndarray|None]: Prepared feed, h0, c0.
+        """
         feed = dict(feed_dict or {})
         if input_names is None:
             names = set(self.input_names)
@@ -309,6 +479,12 @@ class _StateManager:
         return feed, feed.get("h0"), feed.get("c0")
 
     def update(self, output_dict):
+        """
+        Update internal state buffers from model outputs.
+
+        Args:
+            output_dict (dict): Output name -> array
+        """
         for out_name, in_name in self.output_map.items():
             if out_name not in output_dict:
                 continue
@@ -318,15 +494,36 @@ class _StateManager:
             )
 
     def get(self, logical):
+        """
+        Retrieve a stored buffer value by matching its logical name.
+
+        Args:
+            logical (str): Logical identifier to search for in buffers.
+
+        Returns:
+            Any: The corresponding buffer value if found, else None.
+        """
         for name, value in self.buffers.items():
             if _ModelIO.matches(name, logical):
                 return value
         return None
 
     def snapshot(self):
+        """
+        Return a copy of all state buffers.
+
+        Returns:
+            dict: Name -> array copy
+        """
         return {name: _ModelIO.copy_value(value) for name, value in self.buffers.items()}
 
     def restore(self, state_dict):
+        """
+        Restore state buffers from snapshot.
+
+        Args:
+            state_dict (dict): Name -> array snapshot
+        """
         if not state_dict:
             return
         for name, value in state_dict.items():
@@ -335,6 +532,16 @@ class _StateManager:
                 self.buffers[name] = _ModelIO.coerce_state_value(name, value, template)
 
     def sequence(self, input_name, array):
+        """
+        Maintain a fixed-length history for a sequential input.
+
+        Args:
+            input_name (str): Name of input to sequence.
+            array (np.ndarray): New value to append.
+
+        Returns:
+            np.ndarray: Stacked sequence array.
+        """
         desc = self.input_desc.get(input_name)
         expanded = _ModelIO.expand_for_desc(desc, array)
         if desc is None:
@@ -368,6 +575,15 @@ class AutoPatcher:
     """Base class for auto-patching policies."""
 
     def __init__(self, onnx_path=None, providers=None, num_layers=2, hidden_size=400):
+        """
+        Initialize the base AutoPatcher model wrapper.
+
+        Args:
+            onnx_path (str | Path, optional): Path to a .onnx model file to load.
+            providers (list[str], optional): ONNX Runtime execution providers.
+            num_layers (int, optional): Number of LSTM/hidden layers in state.
+            hidden_size (int, optional): Size of hidden layers in state.
+        """
         self.session = None
         self.input_names = None
         self.output_names = None
@@ -385,6 +601,27 @@ class AutoPatcher:
             self.load_model(onnx_path, providers)
 
     def load_model(self, onnx_path=None, providers=None):
+        """
+        Load ONNX model with optional execution providers.
+
+        Args:
+            onnx_path (str|Path, optional): Path to .onnx file.
+            providers (list[str], optional): Execution providers.
+
+        Returns:
+            Tuple[ort.InferenceSession, List[str], List[str]]:
+                - ONNX Runtime session
+                - List of input names
+                - List of output names
+
+        Raises:
+            FileNotFoundError:
+                If no valid `.onnx` model file is provided or found in the
+                default directory.
+            RuntimeError:
+                If the action output key cannot be determined after loading
+                the model.
+        """
         if providers is None:
             providers = _default_providers()
         if onnx_path is None or not Path(onnx_path).exists():
@@ -409,7 +646,23 @@ class AutoPatcher:
         return self.session, self.input_names, self.output_names
 
     def identify_model(self):
-        """Cache and report basic metadata about the currently loaded ONNX model."""
+        """
+        Cache and report basic metadata about the currently loaded ONNX model.
+        Returns: 
+            Dict[str, object]:
+                Dictionary containing model metadata, including:
+                - "uses_wrapper" (bool): Whether model uses `obs::`-style inputs.
+                - "has_goal" (bool): Whether model expects `goal::` inputs.
+                - "input_names" (Tuple[str, ...]): Names of model inputs.
+                - "output_names" (Tuple[str, ...]): Names of model outputs.
+                - "providers" (Tuple[str, ...]): ONNX Runtime execution providers.
+                - "action_shape" (Optional[Tuple[int, ...]]): Shape of action output.
+                - "action_dtype" (Optional[Any]): Data type of action output.
+
+        Raises:
+            RuntimeError:
+                If the model has not been loaded (i.e., `input_names` is None).
+        """
         if self.input_names is None:
             raise RuntimeError("Model is not loaded; call load_model before identify_model.")
         if self._model_info is not None:
@@ -430,6 +683,24 @@ class AutoPatcher:
         return info
 
     def inference(self, inputs=None, h0=None, c0=None):
+        """
+        Run a forward pass of the ONNX model and update internal state.
+
+        Args:
+            inputs (Any, optional): Model-specific input structure. Must be compatible
+                with `_prepare_inputs` implementation in subclasses.
+            h0 (np.ndarray, optional): Initial hidden state override.
+            c0 (np.ndarray, optional): Initial cell state override.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                - action (np.ndarray): Model output action of shape (1, action_dim).
+                - new_h0 (np.ndarray): Updated hidden state.
+                - new_c0 (np.ndarray): Updated cell state.
+
+        Raises:
+            RuntimeError: If the ONNX model does not produce the expected action output.
+        """
         feed_dict = self._prepare_inputs(inputs, h0, c0)
         feed_dict, _, _ = self.state.prepare(feed_dict, h_override=h0, c_override=c0)
         filtered_inputs = {k: v for k, v in feed_dict.items() if k in (self.input_names or [])}
@@ -463,83 +734,275 @@ class AutoPatcher:
         return np.asarray(action), new_h0, new_c0
 
     def reset_state(self):
+        """Reset the internal recurrent state buffers."""
         self.state.reset()
         self._prefilled = False
 
     def get_state_snapshot(self):
+        """Retrieve a copy of the current internal state buffers."""
         return self.state.snapshot()
 
     def set_state_snapshot(self, state_dict):
+        """
+        Restore internal state buffers from a snapshot.
+
+        Args:
+            state_dict (Dict[str, np.ndarray]): Previously saved state dictionary.
+        """
         self.state.restore(state_dict)
     def prepare_image(self, image) -> np.ndarray:
+        """
+        Preprocess an image according to model expectations.
+
+        Args:
+            image (Any): Input image (PIL image or NumPy array).
+
+        Returns:
+            np.ndarray: Preprocessed image tensor.
+
+        Raises:
+            AttributeError: If `img_size` is not set before calling.
+        """
         if self.img_size is None:
             raise AttributeError("img_size must be set before calling prepare_image")
         return _ModelIO.prepare_image(image, self.img_size, self.center_crop)
 
     def _prepare_inputs(self, inputs, h0, c0):
+        """
+        Construct model input dictionary from raw inputs.
+
+        This method must be implemented by subclasses.
+
+        Args:
+            inputs (Any): Raw input data.
+            h0 (np.ndarray): Initial hidden state.
+            c0 (np.ndarray): Initial cell state.
+
+        Returns:
+            Dict[str, np.ndarray]: Prepared model input dictionary.
+
+        Raises:
+            NotImplementedError: Always raised in base class.
+        """
         raise NotImplementedError("Subclasses must implement `_prepare_inputs` to supply model inputs.")
 
     def _matches_state_name(self, name, logical):
+        """
+        Check whether a name matches a logical state identifier.
+
+        Args:
+            name (str): Actual state name.
+            logical (str): Logical name to match against.
+
+        Returns:
+            bool: True if names match.
+        """
         return _ModelIO.matches(name, logical)
 
     def _configure_state_management(self):
+        """Configure state manager using current model input/output descriptors."""
         self.state.configure(self._input_desc, self.input_names, self.output_names)
 
     def _initialize_state_buffers(self):
+        """Initialize or reset internal state buffers."""
         self.state.reset()
 
     def _ensure_state_inputs(self, inputs, h0, c0, *, input_names=None):
+        """
+        Ensure required state inputs are present in the model feed.
+
+        Args:
+            inputs (Dict[str, np.ndarray]): Input dictionary.
+            h0 (np.ndarray): Hidden state override.
+            c0 (np.ndarray): Cell state override.
+            input_names (Iterable[str], optional): Subset of input names to include.
+
+        Returns:
+            Tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray]:
+                Updated inputs, h0, and c0.
+        """
         return self.state.prepare(inputs, h_override=h0, c_override=c0, input_names=input_names)
 
     def _update_state_from_outputs(self, output_dict):
+        """
+        Update internal state buffers using model outputs.
+
+        Args:
+            output_dict (Dict[str, np.ndarray]): Model outputs.
+        """
         self.state.update(output_dict)
 
     def _shape_from_desc(self, desc):
+        """
+        Extract tensor shape from an ONNX descriptor.
+
+        Args:
+            desc: ONNX input/output descriptor.
+
+        Returns:
+            Tuple[int, ...] | None: Parsed shape or None if unavailable.
+        """
         return _ModelIO.shape_from_desc(desc)
 
     def _dtype_from_desc(self, desc):
+        """
+        Extract NumPy dtype from an ONNX descriptor.
+
+        Args:
+            desc: ONNX input/output descriptor.
+
+        Returns:
+            np.dtype | None: Corresponding NumPy dtype.
+        """
         return _ModelIO.dtype_from_desc(desc)
 
     def _infer_action_horizon(self, desc=None):
+        """
+        Infer action sequence length (horizon) from descriptor.
+
+        Args:
+            desc: Optional ONNX descriptor.
+
+        Returns:
+            int | None: Inferred horizon length.
+        """
         if desc is not None:
             return _ModelIO.infer_action_horizon(desc)
         return self.state.action_horizon
 
     def _default_state_value(self, name):
+        """
+        Generate a default value for a state input.
+
+        Args:
+            name (str): State variable name.
+
+        Returns:
+            np.ndarray: Default-initialized state array.
+        """
         desc = self._input_desc.get(name)
         return _ModelIO.default_state_value(
             name, desc, self.state.num_layers, self.state.hidden_size, self.state.action_horizon
         )
 
     def _copy_state_value(self, value):
+        """
+        Create a copy of a state value.
+
+        Args:
+            value (np.ndarray): Input state value.
+
+        Returns:
+            np.ndarray: Copied state value.
+        """
         return _ModelIO.copy_value(value)
 
     def _coerce_state_value(self, name, value):
+        """
+        Coerce a state value to match expected template shape and dtype.
+
+        Args:
+            name (str): State variable name.
+            value (Any): Input value.
+
+        Returns:
+            np.ndarray: Coerced state value.
+        """
         template = self.state.templates.get(name)
         return _ModelIO.coerce_state_value(name, value, template)
 
     def _get_state_value(self, logical):
+        """
+        Retrieve a state value by logical name.
+
+        Args:
+            logical (str): Logical state identifier.
+
+        Returns:
+            np.ndarray | None: State value if found.
+        """
         return self.state.get(logical)
 
     def _get_input_desc(self):
+        """
+        Get ONNX input descriptors.
+
+        Returns:
+            Dict[str, Any]: Input descriptor mapping.
+        """
         return self._input_desc
 
     def _resize_to_expected(self, input_name, img_hwc):
+        """
+        Resize an image to match expected ONNX input dimensions.
+
+        Args:
+            input_name (str): Input tensor name.
+            img_hwc (np.ndarray): Image in HWC format.
+
+        Returns:
+            np.ndarray: Resized image.
+        """
         return _ModelIO.resize_for_desc(self._input_desc.get(input_name), img_hwc)
 
     def _expand_for_input(self, input_name, array):
+        """
+        Expand array dimensions to match ONNX input rank.
+
+        Args:
+            input_name (str): Input tensor name.
+            array (np.ndarray): Input array.
+
+        Returns:
+            np.ndarray: Expanded array.
+        """
         return _ModelIO.expand_for_desc(self._input_desc.get(input_name), array)
 
     def _coerce_stage(self, stage):
+        """
+        Normalize stage position to expected shape.
+
+        Args:
+            stage (Any): Stage position input.
+
+        Returns:
+            np.ndarray: 3-element stage vector.
+        """
         return _ModelIO.coerce_stage(stage)
 
     def _crop_center(self, arr: np.ndarray) -> np.ndarray:
+        """
+        Perform center crop on an image.
+
+        Args:
+            arr (np.ndarray): Input image.
+
+        Returns:
+            np.ndarray: Center-cropped image.
+        """
         return _ModelIO.center_crop(arr)
 
     def _prepare_wrapper_sequence(self, input_name, array):
+        """
+        Convert input into a temporal sequence buffer for wrapper models.
+
+        Args:
+            input_name (str): Input tensor name.
+            array (np.ndarray): Input data.
+
+        Returns:
+            np.ndarray: Sequence-formatted input.
+        """
         return self.state.sequence(input_name, array)
 
     def _axis_dims(self):
+        """
+        Infer dimensionality of pipette, stage, and action spaces.
+
+        Returns:
+            Tuple[int, int, int | None]:
+                (pipette_dim, stage_dim, action_dim)
+        """
         action_dim = None
         if self.session and self.state.action_key:
             for out in self.session.get_outputs():
@@ -560,6 +1023,17 @@ class AutoPatcher:
         return pip_dim, stage_dim, action_dim
 
     def _trim_axes(self, pip, stage):
+        """
+        Trim pipette and stage vectors to expected dimensionality.
+
+        Args:
+            pip (Any): Pipette position.
+            stage (Any): Stage position.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]:
+                Trimmed pipette and stage arrays.
+        """
         pip_dim, stage_dim, _ = self._axis_dims()
         pip_arr = np.asarray(pip, np.float32).reshape(-1)[:pip_dim]
         stage_arr = np.asarray(stage, np.float32).reshape(-1)
@@ -586,6 +1060,27 @@ class CellHunter(AutoPatcher):
     def __init__(self, onnx_path=None, providers=None, num_layers=2, hidden_size=400,
                  *, seq_len: int = 16, img_size: int = 85, prefill_init: bool = False,
                  center_crop: bool = True):
+        """
+        Initialize the CellHunter policy.
+
+        Args:
+            onnx_path (str or Path, optional):
+                Path to ONNX model.
+            providers (list[str], optional):
+                ONNX Runtime execution providers.
+            num_layers (int):
+                Number of recurrent layers.
+            hidden_size (int):
+                Hidden state size.
+            seq_len (int):
+                Length of temporal observation history.
+            img_size (int):
+                Image resize dimension.
+            prefill_init (bool):
+                Whether to prefill history buffers on first input.
+            center_crop (bool):
+                Whether to center crop images before resizing.
+        """
         super().__init__(onnx_path=onnx_path, providers=providers,
                          num_layers=num_layers, hidden_size=hidden_size)
         import collections
@@ -601,6 +1096,23 @@ class CellHunter(AutoPatcher):
         self._res_q = collections.deque(maxlen=self.seq_len)
 
     def _prepare_inputs(self, model_input, h0, c0):
+        """
+        Convert observations into model-ready inputs for CellHunter.
+
+        Args:
+            model_input (tuple or dict):
+                Observation input. Either:
+                - Tuple: (pipette, stage, image, resistance)
+                - Dict with 'obs' and optionally 'goal'
+            h0 (np.ndarray or None):
+                Hidden state override.
+            c0 (np.ndarray or None):
+                Cell state override.
+
+        Returns:
+            dict:
+                Model-ready input dictionary.
+        """
         in_desc = self._get_input_desc()
         input_names = set(in_desc.keys())
         uses_obs_prefix = any(n.startswith("obs::") for n in input_names)
@@ -733,6 +1245,25 @@ class GigaSealer(AutoPatcher):
     """Gigasealing policy."""
 
     def _prepare_inputs(self, inputs, h0, c0):
+        """
+        Prepare inputs for the gigasealing policy.
+
+        Args:
+            inputs (tuple):
+                Tuple of (img_q, pip_q, stage_q, res_q).
+            h0 (np.ndarray or None):
+                Hidden state override.
+            c0 (np.ndarray or None):
+                Cell state override.
+
+        Returns:
+            dict:
+                Model-ready input dictionary.
+
+        Raises:
+            ValueError:
+                If inputs are not a valid 4-tuple.
+        """
         try:
             img_q, pip_q, stage_q, res_q = inputs
         except Exception as exc:
@@ -751,6 +1282,25 @@ class Burglar(AutoPatcher):
     """Break-in policy."""
 
     def _prepare_inputs(self, inputs, h0, c0):
+        """
+        Prepare inputs for the break-in policy.
+
+        Args:
+            inputs (tuple):
+                Tuple of (img_q, pip_q, stage_q, res_q).
+            h0 (np.ndarray or None):
+                Hidden state override.
+            c0 (np.ndarray or None):
+                Cell state override.
+
+        Returns:
+            dict:
+                Model-ready input dictionary.
+
+        Raises:
+            ValueError:
+                If inputs are not a valid 4-tuple.
+        """
         try:
             img_q, pip_q, stage_q, res_q = inputs
         except Exception as exc:
@@ -769,6 +1319,27 @@ class PipetteFinder(AutoPatcher):
     def __init__(self, onnx_path=None, providers=None, num_layers=2, hidden_size=400,
                  *, seq_len: int = 16, img_size: int = 85, prefill_init: bool = False,
                  center_crop: bool = True):
+        """
+        Initialize the PipetteFinder policy.
+
+        Args:
+            onnx_path (str or Path, optional):
+                Path to ONNX model.
+            providers (list[str], optional):
+                ONNX Runtime execution providers.
+            num_layers (int):
+                Number of recurrent layers.
+            hidden_size (int):
+                Hidden state size.
+            seq_len (int):
+                Length of temporal observation history.
+            img_size (int):
+                Image resize dimension.
+            prefill_init (bool):
+                Whether to prefill history buffers on first input.
+            center_crop (bool):
+                Whether to center crop images before resizing.
+        """
         super().__init__(onnx_path=onnx_path, providers=providers,
                          num_layers=num_layers, hidden_size=hidden_size)
         import collections
@@ -782,6 +1353,32 @@ class PipetteFinder(AutoPatcher):
         self._stage_q = collections.deque(maxlen=self.seq_len)
 
     def _prepare_inputs(self, model_input, h0, c0):
+        """
+        Prepare model inputs for ONNX inference, supporting both wrapper-style
+        (`obs::` / `goal::`) inputs and sequence-based inputs.
+
+        Args:
+            model_input (Union[tuple, dict]):
+                Input observation. Supported formats:
+                - Tuple: (pipette_positions, stage_positions, camera_image)
+                - Dict: keys include "pipette_positions", "stage_positions", "camera_image"
+                - Wrapper dict: {"obs": ..., "goal": ...}
+            h0 (Optional[np.ndarray]):
+                Initial hidden state override.
+            c0 (Optional[np.ndarray]):
+                Initial cell state override.
+
+        Returns:
+            Dict[str, np.ndarray]:
+                Dictionary mapping model input names to properly shaped numpy arrays
+                ready for ONNX inference.
+
+        Raises:
+            ValueError:
+                - If `model_input` is missing required keys.
+                - If tuple input has insufficient elements.
+                - If `camera_image` is missing when required.
+        """
         in_desc = self._get_input_desc()
         input_names = set(in_desc.keys())
         uses_obs_prefix = any(n.startswith("obs::") for n in input_names)

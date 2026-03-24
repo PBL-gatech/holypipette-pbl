@@ -28,16 +28,36 @@ class PipetteDetector(ABC):
     """Abstract base class for pipette detectors."""
 
     def __init__(self) -> None:
+        """
+        Initialize the base pipette detector.
+        """
         super().__init__()
 
     @abstractmethod
     def detect_pipette(self, img: np.ndarray) -> Optional[Tuple[int, int]]:
-        """Locate the pipette tip in the provided image."""
+        """
+        Locate the pipette tip in the provided image.
+        
+        Args:
+            img (np.ndarray): Input image array (H x W x C or H x W).
+
+        Returns:
+            Optional[Tuple[int, int]]: (x, y) pixel coordinates of the pipette tip,
+            or None if no tip is detected.
+        """
         raise NotImplementedError
 
     @staticmethod
     def _ensure_color(img: np.ndarray) -> np.ndarray:
-        """Ensure the image has three channels for models that expect color input."""
+        """
+        Ensure the image has three channels for models that expect color input.
+        
+        Args:
+            img (np.ndarray): Input image.
+
+        Returns:
+            np.ndarray: Image with 3 channels (H x W x 3).
+        """
         if img is None:
             return img
         if len(img.shape) == 2:
@@ -46,7 +66,15 @@ class PipetteDetector(ABC):
 
     @staticmethod
     def _ensure_grayscale(img: np.ndarray) -> np.ndarray:
-        """Convert a color image to grayscale if required."""
+        """
+        Convert a color image to grayscale if required.
+        
+        Args:
+            img (np.ndarray): Input image.
+
+        Returns:
+            np.ndarray: Grayscale image (H x W).
+        """
         if img is None:
             return img
         if len(img.shape) == 2:
@@ -58,6 +86,13 @@ class PipetteDetector1(PipetteDetector):
     """ONNX-based pipette detector (original implementation)."""
 
     def __init__(self, model_path: Optional[str] = None) -> None:
+        """
+        Initialize the ONNX pipette detector.
+
+        Args:
+            model_path (Optional[str]): Path to the ONNX model file. Defaults to
+                'pipette-small.onnx' in the pipetteModel folder.
+        """
         super().__init__()
         cur_file = Path(__file__).parent.absolute()
         default_model = cur_file / "pipetteModel" / "pipette-small.onnx"
@@ -68,7 +103,16 @@ class PipetteDetector1(PipetteDetector):
         self.pipette_class = 0
 
     def detect_pipette(self, img: np.ndarray) -> Optional[Tuple[int, int]]:
-        """Return the (x, y) position of the pipette tip or None if not detected."""
+        """
+        Return the (x, y) position of the pipette tip or None if not detected.
+        
+        Args:
+            img (np.ndarray): Input image array (H x W x C or H x W).
+
+        Returns:
+            Optional[Tuple[int, int]]: (x, y) pixel coordinates of the pipette tip,
+            or None if not detected.
+        """
         img = self._ensure_color(img)
         blob = cv2.dnn.blobFromImage(img, 1 / 255.0, (640, 640), swapRB=True, crop=False)
         outs = self._forward(blob)
@@ -100,6 +144,15 @@ class PipetteDetector1(PipetteDetector):
         return int(best_x), int(best_y)
 
     def _forward(self, blob: np.ndarray):
+        """
+        Run a forward pass through the ONNX DNN model.
+
+        Args:
+            blob (np.ndarray): Preprocessed image blob.
+
+        Returns:
+            List[np.ndarray]: Model outputs for pipette detection.
+        """
         self.yolo_net.setInput(blob)
         return self.yolo_net.forward(self.output_layers)
 
@@ -115,6 +168,12 @@ class PipetteDetectorCuda1(PipetteDetector):
     )
 
     def __init__(self, model_path: Optional[str] = None) -> None:
+        """
+        Initialize the GPU pipette detector.
+
+        Args:
+            model_path (Optional[str]): Path to the ONNX model file.
+        """
         super().__init__()
         cur_file = Path(__file__).parent.absolute()
         default_model = cur_file / "pipetteModel" / "pipetteDetectorNet4.onnx"
@@ -131,6 +190,12 @@ class PipetteDetectorCuda1(PipetteDetector):
             self._ensure_fallback()
 
     def _init_onnxruntime(self) -> bool:
+        """
+        Initialize the onnxruntime session with GPU providers.
+
+        Returns:
+            bool: True if GPU session initialized successfully, False otherwise.
+        """
         try:
             import onnxruntime as ort
         except ImportError:
@@ -166,12 +231,25 @@ class PipetteDetectorCuda1(PipetteDetector):
         return True
 
     def _ensure_fallback(self) -> None:
+        """
+        Initialize the OpenCV fallback detector if GPU inference fails.
+        """
         if self._fallback is None:
             logger.info("Initializing OpenCV fallback for PipetteDetectorCuda1")
             self._fallback = PipetteDetector1(model_path=str(self.model_path))
             self.compute_device = "opencv"
 
     def detect_pipette(self, img: np.ndarray) -> Optional[Tuple[int, int]]:
+        """
+        Detect the pipette tip using GPU-accelerated onnxruntime or fallback.
+
+        Args:
+            img (np.ndarray): Input image array (H x W x C or H x W).
+
+        Returns:
+            Optional[Tuple[int, int]]: (x, y) pixel coordinates of the pipette tip,
+            or None if detection fails.
+        """
         if self._ort_session is None:
             self._ensure_fallback()
             return self._fallback.detect_pipette(img) if self._fallback else None
@@ -220,6 +298,13 @@ class PipetteDetector2(PipetteDetector):
     """DINO-based pipette detector using the transformer pipeline."""
 
     def __init__(self, model_path: Optional[str] = None, device: Optional[str] = None) -> None:
+        """
+        Initialize the DINO transformer-based detector.
+
+        Args:
+            model_path (Optional[str]): Path to the PyTorch model file (.pt).
+            device (Optional[str]): Torch device to run inference on (e.g., 'cuda' or 'cpu').
+        """
         super().__init__()
         src_dir = Path(__file__).parent / "pipetteModel" / "holypipette_pipette_detection" / "src"
         if str(src_dir) not in sys.path:
@@ -251,7 +336,16 @@ class PipetteDetector2(PipetteDetector):
         self._last_z: Optional[float] = None
 
     def detect_pipette(self, img: np.ndarray) -> Optional[Tuple[int, int]]:
-        """Return the (x, y) position of the pipette tip or None if not detected."""
+        """
+        Return the (x, y) position of the pipette tip or None if not detected.
+        
+        Args:
+            img (np.ndarray): Input image array (H x W x C or H x W).
+
+        Returns:
+            Optional[Tuple[int, int]]: (x, y) pixel coordinates of the pipette tip,
+            or None if detection fails.
+        """
         if img is None:
             return None
 
@@ -278,7 +372,12 @@ class PipetteDetector2(PipetteDetector):
 
     @property
     def last_depth_prediction(self) -> Optional[float]:
-        """Return the most recent z-coordinate prediction, if available."""
+        """
+        Return the most recent z-coordinate prediction, if available.
+        
+        Returns:
+            Optional[float]: Predicted depth in pixels, or None if unavailable.
+        """
         return self._last_z
 
 
@@ -289,6 +388,15 @@ class PipetteDetectorYOLO1(PipetteDetector):
                  device: Optional[str] = None,
                  imgsz: int = 640,
                  conf: float = 0.20) -> None:
+        """
+        Initialize the YOLO-based pipette detector.
+
+        Args:
+            model_path (Optional[str]): Path to the YOLO .pt model.
+            device (Optional[str]): Torch device to run inference on.
+            imgsz (int): Input image size for YOLO (square).
+            conf (float): Confidence threshold for detection.
+        """
         super().__init__()
         from ultralytics import YOLO
 
@@ -337,6 +445,16 @@ class PipetteDetectorYOLO1(PipetteDetector):
                 torch.cuda.synchronize()
 
     def detect_pipette(self, img: np.ndarray) -> Optional[Tuple[int, int]]:
+        """
+        Detect the pipette tip using YOLOv8.
+
+        Args:
+            img (np.ndarray): Input image array (H x W x C or H x W).
+
+        Returns:
+            Optional[Tuple[int, int]]: (x, y) pixel coordinates of the pipette tip,
+            or None if detection fails.
+        """
         if img is None:
             return None
 

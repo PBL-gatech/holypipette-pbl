@@ -74,6 +74,12 @@ def needs_select(func):
     Decorator for all methods of `MultiClamp` that need to select the device
     first (only calls `Multiclamp.select_amplifier` if the respective device is
     not already the selected device).
+    
+    Args:
+        func (callable): The method to wrap.
+
+    Returns:
+        callable: Wrapped method that selects the amplifier if not already selected.
     """
     @functools.wraps(func)
     def wrapper(self, *args, **kwds):
@@ -91,6 +97,20 @@ def _identify_amplifier(model, serial, port, device, channel):
     device number and the channel; for a 700B device, returns the serial number
     and the channel. In all cases, the dictionary contains the `model` key with
     `700A` or `700B` as a value.
+    
+    Args:
+        model (ctypes.c_uint): Device model code (0=700A, 1=700B).
+        serial (ctypes.c_char_p): Serial number buffer (700B only).
+        port (ctypes.c_uint): Port number (700A only).
+        device (ctypes.c_uint): Device number (700A only).
+        channel (ctypes.c_uint): Channel number.
+
+    Returns:
+        dict: Dictionary containing model, channel, and either port/device (700A)
+              or serial (700B).
+
+    Raises:
+        AssertionError: If the model code is unknown.
     """
     if model.value == 0:  # 700A
         logging.info(('Found a MultiClamp 700A (Port: {}  Device: {}  '
@@ -111,10 +131,9 @@ class MultiClamp(object):
     """
     Device representing a MultiClamp amplifier with two channels or more.
 
-    Parameters
-    ----------
-    channels
-        List of MultiClamp channels. If none, a single 2-channel Multiclamp is assumed.
+    Args:
+        channels: List of MultiClampChannel objects. If None, a 2-channel
+                  amplifier is assumed.
     """
     def __init__(self, *channels):
         self.channel = channels
@@ -126,14 +145,11 @@ class MultiClamp(object):
         '''
         Configure an acquisition board.
 
-        Parameters
-        ----------
-        primary
-            A list of names of connections on the board for the primary signal, for each channel.
-        secondary
-            A list of names of connections on the board for the secondary signal, for each channel.
-        command
-            A list of names of connections on the board for the command signal, for each channel.
+        Args:
+            theboard: Board object.
+            primary (list, optional): Connection names for primary signals.
+            secondary (list, optional): Connection names for secondary signals.
+            command (list, optional): Connection names for command signals.
         '''
         self.board = theboard
         self.primary = primary
@@ -144,12 +160,11 @@ class MultiClamp(object):
         '''
         Send commands and acquire signals.
 
-        Parameters
-        ----------
-        inputs
-            A list of input variables to acquire. From: V1, I1, Ve1, V2, I2, etc (electrode potential)
-        outputs
-            A dictionary of commands. From: V1, I1, V2, I2...
+        Args:
+            inputs
+                A list of input variables to acquire. From: V1, I1, Ve1, V2, I2, etc (electrode potential)
+            outputs
+                A dictionary of commands. From: V1, I1, V2, I2...
         '''
         # Switch the mode
         # Sets the signals
@@ -212,14 +227,15 @@ class MultiClampChannel(Amplifier):
         '''
         Configure an acquisition board.
 
-        Parameters
-        ----------
-        primary
-            A connection name on the board for the primary signal.
-        secondary
-            A connection name on the board for the secondary signal.
-        command
-            A connection name on the board for the command signal.
+        Args:
+            theboard
+                Board object.
+            primary (str, optional):
+                A connection name on the board for the primary signal.
+            secondary (str, optional):
+                A connection name on the board for the secondary signal.
+            command (str, optional)
+                A connection name on the board for the command signal.
         '''
         self.board = theboard
         self.primary = primary
@@ -230,14 +246,19 @@ class MultiClampChannel(Amplifier):
         '''
         Send commands and acquire signals.
 
-        Parameters
-        ----------
-        inputs
-            A list of input variables to acquire. From: V, I, Ve (electrode potential)
-            A maximum of two inputs.
-        outputs
-            A dictionary of commands. From: V, I.
-            Only one command!
+        Args:
+            inputs
+                A list of input variables to acquire. From: V, I, Ve (electrode potential)
+                A maximum of two inputs.
+            outputs
+                A dictionary of commands. From: V, I.
+                Only one command!
+        
+        Returns:
+            Output from the acquisition board.
+
+        Raises:
+            IndexError: If more than two inputs or more than one output are provided.
         '''
         # A few checks
         if len(inputs)>2:
@@ -279,11 +300,13 @@ class MultiClampChannel(Amplifier):
         """
         Check the error code of the last command.
 
-        Parameters
-        ----------
-        fail : bool
-            If ``False`` (the default), any error will give rise to a warning;
-            if ``True``, any error will give rise to an `IOError`.
+        Args:
+            fail (bool):
+                If ``False`` (the default), any error will give rise to a warning;
+                if ``True``, any error will give rise to an `IOError`.
+
+        Raises:
+            IOError: If fail=True and an error occurred.
         """
         if self.last_error.value != NO_ERROR:
             # Get the error text
@@ -307,10 +330,9 @@ class MultiClampChannel(Amplifier):
         Return a list of all amplifier devices (each described by a dictionary,
         see `_identifiy_amplifier`).
         
-        Returns
-        -------
-        amplifiers : list of dict
-            A list of all detected amplifier devices.
+        Returns:
+            amplifiers (list[dict]):
+                A list of all detected amplifier devices.
         """
         model = ctypes.c_uint()
         port = ctypes.c_uint()
@@ -346,6 +368,9 @@ class MultiClampChannel(Amplifier):
         """
         Select the current amplifier (will be called automatically when
         executing command such as `MultiClamp.voltage_clamp`.
+
+        Raises:
+            RuntimeError: If no matching device or multiple matching devices found.
         """
         multiclamps = []
         for multiclamp in MultiClampChannel.all_devices:
@@ -384,6 +409,10 @@ class MultiClampChannel(Amplifier):
     def start_patch(self, pulse_amplitude=1e-2, pulse_frequency=1e-2): # Not clear what the units are for frequency
         '''
         Initialize the patch clamp procedure (in bath)
+
+        Args:
+            pulse_amplitude (float, optional): Amplitude of repeated test pulses. Default is 0.01 (units depend on device settings).
+            pulse_frequency (float, optional): Frequency of repeated test pulses. Default is 0.01 (units unclear, likely Hz).
         '''
         # Set in voltage clamp
         self.voltage_clamp()
@@ -415,6 +444,9 @@ class MultiClampChannel(Amplifier):
     def resistance(self):
         '''
         Returns resistance
+
+        Raises:
+            RuntimeError: Always raised; use DAQ resistance instead.
         '''
         raise RuntimeError('Resistance not implemented for MultiClamp -- Use DAQ resistance instead.')
 
@@ -433,6 +465,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_primary_signal(self, signal):
+        """
+        Set the primary signal of the amplifier.
+
+        Args:
+            signal (int): Index of the primary signal to set.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetPrimarySignal(self.msg_handler,
                                                 ctypes.c_uint(signal),
                                                 ctypes.byref(self.last_error)):
@@ -440,6 +481,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def get_primary_signal(self):
+        """
+        Get the current primary signal of the amplifier.
+
+        Returns:
+            int: Index of the currently selected primary signal.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         res = ctypes.c_uint(0)
         if not self.dll.MCCMSG_GetPrimarySignal(self.msg_handler,
                                                 ctypes.byref(res),
@@ -449,6 +499,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_primary_signal_gain(self, gain):
+        """
+        Set the gain of the primary signal.
+
+        Args:
+            gain (float): Gain value to set.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetPrimarySignalGain(self.msg_handler,
                                                     ctypes.c_double(gain),
                                                     ctypes.byref(self.last_error)):
@@ -456,6 +515,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def get_primary_signal_gain(self):
+        """
+        Get the gain of the primary signal.
+
+        Returns:
+            float: Current primary signal gain.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         gain = ctypes.c_double(0.)
         if not self.dll.MCCMSG_GetPrimarySignalGain(self.msg_handler,
                                                     ctypes.byref(gain),
@@ -465,6 +533,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_primary_signal_lpf(self, lpf):
+        """
+        Set the low-pass filter (LPF) of the primary signal.
+
+        Args:
+            lpf (float): Low-pass filter frequency.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetPrimarySignalLPF(self.msg_handler,
                                                    ctypes.c_double(lpf),
                                                    ctypes.byref(self.last_error)):
@@ -472,6 +549,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_primary_signal_hpf(self, hpf):
+        """
+        Set the high-pass filter (HPF) of the primary signal.
+
+        Args:
+            hpf (float): High-pass filter frequency.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetPrimarySignalHPF(self.msg_handler,
                                                    ctypes.c_double(hpf),
                                                    ctypes.byref(self.last_error)):
@@ -479,6 +565,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_secondary_signal(self, signal):
+        """
+        Set the secondary signal of the amplifier.
+
+        Args:
+            signal (int): Index of the secondary signal to set.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetSecondarySignal(self.msg_handler,
                                                   ctypes.c_uint(signal),
                                                   ctypes.byref(self.last_error)):
@@ -486,6 +581,18 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def get_secondary_signal(self, signal):
+        """
+        Get the current secondary signal.
+
+        Args:
+            signal (int): Index of the secondary signal to query.
+
+        Returns:
+            int: Index of the currently selected secondary signal.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         res = ctypes.c_uint(signal)
         if not self.dll.MCCMSG_GetSecondarySignal(self.msg_handler,
                                                   ctypes.byref(res),
@@ -495,6 +602,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_secondary_signal_lpf(self, lpf):
+        """
+        Set the low-pass filter (LPF) of the secondary signal.
+
+        Args:
+            lpf (float): Low-pass filter frequency.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetSecondarySignalLPF(self.msg_handler,
                                                      ctypes.c_double(lpf),
                                                      ctypes.byref(self.last_error)):
@@ -502,6 +618,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_secondary_signal_gain(self, gain):
+        """
+        Set the gain of the secondary signal.
+
+        Args:
+            gain (float): Gain value to set.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetSecondarySignalGain(self.msg_handler,
                                                       ctypes.c_double(gain),
                                                       ctypes.byref(self.last_error)):
@@ -509,6 +634,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def get_secondary_signal_gain(self):
+        """
+        Get the gain of the secondary signal.
+
+        Returns:
+            float: Current secondary signal gain.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         gain = ctypes.c_double(0.)
         if not self.dll.MCCMSG_GetSecondarySignalGain(self.msg_handler,
                                                     ctypes.byref(gain),
@@ -520,6 +654,12 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def voltage_clamp(self):
+        """
+        Switch the amplifier to voltage-clamp mode.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         # MCCMSG_MODE_VCLAMP = 0
         # logging.info('Switching to voltage clamp in multiclamp.py')
         if not self.dll.MCCMSG_SetMode(self.msg_handler, ctypes.c_uint(0),
@@ -528,6 +668,12 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def current_clamp(self):
+        """
+        Switch the amplifier to current-clamp mode.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         # MCCMSG_MODE_ICLAMP = 1
         if not self.dll.MCCMSG_SetMode(self.msg_handler, ctypes.c_uint(1),
                                        ctypes.byref(self.last_error)):
@@ -535,6 +681,12 @@ class MultiClampChannel(Amplifier):
 
     @needs_select # I=0
     def null_current(self):
+        """
+        Switch the amplifier to zero-current (I=0) mode.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetMode(self.msg_handler, ctypes.c_uint(2),
                                        ctypes.byref(self.last_error)):
             self.check_error()
@@ -542,6 +694,15 @@ class MultiClampChannel(Amplifier):
     # **** Voltage clamp ****
     @needs_select
     def switch_holding(self, enable): # True if voltage is clamped
+        """
+        Enable or disable voltage holding.
+
+        Args:
+            enable (bool): True to enable voltage holding, False to disable.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetHoldingEnable(self.msg_handler,
                                                 ctypes.c_bool(enable),
                                                 ctypes.byref(self.last_error)):
@@ -549,6 +710,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_holding(self, value): # Voltage-clamp or current-clamp holding  value
+        """
+        Set the holding voltage or current.
+
+        Args:
+            value (float): Holding voltage (V) or current (A).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetHolding(self.msg_handler,
                                           ctypes.c_double(value),
                                           ctypes.byref(self.last_error)):
@@ -556,6 +726,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def get_holding(self):
+        """
+        Get the current holding voltage or current.
+
+        Returns:
+            float: Current holding voltage or current.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         holding = ctypes.c_double(0.)
         if not self.dll.MCCMSG_GetHolding(self.msg_handler,
                                           ctypes.byref(holding),
@@ -567,6 +746,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def get_fast_compensation_capacitance(self):
+        """
+        Get the fast compensation capacitance.
+
+        Returns:
+            float: Fast compensation capacitance (F).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         capacitance = ctypes.c_double(0.)
         if not self.dll.MCCMSG_GetFastCompCap(self.msg_handler,
                                               ctypes.byref(capacitance),
@@ -576,6 +764,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_fast_compensation_capacitance(self, capacitance):
+        """
+        Set the fast compensation capacitance.
+
+        Args:
+            capacitance (float): Fast compensation capacitance (F).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetFastCompCap(self.msg_handler,
                                               ctypes.c_double(capacitance),
                                               ctypes.byref(self.last_error)):
@@ -583,12 +780,27 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def auto_fast_compensation(self):
+        """
+        Automatically apply fast capacitance compensation.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_AutoFastComp(self.msg_handler,
                                             ctypes.byref(self.last_error)):
             self.check_error()
 
     @needs_select
     def get_slow_compensation_capacitance(self):
+        """
+        Get the slow compensation capacitance.
+
+        Returns:
+            float: Slow compensation capacitance (F).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         capacitance = ctypes.c_double(0.)
         if not self.dll.MCCMSG_GetSlowCompCap(self.msg_handler,
                                               ctypes.byref(capacitance),
@@ -598,6 +810,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_slow_compensation_capacitance(self, capacitance):
+        """
+        Set the slow compensation capacitance.
+
+        Args:
+            capacitance (float): Slow compensation capacitance (F).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetSlowCompCap(self.msg_handler,
                                               ctypes.c_double(capacitance),
                                               ctypes.byref(self.last_error)):
@@ -605,17 +826,38 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def auto_slow_compensation(self):
+        """
+        Automatically apply slow capacitance compensation.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_AutoSlowComp(self.msg_handler,
                                             ctypes.byref(self.last_error)):
             self.check_error()
 
     @needs_select
     def auto_pipette_offset(self):
+        """
+        Automatically set pipette offset.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_AutoPipetteOffset(self.msg_handler,
                                                  ctypes.byref(self.last_error)):
             self.check_error()
     @needs_select
     def set_neutralization_enable(self, state):
+        """
+        Enable or disable capacitance neutralization.
+
+        Args:
+            state (bool): True to enable, False to disable.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetNeutralizationEnable(self.msg_handler,
                                                       ctypes.c_bool(state),
                                                       ctypes.byref(self.last_error)):
@@ -623,6 +865,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_neutralization_capacitance(self, capacitance):
+        """
+        Set the neutralization capacitance.
+
+        Args:
+            capacitance (float): Neutralization capacitance (F).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetNeutralizationCap(self.msg_handler,
                                                     ctypes.c_double(capacitance),
                                                     ctypes.byref(self.last_error)):
@@ -630,12 +881,30 @@ class MultiClampChannel(Amplifier):
 
 
     def set_bridge_balance(self, state):
+        """
+        Enable or disable bridge balance.
+
+        Args:
+            state (bool): True to enable bridge balance, False to disable.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetBridgeBalEnable(self.msg_handler, ctypes.c_bool(state),
                                                  ctypes.byref(self.last_error)):
             self.check_error()
 
     @needs_select
     def get_bridge_resistance(self):
+        """
+        Enable or disable bridge balance.
+
+        Args:
+            state (bool): True to enable bridge balance, False to disable.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         resistance = ctypes.c_double(0.)
         if not self.dll.MCCMSG_GetBridgeBalResist(self.msg_handler,
                                                  ctypes.byref(resistance),
@@ -645,6 +914,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def auto_bridge_balance(self):
+        """
+        Automatically balance the bridge and return the resistance.
+
+        Returns:
+            float: Measured bridge resistance (Ohm) after auto-balancing.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_AutoBridgeBal(self.msg_handler,
                                                  ctypes.byref(self.last_error)):
             self.check_error()
@@ -653,12 +931,27 @@ class MultiClampChannel(Amplifier):
     # **** Zap ****
     @needs_select
     def zap(self):
+        """
+        Deliver a zap pulse.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_Zap(self.msg_handler,
                                    ctypes.byref(self.last_error)):
             self.check_error()
 
     @needs_select
     def set_zap_duration(self, duration):
+        """
+        Set the duration of the zap pulse.
+
+        Args:
+            duration (float): Zap duration (microseconds).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetZapDuration(self.msg_handler,
                                               ctypes.c_double(duration),
                                               ctypes.byref(self.last_error)):
@@ -667,6 +960,15 @@ class MultiClampChannel(Amplifier):
     # **** Measuring V and R ****
     @needs_select
     def get_meter_value(self):
+        """
+        Get the current meter value.
+
+        Returns:
+            float: Meter reading (units depend on the meter channel).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         value = ctypes.c_double(0.)
         if not self.dll.MCCMSG_GetMeterValue(self.msg_handler,
                                              ctypes.byref(value),
@@ -677,13 +979,32 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def switch_resistance_meter(self, enable):
+        """
+        Enable or disable the resistance meter.
+
+        Args:
+            enable (bool): True to enable, False to disable.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetMeterResistEnable(self.msg_handler,
                                                     ctypes.c_bool(enable),
                                                     ctypes.byref(self.last_error)):
             self.check_error()
 
     @needs_select
-    def resistance_meter_state(self): # On/off state
+    def resistance_meter_state(self):
+        """
+        Get the current state of the resistance meter.
+
+        Returns:
+            bool: True if the resistance meter is enabled, False otherwise.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
+        # On/off state
         enable = ctypes.c_bool(False)
         if not self.dll.MCCMSG_GetMeterResistEnable(self.msg_handler,
                                                     ctypes.byref(enable),
@@ -694,6 +1015,15 @@ class MultiClampChannel(Amplifier):
     # **** Repeated pulses ****
     @needs_select
     def switch_pulses(self, enable):
+        """
+        Enable or disable repeated test pulses.
+
+        Args:
+            enable (bool): True to enable pulses, False to disable.
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetTestSignalEnable(self.msg_handler,
                                                    ctypes.c_bool(enable),
                                                    ctypes.byref(self.last_error)):
@@ -701,6 +1031,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_pulses_amplitude(self, amplitude):
+        """
+        Set the amplitude of repeated test pulses.
+
+        Args:
+            amplitude (float): Pulse amplitude (V or A, depending on mode).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetTestSignalAmplitude(self.msg_handler,
                                                       ctypes.c_double(amplitude),
                                                       ctypes.byref(self.last_error)):
@@ -708,6 +1047,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def get_pulses_amplitude(self):
+        """
+        Get the amplitude of repeated test pulses.
+
+        Returns:
+            float: Pulse amplitude (V or A).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         amplitude = ctypes.c_double(0.)
         if not self.dll.MCCMSG_GetTestSignalAmplitude(self.msg_handler,
                                                       ctypes.byref(amplitude),
@@ -717,6 +1065,18 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def set_pulses_frequency(self, frequency):
+        """
+        Set the frequency of repeated test pulses.
+
+        Args:
+            frequency (float): Pulse frequency (Hz).
+
+        Returns:
+            None
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         if not self.dll.MCCMSG_SetTestSignalFrequency(self.msg_handler,
                                                       ctypes.c_double(frequency),
                                                       ctypes.byref(self.last_error)):
@@ -724,6 +1084,15 @@ class MultiClampChannel(Amplifier):
 
     @needs_select
     def get_pulses_frequency(self):
+        """
+        Get the frequency of repeated test pulses.
+
+        Returns:
+            float: Pulse frequency (Hz).
+
+        Raises:
+            IOError: If the DLL command fails.
+        """
         frequency = ctypes.c_double(0.)
         if not self.dll.MCCMSG_GetTestSignalFrequency(self.msg_handler,
                                                       ctypes.byref(frequency),
@@ -732,6 +1101,9 @@ class MultiClampChannel(Amplifier):
         return frequency.value
 
     def close(self):
+        """
+        Close the amplifier connection and destroy the DLL object.
+        """
         self.dll.MCCMSG_DestroyObject(self.msg_handler)
         self.msg_handler = None
 

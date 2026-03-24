@@ -20,6 +20,18 @@ import re
 def create_cylinder_mesh(radius=0.5, height=5.0, sectors=32):
     """
     Create vertices and faces for a cylinder.
+
+    Args:
+        radius (float, optional): Radius of the cylinder. Default is 0.5.
+        height (float, optional): Height of the cylinder along the z-axis. Default is 5.0.
+        sectors (int, optional): Number of divisions around the circular cross-section.
+                                 Higher values produce smoother geometry. Default is 32.
+
+    Returns:
+        tuple:
+            - vertices (np.ndarray): Array of shape (N, 3) containing 3D vertex coordinates.
+            - faces (np.ndarray): Array of shape (M, 3) containing indices of vertices forming triangles.
+
     """
     vertices = []
     faces = []
@@ -73,6 +85,17 @@ def create_box_mesh(width=5.0, depth=10.0, height=0.5):
     """
     Create vertices and faces for a rectangular prism.
     Origin is set to the top center of the box.
+
+    Args:
+        width (float, optional): Size of the box along the x-axis. Default is 5.0.
+        depth (float, optional): Size of the box along the y-axis. Default is 10.0.
+        height (float, optional): Size of the box along the z-axis (downward). Default is 0.5.
+
+    Returns:
+        tuple:
+            - vertices (np.ndarray): Array of shape (8, 3) with vertex coordinates.
+            - faces (np.ndarray): Array of shape (12, 3) with triangle vertex indices.
+
     """
     w = width / 2
     d = depth / 2
@@ -103,6 +126,17 @@ def create_box_mesh(width=5.0, depth=10.0, height=0.5):
 def create_sphere_mesh(radius=0.5, sectors=32, stacks=16):
     """
     Create vertices and faces for a sphere.
+
+    Args:
+        radius (float, optional): Radius of the sphere. Default is 0.5.
+        sectors (int, optional): Number of longitudinal divisions (around the sphere). Default is 32.
+        stacks (int, optional): Number of latitudinal divisions (top to bottom). Default is 16.
+
+    Returns:
+        tuple:
+            - vertices (np.ndarray): Array of shape (N, 3) containing 3D vertex coordinates.
+            - faces (np.ndarray): Array of shape (M, 3) containing indices of vertices forming triangles.
+
     """
     vertices = []
     faces = []
@@ -135,10 +169,16 @@ def rotate_vertices(vertices, angle_degrees, axis='x'):
     """
     Rotate vertices by a specified angle around a given axis.
 
-    :param vertices: Nx3 numpy array of vertex coordinates.
-    :param angle_degrees: Angle in degrees to rotate.
-    :param axis: Axis to rotate around ('x', 'y', or 'z').
-    :return: Rotated vertices as Nx3 numpy array.
+    Args:
+        vertices (np.ndarray): Array of shape (N, 3) representing 3D vertex coordinates.
+        angle_degrees (float): Rotation angle in degrees.
+        axis (str, optional): Axis of rotation ('x', 'y', or 'z'). Default is 'x'.
+
+    Raises:
+        ValueError: If an invalid axis is provided.
+
+    Returns:
+        np.ndarray: Array of shape (N, 3) containing the rotated vertex coordinates.
     """
     angle_rad = np.deg2rad(angle_degrees)
     if axis == 'x':
@@ -168,7 +208,16 @@ def rotate_vertices(vertices, angle_degrees, axis='x'):
 # ------------------- 3D Visualization Widget -------------------
 
 class GLViewWidgetWithGrid(gl.GLViewWidget):
+    """
+    Custom 3D visualization widget built on top of GLViewWidget.
+    """
     def __init__(self, parent=None):
+        """
+        Initialize the 3D view widget.
+
+        Args:
+            parent (QWidget, optional): Parent widget. Default is None.
+        """
         super().__init__(parent)
         self.setBackgroundColor('k')  # Set background to black
 
@@ -185,6 +234,9 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
         self.init_objects()
 
     def add_grid(self):
+        """
+        Add a millimeter-scale grid to the XY plane.
+        """
         # Create grid lines on the XY plane with millimeter squares
         grid_size = 100  # Define the extent of the grid (100 mm in each direction)
         step = 1  # 1 mm squares
@@ -202,6 +254,9 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
             self.addItem(plt)
 
     def add_axes(self):
+        """
+        Add labeled XYZ coordinate axes to the scene.
+        """
         # Define axis length
         axis_length = 50  # 50 mm
 
@@ -237,12 +292,18 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
 
 
     def restore_isometric_view(self):
+        """
+        Set the camera to an isometric view.
+        """
         # Set camera elevation and azimuth for isometric view
         self.opts['azimuth'] = 45  # Rotate 45 degrees around Z-axis
         self.opts['elevation'] = 30  # Tilt 30 degrees from horizontal
         self.update()
 
     def init_objects(self):
+        """
+        Initialize and add 3D objects to the scene.
+        """
         # Create Microscope as a cylinder
         cyl_vertices, cyl_faces = create_cylinder_mesh(radius=0.5, height=5.0, sectors=32)
         self.microscope_mesh = gl.GLMeshItem(vertexes=cyl_vertices, faces=cyl_faces,
@@ -272,9 +333,10 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
         """
         Update the positions of Stage and Pipette.
 
-        :param microscope_z: Z-coordinate for Microscope (fixed X and Y at 0).
-        :param stage_pos: (x, y) position for Stage in the XY-plane.
-        :param pipette_pos: (x, y, z) position for Pipette.
+        Args:
+            microscope_z (float): Z-coordinate of the microscope (X and Y fixed at 0).
+            stage_pos (tuple): (x, y) position of the stage in the XY-plane.
+            pipette_pos (tuple): (x, y, z) position of the pipette.
         """
         # Update Microscope position (fixed X and Y, variable Z)
         self.microscope_mesh.resetTransform()
@@ -291,7 +353,18 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
 # ------------------- Data Manager -------------------
 
 class DataManager:
+    """
+    Centralized data manager for handling image sequences, auxiliary images,
+    movement data, and graph data for experimental datasets. 
+    """
     def __init__(self, scaling_factor=1/1000):
+        """
+        Initialize the DataManager with empty datasets.
+
+        Args:
+            scaling_factor (float): Conversion factor for coordinates from micrometers to millimeters.
+                Default is 1/1000.
+        """
         self.image_paths = []
         self.timestamps = []
         self.image_index = []
@@ -305,6 +378,16 @@ class DataManager:
         self.init_image_time = 0.0
 
     def load_directory(self, directory):
+        """
+        Load all relevant data from a selected directory, including images, auxiliary images,
+        movement data, and graph data.
+
+        Args:
+            directory (str): Path to the directory containing the data folders and CSV files.
+
+        Raises:
+            FileNotFoundError: If movement_recording.csv or graph_recording.csv is missing.
+        """
         self.directory = directory
         camera_frames_dir = os.path.join(directory, 'camera_frames')
         aux_camera_frames_dir = os.path.join(directory, 'aux_camera_frames')
@@ -328,6 +411,23 @@ class DataManager:
             raise FileNotFoundError("graph_recording.csv not found in the selected directory.")
 
     def _parse_image_directory(self, directory, allow_empty=False, empty_message=None):
+        """
+        Parse a directory for .webp images and extract their timestamps and indices.
+
+        Args:
+            directory (str): Path to the directory containing images.
+            allow_empty (bool, optional): If True, returns empty lists instead of raising errors when no images exist. Defaults to False.
+            empty_message (str, optional): Custom error message if no images are found.
+
+        Returns:
+            tuple: (paths, indices, timestamps)
+                - paths (list of str): Sorted list of image file paths.
+                - indices (list of int): Image indices extracted from filenames.
+                - timestamps (list of float): Image timestamps extracted from filenames.
+
+        Raises:
+            FileNotFoundError: If the directory doesn't exist or contains no images (unless allow_empty=True).
+        """
         if not os.path.exists(directory):
             if allow_empty:
                 return [], [], []
@@ -350,6 +450,12 @@ class DataManager:
         return paths, indices, timestamps
 
     def load_images(self, directory):
+        """
+        Load primary camera images from a directory and store their paths, indices, and timestamps.
+
+        Args:
+            directory (str): Path to the camera_frames directory.
+        """
         paths, indices, timestamps = self._parse_image_directory(
             directory,
             allow_empty=False,
@@ -361,6 +467,12 @@ class DataManager:
         self.init_image_time = self.timestamps[0] if self.timestamps else 0.0
 
     def load_aux_images(self, directory):
+        """
+        Load auxiliary camera images from a directory and store their paths, indices, and timestamps.
+
+        Args:
+            directory (str): Path to the aux_camera_frames directory.
+        """
         self.aux_image_paths = []
         self.aux_image_index = []
         self.aux_timestamps = []
@@ -376,7 +488,13 @@ class DataManager:
     @staticmethod
     def _parse_numeric_list(value):
         """
-        Parse a string representation of a numeric list, handling optional np.float64 wrappers.
+        Parse a string representation of a numeric list, handling optional np.float64 wrappers
+        
+        Args:
+            value (str or None): String representing a list, e.g., '[np.float64(1.0), np.float64(2.0)]'.
+
+        Returns:
+            list[float]: Parsed list of floats.
         """
         if value is None:
             return []

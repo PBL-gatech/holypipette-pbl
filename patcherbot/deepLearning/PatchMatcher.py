@@ -19,11 +19,30 @@ class PatchMatcher:
     """LightGlue wrapper that exposes the target point derived from center alignment."""
 
     def __init__(self, **matcher_kwargs: object) -> None:
-        """Forward kwargs to ``PointMatcher`` for configuration."""
+        """
+        Forward kwargs to ``PointMatcher`` for configuration.
+        
+        Args:
+            **matcher_kwargs: Keyword arguments forwarded to ``PointMatcher`` 
+                for configuration (e.g., device, model parameters).
+        """
         self._matcher = PointMatcher(**matcher_kwargs)
 
     @staticmethod
     def _to_float_pair(value: Union[Sequence[Union[int, float]], torch.Tensor]) -> Tuple[float, float]:
+        """
+        Convert a sequence or tensor into a 2D float tuple.
+
+        Args:
+            value: A length-2 sequence or tensor representing (x, y).
+
+        Returns:
+            tuple[float, float]: Converted (x, y) pair.
+
+        Raises:
+            TypeError: If the input is not a sequence or tensor.
+            ValueError: If the input does not have exactly 2 elements.
+        """
         if isinstance(value, torch.Tensor):
             value = value.detach().cpu().tolist()
         if not isinstance(value, Sequence):
@@ -41,7 +60,34 @@ class PatchMatcher:
         load_conf: Optional[MatcherConfig] = None,
         **preprocess: object,
     ) -> Dict[str, Tuple[float, float]]:
-        """Return the target point computed from the center displacement."""
+        """
+        Return the target point computed from the center displacement.
+        
+        Args:
+            reference_image: Reference image (path or tensor).
+            current_image: Current image (path or tensor).
+            current_center: Optional (x, y) center of the current image.
+                If not provided, the method attempts to use the center
+                returned by the matcher.
+            load_conf: Optional configuration dictionary passed to the matcher.
+            **preprocess: Additional preprocessing arguments forwarded to
+                ``PointMatcher.match``.
+
+        Returns:
+            dict: Dictionary containing:
+                - "target_point": (x, y) computed target location
+                - "current_center": (x, y) center used
+                - "translation": (dx, dy) rigid translation
+                - "displacement": (dx, dy) raw displacement estimate
+
+        Raises:
+            RuntimeError:
+                - If the matcher does not return a "center_shift".
+                - If translation information is missing from the result.
+            ValueError:
+                - If ``current_center`` is not provided and cannot be inferred.
+                - If ``current_center`` is not a valid length-2 coordinate.
+        """
         result = self._matcher.match(reference_image, current_image, load_conf=load_conf, **preprocess)
         shift = result.get("center_shift")
         if not shift:

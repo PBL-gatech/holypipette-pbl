@@ -11,7 +11,16 @@ from PyQt5.QtCore import Qt, QTimer, QPointF
 
 
 class DemoPlayer(QWidget):
+    """
+    A Qt-based widget for playing back demonstration data stored in an HDF5 file.
+    """
     def __init__(self, hdf5_path):
+        """
+        Initialize a DemoPlayer instance to play back demonstration data from an HDF5 file.
+
+        Args:
+            hdf5_path (str): Path to the HDF5 file containing demos.
+        """
         super().__init__()
         self.hdf5_path = hdf5_path
         self.playing = True  # video plays by default
@@ -47,6 +56,9 @@ class DemoPlayer(QWidget):
     # 1. init_ui() — removed hard-coded 500 × 500, added centring
     # ------------------------------------------------------------------
     def init_ui(self):
+        """
+        Initialize the PyQt GUI for the DemoPlayer.
+        """
         self.setWindowTitle("Demo Viewer")
         self.resize(800, 500)
 
@@ -103,7 +115,12 @@ class DemoPlayer(QWidget):
     # 2. load_demo() — resize label to native image size (once)
     # ------------------------------------------------------------------
     def load_demo(self, idx):
-        """Load images (video) and resistance data for the given demo."""
+        """
+        Load images (video) and resistance data for the given demo.
+        
+        Args:
+            idx: Index of the demo to load (within self.demo_keys).
+        """
         self.current_frame = 0
         demo_key = self.demo_keys[idx]
         demo_path = f'data/{demo_key}/obs'
@@ -172,7 +189,13 @@ class DemoPlayer(QWidget):
         self.plot_actions()
 
     def _load_observed_pipette_positions(self, demo_path):
-        """Load pipette positions for the current demo if available."""
+        """
+        Load pipette positions for the current demo if available.
+        
+        Args:
+            demo_path (str): Relative HDF5 path to the current demonstration's observation group,
+                typically 'data/<demo_key>/obs'.
+        """
         self.observed_pipette_positions = np.empty((0, 2), dtype=np.float32)
 
         try:
@@ -251,7 +274,16 @@ class DemoPlayer(QWidget):
             print(f"Warning: pipette positions fall outside image bounds ({int(frame_dims[0])}x{int(frame_dims[1])}); overlay may not be visible")
 
     def _resolve_pipette_action_columns(self, pipette_dim: int) -> List[int]:
-        """Return indices corresponding to pipette deltas within the action matrix."""
+        """
+        Return indices corresponding to pipette deltas within the action matrix.
+        
+        Args:
+            pipette_dim (int): The number of pipette dimensions to extract (usually 2 or 3).
+
+        Returns:
+            List[int]: A list of column indices corresponding to pipette deltas within the action matrix.
+                Returns an empty list if no suitable columns are found or if actions are empty.
+        """
         if self.actions.size == 0 or self.actions.ndim != 2:
             return []
 
@@ -319,6 +351,9 @@ class DemoPlayer(QWidget):
     # Resistance-plotting code (unchanged)
     # ------------------------------------------------------------------
     def plot_resistance(self):
+        """
+        Render the resistance trace of the current demo onto the QGraphicsScene.
+        """
         self.scene.clear()
         if self.resistance.size == 0:
             self.scene.addText("No resistance data available")
@@ -404,6 +439,15 @@ class DemoPlayer(QWidget):
             )
 
     def _draw_pipette_overlay(self, pixmap, frame_idx):
+        """
+        Draw the pipette position overlay onto a given QPixmap for a specific frame.
+
+        Args:
+            pixmap (QPixmap): The pixmap on which to draw the pipette overlay. Must
+                be writable with QPainter.
+            frame_idx (int): Index of the frame to draw. Clamped to the valid range
+                of available pipette positions.
+        """
         if self._pipette_frame_count == 0:
             return
 
@@ -472,6 +516,9 @@ class DemoPlayer(QWidget):
     # 3. update_frame() — shrink oversized frames, never upscale
     # ------------------------------------------------------------------
     def update_frame(self):
+        """
+        Update the video display to the next frame, overlaying pipette positions.
+        """
         if self.images.size == 0:
             return
 
@@ -518,6 +565,9 @@ class DemoPlayer(QWidget):
     # Control / navigation handlers (unchanged)
     # ------------------------------------------------------------------
     def toggle_play_pause(self):
+        """
+        Toggle playback of the demo video on or off.
+        """
         if self.playing:
             self.timer.stop()
             self.play_pause_button.setText("Play")
@@ -527,14 +577,23 @@ class DemoPlayer(QWidget):
         self.playing = not self.playing
 
     def next_demo(self):
+        """
+        Toggle playback of the demo video on or off.
+        """
         self.current_demo_idx = (self.current_demo_idx + 1) % len(self.demo_keys)
         self.load_demo(self.current_demo_idx)
 
     def prev_demo(self):
+        """
+        Advance to the next demo in the HDF5 file and load it.
+        """
         self.current_demo_idx = (self.current_demo_idx - 1) % len(self.demo_keys)
         self.load_demo(self.current_demo_idx)
 
     def keyPressEvent(self, event):
+        """
+        Go back to the previous demo in the HDF5 file and load it.
+        """
         if event.key() == Qt.Key_Right:
             self.next_demo()
         elif event.key() == Qt.Key_Left:
@@ -543,6 +602,12 @@ class DemoPlayer(QWidget):
             self.toggle_play_pause()
 
     def closeEvent(self, event):
+        """
+        Handle key press events for demo navigation and playback control.
+
+        Args:
+            event (QCloseEvent): The close event from the Qt framework.
+        """
         if hasattr(self, 'hdf5_file'):
             self.hdf5_file.close()
         event.accept()

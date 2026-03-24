@@ -13,6 +13,12 @@ class BaseSegmentor(ABC):
     """Common functionality for cell image segmentation across different SAM back‑ends."""
 
     def __init__(self, device: str | None = None):
+        """
+        Initialize the segmentor, resolving device and loading the model.
+
+        args:
+            device (str | None): Explicit device string (e.g., "cuda", "cpu"). If None, auto-detect.
+        """
         self.device = self._resolve_device(device)
         self.sam = None
         self.predictor = None
@@ -21,6 +27,15 @@ class BaseSegmentor(ABC):
 
     @staticmethod
     def _resolve_device(explicit: str | None):
+        """
+        Determine the torch device to use.
+
+        args:
+            explicit (str | None): Explicit device string.
+
+        returns:
+            torch.device: Selected device.
+        """
         if explicit is not None:
             return torch.device(explicit)
         if torch.cuda.is_available():
@@ -31,9 +46,21 @@ class BaseSegmentor(ABC):
 
     @abstractmethod
     def _load_model(self):
+        """Load the SAM model and predictor. Must be implemented by subclasses."""
         ...
 
     def load_image(self, image_path=None, image=None):
+        """
+        Load an image from file path or array and store as RGB.
+
+        args:
+            image_path (str | None): Path to image file.
+            image (np.ndarray | None): Image array.
+
+        raises:
+            FileNotFoundError: If image_path is provided but file cannot be read.
+            ValueError: If neither image_path nor image is provided.
+        """
         if image_path is not None:
             image = cv2.imread(image_path)
             if image is None:
@@ -49,15 +76,34 @@ class BaseSegmentor(ABC):
             raise ValueError("Either image_path or image must be provided.")
 
     def set_image(self):
+        """
+        Set the current image for the predictor.
+
+        raises:
+            ValueError: If no image is loaded.
+        """
         if self.image is not None:
             self.predictor.set_image(self.image)
         else:
             raise ValueError("No image loaded. Please load an image first.")
 
     def predict_mask(self, input_point, input_label, multimask_output=True):
+        """
+        Predict masks given points and labels.
+
+        args:
+            input_point (np.ndarray): Array of points to guide segmentation.
+            input_label (np.ndarray): Array of labels corresponding to points.
+            multimask_output (bool): Whether to output multiple masks.
+
+        returns:
+            tuple: (masks, scores) predicted by the model.
+
+        raises:
+            ValueError: If image has not been set.
         if self.image is None:
             raise ValueError("Image has not been set. Please call set_image() before predicting.")
-
+        """
         masks, scores, logits = self.predictor.predict(
             point_coords=input_point,
             point_labels=input_label,
@@ -66,6 +112,19 @@ class BaseSegmentor(ABC):
         return masks, scores
 
     def predict_mask_box(self, input_box, multimask_output=True):
+        """
+        Predict masks given a bounding box.
+
+        args:
+            input_box (array-like): [x0, y0, x1, y1] bounding box coordinates.
+            multimask_output (bool): Whether to output multiple masks.
+
+        returns:
+            tuple: (masks, scores) predicted by the model.
+
+        raises:
+            ValueError: If image has not been set.
+        """
         if self.image is None:
             raise ValueError("Image has not been set. Please call set_image() before predicting.")
 
@@ -78,6 +137,20 @@ class BaseSegmentor(ABC):
         return masks, scores
 
     def single_prediction(self, input_point, input_label, multimask_output=False):
+        """
+        Return a single mask prediction (first mask).
+
+        args:
+            input_point (np.ndarray): Array of points.
+            input_label (np.ndarray): Array of labels.
+            multimask_output (bool): Whether to output multiple masks.
+
+        returns:
+            np.ndarray: Single predicted mask.
+
+        raises:
+            ValueError: If image has not been set.
+        """
         if self.image is None:
             raise ValueError("Image has not been set. Please call set_image() before predicting.")
 
@@ -85,6 +158,12 @@ class BaseSegmentor(ABC):
         return masks[0]  # Return the first mask
 
     def show_image(self):
+        """
+        Display the loaded image using matplotlib.
+
+        raises:
+            ValueError: If no image is loaded.
+        """
         if self.image is not None:
             plt.figure(figsize=(10, 10))
             plt.imshow(self.image)
@@ -95,6 +174,15 @@ class BaseSegmentor(ABC):
 
     @staticmethod
     def show_mask(mask, ax, random_color=False, borders=True):
+        """
+        Display a mask on a matplotlib axis.
+
+        args:
+            mask (np.ndarray): Binary mask to display.
+            ax (matplotlib.axes.Axes): Axis to draw on.
+            random_color (bool): Whether to use random color for mask.
+            borders (bool): Whether to draw borders around mask.
+        """
         if random_color:
             color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
         else:
@@ -112,6 +200,15 @@ class BaseSegmentor(ABC):
 
     @staticmethod
     def show_circles(coords, labels, ax, marker_size=375):
+        """
+        Show points as colored circles.
+
+        args:
+            coords (np.ndarray): Coordinates of points.
+            labels (np.ndarray): Labels for each point (0 or 1).
+            ax (matplotlib.axes.Axes): Axis to draw on.
+            marker_size (int): Size of markers.
+        """
         pos_points = coords[labels == 1]
         neg_points = coords[labels == 0]
         ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size,
@@ -121,11 +218,31 @@ class BaseSegmentor(ABC):
 
     @staticmethod
     def show_box(box, ax):
+        """
+        Draw a bounding box on a matplotlib axis.
+
+        args:
+            box (array-like): [x0, y0, x1, y1]
+            ax (matplotlib.axes.Axes): Axis to draw on.
+        """
         x0, y0 = box[0], box[1]
         w, h = box[2] - box[0], box[3] - box[1]
         ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
     def visualize_prediction(self, input_point=None, input_label=None, input_box=None, multimask_output=False, borders=True):
+        """        
+        Visualize segmentation on the loaded image.
+
+        args:
+            input_point (np.ndarray | None): Points for segmentation.
+            input_label (np.ndarray | None): Labels for points.
+            input_box (array-like | None): Bounding box for segmentation.
+            multimask_output (bool): Whether to predict multiple masks.
+            borders (bool): Whether to draw mask borders.
+
+        raises:
+            ValueError: If neither or both of input_point and input_box are provided.
+        """
         if input_point is None and input_box is None:
             raise ValueError("Please provide either input_point or input_box.")
         if input_point is not None and input_box is not None:
@@ -153,6 +270,22 @@ class BaseSegmentor(ABC):
                 plt.show()
 
     def segment(self, image=None, input_point=None, input_label=None, input_box=None, multimask_output=False):
+        """
+        Perform segmentation and return mask.
+
+        args:
+            image (np.ndarray | None): Optional image to load before segmenting.
+            input_point (np.ndarray | None): Points for segmentation.
+            input_label (np.ndarray | None): Labels for points.
+            input_box (array-like | None): Bounding box for segmentation.
+            multimask_output (bool): Whether to predict multiple masks.
+
+        returns:
+            np.ndarray | None: Mask array, or None if no mask found.
+
+        raises:
+            ValueError: If no image is loaded or neither/both of input_point and input_box are provided.
+        """
         if image is not None:
             self.load_image(image=image)
             self.set_image()
@@ -185,6 +318,14 @@ class CellSegmentor1(BaseSegmentor):
     """Segmentor powered by MobileSAM (Tiny‑ViT)."""
 
     def __init__(self, sam_checkpoint=None, model_type="vit_t", device=None):
+        """
+        Initialize MobileSAM segmentor.
+
+        args:
+            sam_checkpoint (str | None): Path to MobileSAM checkpoint. Defaults to repo weight.
+            model_type (str): Model type string (e.g., 'vit_t').
+            device (str | None): Torch device. Auto-resolved if None.
+        """
         current_dir = os.path.dirname(os.path.abspath(__file__))
         repo_root = os.path.abspath(os.path.join(current_dir, ".."))
         sys.path.append(os.path.join(repo_root, "patcherbot", "deepLearning", "cellModel", "MobileSAM"))
@@ -194,6 +335,9 @@ class CellSegmentor1(BaseSegmentor):
         super().__init__(device)
 
     def _load_model(self):
+        """
+        Load the MobileSAM model and predictor.
+        """
         from mobile_sam import sam_model_registry, SamPredictor
         self.sam = sam_model_registry[self.model_type](checkpoint=self.sam_checkpoint)
         self.sam.to(device=self.device)
@@ -205,6 +349,14 @@ class CellSegmentor2(BaseSegmentor):
     """Segmentor powered by SAM2 (v2.1 Hiera‑Tiny)."""
 
     def __init__(self, sam_checkpoint=None, model_cfg=None, device=None):
+        """
+        Initialize SAM2 segmentor.
+
+        args:
+            sam_checkpoint (str | None): Path to SAM2 checkpoint. Defaults to repo weight.
+            model_cfg (str | None): Path to YAML config. Defaults to repo config.
+            device (str | None): Torch device. Auto-resolved if None.
+        """
         current_dir = os.path.dirname(os.path.abspath(__file__))
         repo_root = os.path.abspath(os.path.join(current_dir, ".."))
         default_ckpt = os.path.join(repo_root, "deepLearning", "cellModel", "sam2", "checkpoints", "sam2.1_hiera_tiny.pt")
@@ -215,6 +367,12 @@ class CellSegmentor2(BaseSegmentor):
         super().__init__(device)
 
     def _enable_cuda_tricks(self):
+        """
+        Enable CUDA optimizations for compatible hardware.
+
+        raises:
+            RuntimeError: Only applicable if device is CUDA.
+        """
         if self.device.type == "cuda":
             torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
             if torch.cuda.get_device_properties(0).major >= 8:
@@ -222,6 +380,12 @@ class CellSegmentor2(BaseSegmentor):
                 torch.backends.cudnn.allow_tf32 = True
 
     def _load_model(self):
+        """
+        Load the SAM2 model and predictor from checkpoint and config.
+
+        raises:
+            Exception: If loading model or config fails.
+        """
         from sam2.build_sam import build_sam2
         from sam2.sam2_image_predictor import SAM2ImagePredictor
         self._enable_cuda_tricks()
@@ -245,6 +409,14 @@ from typing import Optional
 class CellSegmentor3(BaseSegmentor):
     """ONNX-based SAM2 segmentor, refactored to match BaseSegmentor interface and sam-cpp-macos reference."""
     def __init__(self, encoder_path: Optional[str] = None, decoder_path: Optional[str] = None, device: Optional[str] = None):
+        """
+        Initialize ONNX SAM2 segmentor.
+
+        args:
+            encoder_path (str | None): Path to ONNX encoder. Defaults to repo model.
+            decoder_path (str | None): Path to ONNX decoder. Defaults to repo model.
+            device (str | None): Torch device. Auto-resolved if None.
+        """
         current_dir = os.path.dirname(os.path.abspath(__file__))
         repo_root = os.path.abspath(os.path.join(current_dir, ".."))
         default_dir = os.path.join(repo_root, "deepLearning", "cellModel")
@@ -259,6 +431,9 @@ class CellSegmentor3(BaseSegmentor):
         super().__init__(device=device)
 
     def _load_model(self):
+        """
+        Load ONNX encoder and decoder sessions and prepare inputs.
+        """
         providers = (
             ["CUDAExecutionProvider", "CPUExecutionProvider"]
             if self.device.type == "cuda"
@@ -279,6 +454,17 @@ class CellSegmentor3(BaseSegmentor):
         self._pad_offset = (0, 0)
 
     def load_image(self, image_path=None, image=None):
+        """
+        Load and preprocess image for ONNX segmentor.
+
+        args:
+            image_path (str | None): Path to image file.
+            image (np.ndarray | None): Image array.
+
+        raises:
+            FileNotFoundError: If image_path is provided but cannot be read.
+            ValueError: If neither image_path nor image is provided.
+        """
         if image_path is not None:
             img = cv2.imread(image_path)
             if img is None:
@@ -310,6 +496,12 @@ class CellSegmentor3(BaseSegmentor):
         # print(f"[DEBUG] Padding offset: {self._pad_offset}")
 
     def set_image(self):
+        """
+        Compute image embeddings using encoder ONNX session.
+
+        raises:
+            ValueError: If image has not been loaded.
+        """
         if self.image is None:
             raise ValueError("No image loaded. Please load an image first.")
         inp = self.image.transpose(2, 0, 1)[None].astype(np.float32)
@@ -321,6 +513,15 @@ class CellSegmentor3(BaseSegmentor):
         # print(f"[DEBUG] Encoder output shapes: {[x.shape for x in result]}")
 
     def _scale_points(self, points):
+        """
+        Scale points from original image coordinates to model input coordinates.
+
+        args:
+            points (np.ndarray): Array of (x, y) points.
+
+        returns:
+            np.ndarray: Scaled points as float32.
+        """
         points = np.asarray(points)
         orig_h, orig_w = self._orig_shape
         pad_h, pad_w = self._pad_shape
@@ -334,7 +535,13 @@ class CellSegmentor3(BaseSegmentor):
 
     def _mask_to_original(self, mask_1024):
         """
-        Rescales a binary mask (from 1024x1024 model input space) back to the original image size.
+        Rescale a 1024x1024 mask back to original image size.
+
+        args:
+            mask_1024 (np.ndarray): Binary mask from model input space.
+
+        returns:
+            np.ndarray: Mask rescaled to original image.
         """
         new_h, new_w = self._pad_shape  # size of resized image in (h, w)
         orig_h, orig_w = self._orig_shape
@@ -345,6 +552,20 @@ class CellSegmentor3(BaseSegmentor):
         return mask_orig
 
     def predict_mask(self, input_point=None, input_label=None, multimask_output=True):
+        """
+        Predict mask using ONNX decoder session.
+
+        args:
+            input_point (np.ndarray | None): Array of points to guide segmentation.
+            input_label (np.ndarray | None): Labels for points.
+            multimask_output (bool): Whether to output multiple masks.
+
+        returns:
+            tuple: (mask, score) where mask is np.ndarray rescaled to original image.
+
+        raises:
+            ValueError: If image embeddings are not set.
+        """
         if self.image_embeddings is None:
             raise ValueError("Image has not been set. Please call set_image() before predicting.")
         orig_h, orig_w = self._orig_shape
@@ -379,16 +600,46 @@ class CellSegmentor3(BaseSegmentor):
         return mask_orig, scores[0, best_idx]
 
     def predict_mask_box(self, input_box, multimask_output=True):
+        """
+        Predict mask using bounding box.
+
+        args:
+            input_box (array-like): [x0, y0, x1, y1] box.
+            multimask_output (bool): Whether to output multiple masks.
+
+        returns:
+            tuple: (mask, score)
+
+        raises:
+            ValueError: If input_box is invalid.
+        """
         if input_box is None or len(input_box) != 4:
             raise ValueError("Box must be [x0,y0,x1,y1]")
         points = np.array([[input_box[0], input_box[1]], [input_box[2], input_box[3]]], dtype=np.float32)
         labels = np.array([2, 3], dtype=np.float32)
         return self.predict_mask(input_point=points, input_label=labels, multimask_output=multimask_output)
     def single_prediction(self, input_point, input_label, multimask_output=False):
+        """
+        Return a single mask prediction (first mask).
+
+        args:
+            input_point (np.ndarray): Points for segmentation.
+            input_label (np.ndarray): Labels for points.
+            multimask_output (bool): Whether to output multiple masks.
+
+        returns:
+            np.ndarray: Single mask.
+        """
         mask, score = self.predict_mask(input_point, input_label, multimask_output)
         return mask
 
     def show_image(self):
+        """
+        Display the currently loaded image with standard normalization.
+
+        raises:
+            ValueError: If no image has been loaded.
+        """
         if self.image is not None:
             plt.figure(figsize=(10, 10))
             plt.imshow((self.image * np.array([0.229,0.224,0.225]) + np.array([0.485,0.456,0.406])).clip(0,1))
@@ -399,6 +650,15 @@ class CellSegmentor3(BaseSegmentor):
 
     @staticmethod
     def show_mask(mask, ax, random_color=False, borders=True):
+        """
+        Display a segmentation mask on a given matplotlib axis.
+
+        args:
+            mask (np.ndarray): Binary mask to display.
+            ax (matplotlib.axes.Axes): Axis to draw the mask on.
+            random_color (bool): Whether to use a random color for the mask.
+            borders (bool): Whether to draw contour borders around mask regions.
+        """
         if random_color:
             color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
         else:
@@ -414,6 +674,15 @@ class CellSegmentor3(BaseSegmentor):
 
     @staticmethod
     def show_circles(coords, labels, ax, marker_size=375):
+        """
+        Display positive and negative points as colored markers.
+
+        args:
+            coords (np.ndarray): Array of point coordinates of shape (N, 2).
+            labels (np.ndarray): Array of 0/1 labels corresponding to coords.
+            ax (matplotlib.axes.Axes): Axis to draw the points on.
+            marker_size (int): Size of scatter plot markers.
+        """
         pos_points = coords[labels == 1]
         neg_points = coords[labels == 0]
         ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
@@ -421,11 +690,31 @@ class CellSegmentor3(BaseSegmentor):
 
     @staticmethod
     def show_box(box, ax):
+        """
+        Display a bounding box on a matplotlib axis.
+
+        args:
+            box (array-like): Bounding box [x0, y0, x1, y1].
+            ax (matplotlib.axes.Axes): Axis to draw the box on.
+        """
         x0, y0 = box[0], box[1]
         w, h = box[2] - box[0], box[3] - box[1]
         ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
     def visualize_prediction(self, input_point=None, input_label=None, input_box=None, multimask_output=False, borders=True):
+        """
+        Run segmentation on the current image and display predicted mask with points or box.
+
+        args:
+            input_point (np.ndarray | None): Coordinates of guidance points.
+            input_label (np.ndarray | None): Labels for guidance points.
+            input_box (array-like | None): Bounding box for segmentation.
+            multimask_output (bool): Whether to output multiple masks.
+            borders (bool): Whether to draw borders around masks.
+
+        raises:
+            ValueError: If neither or both of input_point and input_box are provided.
+        """
         if input_point is None and input_box is None:
             raise ValueError("Please provide either input_point or input_box.")
         if input_point is not None and input_box is not None:
@@ -450,6 +739,22 @@ class CellSegmentor3(BaseSegmentor):
             plt.show()
 
     def segment(self, image=None, input_point=None, input_label=None, input_box=None, multimask_output=False):
+        """
+        Perform segmentation on an image using points or bounding box, returning mask.
+
+        args:
+            image (np.ndarray | None): Optional image to load before segmentation.
+            input_point (np.ndarray | None): Guidance points for segmentation.
+            input_label (np.ndarray | None): Labels corresponding to input points.
+            input_box (array-like | None): Bounding box for segmentation.
+            multimask_output (bool): Whether to return multiple masks.
+
+        returns:
+            np.ndarray | None: Segmentation mask(s) if successful, None if no mask found.
+
+        raises:
+            ValueError: If no image is loaded or if neither/both of input_point and input_box are provided.
+        """
         if image is not None:
             self.load_image(image=image)
             self.set_image()
@@ -489,9 +794,17 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QPixmap, QImage
 
 class CameraWorker(QThread):
+    """Thread that simulates camera feed and emits segmented frames."""
     frame_ready = pyqtSignal(np.ndarray)
 
     def __init__(self, fps=30, parent=None):
+        """
+        Initialize the camera worker.
+
+        args:
+            fps (int): Frames per second.
+            parent (QObject | None): Parent Qt object.
+        """
         super().__init__(parent)
         self.fps = fps
         self.keep_running = True
@@ -508,6 +821,9 @@ class CameraWorker(QThread):
         self.segmentor = CellSegmentor3()
 
     def run(self):
+        """
+        Main loop of thread: apply segmentation and emit frame.
+        """
         while self.keep_running:
             display_img = self.rgb.copy()
             if self.points:
@@ -527,20 +843,37 @@ class CameraWorker(QThread):
             time.sleep(1 / self.fps)
 
     def stop(self):
+        """
+        Stop the camera thread safely.
+        """
         self.keep_running = False
         self.quit()
         self.wait()
 
     def add_point(self, x, y):
+        """
+        Add a segmentation point.
+
+        args:
+            x (int): X coordinate.
+            y (int): Y coordinate.
+        """
         self.points.append([x, y])
         self.labels.append(1)
 
     def clear_points(self):
+        """
+        Clear all current points.
+        """
         self.points.clear()
         self.labels.clear()
 
 class SamCAM(QMainWindow):
+    """GUI application for point-based segmentation with live preview."""
     def __init__(self):
+        """
+        Initialize GUI and camera worker.
+        """
         super().__init__()
         self.setWindowTitle("SamCAM")
         self.image_label = QLabel(alignment=Qt.AlignCenter)
@@ -572,7 +905,12 @@ class SamCAM(QMainWindow):
         self.latest_frame = None
 
     def update_image(self, rgb):
-        """Receive new frames and display them."""
+        """
+        Receive new frame and display it.
+
+        args:
+            rgb (np.ndarray): RGB frame from CameraWorker.
+        """
         # Store the latest image so we can save it
         self.latest_frame = rgb.copy()
         
@@ -581,6 +919,12 @@ class SamCAM(QMainWindow):
         self.image_label.setPixmap(QPixmap.fromImage(qimg))
 
     def mousePressEvent(self, event):
+        """
+        Handle mouse clicks to add or clear points.
+
+        args:
+            event (QMouseEvent): Qt mouse event.
+        """
         if event.button() == Qt.LeftButton:
             label_pos = self.image_label.mapFromParent(event.pos())
             pm = self.image_label.pixmap()
@@ -594,12 +938,23 @@ class SamCAM(QMainWindow):
             self.worker.clear_points()
 
     def closeEvent(self, event):
+        """
+        Handle window close event to stop camera thread.
+
+        args:
+            event (QCloseEvent): Qt close event.
+        """
         self.worker.stop()
         super().closeEvent(event)
 
     # ----------------------------------------------------
     def save_segmentation(self):
-        """Re-run segmentation on original image and save only the cut-out region (RGBA)."""
+        """
+        Re-run segmentation on original image and save only the cut-out region (RGBA).      
+
+        raises:
+            FileNotFoundError: If image cannot be loaded.
+        """
         if not self.worker.points:
             print("No points set, nothing to segment.")
             return

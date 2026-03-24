@@ -25,6 +25,13 @@ class moscowQCamera(Camera):
     '''
 
     def __init__(self, width : int = 2048, height : int = 2048):
+        """
+        Initialize the Moscow Qimaging camera.
+
+        Args:
+            width (int, optional): Desired image width. Defaults to 2048.
+            height (int, optional): Desired image height. Defaults to 2048.
+        """
         super(moscowQCamera, self).__init__()
 
         self.width = width #update superclass img width / height vars
@@ -64,6 +71,12 @@ class moscowQCamera(Camera):
         self.start_acquisition() #start thread that updates camera gui
 
     def set_exposure(self, value):
+        """
+        Set the camera exposure time.
+
+        Args:
+            value (float): Exposure time in milliseconds.
+        """
         pass
 
     def get_exposure(self):
@@ -73,24 +86,51 @@ class moscowQCamera(Camera):
 
 
     def close(self):
+        """
+        Close the camera and release resources.
+        """
         pass
 
     def get_frame_rate(self):
+        """
+        Get the current camera frame rate.
+
+        Returns:
+            float: Frame rate in frames per second.
+        """
         return 0
 
     def reset(self):
+        """
+        Reset the camera to default settings.
+        """
         pass
 
     def normalize(self, img = None):
+        """
+        Normalize an image based on upper and lower bounds.
+
+        Args:
+            img (np.ndarray, optional): Image to normalize. If None, normalizes the last frame.
+        """
         pass
                   
 
     def get_frame_no(self):
+        """
+        Get the current frame number.
+
+        Returns:
+            int: Frame number.
+        """
         return 0
         
     def get_16bit_image(self):
         '''get a 16 bit color image from the camera (no normalization)
            this compares to raw_snap which returns a 8 bit image with normalization
+        
+        Returns:
+            np.ndarray: 16-bit image array.
         '''
         print('-----get 16 bit image----- mostow_qcam_camera.py')
         self.lock.acquire()
@@ -104,6 +144,9 @@ class moscowQCamera(Camera):
         '''
         Returns the current image (8 bit color, with normalization).
         This is a blocking call (wait until next frame is available)
+        
+        Returns:
+            np.ndarray: Normalized 8-bit image.
         '''
         img = self.get_16bit_image()
 

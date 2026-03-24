@@ -8,7 +8,17 @@ from pathlib import Path
 import logging
 
 class PipetteFocuser:
+    """
+    ONNX-based model wrapper for estimating pipette focus (defocus) from images.
+    """
     def __init__(self, model_path=None):
+        """
+        Initialize the PipetteFocuser with an ONNX model.
+
+        Args:
+            model_path (str | pathlib.Path | None): Path to the ONNX model file.
+                If None or empty, a default model path is used.
+        """
         # Determine the model path
         cur_dir = Path(__file__).parent.absolute()
         default_model = cur_dir / "pipetteModel" / "WaynesBoroPipetteFocuserNet.onnx.onnx"
@@ -36,6 +46,12 @@ class PipetteFocuser:
           - Scale pixel values to [0, 1].
           - Normalize with mean and std.
           - Rearrange dimensions from HWC to CHW and add a batch dimension.
+        
+        Args:
+            img (np.ndarray): Input image in BGR format.
+
+        Returns:
+            np.ndarray: Preprocessed image of shape (1, 3, imgSize, imgSize).
         """
         img_resized = cv2.resize(img, (self.imgSize, self.imgSize))
         img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
@@ -48,6 +64,12 @@ class PipetteFocuser:
     def get_pipette_focus_value(self, img):
         """
         Runs the ONNX model on a preprocessed image and returns the defocus value in microns.
+        
+        Args:
+            img (np.ndarray): Input image in BGR format.
+
+        Returns:
+            float: Predicted defocus value in microns.
         """
         input_tensor = self.preprocess(img)
         start_time = time.time()

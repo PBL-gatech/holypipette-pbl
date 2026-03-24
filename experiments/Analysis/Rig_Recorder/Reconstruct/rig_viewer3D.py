@@ -18,10 +18,14 @@ def create_cylinder_mesh(radius=0.5, height=5.0, sectors=32):
     """
     Create vertices and faces for a cylinder.
 
-    :param radius: Radius of the cylinder in cm.
-    :param height: Height of the cylinder in cm.
-    :param sectors: Number of sectors to approximate the circle.
-    :return: vertices, faces
+    Args:
+        radius (float): Radius of the cylinder in cm. Default is 0.5.
+        height (float): Height of the cylinder in cm. Default is 5.0.
+        sectors (int): Number of sectors to approximate the circle. Default is 32.
+
+    Returns:
+        tuple: A tuple (vertices, faces) where vertices is a numpy array of shape (N, 3)
+               and faces is a numpy array of shape (M, 3).
     """
     vertices = []
     faces = []
@@ -76,10 +80,14 @@ def create_box_mesh(width=5.0, depth=10.0, height=0.5):
     """
     Create vertices and faces for a rectangular prism.
 
-    :param width: Width along the X-axis in cm.
-    :param depth: Depth along the Y-axis in cm.
-    :param height: Height along the Z-axis in cm.
-    :return: vertices, faces
+    Args:
+        width (float): Width along X-axis in cm. Default is 5.0.
+        depth (float): Depth along Y-axis in cm. Default is 10.0.
+        height (float): Height along Z-axis in cm. Default is 0.5.
+
+    Returns:
+        tuple: A tuple (vertices, faces) where vertices is a numpy array of shape (8, 3)
+               and faces is a numpy array of shape (12, 3).
     """
     w = width / 2
     d = depth / 2
@@ -112,10 +120,14 @@ def create_sphere_mesh(radius=0.5, sectors=32, stacks=16):
     """
     Create vertices and faces for a sphere.
 
-    :param radius: Radius of the sphere in cm.
-    :param sectors: Number of sectors (longitude divisions).
-    :param stacks: Number of stacks (latitude divisions).
-    :return: vertices, faces
+    Args:
+        radius (float): Radius of the sphere in cm. Default is 0.5.
+        sectors (int): Number of longitude divisions. Default is 32.
+        stacks (int): Number of latitude divisions. Default is 16.
+
+    Returns:
+        tuple: A tuple (vertices, faces) where vertices is a numpy array of shape ((stacks+1)*(sectors+1), 3)
+               and faces is a numpy array of shape (2*stacks*sectors, 3).
     """
     vertices = []
     faces = []
@@ -146,7 +158,14 @@ def create_sphere_mesh(radius=0.5, sectors=32, stacks=16):
 
 
 class GLViewWidgetWithGrid(gl.GLViewWidget):
+    """OpenGL 3D viewer with grid, axes, and 3D objects."""
     def __init__(self, parent=None):
+        """
+        Initialize the GL viewer, add grid, axes, and 3D objects.
+
+        Args:
+            parent (QWidget, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         self.setBackgroundColor('k')  # Set background to black
 
@@ -163,6 +182,11 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
         self.init_objects()
 
     def add_grid(self):
+        """
+        Add XY-plane grid lines to the 3D view.
+
+        Grid extends +/- 100 mm with 1 mm spacing.
+        """
         # Create grid lines on the XY plane with millimeter squares
         grid_size = 100  # Define the extent of the grid (100 mm in each direction)
         step = 1  # 1 mm squares
@@ -180,6 +204,11 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
             self.addItem(plt)
 
     def add_axes(self):
+        """
+        Add X, Y, Z axes to the view.
+
+        X: Red, Y: Green, Z: Blue. Each axis 50 mm long.
+        """
         # Define axis length
         axis_length = 50  # 50 mm
 
@@ -199,12 +228,20 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
         self.addItem(z_axis)
 
     def restore_isometric_view(self):
+        """
+        Set camera to isometric view.
+
+        Azimuth: 45 degrees, Elevation: 30 degrees.
+        """
         # Set camera elevation and azimuth for isometric view
         self.opts['azimuth'] = 45  # Rotate 45 degrees around Z-axis
         self.opts['elevation'] = 30  # Tilt 30 degrees from horizontal
         self.update()
 
     def init_objects(self):
+        """
+        Initialize 3D objects in the scene.
+        """
         # Create Microscope as a cylinder
         cyl_vertices, cyl_faces = create_cylinder_mesh(radius=0.5, height=5.0, sectors=32)
         self.microscope_mesh = gl.GLMeshItem(vertexes=cyl_vertices, faces=cyl_faces,
@@ -225,11 +262,10 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
 
     def update_objects(self, microscope_z, stage_pos, pipette_pos):
         """
-        Update the positions of Stage and Pipette.
-
-        :param microscope_z: Z-coordinate for Microscope (fixed X and Y at 0).
-        :param stage_pos: (x, y) position for Stage in the XY-plane.
-        :param pipette_pos: (x, y, z) position for Pipette.
+        Args:
+            microscope_z (float): Z-coordinate of microscope (X,Y fixed at 0).
+            stage_pos (tuple[float, float]): XY position of the stage.
+            pipette_pos (tuple[float, float, float]): XYZ position of the pipette.
         """
         # Update Microscope position (fixed X and Y, variable Z)
         self.microscope_mesh.resetTransform()
@@ -245,7 +281,13 @@ class GLViewWidgetWithGrid(gl.GLViewWidget):
 
 
 class MainWindow(QtWidgets.QWidget):
+    """
+    Main GUI for 3D movement data visualization.
+    """
     def __init__(self):
+        """
+        Initialize the main window, 3D view, control panel, and playback controls.
+        """
         super().__init__()
         self.setWindowTitle('3D Movement Data Visualization')
         self.resize(1200, 900)  # Adjusted size for better visibility
@@ -373,6 +415,9 @@ class MainWindow(QtWidgets.QWidget):
         self.shortcut_next.activated.connect(self.show_next_timepoint)
 
     def load_movement_data(self):
+        """
+        Open a file dialog to load movement data from a CSV file.
+        """
         # Open file dialog to select CSV file
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Movement Data CSV", "",
@@ -429,6 +474,9 @@ class MainWindow(QtWidgets.QWidget):
                 QMessageBox.critical(self, "Error", f"Failed to load movement data:\n{e}")
 
     def show_previous_timepoint(self):
+        """
+        Move the visualization to the previous timepoint in the loaded data.
+        """
         if not self.movement_data:
             QMessageBox.warning(self, "No Data", "Please load movement data first.")
             return
@@ -439,6 +487,9 @@ class MainWindow(QtWidgets.QWidget):
             self.update_view()
 
     def show_next_timepoint(self):
+        """
+        Move the visualization to the next timepoint in the loaded data.
+        """
         if not self.movement_data:
             QMessageBox.warning(self, "No Data", "Please load movement data first.")
             return
@@ -449,6 +500,9 @@ class MainWindow(QtWidgets.QWidget):
             self.update_view()
 
     def toggle_playback(self):
+        """
+        Start or stop automatic playback of the movement data timeline.
+        """
         if not self.movement_data:
             QMessageBox.warning(self, "No Data", "Please load movement data first.")
             return
@@ -463,6 +517,9 @@ class MainWindow(QtWidgets.QWidget):
             self.is_playing = True
 
     def advance_timepoint(self):
+        """
+        Advance the timeline by one timer interval (~30 FPS) during playback.
+        """
         if not self.movement_data:
             return
 
@@ -484,6 +541,12 @@ class MainWindow(QtWidgets.QWidget):
             self.is_playing = False
 
     def slider_changed(self, value):
+        """
+        Update the visualization to match the timeline slider's current value.
+
+        Args:
+            value (int): The current index of the timeline slider.
+        """
         if not self.movement_data:
             return
 
@@ -491,6 +554,9 @@ class MainWindow(QtWidgets.QWidget):
         self.update_view()
 
     def update_view(self):
+        """
+        Update the 3D objects and information pane to reflect the current timepoint.
+        """
         if not self.movement_data:
             return
 
@@ -526,6 +592,10 @@ class MainWindow(QtWidgets.QWidget):
 
 
 def main():
+    """
+    Entry point for the application.
+    Creates a QApplication, initializes the MainWindow, and starts the event loop.
+    """
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

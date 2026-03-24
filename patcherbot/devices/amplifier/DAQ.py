@@ -42,6 +42,19 @@ class DAQAcquisitionThread(threading.Thread):
     """
     def __init__(self, daq, wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
                  amplitude=0.5, recordingTime=0.025, callback=None, interval=None):
+        """
+        Initialize the acquisition thread and configure acquisition parameters.
+
+        args:
+            daq: DAQ interface instance.
+            wave_freq (float): Square wave frequency in Hz.
+            samplesPerSec (int): Sampling rate.
+            dutyCycle (float): Duty cycle (0–1).
+            amplitude (float): Signal amplitude.
+            recordingTime (float): Acquisition duration per cycle.
+            callback (callable | None): Optional callback for processed data.
+            interval (float | None): Time between acquisitions.       
+        """
         super().__init__(daemon=True)
         self.daq = daq
         self._pause_evt = daq._pause_evt     # set == allowed to run
@@ -140,7 +153,13 @@ class DAQAcquisitionThread(threading.Thread):
             time.sleep(max(0.0, self.interval - elapsed))
 
     def get_last_data(self):
-        """Return the most recent measurement or None if not available."""
+        """
+        Return the most recent measurement or None if not available.
+        
+        returns:
+            dict | None: Latest data packet containing time series and computed
+            electrical properties, or None if no data is available.
+        """
         return dict(self._last_data_queue[-1]) if self._last_data_queue else None
 
     def stop(self):
@@ -160,6 +179,12 @@ class DAQ(TaskController):
     V_CLAMP_VOLT_PER_AMP = None
 
     def __init__(self):
+        """
+        Initialize the DAQ base class and internal state.
+
+        Sets up protocol storage, acquisition state variables, synchronization
+        primitives, and measurement tracking fields.
+        """
         super().__init__()
         self.pulses = None
         self.pulseRange = None
@@ -196,12 +221,33 @@ class DAQ(TaskController):
 
 
     def setCellMode(self, mode: bool) -> None:
+        """
+        Set the DAQ operating mode.
+
+        Args:
+            mode: True for cell mode, False for bath mode.
+        """
         self.cellMode = mode
         self.info(f"Setting cell mode to {mode}")
 
     def getCellMode(self) -> bool:
+        """
+        Get the current DAQ operating mode.
+
+        Returns:
+            bool: True if in cell mode, False if in bath mode.
+        """
         return self.cellMode
     def _normalize_optogenetic_protocol_key(self, protocol_type):
+        """
+        Normalize an optogenetic protocol identifier into a lowercase string key.
+
+        Args:
+            protocol_type: Protocol identifier, enum, or string.
+
+        Returns:
+            str: Normalized protocol key.
+        """
         if protocol_type is None:
             return "unknown"
         name = getattr(protocol_type, "name", None)
@@ -211,6 +257,15 @@ class DAQ(TaskController):
         return text if text else "unknown"
 
     def pop_optogenetic_entry(self, protocol_key):
+        """
+        Remove and return a matching optogenetic protocol entry from the queue.
+
+        Args:
+            protocol_key: Identifier for the protocol to retrieve.
+
+        Returns:
+            Optional[dict]: Matching protocol entry if found, otherwise None.
+        """
         key = self._normalize_optogenetic_protocol_key(protocol_key)
         with self._optogenetic_queue_lock:
             for entry in self.optogenetic_protocol_queue:
@@ -254,6 +309,9 @@ class DAQ(TaskController):
           "timeData", "respData", "readData", "totalResistance",
           "membraneResistance", "accessResistance", "membraneCapacitance"
         or None if no data is available.
+
+        Returns:
+            Optional[dict]: Dictionary containing measurement data, or None if unavailable.
         """
         if hasattr(self, "_daq_acq_thread") and self._daq_acq_thread:
             return self._daq_acq_thread.get_last_data()
@@ -266,6 +324,18 @@ class DAQ(TaskController):
         Compute noise metrics from response data within a time window.
         Returns a dict with windowed data, p2p, std, avg_p2p, and FFT results,
         or None if inputs are insufficient.
+
+        Args:
+            timeData: Time array corresponding to the signal.
+            respData: Response signal array.
+            window_start: Start time of analysis window.
+            window_end: End time of analysis window.
+            avg_p2p_window: Window size for averaging peak-to-peak values.
+
+        Returns:
+            Optional[dict]: Dictionary containing noise metrics including p2p,
+            standard deviation, average p2p, FFT frequencies, and magnitudes.
+            Returns None if computation cannot be performed.
         """
         if timeData is None or respData is None:
             last = self.get_last_acquisition()
@@ -345,6 +415,12 @@ class DAQ(TaskController):
         """
         Block until the acquisition thread is parked **and** both DAQmx tasks
         have been stopped, giving the caller sole ownership of the hardware.
+        
+        Args:
+            timeout: Maximum time in seconds to wait for the thread to idle.
+
+        Raises:
+            TimeoutError: If the acquisition thread does not become idle in time.
         """
         if self._pause_evt.is_set():
             self._pause_evt.clear()                 # ask thread to park
@@ -371,6 +447,17 @@ class DAQ(TaskController):
         """
         Single-cycle acquisition: fire the pre-made AO buffer, read back AI,
         then process into (time/resp, time/read, totalR, memR, accR, memC).
+        
+        Args:
+            wave_freq: Frequency of the square wave in Hz.
+            samplesPerSec: Sampling rate in samples per second.
+            dutyCycle: Duty cycle of the square wave (0 to 1).
+            amplitude: Output amplitude of the square wave.
+            recordingTime: Duration of the acquisition in seconds.
+
+        Returns:
+            tuple: Processed data including time/response arrays and computed
+            resistance and capacitance values.
         """
         with self._deviceLock:
             # Device-specific wrappers (implemented in NiDAQ)
@@ -472,10 +559,6 @@ class DAQ(TaskController):
         """
         Build a square-wave buffer.
 
-        Returns
-        -------
-        (wave: np.ndarray, rate: int, numSamples: int)
-
         Setting *store=False* makes the routine **side-effect–free**,
         letting protocol methods generate *temporary* buffers without
         clobbering the continuous-acquisition one.
@@ -483,6 +566,19 @@ class DAQ(TaskController):
         If *store=True* (default) the buffer is cached exactly as before
         on the instance (`self.wave`, `_wave_rate`, `_wave_samples`) so
         all existing callers continue to work unchanged.
+
+        Args:
+            wave_freq: Frequency of the square wave in Hz.
+            samplesPerSec: Sampling rate in samples per second.
+            dutyCycle: Fraction of each period the signal is "on" (0 to 1).
+            amplitude: Amplitude of the square wave.
+            recordingTime: Total duration of the waveform in seconds.
+            pre_pad_ms: Initial delay before waveform onset in milliseconds.
+            store: If True, cache the generated waveform on the instance.
+
+        Returns:
+            Tuple[np.ndarray, int, int]: Generated waveform, sampling rate,
+            and number of samples.
         """     
         numSamples = int(samplesPerSec * recordingTime)
         period     = int(samplesPerSec / wave_freq)
@@ -514,6 +610,18 @@ class DAQ(TaskController):
 
         recordingTime represents the total duration (baseline + test + baseline).
         Each segment occupies one third of the total time.
+        
+        Args:
+            wave_freq: Frequency of the square wave in Hz.
+            samplesPerSec: Sampling rate in samples per second.
+            dutyCycle: Duty cycle of the waveform (0 to 1).
+            amplitude: Amplitude of the test segment.
+            recordingTime: Total duration of the waveform in seconds.
+            store: If True, cache the generated waveform on the instance.
+
+        Returns:
+            Tuple[np.ndarray, int, int]: Concatenated waveform, sampling rate,
+            and total number of samples.
         """
         segment_time = float(recordingTime) / 3.0
 
@@ -562,11 +670,18 @@ class DAQ(TaskController):
 
         All segments share the same sampling rate and 50 % duty-cycle.
 
-        Returns
-        -------
-        wave : np.ndarray  (Volts)
-        rate : int         (samples / sec)
-        numSamples : int   (wave.size)
+        Args:
+            wave_freq: Frequency of test and calibration pulses in Hz.
+            samplesPerSec: Sampling rate in samples per second.
+            dutyCycle: Duty cycle of each segment (0 to 1).
+            amplitude: Amplitude of the test pulse in volts.
+            recordingTime: Duration of each segment in seconds.
+        
+        Returns:
+            tuple[np.ndarray, int, int]:
+                wave (Volts)
+                rate (samples / sec)
+                numSamples (wave.size)
         """
         import numpy as np
 
@@ -601,6 +716,18 @@ class DAQ(TaskController):
         """
         Cut out the pulse, convert units, compute R & C.
         Identical to our previous implementation, unchanged.
+
+        Args:
+            raw_data: Raw input data array containing read and response channels.
+            samplesPerSec: Sampling rate in samples per second.
+            amplitude: Command amplitude used for the waveform.
+            sweep_clip: Optional tuple specifying indices for clipping the sweep.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, Optional[float], Optional[float],
+                Optional[float], Optional[float]]:
+            Processed response data, command data, total resistance,
+            membrane resistance, access resistance, and membrane capacitance.
         """
         read = raw_data[0]
         resp = raw_data[1]
@@ -649,6 +776,9 @@ class DAQ(TaskController):
         """
         Returns the latest membrane capacitance measurement.
         If no measurement is available, returns None.
+
+        Returns:
+            Optional[float]: Latest membrane capacitance, or None if unavailable.
         """
         return self.latestMembraneCapacitance
 
@@ -656,6 +786,9 @@ class DAQ(TaskController):
         """
         Returns the latest total resistance measurement.
         If no measurement is available, returns None.
+
+        Returns:
+            Optional[float]: Latest total resistance, or None if unavailable.
         """
         return self.totalResistance
     
@@ -663,10 +796,23 @@ class DAQ(TaskController):
         """
         Returns the latest access resistance measurement.
         If no measurement is available, returns None.
+
+        Returns:
+            Optional[float]: Latest access resistance, or None if unavailable.
         """
         return self.latestAccessResistance
 
     def _getResistancefromCurrent(self, data, cmdVoltage) -> float | None:
+        """
+        Estimate resistance from current response data.
+
+        Args:
+            data: Current response data array.
+            cmdVoltage: Applied command voltage.
+
+        Returns:
+            Optional[float]: Estimated resistance, or None if computation fails.
+        """
         try:
             mean = np.mean(data)
             lowAvg = np.mean(data[data < mean])
@@ -683,7 +829,7 @@ class DAQ(TaskController):
         Process the acquired data to extract the relevant segment for curve-fitting,
         using NumPy arrays instead of a pandas DataFrame.
         
-        Parameters:
+        Args:
           T_ms: np.array of time in milliseconds (shifted so first element is 0)
           X_mV: np.array of command voltages in millivolts
           Y_pA: np.array of responses in picoamps
@@ -723,6 +869,18 @@ class DAQ(TaskController):
         return sub_data, sub_time, sub_command, plot_params, mean_pre_peak, mean_post_peak
 
     def monoExp(self, x, m, t, b):
+        """
+        Evaluate a mono-exponential decay function.
+
+        Args:
+            x: Independent variable (typically time).
+            m: Amplitude coefficient.
+            t: Decay rate (inverse time constant, 1/τ).
+            b: Baseline offset.
+
+        Returns:
+            np.ndarray: Computed exponential values.
+        """
         return m * np.exp(-t * x) + b
 
 
@@ -735,9 +893,18 @@ class DAQ(TaskController):
         with parameter
             t = 1 / τ      [1 / ms]
 
-        Returns
-        -------
-        (m, t, b) in pA, 1/ms, pA   – or (None, None, None) on failure
+        Args:
+            fit_data: Dictionary containing:
+                - 'T_ms': Time values in milliseconds.
+                - 'Y_pA': Current values in picoamps.
+            I_peak_pA: Peak current value in picoamps.
+            I_peak_time_ms: Time at peak current in milliseconds.
+            I_ss_pA: Steady-state current in picoamps.
+
+    Returns:
+        Tuple[Optional[float], Optional[float], Optional[float]]:
+            (m, t, b) in pA, 1/ms, pA 
+            or (None, None, None) on failure
         """
         # -------- data -----------------------------------------------------
         x_ms = fit_data['T_ms']
@@ -797,6 +964,18 @@ class DAQ(TaskController):
         """
         Calculate access resistance, membrane resistance, and membrane capacitance
         from the response of a voltage protocol using NumPy arrays instead of pandas.
+
+        Args:
+            readData: Command signal array (voltage).
+            respData: Response signal array (current).
+            timeData: Time array in seconds.
+            amplitude: Command amplitude in volts.
+
+        Returns:
+            Tuple[Optional[float], Optional[float], Optional[float]]:
+            Access resistance (MΩ), membrane resistance (MΩ),
+            and membrane capacitance (pF). Returns None values if computation fails.
+
         """
         R_a_MOhms, R_m_MOhms, C_m_pF = None, None, None
         if len(readData) and len(respData) and len(timeData):
@@ -839,6 +1018,18 @@ class DAQ(TaskController):
         """
         Calculate access resistance (R_a), membrane resistance (R_m) and membrane capacitance (C_m)
         from the measured currents.
+        
+        Args:
+            tau: Time constant in milliseconds.
+            mean_voltage: Mean command voltage in millivolts.
+            I_peak: Peak current in picoamps.
+            I_prev: Baseline current before stimulus in picoamps.
+            I_ss: Steady-state current in picoamps.
+
+        Returns:
+            Tuple[float, float, float]:
+            Access resistance (MΩ), membrane resistance (MΩ),
+            and membrane capacitance (pF).
         """
         I_d = I_peak - I_prev   # in pA
         I_dss = I_ss - I_prev   # in pA
@@ -851,12 +1042,29 @@ class DAQ(TaskController):
 #  NI-DAQ Subclass
 # ========================================================
 class NiDAQ(DAQ):
+    """
+    National Instruments DAQ implementation for patch-clamp acquisition.
+
+    Provides hardware-specific implementations for analog input/output,
+    continuous acquisition, and protocol execution using NI-DAQmx.
+    """
     C_CLAMP_AMP_PER_VOLT = 400 * 1e-12  # 400 pA per V (DAQ output)
     C_CLAMP_VOLT_PER_VOLT = (10 * 1e-3) / (1e-3)  # 10 mV per V (DAQ input)
     V_CLAMP_VOLT_PER_VOLT = (20 * 1e-3)  # 20 mV per V (DAQ output)
     V_CLAMP_VOLT_PER_AMP = (2 * 1e-9)   # 2 mV per pA (DAQ input)
 
     def __init__(self, readDev, readChannel, cmdDev, cmdChannel, respDev, respChannel):
+        """
+        Initialize the NI-DAQ device, configure acquisition tasks, and start background acquisition.
+
+        args:
+            readDev (str): Device name for reading channel (e.g., "Dev1").
+            readChannel (str): Analog input channel for command readback.
+            cmdDev (str): Device name for command output.
+            cmdChannel (str): Analog output channel for command signal.
+            respDev (str): Device name for response input.
+            respChannel (str): Analog input channel for measured response.
+        """
         super().__init__()
         self.readDev = readDev
         self.cmdDev = cmdDev
@@ -891,6 +1099,11 @@ class NiDAQ(DAQ):
         )
 
     def _restartAcquisition(self):
+        """
+        Restart analog input/output tasks after an error or buffer overrun.
+
+        Recreates tasks and reinitializes synchronization between AI and AO.
+        """
         try:
             self.ai_task.stop(); self.ao_task.stop()
         except Exception:
@@ -1005,6 +1218,10 @@ class NiDAQ(DAQ):
         """
         Configure a dedicated continuous AI + AO pair for the
         current-step protocol.  The background stream must be paused first.
+        
+        args:
+            recordingTime (float): Duration of each segment in milliseconds.
+            dutyCycle (float): Duty cycle of generated waveform.
         """
         import nidaqmx, nidaqmx.constants as c
 
@@ -1053,6 +1270,21 @@ class NiDAQ(DAQ):
         self.ai_task.start()
 
     def _build_optogenetic_timeline(self, protocol_steps: list[dict]):
+        """
+        Convert protocol step definitions into a time-aligned stimulation timeline.
+
+        args:
+            protocol_steps (list[dict]): List of step dictionaries containing duration and parameters.
+
+        returns:
+            tuple:
+                - list[dict]: Timeline with start and end times for each step.
+                - float: Total protocol duration in seconds.
+                - Any: Protocol type identifier.
+
+        raises:
+            ValueError: If no valid steps with positive duration are provided.
+        """
         stim_timeline: list[dict] = []
         cursor = 0.0
         for step in protocol_steps:
@@ -1074,6 +1306,11 @@ class NiDAQ(DAQ):
     def _wait_until(self, deadline_s: float, *, tight_timing: bool = True) -> None:
         """
         Sleep until deadline_s; optionally spin for the last few ms to reduce jitter.
+        
+        args:
+            deadline_s (float): Absolute time (perf_counter) to wait until.
+            tight_timing (bool): If True, uses spin-waiting for final milliseconds
+                to reduce timing jitter.
         """
         while True:
             remaining = deadline_s - time.perf_counter()
@@ -1093,6 +1330,21 @@ class NiDAQ(DAQ):
         t0: float | None = None,
         tight_timing: bool = True,
     ) -> list[dict]:
+        """
+        Execute an optogenetic stimulation timeline using a laser device.
+
+        args:
+            laser: Laser control object with wavelength, power, and on/off methods.
+            stim_timeline (list[dict]): Timeline entries with timing and stimulation parameters.
+            t0 (float | None): Reference start time. If None, current time is used.
+            tight_timing (bool): Whether to use high-precision timing.
+
+        returns:
+            list[dict]: Actual executed timeline with recorded start and end times.
+
+        raises:
+            ValueError: If no laser device is provided.
+        """
         if laser is None:
             raise ValueError("laser is required")
         if t0 is None:
@@ -1136,6 +1388,14 @@ class NiDAQ(DAQ):
         return actual
 
     def _setup_optogenetic_ai_task(self, rate_hz: int, num_samples: int):
+        """
+        args:
+            rate_hz (int): Sampling rate in Hz.
+            num_samples (int): Number of samples to acquire per channel.
+
+        returns:
+            nidaqmx.Task: Configured analog input task.
+        """
         ai = nidaqmx.Task()
         ai.ai_channels.add_ai_voltage_chan(
             f"{self.readDev}/{self.readChannel}",
@@ -1152,6 +1412,20 @@ class NiDAQ(DAQ):
         return ai
 
     def _read_optogenetic_ai(self, ai_task, num_samples: int, duration_s: float):
+        """
+        Read data from an optogenetic AI task and close it.
+
+        args:
+            ai_task: Configured NI-DAQmx analog input task.
+            num_samples (int): Number of samples to read per channel.
+            duration_s (float): Expected acquisition duration in seconds.
+
+        returns:
+            np.ndarray: Acquired data as a NumPy array.
+
+        raises:
+            nidaqmx.errors.DaqError: If the read operation fails.
+        """
         raw = ai_task.read(
             number_of_samples_per_channel=num_samples,
             timeout=duration_s + 2.0)
@@ -1170,6 +1444,14 @@ class NiDAQ(DAQ):
         """
         Configure the dedicated AI/AO pair for the V-clamp step protocol.
         Mirrors the current-clamp setup while preserving voltage-specific buffer sizing.
+        
+        args:
+            wave_freq (float): Frequency of the square wave.
+            samplesPerSec (int): Sampling rate in samples per second.
+            dutyCycle (float): Duty cycle of the waveform.
+            recordingTime (float): Duration of each waveform segment in seconds.
+            exp_samples (int): Expected number of samples per acquisition.
+            buffer_trains (int): Number of waveform buffers to allocate.
         """
         import nidaqmx
         import nidaqmx.constants as c
@@ -1246,6 +1528,13 @@ class NiDAQ(DAQ):
     def _readAnalogInput(self, samplesPerSec, recordingTime):
         """
         Wrapper for the AI task: read exactly one bufferful.
+        
+        args:
+            samplesPerSec (int): Sampling rate in samples per second.
+            recordingTime (float): Duration of acquisition in seconds.
+
+        returns:
+            np.ndarray: Acquired analog input data.
         """
         numSamples = int(samplesPerSec * recordingTime)
         data = self.ai_task.read(
@@ -1267,6 +1556,12 @@ class NiDAQ(DAQ):
         • If rate or length must change, stop *both* tasks, re-configure,
         and restart them **in the same trigger order** (AO-first, AI-second).
         
+        args:
+            wave_freq (float): Frequency of the square wave.
+            samplesPerSec (int): Sampling rate.
+            dutyCycle (float): Duty cycle of the waveform.
+            amplitude (float): Amplitude of the waveform.
+            recordingTime (float): Duration of waveform.
         """
         import nidaqmx.constants as c
 
@@ -1319,6 +1614,13 @@ class NiDAQ(DAQ):
         Generate a new current-square-wave buffer on the fly,
         write it to the always-running AO task, then restore the
         original membrane-test wave.
+        
+        args:
+            wave_freq (float): Frequency of the waveform.
+            samplesPerSec (int): Sampling rate.
+            dutyCycle (float): Duty cycle.
+            amplitude (float): Current amplitude (converted internally).
+            recordingTime (float): Duration of waveform.
         """
 
         import nidaqmx.constants as c
@@ -1335,6 +1637,13 @@ class NiDAQ(DAQ):
     def _sendSquareWaveVoltage(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
         """
         Generate the next voltage-step wave and queue it on the running AO task.
+        
+        args:
+            wave_freq (float): Frequency of the waveform.
+            samplesPerSec (int): Sampling rate.
+            dutyCycle (float): Duty cycle.
+            amplitude (float): Voltage amplitude.
+            recordingTime (float): Duration of waveform.
         """
         wave, _, _ = self.createSquareWaveVoltage(
             wave_freq=wave_freq,
@@ -1368,6 +1677,25 @@ class NiDAQ(DAQ):
         baseline–pulse–baseline layout that mirrors ``getVoltageClampSweep``.
         Averaged traces are stored on ``self.leak_subtraction_data`` for GUI /
         logging consumers and the raw repeats are discarded after averaging.
+        
+        args:
+            start_voltage (float): Starting voltage of sweep.
+            end_voltage (float): Ending voltage of sweep.
+            holding_voltage (float): Holding voltage.
+            step_voltage (float): Voltage increment between targets.
+            wave_freq (float): Square wave frequency.
+            samplesPerSec (int): Sampling rate.
+            dutyCycle (float): Duty cycle of waveform.
+            pulse_recording_time (float): Duration of each pulse segment.
+            repeats (int): Number of repeats per voltage step.
+
+        returns:
+            list[dict]: Averaged leak-subtracted responses for each target voltage.
+
+        raises:
+            ValueError: If step_voltage is zero or repeats is non-positive.
+            RuntimeError: If voltage/current conversion constants are not configured.
+
         """
         import numpy as np
 
@@ -1573,6 +1901,23 @@ class NiDAQ(DAQ):
         Run a finite V-clamp sweep that mirrors the I-clamp protocol lifecycle.
         Returns a list of [time, response, command] arrays processed identically
         to the membrane-test traces.
+        
+        args:
+            start_voltage (float): Starting voltage of the sweep.
+            end_voltage (float): Ending voltage of the sweep.
+            holding_voltage (float): Holding voltage.
+            step_voltage (float): Increment between voltage steps.
+            wave_freq (int): Frequency of square wave.
+            samplesPerSec (int): Sampling rate.
+            dutyCycle (float): Duty cycle of waveform.
+            recordingTime (float): Duration per step.
+
+        returns:
+            list[list[np.ndarray]]: List of sweeps, each containing
+                [time_array, response_array, command_array].
+
+        raises:
+            ValueError: If step_voltage is zero.
         """
         import numpy as np
 
@@ -1693,9 +2038,36 @@ class NiDAQ(DAQ):
                                    dutyCycle: float = 0.5):
         """
         Run an entire I-clamp step protocol on one continuous stream.
-        Returns
-        -------
-        (list_of_traces, pulses_array, pulse_count)
+            
+        args:
+            custom (bool):
+                If False, generates pulses normalized by membrane capacitance.
+                If True, uses manually provided current range parameters.
+            factor (float | None):
+                Reserved for future scaling logic; currently unused.
+            startCurrentPicoAmp (float | None):
+                Starting current (pA) for custom mode.
+            endCurrentPicoAmp (float | None):
+                Ending current (pA) for custom mode.
+            stepCurrentPicoAmp (float):
+                Step size (pA) between pulses.
+            recordingTimeMs (float):
+                Duration of one pulse segment (ms).
+            dutyCycle (float):
+                Fraction of the waveform period spent in the high state.
+
+        returns:
+            tuple:
+                current_protocol_data (list[list[np.ndarray]]):
+                    List of traces, each containing [time, response, read].
+                pulses (np.ndarray):
+                    Array of applied current steps (pA).
+                pulseRange (int):
+                    Number of pulses applied.
+
+        raises:
+            RuntimeError:
+                If capacitance-based normalization is required but unavailable or invalid.
         """
         # ───────── constants ─────────
         samplesPerSec  = 100_000
@@ -1805,10 +2177,15 @@ class NiDAQ(DAQ):
         • Does *not* touch the AO task, avoiding the –200547 write error.
         • Restarts the continuous stream afterwards.
 
-        Returns
-        -------
-        np.ndarray
-            [time_s, resp_V, read_V]  – identical to the legacy layout.
+        args:
+            rate_hz (int):
+                Sampling rate in Hz.
+            duration_s (float):
+                Duration of acquisition in seconds.
+        
+        returns:
+            np.ndarray:
+                [time_s, resp_V, read_V]  – identical to the legacy layout.
         """
         import nidaqmx
         import nidaqmx.constants as c
@@ -1863,10 +2240,27 @@ class NiDAQ(DAQ):
         """
         Modified holding protocol that records only during optogenetic "on" steps.
 
-        Returns
-        -------
-        (list[list[np.ndarray]], list[dict])
+        
+        args:
+            laser:
+                Laser control object with wavelength, power, and on/off methods.
+            protocol_steps (list[dict]):
+                Sequence of stimulation steps with duration, state, wavelength,
+                and power settings.
+            rate_hz (int):
+                Sampling rate in Hz for acquisition.
+
+        returns:
+            tuple:
+                optogenetic_protocol_data (list[list[np.ndarray]]):
+                    Recorded traces for each "on" step [time, response, read].
+                optogenetic_stim_data (list[dict]):
+                    Timeline of executed stimulation steps with actual timing.
             One trace per on-step plus the stimulation timeline.
+
+        raises:
+            ValueError:
+                If laser is not provided or protocol_steps is empty.
         """
         if laser is None:
             raise ValueError("laser is required")
@@ -2036,10 +2430,25 @@ class NiDAQ(DAQ):
 
         • Resumes the acquisition thread.
 
-        Returns
-        -------
-        float | None
-            Averaged capacitance (pF), or None if no acceptable trace was found.
+        args:
+            wave_freq (int):
+                Frequency of the square wave (Hz).
+            samplesPerSec (int):
+                Sampling rate in samples per second.
+            dutyCycle (float):
+                Fraction of period in the high state.
+            amplitude (float):
+                Command amplitude (V).
+            recordingTime (float):
+                Duration of one waveform period (s).
+            max_attempts (int):
+                Maximum number of acquisition attempts.
+            membrane_hold (float | None):
+                Holding voltage (V) for metadata annotation.
+
+        returns:
+            float | None:
+                Averaged membrane capacitance (pF), or None if no valid traces found.
         """
         import math, time, numpy as np
         self.voltage_membrane_test = None
@@ -2124,12 +2533,31 @@ class NiDAQ(DAQ):
 #  ArduinoDAQ Subclass
 # ========================================================
 class ArduinoDAQ(DAQ):
+    """
+    Data acquisition interface for Arduino-based DAQ systems using serial communication.
+
+    This implementation communicates with an Arduino over a serial port to send
+    command waveforms and receive digitized analog input data. It supports basic
+    square-wave stimulation and data acquisition but does not implement advanced
+    protocols such as leak subtraction.
+    """
     C_CLAMP_AMP_PER_VOLT = 400 * 1e-12  # 400 pA per V (DAQ output)
     C_CLAMP_VOLT_PER_VOLT = (10 * 1e-3) / (1e-3)  # 10 mV per V (DAQ input)
     V_CLAMP_VOLT_PER_VOLT = (20 * 1e-3)  # 20 mV per V (DAQ output)
     V_CLAMP_VOLT_PER_AMP = (2 * 1e-9)   # 2 V per A (DAQ input)
 
     def __init__(self, DAQSerial=None):
+        """
+        Initialize the ArduinoDAQ with an active serial connection.
+
+        args:
+            DAQSerial (serial.Serial | None):
+                Open and configured serial connection to the Arduino device.
+
+        raises:
+            ValueError:
+                If DAQSerial is not a valid, open serial.Serial instance.
+        """
         if DAQSerial is not None and isinstance(DAQSerial, serial.Serial):
             self.DAQSerial = DAQSerial
             self.info(f"ArduinoDAQ initialized with serial port: {self.DAQSerial.port} at {self.DAQSerial.baudrate} baud.")
@@ -2141,6 +2569,27 @@ class ArduinoDAQ(DAQ):
         self.info(f'Using {self.DAQSerial.port} for reading and writing.')
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
+        """
+        Read analog input data streamed from the Arduino over serial.
+
+        Waits for "start" and "end" markers and parses incoming comma-separated
+        values into command and response voltage arrays.
+
+        args:
+            samplesPerSec (int):
+                Sampling rate in samples per second.
+            recordingTime (float):
+                Expected duration of the recording in seconds.
+
+        returns:
+            np.ndarray:
+                Array of shape (2, N) containing:
+                [command_voltage (V), response_voltage (V)].
+
+        raises:
+            RuntimeError:
+                If the serial port is not initialized.
+        """
         if self.DAQSerial is None:
             self.error("Serial port not initialized.")
             raise RuntimeError("Serial port not initialized.")
@@ -2171,6 +2620,31 @@ class ArduinoDAQ(DAQ):
         return np.array([readData, respData])
 
     def _sendSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        """
+        Send square-wave command parameters to the Arduino.
+
+        Converts waveform parameters into a formatted command string and transmits
+        it over serial. The Arduino is responsible for generating the waveform.
+
+        args:
+            wave_freq (float):
+                Frequency of the square wave (Hz).
+            samplesPerSec (int):
+                Sampling rate in samples per second.
+            dutyCycle (float):
+                Fraction of the period spent in the high state.
+            amplitude (float):
+                Wave amplitude in DAQ voltage units.
+            recordingTime (float):
+                Duration of the waveform in seconds.
+
+        returns:
+            None
+
+        raises:
+            RuntimeError:
+                If the serial port is not initialized.
+        """
         scaling = 1024  # 10-bit DAC scaling
         if self.DAQSerial is None:
             self.error("Serial port not initialized.")
@@ -2201,6 +2675,40 @@ class ArduinoDAQ(DAQ):
             pulse_recording_time: float = 0.600,
             repeats: int = 4,
     ):
+        """
+        Placeholder implementation for leak subtraction on ArduinoDAQ.
+
+        This method does not perform actual data acquisition. It computes and
+        stores metadata describing the intended leak subtraction protocol.
+
+        args:
+            start_voltage (float):
+                Starting voltage of the sweep (V).
+            end_voltage (float):
+                Ending voltage of the sweep (V).
+            holding_voltage (float):
+                Holding voltage (V).
+            step_voltage (float):
+                Voltage step size (V).
+            wave_freq (float):
+                Frequency of the square wave (Hz).
+            samplesPerSec (int):
+                Sampling rate in samples per second.
+            dutyCycle (float):
+                Fraction of the waveform period spent high.
+            pulse_recording_time (float):
+                Duration of each pulse (s).
+            repeats (int):
+                Number of repeats per step.
+
+        returns:
+            list:
+                Empty list (no data collected).
+
+        raises:
+            ValueError:
+                If step_voltage is zero or repeats is non-positive.
+        """
         self.warning("Leak subtraction is not supported on ArduinoDAQ; returning empty result.")
 
         if step_voltage == 0:
@@ -2252,6 +2760,11 @@ class FakeDAQ(DAQ):
     V_CLAMP_VOLT_PER_AMP = 1.0
 
     def __init__(self):
+        """
+        Initialize the FakeDAQ with default parameters and start acquisition.
+
+        Sets a baseline resistance and begins a simulated acquisition loop.
+        """
         super().__init__()
         self.totalResistance = 6 * 10 ** 6  # baseline fake resistance
         self._last_wave_params = None
@@ -2260,13 +2773,37 @@ class FakeDAQ(DAQ):
                                 amplitude=0.5, recordingTime=0.025, interval=None)
 
     def resistance(self):
+        """
+        Return a simulated resistance value with noise.
+
+        returns:
+            float:
+                Simulated resistance in ohms.
+        """
         return self.totalResistance + np.random.normal(0, 0.1 * 10 ** 6)
 
     # ------------------------------------------------------------------
     # Hardware emulation helpers
     # ------------------------------------------------------------------
     def _sendSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
-        """Generate and store a square wave command."""
+        """
+        Generate and store a square wave command.
+        
+        args:
+            wave_freq (float):
+                Frequency of the square wave (Hz).
+            samplesPerSec (int):
+                Sampling rate in samples per second.
+            dutyCycle (float):
+                Fraction of the period spent high.
+            amplitude (float):
+                Wave amplitude.
+            recordingTime (float):
+                Duration of the waveform (s).
+
+        returns:
+            None
+        """
         numSamples = int(samplesPerSec * recordingTime)
         period = int(1 / wave_freq * samplesPerSec)
         onTime = int(period * dutyCycle)
@@ -2281,10 +2818,43 @@ class FakeDAQ(DAQ):
         return None
 
     def _sendSquareWaveCurrent(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        """
+        Alias for square-wave generation in current-clamp mode.
+
+        args:
+            wave_freq (float):
+                Frequency of the square wave (Hz).
+            samplesPerSec (int):
+                Sampling rate in samples per second.
+            dutyCycle (float):
+                Fraction of the period spent high.
+            amplitude (float):
+                Wave amplitude.
+            recordingTime (float):
+                Duration of the waveform (s).
+
+        returns:
+            None
+        """
         return self._sendSquareWave(wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime)
 
     def _readAnalogInput(self, samplesPerSec, recordingTime):
-        """Return a simulated response to the previously generated command."""
+        """
+        Return a simulated response to the previously generated command.
+        
+        Uses a simple ohmic model with additive Gaussian noise.
+
+        args:
+            samplesPerSec (int):
+                Sampling rate in samples per second.
+            recordingTime (float):
+                Duration of the recording (s).
+
+        returns:
+            np.ndarray:
+                Array of shape (2, N) containing:
+                [command_signal, response_signal].
+        """
         numSamples = int(samplesPerSec * recordingTime)
         if self._last_command is None or len(self._last_command) != numSamples:
             # No command was sent; return zeros
@@ -2311,6 +2881,39 @@ class FakeDAQ(DAQ):
             pulse_recording_time: float = 0.600,
             repeats: int = 4,
     ):
+        """
+        Placeholder leak subtraction for FakeDAQ.
+
+        Does not simulate actual acquisition but computes protocol metadata.
+
+        args:
+            start_voltage (float):
+                Starting voltage of the sweep (V).
+            end_voltage (float):
+                Ending voltage of the sweep (V).
+            holding_voltage (float):
+                Holding voltage (V).
+            step_voltage (float):
+                Voltage step size (V).
+            wave_freq (float):
+                Frequency of the square wave (Hz).
+            samplesPerSec (int):
+                Sampling rate in samples per second.
+            dutyCycle (float):
+                Fraction of the waveform period spent high.
+            pulse_recording_time (float):
+                Duration of each pulse (s).
+            repeats (int):
+                Number of repeats per step.
+
+        returns:
+            list:
+                Empty list (no data collected).
+
+        raises:
+            ValueError:
+                If step_voltage is zero or repeats is non-positive.
+        """
         self.warning("Leak subtraction is not simulated on FakeDAQ; returning empty result.")
 
         if step_voltage == 0:

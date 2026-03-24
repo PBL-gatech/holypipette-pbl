@@ -23,6 +23,18 @@ CSV_FIELDNAMES = ["filename", "red_x", "red_y", "white_x", "white_y"]
 
 
 def natural_sort_key(path: Path) -> List[object]:
+    """
+    Generate a natural sorting key for file paths.
+
+    Args:
+        path (Path): File path whose name will be used to generate
+            the sorting key.
+
+    Returns:
+        List[object]: A list containing integers and lowercase strings
+            representing the split components of the file name, suitable
+            for use as a sorting key.
+    """
     return [int(chunk) if chunk.isdigit() else chunk.lower() for chunk in re.split(r"(\d+)", path.name)]
 
 
@@ -30,6 +42,17 @@ def detect_white_dot(bgr: np.ndarray, edge_margin: int = 2) -> Optional[Tuple[fl
     """
     Detect the small bright dot while ignoring the red square and edge glints.
     Uses white top-hat to emphasize small bright features on bright backgrounds.
+    
+    Args:
+        bgr (np.ndarray): Input image in BGR format.
+        edge_margin (int, optional): Minimum distance (in pixels) from the
+            image border for valid detections. Components too close to the
+            edge are discarded. Defaults to 2.
+
+    Returns:
+        Optional[Tuple[float, float]]: (x, y) coordinates of the detected
+            dot's centroid in pixel space, or None if no valid candidate
+            is found.
     """
 
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
@@ -80,13 +103,27 @@ def detect_white_dot(bgr: np.ndarray, edge_margin: int = 2) -> Optional[Tuple[fl
 
 
 def euclidean_err(ax: np.ndarray, bx: np.ndarray, ay: np.ndarray, by: np.ndarray) -> np.ndarray:
-    """Vectorized Euclidean distance that gracefully propagates NaNs."""
+    """
+    Vectorized Euclidean distance that gracefully propagates NaNs.
+    
+    Args:
+        ax (np.ndarray): X-coordinates of the first set of points.
+        bx (np.ndarray): X-coordinates of the second set of points.
+        ay (np.ndarray): Y-coordinates of the first set of points.
+        by (np.ndarray): Y-coordinates of the second set of points.
+
+    Returns:
+        np.ndarray: Array of Euclidean distances between corresponding
+            points.
+    """
 
     return np.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
 
 
 class AgentVisualizer:
-    """Build outputs (GIF, CSV, trajectory plot) for a directory of agent frames."""
+    """
+    Build outputs (GIF, CSV, trajectory plot) for a directory of agent frames.
+    """
 
     IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".gif", ".webp"}
 
@@ -98,6 +135,24 @@ class AgentVisualizer:
         axis_limit: int = DEFAULT_AXIS_LIMIT,
         lock_white_to_mode: bool = False,
     ) -> None:
+        """
+        Initialize the AgentVisualizer with input configuration and output paths.
+
+        Args:
+            input_dir (Path): Directory containing input image frames. The path
+                is expanded and resolved to an absolute path.
+            fps (float, optional): Frames per second for GIF generation.
+                Defaults to DEFAULT_FPS.
+            red_thresholds (Sequence[int], optional): Thresholds for detecting
+                red regions in the format (r_min, g_max, b_max). These define
+                the minimum red channel value and maximum green/blue channel
+                values. Defaults to DEFAULT_RED_THRESHOLDS.
+            axis_limit (int, optional): Symmetric limit for x/y axes in trajectory
+                plots. Defaults to DEFAULT_AXIS_LIMIT.
+            lock_white_to_mode (bool, optional): If True, constrains detected
+                white points to a dominant mode across frames to improve
+                temporal consistency. Defaults to False.
+        """
         self.input_dir = Path(input_dir).expanduser().resolve()
         self.fps = fps
         self.r_min, self.g_max, self.b_max = red_thresholds
@@ -111,12 +166,31 @@ class AgentVisualizer:
         self.output_gif = self.output_dir / f"{self.base_name}.gif"
 
     def collect_image_paths(self) -> List[Path]:
+        """
+        Collect and naturally sort valid image file paths from the input directory.
+
+        Returns:
+            List[Path]: A list of Path objects corresponding to valid image files,
+                sorted in natural (human-readable) order.
+        """
         return sorted(
             (p for p in self.input_dir.iterdir() if p.is_file() and p.suffix.lower() in self.IMAGE_EXTS),
             key=natural_sort_key,
         )
 
     def find_red_centroid(self, arr: np.ndarray) -> Optional[Tuple[int, int]]:
+        """
+        Compute the centroid of red-colored pixels in an image.
+
+        Args:
+            arr (np.ndarray): Input image as a NumPy array in RGB format
+                with shape (H, W, 3).
+
+        Returns:
+            Optional[Tuple[int, int]]: (x, y) coordinates of the centroid
+                rounded to the nearest integer, or None if no red pixels
+                are detected.
+        """
         red_mask = (arr[:, :, 0] >= self.r_min) & (arr[:, :, 1] <= self.g_max) & (arr[:, :, 2] <= self.b_max)
         coords = np.argwhere(red_mask)
         if coords.size == 0:
@@ -127,6 +201,19 @@ class AgentVisualizer:
     def _compute_white_mode(
         self, rows: Sequence[Dict[str, object]]
     ) -> Optional[Tuple[Tuple[int, int], int]]:
+        """
+        Determine the most frequent (mode) white point position from row data.
+
+        Args:
+            rows (Sequence[Dict[str, object]]): Iterable of row dictionaries,
+                each potentially containing "white_x" and "white_y" entries.
+
+        Returns:
+            Optional[Tuple[Tuple[int, int], int]]: A tuple containing:
+                - (x, y): The most common integer-rounded white point position
+                - count (int): Number of occurrences of that position
+                Returns None if no valid white points are found.
+        """
         counter: Counter[Tuple[int, int]] = Counter()
         for row in rows:
             wx = row.get("white_x")
@@ -144,6 +231,14 @@ class AgentVisualizer:
         return position, count
 
     def _apply_white_mode(self, rows: Sequence[Dict[str, object]], position: Tuple[int, int]) -> None:
+        """
+        Overwrite all white point coordinates in the dataset with a fixed mode position.
+        
+        Args:
+            rows (Sequence[Dict[str, object]]): Iterable of row dictionaries to update.
+            position (Tuple[int, int]): The (x, y) coordinates to assign as the
+                white point for all rows.
+        """
         mode_x, mode_y = position
         for row in rows:
             row["white_x"] = mode_x
@@ -152,6 +247,17 @@ class AgentVisualizer:
     @staticmethod
     def _sanitize_row(row: Dict[str, object], fieldnames: Sequence[str]) -> Dict[str, object]:
         sanitized: Dict[str, object] = {}
+        """
+        Normalize a row dictionary to ensure compatibility with CSV writing.
+        
+        Args:
+            row (Dict[str, object]): Input row dictionary containing data fields.
+            fieldnames (Sequence[str]): Ordered list of expected field names.
+
+        Returns:
+            Dict[str, object]: A sanitized dictionary with all required keys and
+                no None or NaN values.
+        """
         for key in fieldnames:
             value = row.get(key)
             if value is None:
@@ -163,6 +269,14 @@ class AgentVisualizer:
         return sanitized
 
     def save_csv(self, rows: Sequence[Dict[str, object]], fieldnames: Sequence[str]) -> None:
+        """
+        Write processed row data to a CSV file after sanitization.
+
+        Args:
+            rows (Sequence[Dict[str, object]]): Iterable of row dictionaries
+                containing data to be written.
+            fieldnames (Sequence[str]): Ordered list of column names for the CSV.
+        """
         sanitized_rows = [self._sanitize_row(row, fieldnames) for row in rows]
         with open(self.output_csv, "w", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -175,6 +289,16 @@ class AgentVisualizer:
         trajectory: Sequence[Tuple[int, int]],
         frame_rows: Sequence[Dict[str, object]],
     ) -> None:
+        """
+        Generate and save a multi-panel visualization of agent trajectory and motion statistics.
+        
+        Args:
+            trajectory (Sequence[Tuple[int, int]]): Sequence of (x, y) coordinates
+                representing the detected red dot trajectory across frames.
+            frame_rows (Sequence[Dict[str, object]]): Per-frame data containing
+                keys such as "red_x", "red_y", "white_x", and "white_y" used
+                for error computation and time-series analysis.
+        """
         if not trajectory:
             print("No red dot detections found; red-specific plots will show 'Not enough data'.")
 
@@ -329,6 +453,13 @@ class AgentVisualizer:
         print(f"Saved trajectory plot to: {self.output_plot}")
 
     def save_gif(self, frames: Sequence[Image.Image]) -> None:
+        """
+        Create and save an animated GIF from a sequence of image frames.
+
+        Args:
+            frames (Sequence[Image.Image]): Ordered sequence of PIL Image
+                objects to include in the GIF.
+        """
         if not frames:
             print("No frames available for GIF; skipping GIF creation.", file=sys.stderr)
             return
@@ -354,6 +485,13 @@ class AgentVisualizer:
         )
 
     def run(self) -> None:
+        """
+        Execute the full agent visualization pipeline.
+
+        Raises:
+            FileNotFoundError: If the input directory does not exist or contains no supported images.
+            RuntimeError: If no valid image data could be processed.
+        """
         if not self.input_dir.is_dir():
             raise FileNotFoundError(f"Input directory not found: {self.input_dir}")
 
@@ -430,6 +568,22 @@ class AgentVisualizer:
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    """
+    Parse command-line arguments for running the agent visualizer.
+
+    Args:
+        argv (Optional[Sequence[str]]): List of arguments to parse.
+            If None, parses arguments from sys.argv.
+
+    Returns:
+        argparse.Namespace: Parsed arguments including:
+            - input_dir: Directory containing frame images.
+            - fps: Frames per second for GIF output.
+            - r_min: Minimum red channel threshold for red centroid detection.
+            - g_max: Maximum green channel threshold for red centroid detection.
+            - b_max: Maximum blue channel threshold for red centroid detection.
+            - axis_limit: Maximum value for X and Y axes in the trajectory plot.
+    """
     parser = argparse.ArgumentParser(description="Generate GIF, CSV, and trajectory plot for agent frames.")
     parser.add_argument(
         "input_dir",
@@ -458,6 +612,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
+    """
+    Entry point for the agent frame visualizer script.
+
+    Args:
+        argv (Optional[Sequence[str]]): Optional list of command-line arguments to parse.
+            If None, defaults to sys.argv.
+    """
     args = parse_args(argv)
     input_dir = args.input_dir or DEFAULT_INPUT_DIR
     if input_dir is None:

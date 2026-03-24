@@ -20,7 +20,24 @@ from .camera import Camera
 
 
 class PipetteCamera(Camera):
+    """
+    Camera class for a USB pipette camera using OpenCV.
+
+    This class provides continuous acquisition, frame normalization, and
+    exposure control for USB cameras compatible with OpenCV's VideoCapture.
+    """
     def __init__(self, device_index=0, width=480, height=480):
+        """
+        Initialize a USB pipette camera using OpenCV.
+
+        Args:
+            device_index (int): Index of the camera device (default 0).
+            width (int): Desired frame width in pixels (default 480).
+            height (int): Desired frame height in pixels (default 480).
+
+        Raises:
+            RuntimeError: If the camera cannot be opened.
+        """
         super().__init__()
         self.device_index = device_index
         self.cap = cv2.VideoCapture(self.device_index, cv2.CAP_DSHOW)
@@ -57,12 +74,30 @@ class PipetteCamera(Camera):
         self.start_acquisition()
 
     def set_exposure(self, value: float) -> None:
+        """
+        Set the camera's exposure time.
+
+        Args:
+            value (float): Exposure time in camera units (OpenCV-specific).
+
+        Raises:
+            RuntimeError: If the camera has not been initialized.
+        """
         if self.cap is None:
             raise RuntimeError("Camera has not been initialized.")
         self.cap.set(cv2.CAP_PROP_EXPOSURE, float(value))
         self.currExposure = float(value)
 
     def get_exposure(self) -> float:
+        """
+        Get the current exposure time of the camera.
+
+        Returns:
+            float: Current exposure time.
+
+        Raises:
+            RuntimeError: If the camera has not been initialized.
+        """
         if self.cap is None:
             raise RuntimeError("Camera has not been initialized.")
         exposure = float(self.cap.get(cv2.CAP_PROP_EXPOSURE))
@@ -70,12 +105,21 @@ class PipetteCamera(Camera):
         return exposure
 
     def close(self) -> None:
+        """
+        Release the camera resources and stop acquisition.
+        """
         if self.cap:
             self.cap.release()
             self.cap = None
         super().close()
 
     def reset(self) -> None:
+        """
+        Reset the camera by releasing and reopening it with the same settings.
+
+        Raises:
+            RuntimeError: If the camera cannot be reopened.
+        """
         if self.cap:
             self.cap.release()
         self.cap = cv2.VideoCapture(self.device_index, cv2.CAP_DSHOW)
@@ -101,6 +145,16 @@ class PipetteCamera(Camera):
             self.lowerBound = 0
 
     def normalize(self, img=None) -> None:
+        """
+        Normalize the camera image by setting lower and upper bounds.
+
+        Args:
+            img (np.ndarray, optional): Image to normalize. If None, the latest 16-bit frame is used.
+
+        Notes:
+            Updates `self.lowerBound` and `self.upperBound`.
+            Skips normalization if `img` is None and no previous frame is available.
+        """
         if img is None:
             img = self.get_16bit_image()
         if img is None:
@@ -111,15 +165,39 @@ class PipetteCamera(Camera):
         self.upperBound = int(img.max())
 
     def autonormalize(self, flag=None):
+        """
+        Enable or toggle automatic normalization.
+
+        Args:
+            flag (bool, optional): True to enable, False to disable. If None, toggles the current state.
+
+        Returns:
+            bool: The new state of `auto_normalize`.
+        """
         if flag is None:
             flag = not self.auto_normalize
         self.auto_normalize = bool(flag)
         return self.auto_normalize
 
     def get_frame_no(self) -> int:
+        """
+        Get the current frame number.
+
+        Returns:
+            int: Frame counter since camera acquisition started.
+        """
         return self.frameno
 
     def get_16bit_image(self):
+        """
+        Retrieve the latest 16-bit image from the camera.
+
+        Returns:
+            np.ndarray: Latest image as 16-bit array.
+
+        Raises:
+            RuntimeError: If the camera is not initialized or frame capture fails.
+        """
         if self.cap is None:
             raise RuntimeError("Camera has not been initialized.")
         ret, frame = self.cap.read()
@@ -142,6 +220,15 @@ class PipetteCamera(Camera):
         return frame_16
 
     def raw_snap(self):
+        """
+        Retrieve the current image as 8-bit color with normalization.
+
+        Returns:
+            np.ndarray: Normalized 8-bit image.
+
+        Notes:
+            Applies `auto_normalize` if enabled.
+        """
         img = self.get_16bit_image()
         if img is None:
             return None
@@ -154,6 +241,12 @@ class PipetteCamera(Camera):
         return normalized.astype(np.uint8)
 
     def get_frame_rate(self):
+        """
+        Get the current frame rate of the camera.
+
+        Returns:
+            float: Frames per second (FPS). Returns 0 if the camera is not initialized.
+        """
         if self.fps:
             return self.fps
         if self.cap is None:

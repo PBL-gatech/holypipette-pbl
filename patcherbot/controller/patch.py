@@ -26,15 +26,51 @@ from threading import Lock
 
 
 class AutopatchError(Exception):
+    """
+    Exception raised for errors during the automatic patching process.
+    """
     def __init__(self, message = 'Automatic patching error'):
+        """
+        Initialize the AutopatchError.
+
+        Args:
+            message (str, optional): Error message describing the failure.
+        """
         self.message = message
 
     def __str__(self):
+        """
+        Return the string representation of the error.
+
+        Returns:
+            str: The error message.
+        """
         return self.message
 
 
 class AutoPatcher(TaskController):
+    """
+    Controller class for managing the automated patch-clamp process.
+
+    Coordinates hardware components such as amplifier, DAQ, pressure controller,
+    manipulators, and imaging devices to execute patching protocols.
+    """
     def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, calibrated_unit: CalibratedUnit, microscope: Microscope, calibrated_stage: CalibratedStage, lamp: Lamp, laser: Laser, config: PatchConfig, protocol_config: ProtocolConfig):
+        """
+        Initialize the AutoPatcher with hardware interfaces and configuration.
+
+        Args:
+            amplifier (Amplifier): Amplifier interface.
+            daq (DAQ): Data acquisition system.
+            pressure (PressureController): Pressure control system.
+            calibrated_unit (CalibratedUnit): Pipette manipulator unit.
+            microscope (Microscope): Microscope interface.
+            calibrated_stage (CalibratedStage): Stage positioning system.
+            lamp (Lamp): Illumination source.
+            laser (Laser): Laser control system.
+            config (PatchConfig): General patching configuration.
+            protocol_config (ProtocolConfig): Protocol-specific configuration.
+        """
         super().__init__()
         self.config = config
         self.protocol_config = protocol_config
@@ -70,9 +106,24 @@ class AutoPatcher(TaskController):
         self.done = False
 
     def _microscope_z_um(self) -> float:
+        """
+        Get the current microscope Z position.
+
+        Returns:
+            float: Microscope Z position in micrometers.
+        """
         return float(self.microscope.position())
 
     def _get_state_recorder(self) -> StateMachineLogger:
+        """
+        Retrieve or initialize the state machine logger for the current attempt.
+
+        If no recorder exists, a new one is created and the attempt counter
+        is incremented.
+
+        Returns:
+            StateMachineLogger: Recorder instance for logging state transitions.
+        """
         if self._state_recorder is None:
             self.attempt_counter += 1
             self._state_recorder = StateMachineLogger(
@@ -82,7 +133,12 @@ class AutoPatcher(TaskController):
         return self._state_recorder
 
     def getHolding(self):
-        """Get the holding current as measured by the DAQ."""
+        """
+        Get the holding current as measured by the DAQ.
+        
+        Returns:
+            float: Holding current in picoamperes (pA).
+        """
         if  self.protocol_config.custom_cclamp_protocol:
             holding_current = self.protocol_config.cclamp_hold
             return holding_current
@@ -127,6 +183,10 @@ class AutoPatcher(TaskController):
 
     @record_state("find_pipette")
     def find_pipette(self):
+        """
+        Locate and center the pipette tip in the camera field of view using either
+        a direct control strategy or an agent-based policy.
+        """
         self.info("Finding pipette")
         self.agenthelper.prepare_model("find_pipette")
         sleep_time = 0.005 # seconds
@@ -365,6 +425,10 @@ class AutoPatcher(TaskController):
 
     @record_state("run_protocols")
     def run_protocols(self):
+        """
+        Execute a sequence of electrophysiological protocols based on the
+        current protocol configuration.
+        """
         self.daq.setCellMode(True)
         holding = self.getHolding()
         if self.protocol_config.voltage_protocol:
@@ -390,6 +454,10 @@ class AutoPatcher(TaskController):
 
 
     def run_voltage_protocol(self):
+        """
+        Execute a voltage clamp membrane test protocol, including automatic
+        capacitance compensation and data acquisition.
+        """
         self.info('Running voltage protocol (membrane test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
@@ -424,6 +492,7 @@ class AutoPatcher(TaskController):
             self.info('finished running voltage membrane test')
 
     def run_voltage_sweep_protocol(self):
+        """Execute a voltage clamp sweep protocol with optional P/4 leak subtraction."""
         self.info('Running voltage sweep protocol')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
@@ -457,6 +526,10 @@ class AutoPatcher(TaskController):
         self.info('finished running voltage sweep protocol')
 
     def run_current_protocol(self):
+        """
+        Execute a current clamp protocol, including capacitance compensation,
+        optional neutralization, and bridge balance.
+        """
         self.info('Running current protocol (current clamp)')
         self.amplifier.voltage_clamp()
         self.sleep(0.1)
@@ -530,6 +603,7 @@ class AutoPatcher(TaskController):
         self.info('finished running current protocol(current clamp)')
 
     def run_holding_protocol(self):
+        """Execute a holding (E/I PSC) protocol in voltage clamp mode."""
         self.info('Running holding protocol (E/I PSC test)')
         self.amplifier.voltage_clamp()
         self.sleep(0.25)
@@ -547,6 +621,30 @@ class AutoPatcher(TaskController):
     def run_optogenetic_protocol(self, protocol_params: dict | None = None):
         """
         Run optogenetic protocols based on configuration or explicit parameters.
+
+        Args:
+            protocol_params (dict | None):
+                Optional dictionary specifying protocol parameters such as:
+                wavelengths, powers, timing, randomization, and rate. If None,
+                defaults to configuration-based execution.
+
+        Returns:
+            list | Any:
+                A single result if one protocol is executed, otherwise a list
+                of results from multiple protocol runs.
+
+        Raises:
+            RuntimeError:
+                If the laser device is not available.
+            RequestedAbortException:
+                If an abort is requested during execution.
+            RequestedSuccessException:
+                If a success request is triggered during execution.
+            Exception:
+                Propagates unexpected errors from:
+                - laser protocol construction (`build_optogenetic_protocol`)
+                - DAQ execution (`getDataFromOptogeneticProtocol`)
+                - configuration parsing or timing operations
         """
         if self.laser is None:
             raise RuntimeError("Laser device not available")
@@ -649,6 +747,10 @@ class AutoPatcher(TaskController):
         return results
     
     def isrigready(self):
+        """
+        Validate that all required hardware components and calibration states
+        are properly initialized before running an automated patching sequence.
+        """
         try:
             if not self.calibrated_unit.calibrated:
                 # # testing scenario
@@ -673,6 +775,18 @@ class AutoPatcher(TaskController):
     def move_stage_to_cell(self, cell):
         '''
         Moves the stage to the XY position of the target cell.
+
+        Args:
+            cell (array-like | tuple | list):
+                Cell representation containing at least XY coordinates. Can be:
+                - a numeric array of shape (3,)
+                - a tuple/list where the first element contains coordinates
+        
+        Raises:
+            AutopatchError:
+                If no cell is provided or stage is not calibrated.
+            AutopatchError:
+                If the cell does not contain valid XY coordinates.
         '''
         if cell is None:
             raise AutopatchError("No cell given to move stage to")
@@ -698,6 +812,13 @@ class AutoPatcher(TaskController):
     def locate_cell(self, cell):
         '''
         Performs regional pipette localization to bring pipette above the cell.
+        
+        Args:
+            cell (tuple):
+                Tuple containing:
+                - cell_pos (array-like): 3D coordinates of the cell
+                - cell_img: associated image data
+                - pos: additional metadata
         '''
          # regional pipette localization: 
         # move stage and pipette to safe space
@@ -776,6 +897,14 @@ class AutoPatcher(TaskController):
     def align(self, cell, cell_distance, use_centroid):
         '''
         Aligns the pipette to the cell using microscope imaging
+        
+        Args:
+            cell (tuple):
+                Cell data containing position and associated metadata.
+            cell_distance (float):
+                Desired vertical offset from the cell.
+            use_centroid (bool):
+                Whether to use centroid-based alignment for cell positioning.
         '''
         self.info("Aligning pipette to cell using imaging")
         cell_pos, _, _ = cell
@@ -803,6 +932,14 @@ class AutoPatcher(TaskController):
     def hunt_cell(self,cell = None):
         '''
         Moves the pipette down to cell plane and detects a cell using resistance measurements
+        
+        Args:
+            cell (optional):
+                Cell data used for tracking or validation.
+
+        Raises:
+            AutopatchError:
+                If the rig is not ready or no cell is provided.
         '''
         self.info("Hunting for cell")
         
@@ -920,6 +1057,7 @@ class AutoPatcher(TaskController):
 
     @record_state("escape")
     def escape(self):
+            """   Safely terminate the patching process and reset hardware to a stable state."""
             self.amplifier.stop_patch()
             self.calibrated_unit.stop()
             self.microscope.stop()
@@ -949,6 +1087,22 @@ class AutoPatcher(TaskController):
         * If **every** reading in a window is invalid, run ``_adjustTrace``
           **once per window** and retry.
         * Retries *max_windows* times (default = 3).  After that, raises.
+
+        Args:
+            read_fn (callable):
+                Function that returns a measurement value.
+            num_measurements (int):
+                Number of samples per averaging window.
+            interval (float):
+                Time interval (seconds) between measurements.
+
+        Returns:
+            float:
+                Mean of valid readings.
+
+        Raises:
+            RuntimeError:
+                If all readings are invalid after maximum retries.
         """
         max_windows = 3
         for attempt in range(max_windows):
@@ -977,8 +1131,7 @@ class AutoPatcher(TaskController):
     
     def _adjustTrace(self):
         '''
-        run capacitance compensation if fitting is failing.
-
+        Run capacitance compensation if fitting is failing.
         '''
         self.daq.setCellMode(False)
         self.amplifier.auto_fast_compensation()
@@ -988,25 +1141,68 @@ class AutoPatcher(TaskController):
         self.daq.setCellMode(True)
         
     def accessRamp(self, num_measurements=5, interval=0.200):
+        """
+        Measure access resistance using averaged DAQ readings.
+
+        Args:
+            num_measurements (int):
+                Number of samples to average.
+            interval (float):
+                Time interval (seconds) between samples.
+
+        Returns:
+            float:
+                Averaged access resistance value.
+        """
         return self._safe_average(
             self.daq.accessResistance, num_measurements, interval
         )
 
     def resistanceRamp(self, num_measurements=5, interval=0.200):
+        """
+        Measure resistance using averaged DAQ readings.
+
+        Args:
+            num_measurements (int):
+                Number of samples to average.
+            interval (float):
+                Time interval (seconds) between samples.
+
+        Returns:
+            float:
+                Averaged resistance value.
+        """
         return self._safe_average(
             self.daq.resistance, num_measurements, interval
         )
 
     def capacitanceRamp(self, num_measurements=5, interval=0.200):
+        """
+        Measure capacitance using averaged DAQ readings.
+
+        Args:
+            num_measurements (int):
+                Number of samples to average.
+            interval (float):
+                Time interval (seconds) between samples.
+
+        Returns:
+            float:
+                Averaged capacitance value.
+        """
         return self._safe_average(
             self.daq.capacitance, num_measurements, interval
         )
 
     @record_state("gigaseal")
     def gigaseal(self):
-        """requires **three consecutive**
+        """
+        requires **three consecutive**
         averaged-resistance windows ≥ target to declare success, reducing
         false positives from transient spikes.
+
+        Raises:
+            AutopatchError: If seal formation fails or deadline is exceeded.
         """
         if self.config.mode == 'Classic':
             autoPressure = True
@@ -1143,6 +1339,10 @@ class AutoPatcher(TaskController):
         * Require three consecutive good readings to confirm success.
         * The moment a reading is above threshold, reset the streak and fall back
         to the full pressure/zap/ramp cycle.
+        
+        
+        Raises:
+            AutopatchError: If break-in fails after multiple attempts.
         """
         from collections import deque  # local import keeps patch minimal
 
@@ -1234,7 +1434,15 @@ class AutoPatcher(TaskController):
         self.success_if_requested()
 
     def _isCellDetected(self, lastResDeque, cellThreshold = 0.15):
-        '''Given a list of three resistance readings, do we think there is a cell where the pipette is?
+        '''
+        Given a list of three resistance readings, do we think there is a cell where the pipette is?
+        
+        Args:
+            lastResDeque (collections.deque): Recent resistance measurements.
+            cellThreshold (float): Minimum resistance increase to detect a cell.
+
+        Returns:
+            bool: True if a cell is detected, False otherwise.
         '''
         # print(lastResDeque)
 
@@ -1262,7 +1470,12 @@ class AutoPatcher(TaskController):
    
     @record_state("patch")
     def patch(self, cell=None):
-        """Runs the automatic patch-clamp algorithm, including manipulator movements."""
+        """
+        Runs the automatic patch-clamp algorithm, including manipulator movements.
+        
+        Args:
+            cell: Target cell data for patching.
+        """
         self._in_patch = True
         self._get_state_recorder()
 
@@ -1339,7 +1552,11 @@ class AutoPatcher(TaskController):
 
     @record_state("whole_cell")
     def whole_cell(self, cell=None):
-        """ method similar to patch, but starts from gigaseal stage
+        """ 
+        Method similar to patch, but starts from gigaseal stage.
+
+        Args:
+            cell: Cell object to patch. Required.
         """
         self._in_patch = True
         self._get_state_recorder()
@@ -1406,6 +1623,9 @@ class AutoPatcher(TaskController):
     def move_to_safe_space(self):
         '''
         Moves the pipette to the safe space.
+
+        Raises:
+            ValueError: If safe_position is not set.
         '''
         if self.safe_position is None:
             raise ValueError('Safe position has not been set')
@@ -1443,6 +1663,9 @@ class AutoPatcher(TaskController):
     def move_to_home_space(self):
         '''
         Moves the pipette and stage to the home space.
+
+        Raises:
+            ValueError: If home_position is not set.
         '''
         if self.home_position is None:
             raise ValueError('Home position has not been set')
@@ -1479,6 +1702,9 @@ class AutoPatcher(TaskController):
     def move_group_down(self,dist = 25):
         '''
         Moves the microsope and manipulator down by input distance in the z axis
+        
+        Args:
+            dist (float): Distance to move in micrometers. Defaults to 25 µm.
         '''
 
         self.info('MOVING GROUP DOWN')
@@ -1496,6 +1722,9 @@ class AutoPatcher(TaskController):
     def move_group_up(self,dist = 25):
         '''
         Moves the microscope and manipulator up by input distance in the z axis
+        
+        Args:
+            dist (float): Distance to move in micrometers. Defaults to 25 µm.
         '''
     
         try:
@@ -1509,6 +1738,9 @@ class AutoPatcher(TaskController):
     def move_group_in_x(self,dist = 25):
         '''
         Moves the pipette and stage in x axis by input distance
+
+        Args:
+            dist (float): Distance to move in micrometers. Defaults to 25 µm.
         '''
     
         try:
@@ -1521,6 +1753,9 @@ class AutoPatcher(TaskController):
     def move_group_in_y(self,dist = 500):
         '''
         Moves the pipette and stage in y axis by input distance
+        
+        Args:
+            dist (float): Distance to move in micrometers. Defaults to 500 µm.
         '''
     
         try:
@@ -1535,6 +1770,9 @@ class AutoPatcher(TaskController):
     def move_pipette_up(self, dist = 5000):
         '''
         Moves the pipette up by input distance in the z axis
+        
+        Args:
+            dist (float): Distance to move in micrometers. Defaults to 5000 µm.
         '''
         try:
             self.calibrated_unit.relative_move(-dist, axis=2)
@@ -1543,6 +1781,12 @@ class AutoPatcher(TaskController):
             pass
 
     def clean_pipette(self):
+        """
+        Cleans the pipette using the Alconox bath and pressure pulses.
+
+        Raises:
+            ValueError: If cleaning_bath_position or safe_position is not set.
+        """
         if self.cleaning_bath_position is None:
             raise ValueError('Cleaning bath position has not been set')
 
@@ -1641,6 +1885,11 @@ class AutoPatcher(TaskController):
         The file must be semicolon‑delimited with a header row::
 
             timestamp;st_x;st_y;st_z;pi_x;pi_y;pi_z
+
+        Args:
+            path (str): Path to semicolon-delimited CSV with columns:
+                        'timestamp;st_x;st_y;st_z;pi_x;pi_y;pi_z'.
+            target_frequency (int): Frequency in Hz to update positions. Defaults to 12 Hz.
         """
         # --- Step 1 — Rapid parse with csv.DictReader -------------------------
         data = {h: [] for h in (
@@ -1671,7 +1920,16 @@ class AutoPatcher(TaskController):
         self.movement_thread.start()
 
     def _downsample_data(self, data: dict, target_frequency: int = 12) -> dict:
-        """Return a *new* dict containing rows sampled at ``target_frequency`` Hz."""
+        """
+        Return a *new* dict containing rows sampled at ``target_frequency`` Hz.
+        
+        Args:
+            data (dict): Dictionary with keys 'timestamp', 'st_x', 'st_y', 'st_z', 'pi_x', 'pi_y', 'pi_z'.
+            target_frequency (int): Desired sampling frequency in Hz. Defaults to 12 Hz.
+
+        Returns:
+            dict: New dictionary containing downsampled data.
+        """
         timestamps = data['timestamp']
         t0 = timestamps[0]
         # Normalise to start at 0 seconds
@@ -1700,7 +1958,12 @@ class AutoPatcher(TaskController):
         return filtered
 
     def _movement_loop(self, data: dict):
-        """Executes calibrated moves at each timestamp in *data*."""
+        """
+        Executes calibrated moves at each timestamp in *data*.
+        
+        Args:
+            data (dict): Downsampled dictionary of positions and timestamps.
+        """
         start = time.perf_counter()
         count = len(data['timestamp'])
 
@@ -1732,6 +1995,9 @@ class AutoPatcher(TaskController):
             self.movement_thread.join()
 
     def toggle_shutter(self):
+        """
+        Toggles the lamp shutter open or closed.
+        """
         # Toggle the Lamp shutter on or off.
         try:
             current_state = self.lamp.get_shutter_state()
@@ -1772,6 +2038,9 @@ class AutoPatcher(TaskController):
         self.sleep(0.1)
 
     def move_cube_left(self):
+        """
+        Moves the filter cube one slot to the left.
+        """
         current = self.lamp.get_filter()
 
         if current is None:
@@ -1780,7 +2049,9 @@ class AutoPatcher(TaskController):
         self.lamp.set_filter(new_slot)
 
     def move_cube_right(self):
-
+        """
+        Moves the filter cube one slot to the left.
+        """
         current = self.lamp.get_filter()
         if current is None:
             current = 1
@@ -1788,7 +2059,9 @@ class AutoPatcher(TaskController):
         self.lamp.set_filter(new_slot)
 
     def toggle_laser_output(self):
-        """Toggle laser output using the device's excite logic."""
+        """
+        Toggle laser output using the device's excite logic.
+        """
         if self.laser is None:
             self.warning("No laser configured; skipping output toggle.")
             return
@@ -1799,7 +2072,9 @@ class AutoPatcher(TaskController):
             self.error(f"Error toggling laser output: {exc}")
 
     def _step_laser_wavelength(self, step: int):
-        """Step to the next/previous wavelength channel."""
+        """
+        Step to the next/previous wavelength channel.
+        """
         if self.laser is None:
             self.warning("No laser configured; skipping wavelength change.")
             return
@@ -1836,7 +2111,12 @@ class AutoPatcher(TaskController):
         self._step_laser_wavelength(1)
 
     def observe(self):
-        """ collects all inputs required for the models"""
+        """
+        Collects all inputs required for the models.
+        
+        Returns:
+            list: [detected pipette position, stage position, last camera image, resistance reading].
+        """
 
 
         _, _, _, img = self.calibrated_stage.camera._last_frame_queue[0]

@@ -10,9 +10,20 @@ from typing import Optional, Tuple, Union, Dict, Any, List
 
 
 class ModelImporter:
+    """
+    Load and manage a single ONNX model with input/output normalization and metadata.
+    """
     def __init__(self, onnx_model_path: str, input_normalization_npz_path: str,
                  output_normalization_npz_path: str, model_desc_json_path: str) -> None:
-        """Store file system handles for a single exported policy."""
+        """
+        Store file system handles for a single exported policy.
+        
+        args:
+            onnx_model_path (str): Path to the ONNX model file or folder.
+            input_normalization_npz_path (str): Path to input normalization NPZ.
+            output_normalization_npz_path (str): Path to output normalization NPZ.
+            model_desc_json_path (str): Path to model metadata JSON.
+        """
         self.onnx_path = Path(onnx_model_path)
         print(onnx_model_path)
         self.obs_npz_path = Path(input_normalization_npz_path) if input_normalization_npz_path else None
@@ -27,7 +38,19 @@ class ModelImporter:
         self.input_shapes = {}
 
     def _find_first(self, base: Path, suffix: str) -> Path:
-        """Locate the first file with the requested suffix under the provided path."""
+        """
+        Locate the first file with the requested suffix under the provided path.
+        
+        args:
+            base (Path): File or directory to search.
+            suffix (str): File extension to search for.
+
+        returns:
+            Path: Path to the first matching file.
+
+        raises:
+            FileNotFoundError: If no file with the suffix is found.
+        """
         path = Path(base)
         if path.is_file():
             return path
@@ -37,7 +60,12 @@ class ModelImporter:
         return candidates[0]
 
     def load(self):
-        """Instantiate the ONNX runtime session and collect metadata."""
+        """
+        Instantiate the ONNX runtime session and collect metadata.
+        
+        returns:
+            ModelImporter: Returns self for chaining.
+        """
         import json
 
         def _load_obs_stats(npz_path: Path) -> dict:
@@ -87,8 +115,17 @@ class ModelImporter:
 
 
 class ModelInferencer:
+    """
+    Wrap a loaded ONNX policy with preprocessing, postprocessing, and inference utilities.
+    """
     def __init__(self, model_importer: ModelImporter) -> None:
-        """Bind a loaded policy to simple preprocessing and postprocessing utilities."""
+        """
+        Bind a loaded policy to simple preprocessing and postprocessing utilities.
+        
+        args:
+            model_importer (ModelImporter): Loaded ONNX model wrapper providing 
+                input/output metadata, normalization stats, and session handle.
+        """
         self.crop_size = 1 # set to 1 for version 0.200 and beyond
         self.image_resize = (85, 85)
         self.action_unnorm_object = None
@@ -158,7 +195,16 @@ class ModelInferencer:
         image: np.ndarray,
         frame_params: Optional[Dict[str, float]] = None,
     ) -> np.ndarray:
-        """Center-crop and resize an RGB frame from the microscope."""
+        """
+        Center-crop and resize an RGB frame from the microscope.
+        
+        args:
+            image (np.ndarray): RGB frame.
+            frame_params (dict | None): Optional crop/resize parameters.
+
+        returns:
+            np.ndarray: Cropped and resized image.
+        """
         frame = np.asarray(image, dtype=np.uint8)
         h, w = frame.shape[:2]
         params = frame_params or self._compute_frame_params((h, w))
@@ -175,7 +221,15 @@ class ModelInferencer:
         )
 
     def _ensure_rgb_channels(self, frame: np.ndarray) -> np.ndarray:
-        """Ensure inference sees RGB frames even when the camera is mono."""
+        """
+        Ensure inference sees RGB frames even when the camera is mono.
+        
+        args:
+            frame (np.ndarray): Input image.
+
+        returns:
+            np.ndarray: Image with 3 channels.
+        """
         if frame.ndim == 2:
             return np.repeat(frame[..., None], 3, axis=-1)
         if frame.ndim == 3:
@@ -189,7 +243,22 @@ class ModelInferencer:
         return frame
 
     def _compute_frame_params(self, frame_shape: Tuple[int, int]) -> Optional[Dict[str, float]]:
-        """Return crop offsets and scale factors that mirror DatasetBuilder2."""
+        """
+        Return crop offsets and scale factors that mirror DatasetBuilder2.
+        
+        args:
+            frame_shape (tuple[int, int]): Height and width of the input frame.
+
+        returns:
+            dict[str, float] | None: Dictionary with the following keys if valid frame:
+                - crop_h (float): Height of the crop region.
+                - crop_w (float): Width of the crop region.
+                - offset_x (float): Horizontal offset of the crop from the original frame.
+                - offset_y (float): Vertical offset of the crop from the original frame.
+                - scale_x (float): Horizontal scaling factor to reach target resize.
+                - scale_y (float): Vertical scaling factor to reach target resize.
+            None: If the input frame is invalid or has non-positive dimensions.
+        """
         if not frame_shape or len(frame_shape) < 2:
             return None
         h, w = int(frame_shape[0]), int(frame_shape[1])
@@ -222,7 +291,16 @@ class ModelInferencer:
         pipette_positions: Optional[np.ndarray],
         frame_params: Optional[Dict[str, float]],
     ) -> Optional[np.ndarray]:
-        """Apply crop/resize scaling to planar pipette coordinates."""
+        """
+        Apply crop/resize scaling to planar pipette coordinates.
+        
+        args:
+            pipette_positions (np.ndarray | None): Pipette coordinates.
+            frame_params (dict | None): Crop/resize parameters.
+
+        returns:
+            np.ndarray | None: Scaled pipette coordinates.
+        """
         if pipette_positions is None:
             return None
         scaled = np.asarray(pipette_positions, dtype=np.float32).copy()
@@ -244,7 +322,16 @@ class ModelInferencer:
         pipette_components: np.ndarray,
         frame_params: Optional[Dict[str, float]],
     ) -> np.ndarray:
-        """Undo crop/resize scaling on planar pipette coordinates."""
+        """
+        Undo crop/resize scaling on planar pipette coordinates.
+        
+        args:
+            pipette_components (np.ndarray): Model-space pipette coordinates.
+            frame_params (dict | None): Crop/resize parameters.
+
+        returns:
+            np.ndarray: Restored image-space coordinates.
+        """
         restored = np.asarray(pipette_components, dtype=np.float32).copy()
         if frame_params is None or restored.size == 0:
             return restored
@@ -262,6 +349,17 @@ class ModelInferencer:
         return restored
 
     def _get_obs_stats(self, key: str):
+        """
+        Retrieve observation normalization statistics (offset and scale) for a given key.
+
+        args:
+            key (str): Observation key to query.
+
+        returns:
+            tuple[np.ndarray | None, np.ndarray | None]: 
+                - offset: Offset array for normalization, cast to float32, or None if unavailable.
+                - scale: Scale array for normalization, cast to float32, or None if unavailable.
+        """
         stats = self.obs_norm_object.get(key) if self.obs_norm_object else None
         if not stats:
             return None, None
@@ -272,10 +370,37 @@ class ModelInferencer:
         return offset.astype(np.float32), scale.astype(np.float32)
 
     def _normalize_low_dim(self, key: str, value: np.ndarray) -> np.ndarray:
+        """
+        Convert a low-dimensional observation array to float32.
+
+        This does not apply any normalization; it only ensures the data type is correct
+        for model input.
+
+        args:
+            key (str): Observation key (unused in this method but retained for consistency).
+            value (np.ndarray): Raw observation value.
+
+        returns:
+            np.ndarray: Float32-cast observation.
+        """
         arr = np.asarray(value, dtype=np.float32)
         return arr
 
     def _prepare_camera_payload(self, frame: np.ndarray) -> np.ndarray:
+        """
+        Convert an RGB frame to the appropriate shape and type for model input.
+
+        Transposes the frame to CHW layout if needed, and ensures float32 data type.
+
+        args:
+            frame (np.ndarray): Raw camera frame.
+
+        returns:
+            np.ndarray: Processed frame suitable for ONNX model input.
+
+        raises:
+            ValueError: If the input frame has fewer than 3 dimensions.
+        """
         frame_f = np.asarray(frame, dtype=np.float32)
         if frame_f.ndim < 3:
             raise ValueError("camera image must be at least 3D")
@@ -284,7 +409,15 @@ class ModelInferencer:
         return frame_f.astype(np.float32, copy=False)
 
     def _apply_obs_normalization(self, observation: dict) -> dict:
-        """Cast per-key observations to float32 without applying normalization."""
+        """
+        Cast per-key observations to float32 without applying normalization.
+        
+        args:
+            observation (dict): Raw observation dictionary.
+
+        returns:
+            dict: Observation with float32 values.
+        """
         if not observation:
             return observation
         normalized = {}
@@ -293,12 +426,32 @@ class ModelInferencer:
         return normalized
 
     def action_unnorm(self, action: np.ndarray) -> np.ndarray:
-        """Return the model action as float32 without undoing normalization."""
+        """
+        Return the model action as float32 without undoing normalization.
+        
+        args:
+            action (np.ndarray): Raw model action.
+
+        returns:
+            np.ndarray: Action as float32.
+        """
         arr = np.asarray(action, dtype=np.float32)
         return arr.astype(np.float32)
 
     def process_obs(self, observation, is_demo: bool = False):
-        """Package a single observation for the model inputs."""
+        """
+        Package a single observation for the model inputs.
+        
+        args:
+            observation (tuple): (cvpi, stage, image, resistance)
+            is_demo (bool): Skip scaling for demo mode.
+
+        returns:
+            dict: Model-ready observation dictionary.
+
+        raises:
+            ValueError: If required keys like camera_image or pipette_positions are missing.
+        """
         cvpi, stage, image, resistance = observation
         obs_values: Dict[str, np.ndarray] = {}
 
@@ -422,7 +575,15 @@ class ModelInferencer:
         return payload
 
     def process_action(self, action: np.ndarray) -> np.ndarray:
-        """Denormalize and pad the model action."""
+        """
+        Denormalize and pad the model action.
+        
+        args:
+            action (np.ndarray): Raw model action.
+
+        returns:
+            np.ndarray: Processed action in image space.
+        """
         arr = self.action_unnorm(action).reshape(-1).astype(np.float32, copy=False)
         if self.action_dim and arr.shape[0] < self.action_dim:
             padding = self.action_dim - arr.shape[0]
@@ -445,15 +606,33 @@ class ModelInferencer:
         return arr.astype(np.float32)
 
     def set_goal(self, goal: float) -> None:
-        """Store the latest goal for goal-conditioned policies."""
+        """
+        Store the latest goal for goal-conditioned policies.
+        
+        args:
+            goal (float): Desired goal value.
+        """
         self.goal = goal if self.goal_required and goal is not None else None
 
     def get_goal(self):
-        """Return the currently stored goal."""
+        """
+        Return the currently stored goal.
+        
+        returns:
+            float | None: Current goal if applicable.
+        """
         return self.goal if self.goal_required else None
 
     def predict(self, payload: dict):
-        """Execute the ONNX session and refresh recurrent state."""
+        """
+        Execute the ONNX session and refresh recurrent state.
+        
+        args:
+            payload (dict): Model input dictionary.
+
+        returns:
+            tuple: (action array, list of new recurrent states)
+        """
         outputs = self.session.run(self.output_names, payload)
         action = outputs[0]
         new_states = outputs[1:]
@@ -464,7 +643,17 @@ class ModelInferencer:
         return action, new_states
 
     def inference(self, observation, goal=None, is_demo: bool = False):
-        """Run the full observation?action pipeline for one step."""
+        """
+        Run the full observation?action pipeline for one step.
+        
+        args:
+            observation (tuple): (cvpi, stage, image, resistance)
+            goal (float | None): Optional goal input.
+            is_demo (bool): Skip scaling if demo.
+
+        returns:
+            np.ndarray: Processed model action.
+        """
         inputs = self.process_obs(observation, is_demo=is_demo)
         self.set_goal(goal)
         action, _ = self.predict(inputs)
@@ -474,8 +663,20 @@ class ModelInferencer:
 
 
 class DemoReplayAgent:
+    """
+    Replay a cached sequence of actions without using live observations.
+    """
     def __init__(self, actions: Optional[np.ndarray] = None) -> None:
-        """Replay a cached sequence of actions without using live observations."""
+        """
+        Initialize a DemoReplayAgent that replays a pre-recorded sequence of actions.
+
+        args:
+            actions (np.ndarray | None): Optional array of actions (steps x action_dim) to preload.
+                                        If provided, will be immediately loaded for replay.
+
+        raises:
+            ValueError: If an empty action array is provided to load_actions.
+        """
         self._actions: Optional[np.ndarray] = None
         self._cursor: int = 0
         self._image_size: Optional[Tuple[int, int]] = None  # (height, width)
@@ -483,7 +684,15 @@ class DemoReplayAgent:
             self.load_actions(actions)
 
     def load_actions(self, actions: np.ndarray) -> None:
-        """Store the sequence of actions that will be returned on subsequent calls."""
+        """
+        Store the sequence of actions that will be returned on subsequent calls.
+        
+        args:
+            actions (np.ndarray): Array of actions (steps x action_dim).
+
+        raises:
+            ValueError: If the input array is empty.
+        """
         replay = np.asarray(actions, dtype=np.float32)
         if replay.ndim == 1:
             replay = replay.reshape(1, -1)
@@ -493,13 +702,29 @@ class DemoReplayAgent:
         self._cursor = 0
 
     def set_image_size(self, image_shape: Tuple[int, int]) -> None:
-        """Provide the target image height/width for scaling pixel-level actions."""
+        """
+        Provide the target image height/width for scaling pixel-level actions.
+        
+        args:
+            image_shape (tuple): (height, width) of the image.
+
+        raises:
+            ValueError: If image_shape is invalid.
+        """
         if image_shape is None or len(image_shape) != 2:
             raise ValueError("Image shape must be a (height, width) tuple")
         self._image_size = (int(image_shape[0]), int(image_shape[1]))
 
     def _scale_action(self, action: np.ndarray) -> np.ndarray:
-        """Scale normalized (85x85) pixel deltas up to the full image resolution."""
+        """
+        Scale normalized (85x85) pixel deltas up to the full image resolution.
+        
+        args:
+            action (np.ndarray): Action in normalized pixel coordinates.
+
+        returns:
+            np.ndarray: Scaled action.
+        """
         if self._image_size is None:
             return action.astype(np.float32, copy=False)
         height, width = self._image_size
@@ -514,7 +739,20 @@ class DemoReplayAgent:
         return scaled.astype(np.float32, copy=False)
 
     def inference(self, observation, goal=None, is_demo: bool = False):
-        """Return the next cached action, ignoring all inputs once initialized."""
+        """
+        Return the next cached action, ignoring all inputs once initialized.
+        
+        args:
+            observation: Ignored for replay agent.
+            goal: Ignored for replay agent.
+            is_demo: Ignored for replay agent.
+
+        returns:
+            np.ndarray: Scaled action.
+
+        raises:
+            RuntimeError: If actions are not loaded before inference.
+        """
         if self._actions is None:
             raise RuntimeError("DemoReplayAgent requires actions to be loaded before inference")
         index = min(self._cursor, self._actions.shape[0] - 1)
@@ -525,8 +763,17 @@ class DemoReplayAgent:
 
 
 class PipetteFinder(ModelInferencer):
+    """Policy class for detecting and localizing pipettes in the workspace."""
     def __init__(self, model_path: str = r"patcherbot\deepLearning\patchModel\Agents\PipetteFinder"):
-        """Initialize the pipette finder policy."""
+        """
+        Initialize the PipetteFinder policy.
+
+        Loads the ONNX model for detecting pipette positions and binds
+        preprocessing, postprocessing, and inference utilities.
+
+        args:
+            model_path (str): Path to the PipetteFinder model folder or file.
+        """
         base = Path(model_path)
         # print(model_path)
         importer = ModelImporter(base, base, base, base)
@@ -535,8 +782,17 @@ class PipetteFinder(ModelInferencer):
 
 
 class CellHunter(ModelInferencer):
+    """Policy class for detecting and localizing target cells."""
     def __init__(self, model_path: str = r"patcherbot\deepLearning\patchModel\Agents\CellHunter"):
-        """Initialize the cell hunting policy."""
+        """
+        Initialize the CellHunter policy.
+
+        Loads the ONNX model for cell detection and binds
+        preprocessing, postprocessing, and inference utilities.
+
+        args:
+            model_path (str): Path to the CellHunter model folder or file.
+        """
         base = Path(model_path)
         importer = ModelImporter(base, base, base, base)
         super().__init__(importer)
@@ -544,8 +800,17 @@ class CellHunter(ModelInferencer):
 
 
 class GigaSealer(ModelInferencer):
+    """Policy class for gigaseal acquisition in patch-clamp experiments."""
     def __init__(self, model_path: str = r"patcherbot\deepLearning\patchModel\Agents\GigaSealer"):
-        """Initialize the gigaseal acquisition policy."""
+        """
+        Initialize the GigaSealer policy.
+
+        Loads the ONNX model for gigaseal acquisition and binds
+        preprocessing, postprocessing, and inference utilities.
+
+        args:
+            model_path (str): Path to the GigaSealer model folder or file.
+        """
         base = Path(model_path)
         importer = ModelImporter(base, base, base, base)
         super().__init__(importer)
@@ -553,8 +818,17 @@ class GigaSealer(ModelInferencer):
 
 
 class Burglar(ModelInferencer):
+    """Policy class for break-in or manipulation tasks."""
     def __init__(self, model_path: str = r"patcherbot\deepLearning\patchModel\Agents\Burglar"):
-        """Initialize the break-in policy."""
+        """
+        Initialize the Burglar policy.
+
+        Loads the ONNX model for break-in or manipulation tasks and binds
+        preprocessing, postprocessing, and inference utilities.
+
+        args:
+            model_path (str): Path to the Burglar model folder or file.
+        """
         base = Path(model_path)
         importer = ModelImporter(base, base, base, base)
         super().__init__(importer)

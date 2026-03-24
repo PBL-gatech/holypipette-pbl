@@ -33,7 +33,19 @@ __all__ = ['Camera', 'FakeCamera', 'RecordedVideoCamera']
 
 
 class AcquisitionThread(threading.Thread):
+    """
+    Thread responsible for continuously acquiring frames from a camera and
+    distributing them to processing and storage queues.
+    """
     def __init__(self, camera, queues, raw_queues):
+        """
+        Initialize the acquisition thread.
+
+        args:
+            camera (Camera): Camera instance used for frame acquisition.
+            queues (list[collections.deque]): Queues for processed frames.
+            raw_queues (list[collections.deque]): Queues for raw frames.
+        """
         self.camera = camera
         self.queues = queues
         self.raw_queues = raw_queues
@@ -45,6 +57,12 @@ class AcquisitionThread(threading.Thread):
         threading.Thread.__init__(self, name='image_acquire_thread')
 
     def get_frame_rate(self):
+        """
+        Compute the instantaneous frame rate based on time between frames.
+
+        returns:
+            float: Estimated frames per second.
+        """
         # * A way to calculate FPS
         current_time = time.time()
         if self.last_frame_time is not None:
@@ -54,6 +72,10 @@ class AcquisitionThread(threading.Thread):
         return self.fps
 
     def run(self):
+        """
+        Main acquisition loop that continuously captures frames from the camera,
+        processes them, and distributes them to queues.
+        """
         self.running = True
 
         start_time = time.time()
@@ -107,6 +129,7 @@ class Camera(object):
     camera.
     """
     def __init__(self):
+        """Initialize the base Camera object and internal state."""
         super(Camera, self).__init__()
         self._file_queue = None
         self._last_frame_queue = collections.deque(maxlen=1)
@@ -135,32 +158,71 @@ class Camera(object):
         
 
     def show_circle(self, point, color=(255, 255, 255), radius=10, duration=1.5, show_center=False):
+        """
+        Display a circle overlay on the camera feed for a limited duration.
+
+        args:
+            point (tuple): (x, y) coordinates of the circle center.
+            color (tuple): RGB color of the circle.
+            radius (int): Radius of the circle.
+            duration (float): Time in seconds to display the circle.
+            show_center (bool): Whether to draw a center point.
+        """
         self.point_to_show = [point, radius, color, show_center]
         self.stop_show_time = time.time() + duration
 
     def start_acquisition(self):
+        """Start the background acquisition thread."""
         self._acquisition_thread = AcquisitionThread(camera=self,
                                                      queues=[self._last_frame_queue],
                                                      raw_queues=[self.raw_frame_queue])
         self._acquisition_thread.start()
 
     def stop_acquisition(self):
+        """Stop the background acquisition thread."""
         self._acquisition_thread.running = False
 
 
     def flip(self):
+        """Toggle horizontal flipping of frames."""
         self.flipped = not self.flipped
 
 
     def segment(self, img, cell, label):
+        """
+        Perform cell segmentation on an image.
+
+        args:
+            img (np.ndarray): Input image.
+            cell (np.ndarray): Coordinates of the target cell.
+            label (np.ndarray): Label for segmentation.
+
+        returns:
+            np.ndarray: Segmentation mask.
+        """
         segmentor = self._ensure_cellseg()
         mask = segmentor.segment(image = img, input_point = cell, input_label = label)
         return mask
 
     def _ai_features_enabled(self) -> bool:
+        """
+        Check whether AI-based features are enabled.
+
+        returns:
+            bool: True if AI features are enabled.
+        """
         return bool(getattr(self, "use_ai_features", True))
 
     def _ensure_cellseg(self):
+        """
+        Ensure that the cell segmentation model is initialized.
+
+        returns:
+            CellSegmentor2: Initialized segmentation model.
+
+        raises:
+            NotImplementedError: If AI features are unavailable.
+        """
         if not self._ai_features_enabled():
             raise NotImplementedError("AI features disabled; SAM2 segmentation unavailable.")
         if self._cellseg_error is not None:
@@ -174,6 +236,14 @@ class Camera(object):
         return self.Cellseg
     
     def mask_test(self, mask,cell,img):
+        """
+        Save mask and corresponding image for debugging.
+
+        args:
+            mask (np.ndarray): Segmentation mask.
+            cell (tuple): Cell coordinates.
+            img (np.ndarray): Original image.
+        """
         if mask is not None:
             # save the image to a directory once for each unique cell coordinates
             mask_dir = r'C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\devices\camera\FakeMicroscopeImgs\mask_images'
@@ -191,6 +261,15 @@ class Camera(object):
     # def inpaint(self, img, mask):
 
     def preprocess(self, input_img):
+        """
+        Apply preprocessing to an image, including overlays and transformations.
+
+        args:
+            input_img (np.ndarray): Input image.
+
+        returns:
+            np.ndarray: Processed image.
+        """
         img = input_img.copy()
 
         # Draw pipette location if needed.
@@ -243,39 +322,66 @@ class Camera(object):
         return img
 
     def new_frame(self):
-        '''
-        Returns True if a new frame is available
-        '''
+        """
+        Apply preprocessing to an image, including overlays and transformations.
+
+        args:
+            input_img (np.ndarray): Input image.
+
+        returns:
+            np.ndarray: Processed image.
+        """
         return True
 
     def snap(self):
-        '''
-        Returns a processed and a raw image
-        '''
+        """
+        Capture a frame and return both raw and processed versions.
+
+        returns:
+            tuple: (raw_image, processed_image)
+        """
         raw = self.raw_snap()
         return raw, self.preprocess(raw)
 
     def _update_frame_pair(self, processed_entry, raw_entry) -> None:
+        """
+        Update the latest processed and raw frame pair.
+
+        args:
+            processed_entry (tuple): Processed frame data.
+            raw_entry (tuple): Raw frame data.
+        """
         with self._frame_pair_lock:
             self._last_frame_pair = (processed_entry, raw_entry)
 
     def raw_snap(self):
+        """
+        Capture a raw image frame.
+
+        returns:
+            np.ndarray or None: Raw image.
+        """
         return None
 
     def get_16bit_image(self):
-        '''
-        Returns the current image as a 16-bit color image
-        '''
+        """
+        Retrieve the current image as a 16-bit image.
+
+        returns:
+            np.ndarray or None: 16-bit image.
+        """
         return None
 
     def last_frame(self) -> None | tuple[int, np.ndarray]:
-        '''
-        Get the last snapped frame and its number
+        """
+        Get the most recent processed frame.
 
-        Returns
-        -------
-        (frame_number, frame)
-        '''
+        args:
+            None
+
+        returns:
+            tuple or None: (frame_number, frame)
+        """
         try:
             # * the deque has a maxsize of 1, so we can do this
             # maybe we should use a list instead of a deque?
@@ -287,13 +393,12 @@ class Camera(object):
             return None
     
     def last_frame_data(self) -> None | tuple[int, datetime.datetime, np.ndarray]:
-        '''
-        Get the last snapped frame and its number
+        """
+        Get the most recent processed frame with metadata.
 
-        Returns
-        -------
-        (frame_number, date, frame)
-        '''
+        returns:
+            tuple or None: (frame_number, timestamp, frame)
+        """
         try:
             last_entry = self._last_frame_queue[0]
             return last_entry[0], last_entry[1], last_entry[-1]
@@ -301,13 +406,12 @@ class Camera(object):
             return None
 
     def last_raw_frame_data(self) -> None | tuple[int, datetime.datetime, np.ndarray]:
-        '''
-        Get the last raw frame and its number
+        """
+        Get the most recent raw frame with metadata.
 
-        Returns
-        -------
-        (frame_number, date, raw_frame)
-        '''
+        returns:
+            tuple or None: (frame_number, timestamp, raw_frame)
+        """
         with self._frame_pair_lock:
             if self._last_frame_pair is None:
                 return None
@@ -315,9 +419,12 @@ class Camera(object):
         return raw_entry[0], raw_entry[1], raw_entry[-1]
 
     def last_frame_pair(self) -> None | tuple[int, datetime.datetime, np.ndarray, np.ndarray]:
-        '''
-        Return the latest processed/raw frame pair
-        '''
+        """
+        Get the latest processed and raw frame pair.
+
+        returns:
+            tuple or None: (frame_number, timestamp, processed_frame, raw_frame)
+        """
         with self._frame_pair_lock:
             if self._last_frame_pair is None:
                 return None
@@ -329,29 +436,60 @@ class Camera(object):
         pass
 
     def set_exposure(self, value):
+        """
+        Set camera exposure time.
+
+        args:
+            value (float): Exposure value.
+        """
         print('Setting exposure time not supported for this camera')
 
     def get_exposure(self):
+        """
+        Get current exposure time.
+
+        returns:
+            float: Exposure value.
+        """
         print('Getting exposure time not supported for this camera')
         return -1
 
     def change_exposure(self, change):
+        """
+        Adjust exposure by a relative amount.
+
+        args:
+            change (float): Change in exposure.
+        """
         if self.get_exposure() > 0:
             self.set_exposure(self.get_exposure() + change)
 
     def normalize(self):
+        """Normalize camera output."""
         print('Normalizing not supported for this camera')
 
     def unnormalize(self):
+        """Disable normalization."""
         print('Unnormalizing not supported for this camera')
         
     def autonormalize(self, state):
+        """
+        Enable or disable automatic normalization.
+
+        args:
+            state (bool): Desired normalization state.
+
+        returns:
+            bool: Updated state.
+        """
         self.auto_normalize = state
         print('Autonormalizing not supported for this camera')
         return self.auto_normalize
 
     def auto_exposure(self):
         '''
+        Automatically adjust exposure to achieve target luminance.
+
         Auto exposure assumes frames are 8 bits.
         '''
         mean_luminance = 127
@@ -367,6 +505,7 @@ class Camera(object):
         self.set_exposure(exposure)
 
     def get_frame_rate(self) -> None:
+        """Estimate the current frame rate."""
         # return super().get_frame_rate()
         # * A way to calculate FPS
         current_time = time.time()
@@ -377,13 +516,33 @@ class Camera(object):
         logging.debug(f"FPS in Camera: {self.fps:.2f}")
 
     def reset(self):
+        """Reset the camera state."""
         pass
 
     def get_frame_no(self):
+        """
+        Get the current frame number.
+        
+        raises:
+            NotImplementedError: This method is not yet implemented.
+        """
         raise NotImplementedError('get_frame_no not implemented for this camera')
 
 class FakeCamera(Camera):
+    """
+    Simulated camera for testing without physical hardware. Generates synthetic
+    microscope-like images and optionally simulates manipulator and organism
+    movement.
+    """
     def __init__(self, manipulator=None, image_z=0, paramecium=False):
+        """
+        Initialize the FakeCamera with optional simulation components.
+
+        args:
+            manipulator (optional): Manipulator object providing stage position data.
+            image_z (float): Reference Z-plane offset for focus simulation.
+            paramecium (optional): Object simulating organism movement.
+        """
         super(FakeCamera, self).__init__()
         self.width = 1024
         self.height = 768
@@ -397,13 +556,36 @@ class FakeCamera(Camera):
         self.start_acquisition()
 
     def set_exposure(self, value):
+        """
+        Set the simulated exposure time.
+
+        args:
+            value (float): Exposure value (must be within valid range).
+        """
         if 0 < value <= 200:
             self.exposure_time = value
 
     def get_exposure(self):
+        """
+        Get the current simulated exposure time.
+
+        returns:
+            float: Current exposure value.
+        """
         return self.exposure_time
 
     def get_microscope_image(self, x, y, z):
+        """
+        Generate a shifted view of the synthetic microscope image based on position.
+
+        args:
+            x (float): X-position offset.
+            y (float): Y-position offset.
+            z (float): Z-position (unused in slicing but part of interface).
+
+        returns:
+            np.ndarray: Cropped and shifted image.
+        """
         frame = np.roll(self.frame, int(y), axis=0)
         frame = np.roll(frame, int(x), axis=1)
         frame = frame[self.height // 2:self.height // 2 + self.height,
@@ -414,6 +596,9 @@ class FakeCamera(Camera):
         '''
         Returns the current image.
         This is a blocking call (wait until next frame is available)
+
+        returns:
+            np.ndarray: Simulated image frame.
         '''
         if self.manipulator is not None:
             # Use the part of the image under the microscope
@@ -472,6 +657,19 @@ class FakeCamera(Camera):
 
 
 def text_phantom(text, size):
+    """
+    Generate an image containing centered text.
+
+    args:
+        text (str): Text string to render.
+        size (tuple[int, int]): Output image size as (width, height).
+
+    returns:
+        np.ndarray: RGB image array containing the rendered text.
+
+    raises:
+        OSError: If the specified font file cannot be loaded.
+    """
     # Availability is platform dependent
     font = 'Arial'
     
@@ -498,6 +696,13 @@ def text_phantom(text, size):
 class DebugCamera(Camera):
     '''A fake camera that shows the frame number'''
     def __init__(self, frames_per_s=20, write_delay=0):
+        """
+        Initialize the debug camera.
+
+        args:
+            frames_per_s (float): Target frames per second.
+            write_delay (float): Artificial delay for debugging write operations.
+        """
         super(DebugCamera, self).__init__()
         self.width = 1024
         self.height = 768
@@ -508,12 +713,21 @@ class DebugCamera(Camera):
         self.start_acquisition()
 
     def get_frame_rate(self):
+        """
+        Get the nominal frame rate of the debug camera.
+
+        returns:
+            float: Frames per second.
+        """
         return 1 / self.delay
 
     def raw_snap(self):
         '''
         Returns the current image.
         This is a blocking call (wait until next frame is available)
+
+        returns:
+            np.ndarray: Generated image frame.
         '''
         frame = text_phantom('{:05d}'.format(self.frameno), (self.width, self.height))
         self.frameno += 1
@@ -525,7 +739,22 @@ class DebugCamera(Camera):
 
 
 class RecordedVideoCamera(Camera):
+    """
+    Camera implementation that streams frames from a recorded video file.
+    Supports controlled playback speed via a slowdown factor.
+    """
     def __init__(self, file_name, pixel_per_um, slowdown=1):
+        """
+        Initialize the recorded video camera.
+
+        args:
+            file_name (str): Path to the video file.
+            pixel_per_um (float): Spatial calibration (pixels per micrometer).
+            slowdown (float): Factor to slow down playback (1 = real-time, >1 = slower).
+
+        raises:
+            ValueError: If the video file cannot be opened or has invalid properties.
+        """
         super(RecordedVideoCamera, self).__init__()
         self.file_name = file_name
         self.video = cv2.VideoCapture(file_name)
@@ -539,9 +768,24 @@ class RecordedVideoCamera(Camera):
         self.start_acquisition()
 
     def get_frame_rate(self):
+        """
+        Get the video frame rate.
+
+        returns:
+            float: Frames per second of the video.
+        """
         return self.frame_rate
 
     def raw_snap(self):
+        """
+        Retrieve the next frame from the video stream.
+
+        returns:
+            np.ndarray: Next video frame.
+
+        raises:
+            ValueError: If the video cannot be read while acquisition is active.
+        """
         if self._last_frame_time is not None:
             if time.time() - self._last_frame_time < self.time_between_frames:
                 # We are too fast, sleep a bit before returning the frame
@@ -556,5 +800,8 @@ class RecordedVideoCamera(Camera):
         return frame
 
     def close(self):
+        """
+        Release video resources and stop acquisition.
+        """
         self.video.release()
         super(RecordedVideoCamera, self).close()

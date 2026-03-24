@@ -11,10 +11,10 @@ class PipetteDisplacementAnalyzer:
         """
         Initialize the analyzer with two file paths.
 
-        Parameters:
-        - file_path1: str, path to the first CSV file.
-        - file_path2: str, path to the second CSV file.
-        - fit: str, the type of fit to be used
+        Args:
+            file_path1 (str): path to the first CSV file.
+            file_path2 (str): path to the second CSV file.
+            fit (str): the type of fit to be used
         """
         self.file_path1 = file_path1
         self.file_path2 = file_path2
@@ -79,9 +79,9 @@ class PipetteDisplacementAnalyzer:
         """
         Apply a Butterworth low-pass filter to the pipette resultant displacement data.
 
-        Parameters:
-        - cutoff_frequency: float, the cutoff frequency of the filter in Hz.
-        - order: int, the order of the Butterworth filter.
+        Args:
+            cutoff_frequency (float): the cutoff frequency of the filter in Hz.
+            order (int): the order of the Butterworth filter.
         """
         try:
             # Calculate sampling rate from timestamp
@@ -106,9 +106,9 @@ class PipetteDisplacementAnalyzer:
         """
         Apply a Savitzky-Golay filter to the pipette resultant displacement data.
 
-        Parameters:
-        - window_length: int, the length of the filter window (must be odd).
-        - polyorder: int, the order of the polynomial used to fit the samples.
+        Args:
+            window_length (int): the length of the filter window (must be odd).
+            polyorder (int): the order of the polynomial used to fit the samples.
         """
         try:
             # Ensure window_length is odd and greater than polyorder
@@ -156,9 +156,9 @@ class PipetteDisplacementAnalyzer:
         """
         Align the displacement data of both datasets based on time by interpolating them onto a common time base.
 
-        Parameters:
-        - method: str, interpolation method (default is 'linear').
-        - num_points: int, number of points in the common time base (default is 1000).
+        Args:
+            method (str) interpolation method (default is 'linear').
+            num_points (int) number of points in the common time base (default is 1000).
         """
         try:
             # Ensure data is processed
@@ -195,9 +195,9 @@ class PipetteDisplacementAnalyzer:
         """
         Detect the variable (non-flatline) region of the data using gradient thresholds.
 
-        Parameters:
-        - data: pandas DataFrame, the dataset containing 'timestamp' and 'pipette_resultant'.
-        - gradient_threshold: float, the minimum gradient value to consider as non-flatline.
+        Args:
+            data (pandas DataFrame): the dataset containing 'timestamp' and 'pipette_resultant'.
+            gradient_threshold (float): the minimum gradient value to consider as non-flatline.
 
         Returns:
         - start_idx: int, the starting index of the variable region.

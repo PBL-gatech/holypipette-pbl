@@ -44,7 +44,9 @@ PathLike = Union[str, Path]
 
 
 class PointMatcher:
-    """High-level interface to measure LightGlue matching latency."""
+    """
+    High-level interface to measure LightGlue matching latency.
+    """
 
     def __init__(
         self,
@@ -54,6 +56,20 @@ class PointMatcher:
         extractor_conf: Optional[Dict] = None,
         matcher_conf: Optional[Dict] = None,
     ) -> None:
+        """
+        Initialize the PointMatcher with specified keypoint features and device.
+
+        Args:
+            features (str): Feature extractor to use ('superpoint', 'disk', 'aliked',
+                            'sift', 'doghardnet').
+            device (Optional[str]): Torch device to run models ('cuda' or 'cpu').
+            extractor_conf (Optional[Dict]): Keyword arguments for the feature extractor.
+            matcher_conf (Optional[Dict]): Keyword arguments for the LightGlue matcher.
+
+        Raises:
+            NotImplementedError: If LightGlue is not installed or cannot be imported.
+            ValueError: If an unsupported feature extractor is specified.
+        """
         if not _LIGHTGLUE_AVAILABLE:
             detail = f" (import error: {_LIGHTGLUE_IMPORT_ERROR})" if _LIGHTGLUE_IMPORT_ERROR else ""
             raise NotImplementedError(f"LightGlue is not available{detail}.")
@@ -120,6 +136,16 @@ class PointMatcher:
     def _prepare_image(
         self, image: Union[PathLike, torch.Tensor], load_conf: Optional[Dict]
     ) -> torch.Tensor:
+        """
+        Convert an input image (file path or tensor) to a torch.Tensor on the correct device.
+
+        Args:
+            image (Union[PathLike, torch.Tensor]): Input image.
+            load_conf (Optional[Dict]): Extra arguments for image loading.
+
+        Returns:
+            torch.Tensor: Image tensor on the configured device.
+        """
         if isinstance(image, torch.Tensor):
             tensor = image
         else:
@@ -133,6 +159,18 @@ class PointMatcher:
         feats1: Dict[str, torch.Tensor],
         matches: Dict[str, torch.Tensor],
     ) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Extract matched keypoints from features and match indices.
+
+        Args:
+            feats0 (Dict[str, torch.Tensor]): Feature dict for image0.
+            feats1 (Dict[str, torch.Tensor]): Feature dict for image1.
+            matches (Dict[str, torch.Tensor]): Match indices dict.
+
+        Returns:
+            Optional[Tuple[torch.Tensor, torch.Tensor]]: Tuple of matched keypoints
+            (points0, points1), or None if no valid matches.
+        """
         match_indices = matches.get("matches")
         if match_indices is None or match_indices.ndim != 2 or match_indices.shape[1] != 2:
             return None
@@ -160,7 +198,22 @@ class PointMatcher:
         feats0: Dict[str, torch.Tensor],
         feats1: Dict[str, torch.Tensor],
     ) -> Optional[Dict[str, object]]:
-        """Estimate translation between image centers from matched keypoints."""
+        """
+        Estimate translation between image centers from matched keypoints.
+        
+        Args:
+            keypoints_pair (Optional[Tuple[torch.Tensor, torch.Tensor]]): Matched keypoints.
+            feats0 (Dict[str, torch.Tensor]): Features for image0.
+            feats1 (Dict[str, torch.Tensor]): Features for image1.
+
+        Returns:
+            Optional[Dict[str, object]]: Dictionary containing:
+                - 'center_dx', 'center_dy': Mean translation in pixels.
+                - 'num_matches': Number of valid matches.
+                - 'center0', 'center1': Original image centers (if available).
+                - 'center_displacement': Displacement vector after alignment.
+                Returns None if keypoints_pair is None or invalid.
+        """
         if keypoints_pair is None:
             return None
 
@@ -210,7 +263,18 @@ class PointMatcher:
         image1: torch.Tensor,
         keypoints_pair: Optional[Tuple[torch.Tensor, torch.Tensor]],
     ) -> Optional[torch.Tensor]:
-        """Overlay image0 onto image1 by aligning matched keypoints via translation."""
+        """
+        Overlay image0 onto image1 by aligning matched keypoints via translation.
+        
+        Args:
+            image0 (torch.Tensor): Source image to warp.
+            image1 (torch.Tensor): Target image.
+            keypoints_pair (Optional[Tuple[torch.Tensor, torch.Tensor]]): Matched keypoints.
+
+        Returns:
+            Optional[torch.Tensor]: Warped overlay image or None if keypoints_pair is None.
+
+        """
         if keypoints_pair is None:
             return None
 
@@ -234,7 +298,21 @@ class PointMatcher:
         *,
         target_hw: Optional[Tuple[int, int]] = None,
     ) -> torch.Tensor:
-        """Translate `image` by `translation` (dx, dy) using bilinear sampling."""
+        """
+        Translate `image` by `translation` (dx, dy) using bilinear sampling.
+        
+        Args:
+            image (torch.Tensor): Input image tensor of shape (C, H, W).
+            translation (torch.Tensor): Translation vector (dx, dy).
+            target_hw (Optional[Tuple[int, int]]): Target height and width. Defaults
+                to source image size.
+
+        Returns:
+            torch.Tensor: Translated image tensor of shape (C, H, W).
+
+        Raises:
+            ValueError: If the input image tensor does not have 3 dimensions.
+        """
         if image.dim() != 3:
             raise ValueError("Expected image tensor with shape (C, H, W).")
 
