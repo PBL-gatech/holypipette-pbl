@@ -7,7 +7,18 @@ from setuptools import find_packages, setup
 
 
 def parse_requirements(filename: str) -> list[str]:
-    """Load requirements from a pip requirements file."""
+    """
+    Load requirements from a pip requirements file.
+    
+    Args:
+        filename (str): The relative path to the requirements file.
+
+    Returns:
+        list[str]: A list of dependency strings suitable for install_requires.
+
+    Notes:
+        - Ignores empty lines and lines starting with '#' (comments).
+    """
     req_path = Path(__file__).parent / filename
     with req_path.open() as req_file:
         return [

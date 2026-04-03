@@ -22,6 +22,15 @@ ap_values = np.arange(0.12, 3.12, 0.12)
 coordinate_combinations = itertools.product(ml_values, ap_values)
 
 def download_image(img_url, ml, ap, view):
+    """
+    Download an image from a given URL and save it locally with a structured filename.
+
+    Args:
+        img_url (str): URL of the image to download.
+        ml (float or str): Mediolateral coordinate associated with the image.
+        ap (float or str): Anteroposterior coordinate associated with the image.
+        view (str): View type of the image (e.g., 'coronal', 'sagittal').
+    """
     img_data = requests.get(img_url).content
     img_name = os.path.join(folder_path, f"ML_{ml}_AP_{ap}_{view}.jpg")
     with open(img_name, 'wb') as handler:
@@ -29,6 +38,18 @@ def download_image(img_url, ml, ap, view):
     print(f"Downloaded {img_name}")
 
 def process_page(url, ml, ap):
+    """
+    Fetch a webpage corresponding to specific brain coordinates, extract image URLs,
+    and download the coronal and sagittal views if available.
+
+    Args:
+        url (str): The URL of the webpage to process.
+        ml (float or str): Mediolateral coordinate used for labeling downloaded images.
+        ap (float or str): Anteroposterior coordinate used for labeling downloaded images.
+
+    Raises:
+        None: Errors are handled internally via status checks and printed messages.
+    """
     response = requests.get(url)
     if response.status_code == 200:
         soup = BeautifulSoup(response.content, 'html.parser')

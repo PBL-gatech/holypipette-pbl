@@ -22,6 +22,17 @@ class TestPressureController(PressureController):
 
 
     def __init__(self, channel, controllerSerial=None, readerSerial=None):
+        """
+        Initialize a TestPressureController instance.
+
+        Args:
+            channel (int): Channel number for the pressure output.
+            controllerSerial (serial.Serial, optional): Serial interface to send commands.
+            readerSerial (serial.Serial, optional): Serial interface to read pressure sensor data.
+
+        Raises:
+            Exception: If serial interfaces fail to initialize.
+        """
         super().__init__()
         try:
             self.controllerSerial = controllerSerial
@@ -44,24 +55,42 @@ class TestPressureController(PressureController):
 
     def set_pressure(self, pressure):
         '''Tell pressure controller to go to a given setpoint pressure in mbar
+        
+        Args:
+            pressure (float): Target pressure in mBar.
         '''
         nativeUnits = self.mbarToNative(pressure)
         self.set_pressure_raw(nativeUnits)
     
     def mbarToNative(self, pressure):
         '''Comvert from a pressure in mBar to native units
+        
+        Args:
+            pressure (float): Pressure in mBar.
+
+        Returns:
+            int: DAC units clamped to 0 – (2 * nativeZero).
         '''
         raw_pressure = int(pressure * TestPressureController.nativePerMbar + TestPressureController.nativeZero)
         return min(max(raw_pressure, 0), 4095) #clamp native units to 0-4095
 
     def nativeToMbar(self, raw_pressure):
         '''Comvert from native units to a pressure in mBar
+        
+        Args:
+            raw_pressure (int): DAC units.
+
+        Returns:
+            float: Pressure in mBar.
         '''
         pressure = (raw_pressure - TestPressureController.nativeZero) / TestPressureController.nativePerMbar
         return pressure
 
     def set_pressure_raw(self, raw_pressure):
         '''Tell pressure controller to go to a given setpoint pressure in native DAC units
+        
+        Args:
+            raw_pressure (int): Target pressure in native DAC units.
         '''
         self.setpoint_raw = raw_pressure
         logging.info(f"Setting pressure to {self.nativeToMbar(raw_pressure)} mbar (raw: {raw_pressure})")
@@ -78,6 +107,9 @@ class TestPressureController(PressureController):
     def get_pressure(self):
         '''
         Get the current pressure reading from readerSerial
+
+        Returns:
+            float: Setpoint pressure in mBar.
         '''
         # return self.lastVal
         pressureVal = self.lastVal
@@ -117,10 +149,19 @@ class TestPressureController(PressureController):
 
       
     def measure(self):
+        '''
+        Read the pressure sensor value from the Arduino
+        
+        Returns:
+            float: Measured pressure in mBar.
+        '''
         return self.get_pressure()
     
     def pulse(self, delayMs):
         '''Tell the onboard arduino to pulse pressure for a certain period of time
+
+        Args:
+            delayMs (int): Duration of pulse in milliseconds.
         '''
         cmd = f"pulse {self.channel} {delayMs}\n"
         logging.info(f"Pulsing pressure for {delayMs} ms")
@@ -131,6 +172,9 @@ class TestPressureController(PressureController):
         '''Send a serial command activating or deactivating the atmosphere solenoid valve
            atm = True -> pressure output is at atmospheric pressure 
            atm = False -> pressure output comes from pressure regulator
+
+        Args:
+            atm (bool): True for atmospheric mode, False for regulated pressure.
         '''
         if atm:
             cmd = f"switchAtm {self.channel}\n" #switch to ATM command
@@ -144,6 +188,14 @@ class TestPressureController(PressureController):
         self.isATM = atm
     def toggle_ATM(self,atm):
         '''Toggle the atmosphere solenoid valve
+
+        Args:
+            atm (bool): Current ATM state.
+                - True: Currently at atmospheric pressure, will switch to pressure regulator.
+                - False: Currently using pressure regulator, will switch to atmospheric pressure.
+
+        Notes:
+            Calls `set_ATM()` with the opposite of the current state.
         '''
         if atm: 
             self.set_ATM(False)

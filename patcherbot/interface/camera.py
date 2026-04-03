@@ -12,9 +12,21 @@ from patcherbot.utils.FileLogger import FileLogger
 
 
 class CameraInterface(TaskInterface):
+    """
+    Interface for controlling camera operations, including exposure,
+    normalization, and image capture, with optional object tracking support.
+    """
     updated_exposure = QtCore.pyqtSignal('QString', 'QString')
 
     def __init__(self, camera, with_tracking=False, status_category='Camera'):
+        """
+        Initialize the CameraInterface with a camera object and configuration.
+
+        Args:
+            camera (object): Camera object providing imaging functionality.
+            with_tracking (bool, optional): Whether to enable tracking-related features.
+            status_category (str, optional): Label used for GUI status updates.
+        """
         super().__init__()
         self.camera = camera
         self.with_tracking = with_tracking
@@ -31,6 +43,12 @@ class CameraInterface(TaskInterface):
         self._is_active = False
 
     def connect(self, main_gui):
+        """
+        Connect camera-related signals and optional tracking functions to the GUI.
+
+        Args:
+            main_gui (CameraGui): Main GUI instance to connect signals to.
+        """
         self.updated_exposure.connect(main_gui.set_status_message)
         self.signal_updated_exposure()
         if self.with_tracking:
@@ -39,6 +57,7 @@ class CameraInterface(TaskInterface):
             #main_gui.image_edit_funcs.append(self.pipette_contact_detection)
 
     def signal_updated_exposure(self):
+        """Emit a signal to update the GUI with the current exposure value."""
         # Should be called by subclasses that actually support setting the exposure
         if not self._is_active:
             return
@@ -47,6 +66,12 @@ class CameraInterface(TaskInterface):
             self.updated_exposure.emit(self.status_category, 'Exposure: %.1f ms' % exposure)
 
     def set_active(self, is_active: bool):
+        """
+        Enable or disable the camera interface and update exposure display accordingly.
+
+        Args:
+            is_active (bool): Whether the camera interface should be active.
+        """
         was_active = self._is_active
         self._is_active = bool(is_active)
         if self._is_active:
@@ -55,11 +80,23 @@ class CameraInterface(TaskInterface):
             self.updated_exposure.emit(self.status_category, None)
 
     def set_status_category(self, category: str) -> None:
+        """
+        Set the status category label used for GUI exposure updates.
+
+        Args:
+            category (str): New status category label.
+        """
         self.status_category = category
         if self._is_active:
             self.signal_updated_exposure()
 
     def set_camera(self, camera) -> None:
+        """
+        Update the camera object and refresh exposure information if active.
+
+        Args:
+            camera (object): New camera instance.
+        """
         self.camera = camera
         if self._is_active:
             self.signal_updated_exposure()
@@ -68,6 +105,12 @@ class CameraInterface(TaskInterface):
                       description='Auto exposure',
                       task_description='Adjusting exposure')
     def auto_exposure(self,args):
+        """
+        Automatically adjust the camera exposure.
+
+        Args:
+            args (object): Optional argument (unused).
+        """
         self.camera.auto_exposure()
         self.signal_updated_exposure()
 
@@ -75,12 +118,24 @@ class CameraInterface(TaskInterface):
              description='Increase exposure time by {:.1f}ms',
              default_arg=2.5)
     def increase_exposure(self, increase):
+        """
+        Increase the camera exposure time by a specified amount.
+
+        Args:
+            increase (float): Amount of exposure time to increase (in ms).
+        """
         self.camera.change_exposure(increase)
         self.signal_updated_exposure()
     @command(category='Camera',
                 description='Set exposure time to {:.1f}ms',
                 default_arg=2.5)
     def set_exposure(self, exposure):     
+        """
+        Set the camera exposure to a specific value by adjusting relative change.
+
+        Args:
+            exposure (float): Target exposure time (in ms).
+        """
         currexpos = self.camera.get_exposure()
         change = exposure - currexpos
         if change > 0:
@@ -97,18 +152,36 @@ class CameraInterface(TaskInterface):
              description='Normalize the image',
              )
     def normalize(self, param=None):
+        """
+        Enable image normalization on the camera.
+
+        Args:
+            param (object, optional): Unused parameter.
+        """
         self.camera.normalize()
 
     @command(category='Camera',
              description='Unnormalize the image',
              )
     def unnormalize(self, param=None):
+        """
+        Disable image normalization on the camera.
+
+        Args:
+            param (object, optional): Unused parameter.
+        """
         self.camera.unnormalize()
 
     @command(category='Camera',
              description='Snap image',
              )
     def snap_image(self, param=None):
+        """
+        Capture the current frame from the camera and save it to disk.
+
+        Args:
+            param (object, optional): Unused parameter.
+        """
         try:
             frameno, frame_time, _, raw_frame = self.camera.raw_frame_queue[0]
         except (AttributeError, IndexError, TypeError):
@@ -136,6 +209,12 @@ class CameraInterface(TaskInterface):
              description='AutoNormalize the image',
              )
     def autonormalize(self, state):
+        """
+        Enable or disable automatic image normalization.
+
+        Args:
+            state (bool): Whether to enable autonormalization.
+        """
         # if state: 
         #     print("AutoNormalizing")
         # else:
@@ -146,6 +225,12 @@ class CameraInterface(TaskInterface):
              description='Decrease exposure time by {:.1f}ms',
              default_arg=2.5)
     def decrease_exposure(self, decrease):
+        """
+        Decrease the camera exposure time by a specified amount.
+
+        Args:
+            decrease (float): Amount of exposure time to decrease (in ms).
+        """
         self.camera.change_exposure(-decrease)
         self.signal_updated_exposure()
 

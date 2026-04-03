@@ -7,6 +7,13 @@ class CSVLogHandler(logging.Handler):
     """Custom logging handler that logs to a CSV file."""
 
     def __init__(self, base_filename, mode='a'):
+        """
+        Initialize the CSVLogHandler.
+
+        Args:
+            base_filename (str): Base path and filename (without date suffix).
+            mode (str, optional): File open mode.
+        """
         # Generate a filename with only the date
         timestamp = datetime.now().strftime("%Y_%m_%d")
         filename = f"{base_filename}_{timestamp}.csv"
@@ -24,6 +31,15 @@ class CSVLogHandler(logging.Handler):
         self.setFormatter(logging.Formatter('%(asctime)s,%(levelname)s,%(message)s,%(name)s,%(thread)d'))
 
     def emit(self, record):
+        """
+        Write a log record to the CSV file.
+
+        Args:
+            record (logging.LogRecord): Log record to write.
+
+        Raises:
+            Exception: If writing fails, handled via handleError.
+        """
         try:
             log_entry = self.format(record)
             self.csv_writer.writerow(log_entry.split(","))
@@ -33,6 +49,7 @@ class CSVLogHandler(logging.Handler):
             self.handleError(record)
 
     def close(self):
+        """Flush and close the CSV file."""
         if not self.output_file.closed:
             # Flush and close the file properly when done
             self.output_file.flush()
@@ -40,8 +57,17 @@ class CSVLogHandler(logging.Handler):
         super().close()
 
 class LoggingObject(object):
+    """
+    Mixin class providing a configured logger and convenience logging methods.
+    """
     @property
     def logger(self):
+        """
+        Get or create a logger specific to the class.
+
+        Returns:
+            logging.Logger: Configured logger instance.
+        """
         if getattr(self, '_logger', None) is None:
             logger_name = f"{self.__class__.__module__}.{self.__class__.__name__}"
             self._logger = logging.getLogger(logger_name)
@@ -49,21 +75,69 @@ class LoggingObject(object):
         return self._logger
 
     def debug(self, message, *args, **kwds):
+        """
+        Log a debug-level message.
+
+        Args:
+            message (str): Log message.
+            *args: Positional arguments for formatting.
+            **kwds: Keyword arguments for logging.
+        """
         self.logger.debug(message, *args, **kwds)
 
     def info(self, message, *args, **kwds):
+        """
+        Log an info-level message.
+
+        Args:
+            message (str): Log message.
+            *args: Positional arguments for formatting.
+            **kwds: Keyword arguments for logging.
+        """
         self.logger.info(message, *args, **kwds)
 
     def warning(self, message, *args, **kwds):
+        """
+        Log a warning-level message.
+
+        Args:
+            message (str): Log message.
+            *args: Positional arguments for formatting.
+            **kwds: Keyword arguments for logging.
+        """
         self.logger.warning(message, *args, **kwds)
 
     def error(self, message, *args, **kwds):
+        """
+        Log an error-level message.
+
+        Args:
+            message (str): Log message.
+            *args: Positional arguments for formatting.
+            **kwds: Keyword arguments for logging.
+        """
         self.logger.error(message, *args, **kwds)
 
     def exception(self, message, *args, **kwds):
+        """
+        Log an exception with traceback information.
+
+        Args:
+            message (str): Log message.
+            *args: Positional arguments for formatting.
+            **kwds: Keyword arguments for logging.
+        """
         self.logger.exception(message, *args, **kwds)
 
 def setup_logging():
+    """
+    Log an exception with traceback information.
+
+    Args:
+        message (str): Log message.
+        *args: Positional arguments for formatting.
+        **kwds: Keyword arguments for logging.
+    """
     root_logger = logging.getLogger()
 
     # Prevent adding duplicate handlers if setup_logging is called multiple times.

@@ -61,12 +61,26 @@ class RigConfigError(Exception):
 
 
 def _slugify(text: str) -> str:
+    """
+    Convert text into a filesystem-safe slug.
+
+    Args:
+        text (str): Input string.
+
+    Returns:
+        str: Slugified string.
+    """
     slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", text).strip("_")
     return slug or "rig_config"
 
 
 def _default_devices() -> Dict[str, Dict[str, Any]]:
-    """Default fake rig mirrors rig_setup/setup_fake_rig.py."""
+    """
+    Default fake rig mirrors rig_setup/setup_fake_rig.py.
+    
+    Returns:
+        Dict[str, Dict[str, Any]]: Default device configuration mapping.
+    """
     return {
         "stage_controller": {
             "class": "patcherbot.devices.manipulator.fakemanipulator.FakeManipulator",
@@ -114,6 +128,12 @@ def _default_devices() -> Dict[str, Dict[str, Any]]:
 
 
 def _empty_calibration() -> Dict[str, Any]:
+    """
+    Create an empty calibration configuration.
+
+    Returns:
+        Dict[str, Any]: Empty calibration dictionary.
+    """
     return {
         "pipette_detector_model": None,
         "pipette_focuser_model": None,
@@ -121,6 +141,12 @@ def _empty_calibration() -> Dict[str, Any]:
 
 
 def _default_ai_features() -> Dict[str, Any]:
+    """
+    Create an empty calibration configuration.
+
+    Returns:
+        Dict[str, Any]: Empty calibration dictionary.
+    """
     return {
         "enabled": True,
     }
@@ -432,10 +458,20 @@ DEVICE_OPTIONS: Dict[str, List[Dict[str, Any]]] = {
 
 
 class RigConfigManager:
+    """Manager for loading, validating, and instantiating rig configurations."""
     def __init__(self, config_dir: Path | None = None,
                  cal_config_dir: Path | None = None,
                  patch_config_dir: Path | None = None,
                  protocol_config_dir: Path | None = None):
+        """
+        Initialize RigConfigManager with directory paths.
+
+        Args:
+            config_dir (Path, optional): Directory for rig configs.
+            cal_config_dir (Path, optional): Directory for calibration configs.
+            patch_config_dir (Path, optional): Directory for patch configs.
+            protocol_config_dir (Path, optional): Directory for protocol configs.
+        """
         self.config_dir = config_dir or CONFIG_DIR
         self.cal_config_dir = cal_config_dir or CAL_CONFIG_DIR
         self.patch_config_dir = patch_config_dir or PATCH_CONFIG_DIR
@@ -446,9 +482,21 @@ class RigConfigManager:
         self.protocol_config_dir.mkdir(parents=True, exist_ok=True)
 
     def default_config_path(self) -> Path:
+        """
+        Get default configuration file path.
+
+        Returns:
+            Path: Path to default config file.
+        """
         return self.config_dir / DEFAULT_CONFIG_NAME
 
     def ensure_default_config(self) -> Path:
+        """
+        Get default configuration file path.
+
+        Returns:
+            Path: Path to default config file.
+        """
         path = self.default_config_path()
         if not path.exists():
             self.save_config(
@@ -467,14 +515,39 @@ class RigConfigManager:
         return path
 
     def list_configs(self) -> List[Path]:
+        """
+        List all available configuration files.
+
+        Returns:
+            List[Path]: Sorted list of config file paths.
+        """
         return sorted(self.config_dir.glob("*.json"))
 
     def save_config(self, path: Path, data: Dict[str, Any]) -> None:
+        """
+        Save configuration data to a file.
+
+        Args:
+            path (Path): File path to save config.
+            data (Dict[str, Any]): Configuration data.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
     def load_config(self, path: Path) -> Dict[str, Any]:
+        """
+        Load and validate a configuration file.
+
+        Args:
+            path (Path): Path to configuration file.
+
+        Returns:
+            Dict[str, Any]: Loaded configuration.
+
+        Raises:
+            RigConfigError: If file does not exist or validation fails.
+        """
         if not path.exists():
             raise RigConfigError(f"Configuration file not found: {path}")
         with path.open("r", encoding="utf-8") as f:
@@ -484,10 +557,28 @@ class RigConfigManager:
         return config
 
     def build_devices_from_file(self, path: Path) -> Dict[str, Any]:
+        """
+        Load config and instantiate devices.
+
+        Args:
+            path (Path): Path to configuration file.
+
+        Returns:
+            Dict[str, Any]: Instantiated devices.
+        """
         config = self.load_config(path)
         return self.build_devices(config)
 
     def build_devices(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Instantiate all devices from configuration.
+
+        Args:
+            config (Dict[str, Any]): Configuration dictionary.
+
+        Returns:
+            Dict[str, Any]: All instantiated devices.
+        """
         devices_cfg = config.get("devices", {})
         self._apply_pressure_calibration(config, devices_cfg)
         base_instances: Dict[str, Any] = {}
@@ -530,6 +621,20 @@ class RigConfigManager:
         return all_devices
 
     def _instantiate_slot(self, slot: str, cfg: Dict[str, Any], instances: Dict[str, Any]) -> Any:
+        """
+        Instantiate a device for a given slot.
+
+        Args:
+            slot (str): Device slot name.
+            cfg (Dict[str, Any]): Slot configuration.
+            instances (Dict[str, Any]): Existing instances for reference resolution.
+
+        Returns:
+            Any: Instantiated device.
+
+        Raises:
+            RigConfigError: If import or instantiation fails.
+        """
         class_path = cfg.get("class") or cfg.get("class_path")
         if not class_path or "." not in class_path:
             raise RigConfigError(f"Invalid class for slot '{slot}'.")
@@ -557,6 +662,17 @@ class RigConfigManager:
         return instance
 
     def _split_ctor_params(self, cls: Any, params_cfg: Dict[str, Any], instances: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        Split parameters into constructor args and post-init attributes.
+
+        Args:
+            cls (Any): Target class.
+            params_cfg (Dict[str, Any]): Parameter configuration.
+            instances (Dict[str, Any]): Existing instances.
+
+        Returns:
+            Tuple[Dict[str, Any], Dict[str, Any]]: Constructor kwargs and post-init attributes.
+        """
         resolved = {k: self._resolve_value(v, instances) for k, v in (params_cfg or {}).items()}
         sig = inspect.signature(cls.__init__)
         has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
@@ -575,6 +691,19 @@ class RigConfigManager:
         return ctor_kwargs, post_attrs
 
     def _resolve_value(self, value: Any, instances: Dict[str, Any]) -> Any:
+        """
+        Resolve special configuration values.
+
+        Args:
+            value (Any): Input value.
+            instances (Dict[str, Any]): Existing instances.
+
+        Returns:
+            Any: Resolved value.
+
+        Raises:
+            RigConfigError: If reference resolution fails or serial creation fails.
+        """
         if isinstance(value, str):
             if value.startswith("$ref:"):
                 ref = value.split(":", 1)[1]
@@ -609,6 +738,15 @@ class RigConfigManager:
         return value
 
     def _validate_config(self, config: Dict[str, Any]) -> None:
+        """
+        Validate configuration structure.
+
+        Args:
+            config (Dict[str, Any]): Configuration dictionary.
+            
+        Raises:
+            RigConfigError: If configuration is invalid.
+        """
         if config.get("schema_version") not in (None, SCHEMA_VERSION):
             raise RigConfigError("Unsupported schema_version in rig configuration.")
         devices = config.get("devices")
@@ -619,12 +757,33 @@ class RigConfigManager:
                 raise RigConfigError(f"Configuration missing required slot '{slot}'.")
 
     def make_config_path(self, name: str) -> Path:
+        """
+        Generate a file path for a configuration name.
+
+        Args:
+            name (str): Configuration name.
+
+        Returns:
+            Path: Generated file path.
+        """
         return self.config_dir / f"{_slugify(name)}.json"
 
     def get_device_options(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get available device options.
+
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: Device options mapping.
+        """
         return DEVICE_OPTIONS
 
     def build_empty_template(self) -> Dict[str, Any]:
+        """
+        Get available device options.
+
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: Device options mapping.
+        """
         return {
             "name": "New Rig",
             "schema_version": SCHEMA_VERSION,
@@ -637,6 +796,12 @@ class RigConfigManager:
         }
 
     def _load_overlay_configs(self, config: Dict[str, Any]) -> None:
+        """
+        Load calibration, patch, and protocol overlays into config.
+
+        Args:
+            config (Dict[str, Any]): Configuration dictionary.
+        """
         from patcherbot.devices.manipulator.CalibrationConfig import CalibrationConfig
         from patcherbot.interface.patchConfig import PatchConfig
         from patcherbot.interface.protocolConfig import ProtocolConfig
@@ -712,6 +877,12 @@ class RigConfigManager:
         }
 
     def _apply_pressure_calibration(self, config: Dict[str, Any], devices_cfg: Dict[str, Any]) -> None:
+        """
+        Load calibration, patch, and protocol overlays into config.
+
+        Args:
+            config (Dict[str, Any]): Configuration dictionary.
+        """
         calibration = config.get("calibration")
         if not isinstance(calibration, dict):
             return

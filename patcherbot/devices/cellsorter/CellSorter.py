@@ -16,6 +16,7 @@ class FakeCellSorterController():
     '''A fake cell sorter controller for testing purposes
     '''
     def __init__(self):
+        """Initializes fake controller state variables."""
         #fake cell sorter state variables
         self.led = False
         self.led_ring = 1
@@ -23,29 +24,49 @@ class FakeCellSorterController():
         self.valve2 = False
 
     def is_online(self):
-        '''Sends a test command to the CellSorter and returns True if the response is correct
+        '''Sends a test command to the CellSorter and 
+        
+        Returns:
+            bool: True if the response is correct
         '''
         return True
 
     def set_led(self, status: bool):
-        '''Sets the LED status
+        '''
+        Sets the LED status
+
+        Args:
+            status (bool): Desired LED state.
         '''
         print('CELLSORTER: set led {}'.format(status))
         self.led = status
 
     def get_led(self):
-        '''Returns the LED status
+        '''
+        Returns the LED status
+
+        Returns:
+            bool: Current LED state.
         '''
         return self.led
     
     def set_led_ring(self, ring: int):
-        '''Sets the LED ring to use
+        '''
+        Sets the LED ring to use
+
+        Args:
+            ring (int): LED ring number to activate.
         '''
         print('CELLSORTER: set led ring {}'.format(ring))
         self.led_ring = ring
     
     def set_valve(self, valve: int, open: bool):
-        '''Sets the given valve to be open or closed
+        '''
+        Sets the given valve to be open or closed
+
+        Args:
+            valve (int): Valve number (1 or 2).
+            open (bool): True to open, False to close.
         '''
         print('CELLSORTER: set valve {} {}'.format(valve, open))
         if valve == 1:
@@ -54,7 +75,14 @@ class FakeCellSorterController():
             self.valve2 = open
 
     def get_valve(self, valve: int):
-        '''Returns the status of the given valve
+        '''
+        eturns the status of the given valve
+
+        Args:
+            valve (int): Valve number (1 or 2).
+
+        Returns:
+            bool: Current valve state.
         '''
         print('get valve {}'.format(valve))
         if valve == 1:
@@ -64,18 +92,39 @@ class FakeCellSorterController():
 
     ###  these functions are not implemented in the fake cell sorter ###
     def open_valve_for_time(self, valve: int, timeMs: int):
+        """
+        Simulates opening a valve for a specified duration.
+
+        Args:
+            valve (int): Valve number (1 or 2).
+            timeMs (int): Duration in milliseconds.
+        """
         print('open valve {} for {} ms'.format(valve, timeMs))
 
     def open_valve_for_prev_time(self, valve: int):
+        """
+        Simulates opening a valve using the previously set duration.
+
+        Args:
+            valve (int): Valve number (1 or 2).
+        """
         print('open valve {} for prev time'.format(valve))
     
     def set_valve_delay(self, delayMs: int):
+        """
+        Simulates setting a delay between valve operations.
+
+        Args:
+            delayMs (int): Delay in milliseconds.
+        """
         print('set valve delay to {}'.format(delayMs))
     
     def open_valve_1_2(self):
+        """Simulates opening valve 1, waiting a delay, then opening valve 2."""
         print('open valve 1 2')
     
     def open_valve_2_1(self):
+        """Simulates opening valve 2, waiting a delay, then opening valve 1."""
         print('open valve 2 1')
 
 class CellSorterController():
@@ -84,6 +133,12 @@ class CellSorterController():
     '''
 
     def __init__(self, comPort: serial.Serial):
+        """
+        Initializes the controller and sets default LED configuration.
+
+        Args:
+            comPort (serial.Serial): Open serial connection.
+        """
         self.comPort : serial.Serial = comPort
 
         # turn on ring 1 of the LED
@@ -91,6 +146,15 @@ class CellSorterController():
         self.set_led(True)
 
     def _sendCmd(self, cmd):
+        """
+        Sends a command to the controller and reads the response.
+
+        Args:
+            cmd (iterable): Command sequence to send.
+
+        Returns:
+            str: Decoded response string.
+        """
         for a in cmd:
             self.comPort.write(a.encode()) #send test command
         self.comPort.flush()
@@ -103,12 +167,18 @@ class CellSorterController():
     
     def is_online(self):
         '''Sends a test command to the CellSorter and returns True if the response is correct
+        
+        Returns:
+            bool: True if a valid response is received.
         '''
         resp = self._sendCmd(SerialCommands.TEST)
         return resp == 'R'
 
     def set_led(self, status: bool):
         '''Sets the LED status
+        
+        Args:
+            status (bool): Desired LED state.
         '''
         if status:
             self._sendCmd(SerialCommands.LED_ON)
@@ -117,12 +187,21 @@ class CellSorterController():
 
     def get_led(self):
         '''Returns the LED status
+
+        Returns:
+            bool: True if LED is on.
         '''
         resp = self._sendCmd(SerialCommands.LED_STATUS)
         return resp == '+'
     
     def set_led_ring(self, ring: int):
         '''Sets the LED ring to use
+
+        Args:
+            ring (int): Ring number (1 or 2).
+
+        Raises:
+            ValueError: If ring is invalid.
         '''
         if ring == 1:
             self._sendCmd(SerialCommands.LED_SELECT_RING_1)
@@ -133,6 +212,13 @@ class CellSorterController():
     
     def set_valve(self, valve: int, open: bool):
         '''Sets the given valve to be open or closed
+
+        Args:
+            valve (int): Valve number (1 or 2).
+            open (bool): True to open, False to close.
+
+        Raises:
+            ValueError: If valve is invalid.
         '''
         if valve == 1:
             if open:
@@ -149,6 +235,15 @@ class CellSorterController():
 
     def get_valve(self, valve: int):
         '''Returns the status of the given valve
+
+        Args:
+            valve (int): Valve number (1 or 2).
+
+        Returns:
+            bool: True if valve is open.
+
+        Raises:
+            ValueError: If valve is invalid.
         '''
         if valve == 1:
             resp = self._sendCmd(SerialCommands.VALVE_1_STATUS)
@@ -161,6 +256,13 @@ class CellSorterController():
 
     def open_valve_for_time(self, valve: int, timeMs: int):
         '''Open a valve for the given time in milliseconds
+        
+        Args:
+            valve (int): Valve number (1 or 2).
+            timeMs (int): Duration in milliseconds.
+
+        Raises:
+            ValueError: If valve is invalid.
         '''
         if valve == 1:
             self._sendCmd(SerialCommands.VALVE_1_OPEN_TIME.format(timeMs))
@@ -173,6 +275,12 @@ class CellSorterController():
 
     def open_valve_for_prev_time(self, valve: int):
         '''Open a valve for the last time specified
+        
+        Args:
+            valve (int): Valve number (1 or 2).
+
+        Raises:
+            ValueError: If valve is invalid.
         '''
         if valve == 1:
             self._sendCmd(SerialCommands.VALVE_1_OPEN_PREV_TIME)
@@ -183,6 +291,9 @@ class CellSorterController():
     
     def set_valve_delay(self, delayMs: int):
         '''Set the delay between valve openings
+        
+        Args:
+            delayMs (int): Delay in milliseconds.
         '''
         self._sendCmd(SerialCommands.VALVE_DELAY.format(delayMs))
     
@@ -208,6 +319,12 @@ class CellSorterManip(Manipulator):
     '''
 
     def __init__(self, comPort: serial.Serial):
+        """
+        Initializes the manipulator and starts position tracking.
+
+        Args:
+            comPort (serial.Serial): Open serial connection.
+        """
         self.comPort : serial.Serial = comPort
 
         self.serialLock = threading.Lock()
@@ -228,6 +345,15 @@ class CellSorterManip(Manipulator):
 
 
     def _sendCmd(self, cmd):
+        """
+        Sends a command and retrieves the response.
+
+        Args:
+            cmd (str): Command string.
+
+        Returns:
+            str: Decoded response.
+        """
         self.serialLock.acquire()
         self.comPort.write(cmd.encode()) #send test command
         self.comPort.flush()
@@ -241,12 +367,19 @@ class CellSorterManip(Manipulator):
     
     def is_online(self):
         '''Sends a test command to the CellSorter and returns True if the response is correct
+        
+        Returns:
+            bool: True if a valid version response is received.
         '''
         resp = self._sendCmd(SerialCommands.GET_VERSION)
         return resp[:4] == 'Vers' # good responses start with Vers
     
     def relative_move(self, pos: float, velocity=None):
         '''Sets the position relative to the current position
+        
+        Args:
+            pos (float): Relative displacement.
+            velocity (float, optional): Movement velocity.
         '''
 
         if velocity == None:
@@ -259,6 +392,10 @@ class CellSorterManip(Manipulator):
     
     def absolute_move(self, pos: float, velocity=None):
         '''Sets the absolute position
+        
+        Args:
+            pos (float): Target position.
+            velocity (float, optional): Movement velocity.
         '''
         if velocity == None:
             velocity = self.maxVel
@@ -269,10 +406,13 @@ class CellSorterManip(Manipulator):
 
     def stop(self, axis=None):
         '''Stops all movement immediately
+        Args:
+            axis (optional): Unused parameter.
         '''
         self._sendCmd(SerialCommands.EMERGENCY_STOP)
 
     def _update_position_continuous(self):
+        """Continuously polls and updates the z-axis position."""
         while True:
             resp = self._sendCmd(SerialCommands.GET_POS)
             resp = resp.split(' ')
@@ -283,9 +423,8 @@ class CellSorterManip(Manipulator):
         """
         Waits until motors have stopped.
 
-        Parameters
-        ----------
-        axes : list of axis numbers
+        Args:
+            axes (optional): list of axis numbers
         """
         previous_position = self.zPos
         new_position = None
@@ -301,6 +440,12 @@ class CellSorterManip(Manipulator):
         
     def set_max_speed(self, vel: float):
         '''Sets the velocity of the z-axis (velocity as a % from 0.1 to 100)
+        
+        Args:
+            vel (float): Speed percentage (0.1–100).
+
+        Raises:
+            ValueError: If velocity is out of range.
         '''
         if vel < 0.1 or vel > 100:
             raise ValueError('Velocity must be between 0.1 and 100')
@@ -312,6 +457,12 @@ class CellSorterManip(Manipulator):
     
     def set_max_accel(self, accel: float):
         '''Sets the acceleration of the z-axis from 1% to 100%
+        
+        Args:
+            accel (float): Acceleration percentage (1–100).
+
+        Raises:
+            ValueError: If acceleration is out of range.
         '''
         if accel < 1 or accel > 100:
             raise ValueError('Acceleration must be between 1 and 100')
@@ -322,6 +473,9 @@ class CellSorterManip(Manipulator):
 
     def read_SW(self):
         '''Returns the current state of the switches
+        
+        Returns:
+            str: Raw switch response.
         '''
         resp = self._sendCmd(SerialCommands.READ_SW)
         return resp
@@ -336,36 +490,80 @@ class FakeCellSorterManip(Manipulator):
     ''' A fake cell sorter manipulator for testing purposes
     '''
     def __init__(self, z_pos: float = 0):
+        """
+        Initializes the simulated position.
+
+        Args:
+            z_pos (float): Initial position.
+        """
         self.z_pos = z_pos
 
     def is_online(self):
+        """
+        Checks connectivity.
+
+        Returns:
+            bool: Always True.
+        """
         return True
     
     def set_max_accel(self, accel: float):
+        """
+        Simulates setting maximum acceleration.
+
+        Args:
+            accel (float): Acceleration value.
+        """
         pass
 
     def set_max_speed(self, vel: float):
+        """
+        Simulates setting maximum speed.
+
+        Args:
+            vel (float): Velocity value.
+        """
         pass
 
     def absolute_move(self, pos: float, velocity=None):
+        """
+        Sets an absolute position.
+
+        Args:
+            pos (float): Target position.
+            velocity (float, optional): Ignored.
+        """
         self.z_pos = pos
 
     def relative_move(self, pos: float, velocity=None):
+        """
+        Applies a relative position change.
+
+        Args:
+            pos (float): Position delta.
+            velocity (float, optional): Ignored.
+        """
         self.z_pos += pos
     
     def position(self):
+        """
+        Retrieves the current position.
+
+        Returns:
+            float: Current position.
+        """
         return self.z_pos
     
     def stop(self):
+        """Simulates stopping all motion."""
         pass
 
     def wait_until_still(self, axes = None):
         """
         Waits until motors have stopped.
 
-        Parameters
-        ----------
-        axes : list of axis numbers
+        Args:
+            axes (optional): list of axis numbers
         """
         return True
 

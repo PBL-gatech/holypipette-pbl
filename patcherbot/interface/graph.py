@@ -17,7 +17,21 @@ import time
 __all__ = ['GraphInterface']
 
 class GraphInterface(TaskInterface):
+    """
+    Interface for interacting with acquisition hardware including DAQ,
+    amplifier, pressure controller, and optional laser system.
+    """
     def __init__(self, amplifier: Amplifier, daq: DAQ, pressure: PressureController, recording_state_manager, laser: Laser | None = None):
+        """
+        Initialize the GraphInterface with hardware components.
+
+        Args:
+            amplifier (Amplifier): Amplifier device for electrical stimulation.
+            daq (DAQ): Data acquisition device.
+            pressure (PressureController): Pressure controller device.
+            recording_state_manager (object): Manages recording state.
+            laser (Laser, optional): Laser device for optogenetic control.
+        """
         super().__init__()
         self.amplifier = amplifier
         self.daq = daq
@@ -30,30 +44,69 @@ class GraphInterface(TaskInterface):
     @command(category='Pressure', 
               description='obtain current pressure value')
     def get_last_pressure(self):
+        """
+        Retrieve the most recent pressure measurement.
+
+        Returns:
+            object: Latest pressure acquisition value.
+        """
         return self.pressure.get_last_acquisition()
     @command(category='Pressure',
               description='change pressure setpoint',
               default_arg=0)
     def set_pressure(self, pressure):
+        """
+        Set the pressure controller setpoint.
+
+        Args:
+            pressure (float): Desired pressure value.
+        """
         self.execute(self.pressure.set_pressure, argument=pressure)
 
     @command(category='Pressure',
               description='get pressure setpoint')
     def get_pressure(self):
+        """
+        Retrieve the current pressure setpoint.
+
+        Returns:
+            float: Current pressure value.
+        """
         return self.pressure.get_pressure()
     @command(category='Pressure',
                 description='switch pressure on or off',
                 default_arg=False) 
     def set_ATM(self, atm):
+        """
+        Enable or disable atmospheric pressure control.
+
+        Args:
+            atm (bool): True to enable, False to disable.
+        """
         self.execute(self.pressure.set_ATM,argument=atm)
     @command(category='Pressure',
                     description='obtain current pressure state') 
     def get_ATM(self):
-            return self.pressure.get_ATM()
+        """
+        Retrieve the current atmospheric pressure control state.
+
+        Args:
+            None
+
+        Returns:
+            bool: Current ATM state.
+        """
+        return self.pressure.get_ATM()
         
     @command(category='DAQ',
                 description='get last Data from DAQ')
     def get_last_data(self):
+        """
+        Retrieve the most recent data acquisition result.
+
+        Returns:
+            object: Latest DAQ data or None if unavailable.
+        """
         if self.daq.get_last_acquisition() is not None:
             return self.daq.get_last_acquisition()
         else:
@@ -64,6 +117,19 @@ class GraphInterface(TaskInterface):
     def get_noise_metrics(self, timeData=None, respData=None,
                           window_start=0.004, window_end=0.010,
                           avg_p2p_window=0.001):
+        """
+        Compute noise metrics from DAQ response data.
+
+        Args:
+            timeData (array-like, optional): Time series data.
+            respData (array-like, optional): Response signal data.
+            window_start (float, optional): Start time for analysis window.
+            window_end (float, optional): End time for analysis window.
+            avg_p2p_window (float, optional): Window size for peak-to-peak averaging.
+
+        Returns:
+            object: Computed noise metrics.
+        """
         return self.daq.compute_noise_metrics(
             timeData=timeData,
             respData=respData,
@@ -75,23 +141,47 @@ class GraphInterface(TaskInterface):
     @command(category='DAQ',
                 description='get last optogenetic protocol data')
     def get_last_optogenetic_data(self):
+        """
+        Retrieve the last recorded optogenetic protocol data.
+
+        Returns:
+            object: Optogenetic data or None if unavailable.
+        """
         return getattr(self.daq, "optogenetic_protocol_data", None)
         
     @command(category='DAQ',
                 description='obtain acquision mode')
     def getCellMode(self):
+        """
+        Get the current acquisition mode of the DAQ.
+
+        Returns:
+            object: Current cell/acquisition mode.
+        """
         return self.daq.getCellMode()
     
     @command(category='DAQ',
                 description=' set the acquisition mode',
                 default_arg=False)
     def setCellMode(self, cellMode):
+        """
+        Set the acquisition mode of the DAQ.
+
+        Args:
+            cellMode (object): Desired acquisition mode.
+        """
         self.execute(self.daq.setCellMode, argument=cellMode)
 
     @command(category = 'Amplifier',
                       description='set the Zap duration',
                       default_arg=0.5)
     def set_zap_duration(self, duration):
+        """
+        Set the duration of the amplifier zap pulse.
+
+        Args:
+            duration (float): Zap duration in seconds.
+        """
         self.execute(self.amplifier.set_zap_duration, argument=duration)
 
     @command(category = 'Amplifier',
@@ -99,11 +189,18 @@ class GraphInterface(TaskInterface):
                       success_message ='Zap done')
 
     def zap(self):
+        """Trigger a zap pulse using the amplifier."""
         self.execute(self.amplifier.zap)
 
     @command(category='Laser',
               description='get laser power state')
     def get_laser_power_state(self):
+        """
+        Retrieve the current laser power state.
+
+        Returns:
+            str or None: Laser power state or None if no laser is configured.
+        """
         if self.laser is None:
             return None
         return self.laser.get_power_state()
@@ -111,6 +208,12 @@ class GraphInterface(TaskInterface):
     @command(category='Laser',
               description='get current laser wavelength')
     def get_laser_wavelength(self):
+        """
+        Retrieve and cache the current laser wavelength.
+
+        Returns:
+            object: Current wavelength or None if no laser is configured.
+        """
         if self.laser is None:
             return None
         wavelength = self.laser.get_wavelength()
@@ -120,12 +223,27 @@ class GraphInterface(TaskInterface):
     @command(category='Laser',
               description='get cached laser power percent')
     def get_laser_power(self):
+        """
+        Retrieve the cached laser power percentage.
+
+        Returns:
+            int: Cached laser power value.
+        """
         return self._laser_power
 
     @command(category='Laser',
               description='set laser power percent',
               default_arg=0)
     def set_laser_power(self, power_percent):
+        """
+        Set the laser power percentage with validation and clamping.
+
+        Args:
+            power_percent (float): Desired power percentage (0–100).
+
+        Returns:
+            int or None: Applied power value, or None if invalid or unavailable.
+        """
         if self.laser is None:
             self.warning("No laser configured; skipping power update.")
             return None
@@ -142,6 +260,12 @@ class GraphInterface(TaskInterface):
     @command(category='Laser',
               description='toggle laser output')
     def toggle_laser_output(self):
+        """
+        Toggle the laser output state, ensuring correct power level is set.
+
+        Returns:
+            str or None: Updated laser power state or None if unavailable.
+        """
         if self.laser is None:
             self.warning("No laser configured; skipping output toggle.")
             return None
@@ -154,6 +278,12 @@ class GraphInterface(TaskInterface):
     @command(category='Laser',
               description='get available laser wavelength options')
     def get_laser_wavelength_options(self):
+        """
+        Retrieve available wavelength options for the laser.
+
+        Returns:
+            list: Available wavelength options.
+        """
         if self.laser is None:
             return []
         order = getattr(self.laser, "_wavelength_order", None)
@@ -165,6 +295,15 @@ class GraphInterface(TaskInterface):
         return []
 
     def _step_laser_wavelength(self, step: int):
+        """
+        Increment or decrement the laser wavelength based on the current state.
+
+        Args:
+            step (int): Step direction and size (positive or negative).
+
+        Returns:
+            object: New wavelength value, or None if operation fails.
+        """
         if self.laser is None:
             self.warning("No laser configured; skipping wavelength change.")
             return None
@@ -197,11 +336,23 @@ class GraphInterface(TaskInterface):
     @command(category='Laser',
               description='step wavelength down')
     def wavelength_down(self):
+        """
+        Decrease the laser wavelength to the previous available value.
+
+        Returns:
+            object: Updated wavelength value.
+        """
         return self._step_laser_wavelength(-1)
 
     @command(category='Laser',
               description='step wavelength up')
     def wavelength_up(self):
+        """
+        Increase the laser wavelength to the next available value.
+
+        Returns:
+            object: Updated wavelength value.
+        """
         return self._step_laser_wavelength(1)
 
     

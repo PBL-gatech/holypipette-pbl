@@ -22,10 +22,12 @@ class Microscope(Manipulator):
     '''
     def __init__(self, dev, axis, microscope_units_per_um=1.0):
         '''
-        Parameters
-        ----------
-        dev : underlying device
-        axis : axis index
+        Initialize the Microscope.
+
+        Args:
+            dev: The underlying device (Manipulator) to control.
+            axis: Axis index corresponding to the Z-axis.
+            microscope_units_per_um: Conversion factor from device units to micrometers.
         '''
         Manipulator.__init__(self)
         self.dev : Manipulator = dev
@@ -39,9 +41,21 @@ class Microscope(Manipulator):
         self.set_units_per_um(microscope_units_per_um)
 
     def set_max_speed(self, speed):
+        """
+        Set the maximum speed for the device.
+
+        Args:
+            speed: Maximum speed to set.
+        """
         self.dev.set_max_speed(speed)
 
     def set_units_per_um(self, units_per_um):
+        """
+        Set the device units per micrometer.
+
+        Args:
+            units_per_um: Conversion factor from um to device units.
+        """
         if units_per_um is None:
             return
         try:
@@ -53,22 +67,45 @@ class Microscope(Manipulator):
         self.microscope_units_per_um = units
 
     def _scale(self):
+        """
+        Get the current scaling factor from um to device units.
+
+        Returns:
+            Scale factor (float)
+        """
         return self.microscope_units_per_um if self.microscope_units_per_um else 1.0
 
     def _to_device_units(self, value_um):
+        """
+        Convert a value in micrometers to device units.
+
+        Args:
+            value_um: Value in micrometers.
+
+        Returns:
+            Value in device units.
+        """
         return float(value_um) * self._scale()
 
     def _from_device_units(self, value_dev):
+        """
+        Convert a value in device units to micrometers.
+
+        Args:
+            value_dev: Value in device units.
+
+        Returns:
+            Value in micrometers.
+        """
         return float(value_dev) / self._scale()
 
     def position(self):
-        '''
-        Current position
+        """
+        Get the current position of the microscope Z-axis.
 
-        Returns
-        -------
-        The current position of the device axis in um.
-        '''
+        Returns:
+            Current position in micrometers (um).
+        """
         true_position = self._from_device_units(self.dev.position(self.axis))
         
         return true_position
@@ -77,9 +114,8 @@ class Microscope(Manipulator):
         '''
         Moves the device axis to position x in um.
 
-        Parameters
-        ----------
-        x : target position in um.
+        Args:
+            x: Target position in micrometers (um).
         '''
         ##self.abort_if_requested()
         self.dev.absolute_move(self._to_device_units(x), self.axis)
@@ -89,9 +125,8 @@ class Microscope(Manipulator):
         '''
         Moves the device axis at velocity vel in um/s.
 
-        Parameters
-        ----------
-        vel : velocity in um/s.
+        Args:
+            vel: Velocity in micrometers per second (um/s).
         '''
         ###self.abort_if_requested()
         velarr = [0,0,self._to_device_units(vel)]
@@ -126,9 +161,8 @@ class Microscope(Manipulator):
         '''
         Moves the device axis by relative amount x in um.
 
-        Parameters
-        ----------
-        x : position shift in um.
+        Args:
+            x: Distance to move in micrometers (um).
         '''
         ##self.abort_if_requested()
         self.dev.relative_move(self._to_device_units(x), self.axis)
@@ -137,9 +171,9 @@ class Microscope(Manipulator):
     def step_move(self, distance):
         '''
         Moves the device axis by a fixed step distance in um.
-        Parameters
-        ----------
-        distance : step size in um.
+        
+        Args:
+            distance: Step size in micrometers (um).
         '''
         ###self.abort_if_requested()
         self.dev.step_move(self._to_device_units(distance), self.axis)
@@ -161,13 +195,15 @@ class Microscope(Manipulator):
         '''
         Take a stack of images at the positions given in the z list
 
-        Parameters
-        ----------
-        camera : a camera, eg with a snap() method
-        z : A list of z positions
-        preprocessing : a function that processes the images (optional)
-        save : saves images to disk if True
-        pause : pause in second after each movement
+        Args:
+            camera: Camera object with a snap() method.
+            z: List of Z positions in micrometers.
+            preprocessing: Optional function to process images.
+            save: Filename prefix to save images, if not None.
+            pause: Pause in seconds after each movement.
+
+        Returns:
+            List of acquired images.
         '''
         position = self.position()
         images = []
@@ -190,6 +226,9 @@ class Microscope(Manipulator):
     def save_configuration(self):
         '''
         Outputs configuration in a dictionary.
+
+        Returns:
+            Dictionary containing configuration parameters.
         '''
         config = {'up_direction' : self.up_direction,
                   'floor_Z' : self.floor_Z}
@@ -199,6 +238,9 @@ class Microscope(Manipulator):
         '''
         Loads configuration from dictionary config.
         Variables not present in the dictionary are untouched.
+
+        Args:
+            config: Dictionary with configuration parameters.
         '''
         self.up_direction = config.get('up_direction', self.up_direction)
         #self.floor_Z = config.get('floor_Z', self.floor_Z)

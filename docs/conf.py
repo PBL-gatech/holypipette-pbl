@@ -223,6 +223,12 @@ sys.modules.update((mod_name, mock.Mock()) for mod_name in MOCK_MODULES)
 
 # Run sphinx-apidoc automatically
 def run_apidoc(_):
+    """
+    Generate Sphinx reStructuredText API documentation from the patcherbot source package.
+
+    Args:
+        _ (Any): Unused argument; required by Sphinx 'builder-inited' event.
+    """
     try:
         import sphinx.apidoc as apidoc
     except ImportError:
@@ -237,4 +243,10 @@ def run_apidoc(_):
 
 
 def setup(app):
+    """
+    Connect the run_apidoc function to the Sphinx 'builder-inited' event.
+
+    Args:
+        app (sphinx.application.Sphinx): The Sphinx application object.
+    """
     app.connect('builder-inited', run_apidoc)

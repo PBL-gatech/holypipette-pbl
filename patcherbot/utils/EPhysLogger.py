@@ -9,7 +9,20 @@ import numpy as np
 import cv2
 
 class EPhysLogger(threading.Thread):
+    """
+    Threaded logger for electrophysiology data, including signal traces,
+    plots, images, and metadata. Handles file organization, asynchronous
+    writing, and formatting for experiment outputs.
+    """
     def __init__(self, recording_state_manager, folder_path="experiments/Data/patch_clamp_data/", ephys_filename="ephys"):
+        """
+        Initialize the EPhysLogger.
+
+        Args:
+            recording_state_manager: Object managing recording state and configuration.
+            folder_path (str, optional): Base directory for saving experiment data.
+            ephys_filename (str, optional): Base filename for saved data files.
+        """
         super().__init__()
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
@@ -33,6 +46,12 @@ class EPhysLogger(threading.Thread):
         self.image_type  = "webp"
 
     def create_folder(self):
+        """
+        Create the output directory if it does not already exist.
+
+        Raises:
+            OSError: If directory creation fails.
+        """
         if not self.folder_created:
             try:
                 os.makedirs(os.path.dirname(self.folder_path), exist_ok=True)
@@ -45,6 +64,17 @@ class EPhysLogger(threading.Thread):
             # logging.debug("Folder already created. Skipping creation.")
 
     def _write_to_file(self, index, timeData, readData, respData, color, filename_override=None):
+        """
+        Write electrophysiology data to a CSV file.
+
+        Args:
+            index (int): Protocol index.
+            timeData (list): Time values.
+            readData (list): Recorded signal values.
+            respData (list): Response signal values.
+            color (str): Identifier for trace grouping.
+            filename_override (str, optional): Custom filename override.
+        """
         # Check if "CurrentProtocol" is in filename
         if filename_override is None and "CurrentProtocol" in self.filename:
             with self.index_color_lock:
@@ -75,6 +105,17 @@ class EPhysLogger(threading.Thread):
         self.write_event.set()  # Signal that writing is done
 
     def write_ephys_data(self, index, timeData, readData, respData, color, *, filename_override=None):
+        """
+        Asynchronously write electrophysiology data to file.
+
+        Args:
+            index (int): Protocol index.
+            timeData (list): Time values.
+            readData (list): Recorded signal values.
+            respData (list): Response signal values.
+            color (str): Identifier for trace grouping.
+            filename_override (str, optional): Custom filename override.
+        """
         self.create_folder()  # Ensure folder is created if it hasn't been
         self.write_event.clear()
         threading.Thread(
@@ -83,6 +124,14 @@ class EPhysLogger(threading.Thread):
         ).start()
 
     def save_ephys_plot(self, index, plot, *, filename_override=None):
+        """
+        Save a rendered electrophysiology plot as an image.
+
+        Args:
+            index (int): Protocol index.
+            plot: Qt plot object to render.
+            filename_override (str, optional): Custom filename override.
+        """
         self.create_folder()  # Ensure folder is created if it hasn't been
 
         if filename_override:
@@ -100,14 +149,42 @@ class EPhysLogger(threading.Thread):
             logging.error("Failed to save plot to %s", image_path)
 
     def _optogenetic_basename(self, index, protocol_type):
+        """
+        Generate a standardized base filename for optogenetic data.
+
+        Args:
+            index (int): Protocol index.
+            protocol_type: Protocol identifier.
+
+        Returns:
+            str: Normalized base filename.
+        """
         protocol_type = self._normalize_protocol_type(protocol_type)
         return f"OptogeneticProtocol_{index}_{protocol_type}"
 
     def write_optogenetic_data(self, index, timeData, readData, respData, protocol_type):
+        """
+        Write optogenetic electrophysiology data to file.
+
+        Args:
+            index (int): Protocol index.
+            timeData (list): Time values.
+            readData (list): Recorded signal values.
+            respData (list): Response signal values.
+            protocol_type: Protocol identifier.
+        """
         basename = self._optogenetic_basename(index, protocol_type)
         self.write_ephys_data(index, timeData, readData, respData, "k", filename_override=basename)
 
     def write_optogenetic_stim_data(self, index, stim_data, protocol_type):
+        """
+        Write optogenetic stimulation metadata to a CSV file.
+
+        Args:
+            index (int): Protocol index.
+            stim_data (list[dict]): Stimulation step data.
+            protocol_type: Protocol identifier.
+        """
         if not stim_data:
             return
         self.create_folder()
@@ -128,6 +205,14 @@ class EPhysLogger(threading.Thread):
                 f.write(f"{start_s},{end_s},{state},{wavelength},{power},{replicate}\n")
 
     def save_optogenetic_plot(self, index, plot, protocol_type):
+        """
+        Save an optogenetic plot as an image file with fallback format.
+
+        Args:
+            index (int): Protocol index.
+            plot: Qt plot object to render.
+            protocol_type: Protocol identifier.
+        """
         self.create_folder()
         basename = self._optogenetic_basename(index, protocol_type)
         image_path = os.path.join(self.folder_path, f"{basename}.webp")
@@ -147,22 +232,39 @@ class EPhysLogger(threading.Thread):
             logging.error("Failed to save plot to %s", fallback_path)
 
     def _normalize_image(self, image):
-            """Return an 8-bit version of ``image`` using per-image min/max normalization."""
-            if image is None:
-                return None
-            img = np.asarray(image)
-            if img.size == 0:
-                return np.zeros_like(img, dtype=np.uint8)
-            img = img.astype(np.float32)
-            min_val = float(np.min(img))
-            max_val = float(np.max(img))
-            if max_val > min_val:
-                img = (img - min_val) / (max_val - min_val) * 255.0
-            else:
-                img = np.zeros_like(img, dtype=np.float32)
-            return np.clip(img, 0, 255).astype(np.uint8)
+        """
+        Return an 8-bit version of ``image`` using per-image min/max normalization.
+            
+        Args:
+            image: Input image array.
+
+        Returns:
+            numpy.ndarray: Normalized 8-bit image, or None if input is None.
+        """
+        if image is None:
+            return None
+        img = np.asarray(image)
+        if img.size == 0:
+            return np.zeros_like(img, dtype=np.uint8)
+        img = img.astype(np.float32)
+        min_val = float(np.min(img))
+        max_val = float(np.max(img))
+        if max_val > min_val:
+            img = (img - min_val) / (max_val - min_val) * 255.0
+        else:
+            img = np.zeros_like(img, dtype=np.float32)
+        return np.clip(img, 0, 255).astype(np.uint8)
 
     def _format_metadata_value(self, value):
+        """
+        Format a numeric metadata value for CSV output.
+
+        Args:
+            value: Input value.
+
+        Returns:
+            str: Formatted string or "NaN" if invalid.
+        """
         if value is None:
             return "NaN"
         try:
@@ -174,6 +276,15 @@ class EPhysLogger(threading.Thread):
         return f"{value:.6g}"
 
     def _format_stim_time_value(self, value):
+        """
+        Format a stimulation time value with high precision.
+
+        Args:
+            value: Input value.
+
+        Returns:
+            str: Formatted string or "NaN" if invalid.
+        """
         if value is None:
             return "NaN"
         try:
@@ -185,6 +296,15 @@ class EPhysLogger(threading.Thread):
         return f"{value:.17g}"
 
     def _normalize_protocol_type(self, protocol_type):
+        """
+        Normalize a protocol type to a lowercase string.
+
+        Args:
+            protocol_type: Protocol identifier.
+
+        Returns:
+            str: Normalized protocol name.
+        """
         if protocol_type is None:
             return "unknown"
         name = getattr(protocol_type, "name", None)
@@ -194,6 +314,15 @@ class EPhysLogger(threading.Thread):
         return text if text else "unknown"
 
     def _format_optogenetic_value(self, value):
+        """
+        Format optogenetic metadata values for CSV output.
+
+        Args:
+            value: Input value.
+
+        Returns:
+            str: Formatted string representation.
+        """
         if value is None:
             return "NaN"
         if isinstance(value, str):
@@ -204,6 +333,14 @@ class EPhysLogger(threading.Thread):
         return self._format_metadata_value(value)
 
     def _append_metadata_row(self, target_path, header, row):
+        """
+        Append a row to a metadata CSV file, writing header if needed.
+
+        Args:
+            target_path (str): File path.
+            header (str): Header line.
+            row (str): Row data.
+        """
         write_header = not os.path.exists(target_path)
         with open(target_path, "a+", encoding="utf-8") as f:
             if write_header:
@@ -211,7 +348,17 @@ class EPhysLogger(threading.Thread):
             f.write(row)
 
     def save_cell_metadata(self, index, stage_coords, image=None, *, image_fluo=None, voltage_hold=None, current_hold=None):
-        """Save cell image and stage coordinates for a given protocol index."""
+        """
+        Save cell image and stage coordinates for a given protocol index.
+        
+        Args:
+            index (int): Protocol index.
+            stage_coords (tuple): Stage (x, y, z) coordinates.
+            image: Primary image.
+            image_fluo: Fluorescence image.
+            voltage_hold: Voltage hold value.
+            current_hold: Current hold value.
+        """
         self.create_folder()
 
         if image is None:
@@ -239,6 +386,13 @@ class EPhysLogger(threading.Thread):
         self._append_metadata_row(self.cell_metadata_file, header, row)
 
     def hold_image(self, index, image):
+        """
+        Store an image temporarily for later use.
+
+        Args:
+            index (int): Protocol index.
+            image: Image data.
+        """
         if image is None:
             logging.error("No image to hold")
             return
@@ -247,6 +401,7 @@ class EPhysLogger(threading.Thread):
             self.image = image
 
     def close(self):
+        """Close any open file handles and ensure pending writes complete."""
         if self.file is not None:
             logging.info("CLOSING FILE: %s", self.filename)
             self.write_event.wait()  # Wait for the last task to complete

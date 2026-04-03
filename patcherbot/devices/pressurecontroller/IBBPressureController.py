@@ -28,6 +28,17 @@ class IBBPressureController(PressureController):
     def __init__(self, channel, arduinoSerial=None,
                  native_zero=None, native_per_mbar=None,
                  serial_cmd_timeout=None, startup_pressure=None):
+        """
+        Initializes the IBB pressure controller.
+
+        Args:
+            channel (int): Channel number on the pressure box.
+            arduinoSerial (serial.Serial, optional): Serial interface to Arduino. Defaults to None.
+            native_zero (int, optional): DAC units at 0 mBar. Defaults to DEFAULT_NATIVE_ZERO.
+            native_per_mbar (float, optional): DAC units per mBar. Defaults to DEFAULT_NATIVE_PER_MBAR.
+            serial_cmd_timeout (float, optional): Timeout for serial commands in seconds. Defaults to DEFAULT_SERIAL_CMD_TIMEOUT.
+            startup_pressure (float, optional): Initial pressure in mBar. Defaults to DEFAULT_STARTUP_PRESSURE.
+        """
         super().__init__()
 
         self.serial = arduinoSerial
@@ -48,24 +59,42 @@ class IBBPressureController(PressureController):
 
     def set_pressure(self, pressure):
         '''Tell pressure controller to go to a given setpoint pressure in mbar
+        
+        Args:
+            pressure (float): Target pressure in mBar.
         '''
         nativeUnits = self.mbarToNative(pressure)
         self.set_pressure_raw(nativeUnits)
     
     def mbarToNative(self, pressure):
         '''Comvert from a pressure in mBar to native units
+        
+        Args:
+            pressure (float): Pressure in mBar.
+
+        Returns:
+            int: Clamped DAC units (0-4095).
         '''
         raw_pressure = int(pressure * self.nativePerMbar + self.nativeZero)
         return min(max(raw_pressure, 0), 4095) #clamp native units to 0-4095
 
     def nativeToMbar(self, raw_pressure):
         '''Comvert from native units to a pressure in mBar
+        
+        Args:
+            raw_pressure (int): DAC units.
+
+        Returns:
+            float: Pressure in mBar.
         '''
         pressure = (raw_pressure - self.nativeZero) / self.nativePerMbar
         return pressure
 
     def set_pressure_raw(self, raw_pressure):
         '''Tell pressure controller to go to a given setpoint pressure in native DAC units
+        
+        Args:
+            raw_pressure (int): Target DAC units.
         '''
         self.setpoint_raw = raw_pressure
         logging.info(f"Setting pressure to {self.nativeToMbar(raw_pressure)} mbar (raw: {raw_pressure})")
@@ -81,25 +110,46 @@ class IBBPressureController(PressureController):
 
     def get_setpoint(self):
         '''Gets the current setpoint in millibar
+       
+        Returns:
+            float: Pressure in mBar.
         '''
         return self.nativeToMbar(self.setpoint_raw)
 
     def get_setpoint_raw(self):
         '''Gets the current setpoint in native DAC units
+        
+        Returns:
+            int: Pressure in DAC units.
         '''
         logging.info(f"Current setpoint: {self.nativeToMbar(self.setpoint_raw)} mbar (raw: {self.setpoint_raw})")
         return self.setpoint_raw
     
     def get_pressure(self):
+        """
+        Returns the current pressure in mBar.
+
+        Returns:
+            float: Current pressure in mBar.
+        """
         return self.get_setpoint() #maybe add a pressure sensor down the line?
     
     
     def measure(self):
+        """
+        Returns the current measured pressure.
+
+        Returns:
+            float: Current pressure in mBar.
+        """
         return self.get_pressure()
     
 
     def pulse(self, delayMs):
         '''Tell the onboard arduino to pulse pressure for a certain period of time
+        
+        Args:
+            delayMs (int): Pulse duration in milliseconds.
         '''
         cmd = f"pulse {self.channel} {delayMs}\n"
         logging.info(f"Pulsing pressure for {delayMs} ms")
@@ -112,6 +162,9 @@ class IBBPressureController(PressureController):
         '''Send a serial command activating or deactivating the atmosphere solenoid valve
            atm = True -> pressure output is at atmospheric pressure 
            atm = False -> pressure output comes from pressure regulator
+
+        Args:
+            atm (bool): True to switch to atmospheric pressure, False for regulated pressure.
         '''
         if atm:
             cmd = f"switchAtm {self.channel}\n" #switch to ATM command

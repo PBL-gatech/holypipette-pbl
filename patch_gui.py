@@ -39,6 +39,10 @@ def main():
 
     If any configuration or hardware initialization step fails, the error is displayed and the program exists
     safely.
+
+    Raises:
+        RigConfigError: If the selected rig configuration is invalid or incomplete.
+        Exception: If any other error occurs during initialization.
     """
     app = QApplication(sys.argv)
     manager = RigConfigManager()

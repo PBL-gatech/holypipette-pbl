@@ -74,7 +74,12 @@ __version__ = "3.0.12"
 
 _logger = None
 def logger():
-    """Returns the logger instance used in this module."""
+    """
+    Returns the logger instance used in this module.
+    
+    Returns:
+        logging.Logger: Logger used by this module.
+    """
     global _logger
     _logger = _logger or logging.getLogger(__name__)
     return _logger
@@ -90,12 +95,22 @@ class Timeout(TimeoutError):
 
     def __init__(self, lock_file):
         """
+        Initialize the Timeout exception.
+
+        Args:
+            lock_file (str): Path to the lock file.
         """
         #: The path of the file lock.
         self.lock_file = lock_file
         return None
 
     def __str__(self):
+        """
+        Return a string representation of the exception.
+
+        Returns:
+            str: Error message describing the lock failure.
+        """
         temp = "The file lock '{}' could not be acquired."\
                .format(self.lock_file)
         return temp
@@ -113,15 +128,38 @@ class Timeout(TimeoutError):
 #
 # :seealso: issue #37 (memory leak)
 class _Acquire_ReturnProxy(object):
-
+    """
+    Proxy object returned by BaseFileLock.acquire() to support safe use
+    in context managers without re-acquiring the lock.
+    """
     def __init__(self, lock):
+        """
+        Initialize the proxy.
+
+        Args:
+            lock (BaseFileLock): The lock instance being wrapped.
+        """
         self.lock = lock
         return None
 
     def __enter__(self):
+        """
+        Enter the runtime context.
+
+        Returns:
+            BaseFileLock: The underlying lock object.
+        """
         return self.lock
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Exit the runtime context and release the lock.
+
+        Args:
+            exc_type (type): Exception class.
+            exc_value (Exception): Exception instance.
+            traceback (traceback): Traceback object.
+        """
         self.lock.release()
         return None
 
@@ -133,6 +171,11 @@ class BaseFileLock(object):
 
     def __init__(self, lock_file, timeout = -1):
         """
+        Initialize the BaseFileLock.
+
+        Args:
+            lock_file (str): Path to the lock file.
+            timeout (float, optional): Default timeout in seconds.
         """
         # The path to the lock file.
         self._lock_file = lock_file
@@ -159,6 +202,9 @@ class BaseFileLock(object):
     def lock_file(self):
         """
         The path to the lock file.
+
+        Returns:
+            str: Lock file path
         """
         return self._lock_file
 
@@ -173,6 +219,9 @@ class BaseFileLock(object):
 
         A timeout of 0 means, that there is exactly one attempt to acquire the
         file lock.
+        
+        Returns:
+            float: Timeout in seconds.
 
         .. versionadded:: 2.0.0
         """
@@ -181,6 +230,10 @@ class BaseFileLock(object):
     @timeout.setter
     def timeout(self, value):
         """
+        Set the default timeout value.
+
+        Args:
+            value (float): Timeout in seconds.
         """
         self._timeout = float(value)
         return None
@@ -193,12 +246,18 @@ class BaseFileLock(object):
         Platform dependent. If the file lock could be
         acquired, self._lock_file_fd holds the file descriptor
         of the lock file.
+
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
         """
         raise NotImplementedError()
 
     def _release(self):
         """
         Releases the lock and sets self._lock_file_fd to None.
+
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
         """
         raise NotImplementedError()
 
@@ -209,6 +268,9 @@ class BaseFileLock(object):
     def is_locked(self):
         """
         True, if the object holds the file lock.
+        
+        Returns:
+            bool: True if locked, False otherwise.
 
         .. versionchanged:: 2.0.0
 
@@ -232,19 +294,22 @@ class BaseFileLock(object):
                 pass
             finally:
                 lock.release()
+        Args:
+            timeout (float, optional):
+                The maximum time waited for the file lock.
+                If ``timeout < 0``, there is no timeout and this method will
+                block until the lock could be acquired.
+                If ``timeout`` is None, the default :attr:`~timeout` is used.
 
-        :arg float timeout:
-            The maximum time waited for the file lock.
-            If ``timeout < 0``, there is no timeout and this method will
-            block until the lock could be acquired.
-            If ``timeout`` is None, the default :attr:`~timeout` is used.
+            poll_intervall (float, optional):
+                We check once in *poll_intervall* seconds if we can acquire the
+                file lock.
 
-        :arg float poll_intervall:
-            We check once in *poll_intervall* seconds if we can acquire the
-            file lock.
+        Raises:
+            Timeout: If the lock could not be acquired in *timeout* seconds.
 
-        :raises Timeout:
-            if the lock could not be acquired in *timeout* seconds.
+        Returns:
+            _Acquire_ReturnProxy: Proxy object for context manager usage.
 
         .. versionchanged:: 2.0.0
 
@@ -299,9 +364,10 @@ class BaseFileLock(object):
 
         Also note, that the lock file itself is not automatically deleted.
 
-        :arg bool force:
-            If true, the lock counter is ignored and the lock is released in
-            every case.
+        Args:
+            force (bool, optional):
+                If true, the lock counter is ignored and the lock is released in
+                every case.
         """
         with self._thread_lock:
 
@@ -320,14 +386,29 @@ class BaseFileLock(object):
         return None
 
     def __enter__(self):
+        """
+        Enter the runtime context and acquire the lock.
+
+        Returns:
+            BaseFileLock: The lock instance.
+        """
         self.acquire()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Exit the runtime context and release the lock.
+
+        Args:
+            exc_type (type): Exception class.
+            exc_value (Exception): Exception instance.
+            traceback (traceback): Traceback object.
+        """
         self.release()
         return None
 
     def __del__(self):
+        """Ensure the lock is released upon object deletion."""
         self.release(force = True)
         return None
 
@@ -342,6 +423,7 @@ class WindowsFileLock(BaseFileLock):
     """
 
     def _acquire(self):
+        """Attempt to acquire the lock using Windows-specific mechanisms."""
         open_mode = os.O_RDWR | os.O_CREAT | os.O_TRUNC
 
         try:
@@ -358,6 +440,7 @@ class WindowsFileLock(BaseFileLock):
         return None
 
     def _release(self):
+        """Release the Windows file lock and remove the lock file."""
         fd = self._lock_file_fd
         self._lock_file_fd = None
         msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
@@ -380,6 +463,7 @@ class UnixFileLock(BaseFileLock):
     """
 
     def _acquire(self):
+        """Attempt to acquire the lock using Unix-specific mechanisms."""
         open_mode = os.O_RDWR | os.O_CREAT | os.O_TRUNC
         fd = os.open(self._lock_file, open_mode)
 
@@ -392,6 +476,7 @@ class UnixFileLock(BaseFileLock):
         return None
 
     def _release(self):
+        """Release the Unix file lock without deleting the lock file."""
         # Do not remove the lockfile:
         #
         #   https://github.com/benediktschmitt/py-filelock/issues/31
@@ -411,6 +496,7 @@ class SoftFileLock(BaseFileLock):
     """
 
     def _acquire(self):
+        """Attempt to acquire the lock by creating a lock file."""
         open_mode = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_TRUNC
         try:
             fd = os.open(self._lock_file, open_mode)
@@ -421,6 +507,7 @@ class SoftFileLock(BaseFileLock):
         return None
 
     def _release(self):
+        """Release the lock by deleting the lock file."""
         os.close(self._lock_file_fd)
         self._lock_file_fd = None
 

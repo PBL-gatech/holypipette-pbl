@@ -20,7 +20,7 @@ import h5py
 
 
 class AgentHelper:
-
+    """Helper class for managing agent instantiation, demo data loading, and inference execution."""
     def __init__(self):
         """Track the active agent instance and its configuration."""
         self.agent = None
@@ -37,7 +37,16 @@ class AgentHelper:
         }
 
     def prepare_model(self, model_type):
-        """Instantiate one of the supported agent subclasses."""
+        """
+        Instantiate one of the supported agent subclasses.
+        
+        args:
+            model_type: Identifier for the agent type to initialize.
+
+        raises:
+            ValueError: If the model_type is not supported.
+            RuntimeError: If required demo data cannot be loaded for replay agents.
+        """
         self.model_type = model_type
         if model_type == "find_pipette":
             self.agent = PipetteFinder()
@@ -72,7 +81,15 @@ class AgentHelper:
         self.requires_goal = bool(getattr(self.agent, "goal_required", False))
 
     def load_demo(self, actions: np.ndarray) -> None:
-        """Store demo actions for later replay and pass them to an active replay agent."""
+        """
+        Store demo actions for later replay and pass them to an active replay agent.
+        
+        args:
+            actions: Array of action vectors to be replayed.
+
+        raises:
+            ValueError: If the provided action array is empty.
+        """
         replay = np.asarray(actions, dtype=np.float32)
         if replay.ndim == 1:
             replay = replay.reshape(1, -1)
@@ -83,11 +100,25 @@ class AgentHelper:
             self.agent.load_actions(self._demo_actions)
 
     def has_demo_actions(self) -> bool:
-        """Return True when a demo action sequence has been cached."""
+        """
+        Return True when a demo action sequence has been cached.
+        
+        returns:
+            True if demo actions exist and are non-empty, otherwise False.
+        """
         return self._demo_actions is not None and self._demo_actions.size > 0
 
     def load_demo_from_hdf5(self, data_path: Union[str, Path], *, demo_id: Optional[str] = None) -> Dict[str, Any]:
-        """Load demo data from disk and cache its action sequence for replay use."""
+        """
+        Load demo data from disk and cache its action sequence for replay use.
+        
+        args:
+            data_path: Path to the HDF5 dataset file.
+            demo_id: Optional identifier for a specific demonstration.
+
+        returns:
+            Dictionary containing dataset components such as images, actions, and metadata.
+        """
         dataset = self._load_hdf5_sequence(Path(data_path), demo_id=demo_id)
         self._last_demo_dataset = dataset
         self.load_demo(dataset["actions"])
@@ -100,7 +131,14 @@ class AgentHelper:
         path: Optional[Union[str, Path]],
         demo_id: Optional[str] = None,
     ) -> None:
-        """Register or remove a default demo dataset for a replay-capable model."""
+        """
+        Register or remove a default demo dataset for a replay-capable model.
+        
+        args:
+            model_type: Model identifier to associate with the dataset.
+            path: Path to the dataset file, or None to remove the association.
+            demo_id: Optional demo identifier within the dataset.
+        """
         if path is None:
             self._default_demo_sources.pop(model_type, None)
             return
@@ -110,7 +148,15 @@ class AgentHelper:
         }
 
     def _infer_image_size(self, dataset: Optional[Dict[str, Any]]) -> Optional[Tuple[int, int]]:
-        """Extract the (height, width) from the cached dataset if available."""
+        """
+        Extract the (height, width) from the cached dataset if available.
+        
+        args:
+            dataset: Dataset dictionary potentially containing image data.
+
+        returns:
+            Tuple of (height, width) if available, otherwise None.
+        """
         if not dataset:
             return None
         images = dataset.get("images")
@@ -128,7 +174,20 @@ class AgentHelper:
         *,
         demo_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Load a single demonstration sequence from an HDF5 file."""
+        """
+        Load a single demonstration sequence from an HDF5 file.
+        
+        args:
+            data_path: Path to the dataset file.
+            demo_id: Optional identifier for a specific demo.
+
+        returns:
+            Dictionary containing images, actions, and associated metadata.
+
+        raises:
+            FileNotFoundError: If the dataset file does not exist.
+            ValueError: If the dataset structure is invalid or demo is missing.
+        """
         data_path = Path(data_path)
         if not data_path.exists():
             raise FileNotFoundError(f"Dataset not found at {data_path}")
@@ -191,7 +250,20 @@ class AgentHelper:
         *,
         is_demo: bool = False,
     ) -> np.ndarray:
-        """Execute inference on the prepared agent."""
+        """
+        Execute inference on the prepared agent.
+        
+        args:
+            observation: Tuple containing pipette position, stage position, image, and resistance.
+            goal: Optional goal input for agents that require it.
+            is_demo: Whether inference is being run in demo mode.
+
+        returns:
+            Predicted action as a numpy array.
+
+        raises:
+            RuntimeError: If the agent has not been initialized.
+        """
         if self.agent is None:
             raise RuntimeError("Call prepare_model before run_inference")
         active_goal = goal if self.requires_goal else None
@@ -199,6 +271,7 @@ class AgentHelper:
 
 
 class AgentTester:
+    """Utility class for evaluating agent performance on recorded datasets."""
     def __init__(self) -> None:
         """Prepare the agent for testing."""
         self.agent_helper = AgentHelper()
@@ -209,7 +282,19 @@ class AgentTester:
         self.last_dataset: Optional[Dict[str, Any]] = None
 
     def compute_errors(self, predictions: np.ndarray, actions: np.ndarray) -> List[float]:
-        """Compute the L2 error between the predicted and actual actions per frame."""
+        """
+        Compute the L2 error between the predicted and actual actions per frame.
+        
+        args:
+            predictions: Array of predicted actions.
+            actions: Array of ground-truth actions.
+
+        returns:
+            List of L2 errors for each frame.
+
+        raises:
+            ValueError: If the number of predictions and actions do not match.
+        """
         pred = np.asarray(predictions, dtype=np.float32)
         gt = np.asarray(actions, dtype=np.float32)
 
@@ -241,7 +326,23 @@ class AgentTester:
         show_animation: bool = True,
         show_plot: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Overlay predicted vs. ground-truth deltas on frames and plot per-axis comparisons."""
+        """
+        Overlay predicted vs. ground-truth deltas on frames and plot per-axis comparisons.
+        
+        args:
+            pred: Optional externally provided predictions.
+            fps: Frames per second for animation/video output.
+            save_video_path: Path to save animation output.
+            save_plot_path: Path to save comparison plot.
+            show_animation: Whether to display animation interactively.
+            show_plot: Whether to display the plot interactively.
+
+        returns:
+            Tuple of (overlay_frames_array, plot_image_array).
+
+        raises:
+            RuntimeError: If required data is unavailable or dependencies are missing.
+        """
         if self.last_results is None or self.last_dataset is None:
             raise RuntimeError("No cached results available. Run test_model before visualize.")
 
@@ -508,7 +609,20 @@ class AgentTester:
         data_path: Union[str, Path],
         demo_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Run inference over a dataset and collect error/latency metrics."""
+        """
+        Run inference over a dataset and collect error/latency metrics.
+        
+        args:
+            model_type: Identifier for the model to test.
+            data_path: Path to the dataset file.
+            demo_id: Optional demo identifier.
+
+        returns:
+            Dictionary containing predictions, errors, and latency metrics.
+
+        raises:
+            RuntimeError: If no predictions are generated.
+        """
         dataset = self.agent_helper.load_demo_from_hdf5(data_path, demo_id=demo_id)
         self.last_dataset = dataset
         self.agent_helper.prepare_model(model_type)
@@ -574,7 +688,17 @@ class AgentTester:
         data_path: Union[str, Path],
         demo_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Entry point used by the CLI stub below."""
+        """
+        Entry point used by the CLI stub below.
+        
+        args:
+            model_type: Identifier for the model to test.
+            data_path: Path to the dataset file.
+            demo_id: Optional demo identifier.
+
+        returns:
+            Dictionary of test results and metrics.
+        """
         results = self.test_model(model_type=model_type, data_path=data_path, demo_id=demo_id)
     
         mean_error = results.get("mean_error", float("nan"))

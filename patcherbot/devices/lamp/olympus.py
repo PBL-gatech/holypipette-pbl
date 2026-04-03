@@ -28,11 +28,12 @@ class OlympusLamp(Lamp):
     # ─────────────────────── construction ───────────────────────
     def __init__(self, port: str = "COM21", baud: int = 19200, cube_slots: int | None = None):
         """
-        Parameters
-        ----------
-        port        : serial port name (e.g. "COM21" or "/dev/ttyUSB0")
-        baud        : baud rate (default 19200, 8E2)
-        cube_slots  : override number of wheel slots (default = 6)
+        Initializes the serial connection and lamp configuration.
+
+        Args:
+            port (str): serial port name (e.g. "COM21" or "/dev/ttyUSB0")
+            baud (int): baud rate (default 19200, 8E2)
+            cube_slots (int | None): override number of wheel slots (default = 6)
         """
         # open & configure the port before any Lamp logic fires
         self._com = serial.Serial(
@@ -59,7 +60,19 @@ class OlympusLamp(Lamp):
 
     # ───────────────────── low‑level helpers ─────────────────────
     def _send_cmd(self, line: str, tries: int = 3) -> str:
-        """Thread‑safe I/O with automatic <CR><LF>, returns *decoded* reply."""
+        """
+        Thread‑safe I/O with automatic <CR><LF>, returns *decoded* reply.
+        
+        Args:
+            line (str): Command string to send.
+            tries (int): Number of retry attempts.
+
+        Returns:
+            str: Decoded response from the device.
+
+        Raises:
+            TimeoutError: If no response is received.
+        """
         raw = (line + "\r\n").encode()
         for _ in range(tries):
             with self._lock:
@@ -70,12 +83,29 @@ class OlympusLamp(Lamp):
         raise TimeoutError(f"No reply to {line!r}")
 
     def _cmd(self, tail: str) -> str:
-        """Convenience: prefix the controller address to *tail*."""
+        """
+        Convenience: prefix the controller address to *tail*.
+        
+        Args:
+            tail (str): Command suffix.
+
+        Returns:
+            str: Device response.
+        """
         return self._send_cmd(f"{self._PREFIX}{tail}")
 
     # ──────────────────────── start‑up ──────────────────────────
     def _probe_var(self, pref: str, name: str) -> bool:
-        """Return *True* if controller recognises variable *name* under *pref*."""
+        """
+        Return *True* if controller recognises variable *name* under *pref*.
+        
+        Args:
+            pref (str): Command prefix.
+            name (str): Variable name.
+
+        Returns:
+            bool: True if the variable is recognized.
+        """
         for q in (f"{name} ?", f"{name}?"):
             try:
                 if self._send_cmd(f"{pref}{q}").startswith(name):
@@ -114,7 +144,12 @@ class OlympusLamp(Lamp):
         self._cube_cmd = None   # leave prefix / slots indeterminate
 
     def _initialize(self):
-        """Login + auto‑detect cube wheel."""
+        """
+        Login + auto‑detect cube wheel.
+        
+        Raises:
+            RuntimeError: If login fails.
+        """
         # ---------- login ----------
         if not self._cmd("LOG?").endswith("IN"):
             if not self._cmd("LOG IN").endswith("+"):
@@ -125,21 +160,34 @@ class OlympusLamp(Lamp):
 
     # ───────────────────── shutter control ──────────────────────
     def _query_shutter_state(self) -> str:
-        """Return 'IN' (closed) or 'OUT' (open)."""
+        """
+        Queries the shutter state from the device.
+
+        Returns:
+            str: Raw shutter state ("IN" or "OUT").
+        """
         rep = self._cmd(f"{self._SHUTTER_CMD}?")
         return rep.split()[-1]
 
     def open_shutter(self):
+        """Opens the shutter if not already open."""
         if self._query_shutter_state() != "OUT":
             self._cmd(f"{self._SHUTTER_CMD} OUT")
         self.shutter_state = "open"
 
     def close_shutter(self):
+        """Closes the shutter if not already closed."""
         if self._query_shutter_state() != "IN":
             self._cmd(f"{self._SHUTTER_CMD} IN")
         self.shutter_state = "closed"
 
     def get_shutter_state(self):
+        """
+        Retrieves and updates the shutter state.
+
+        Returns:
+            str: "open" or "closed".
+        """
         state = self._query_shutter_state()
         self.shutter_state = "open" if state == "OUT" else "closed"
         return self.shutter_state
@@ -147,14 +195,30 @@ class OlympusLamp(Lamp):
     # ───────────────────── cube / filter wheel ──────────────────
     @staticmethod
     def _parse_slot(reply: str) -> int | None:
-        """Extract first integer token from reply line."""
+        """
+        Extract first integer token from reply line.
+        
+        Args:
+            reply (str): Raw response string.
+
+        Returns:
+            int | None: Parsed slot number or None if not found.
+        """
         for tok in reply.replace(",", " ").split():
             if tok.isdigit():
                 return int(tok)
         return None
 
     def _cube_pos(self) -> int | None:
-        """Return current cube slot (1‑based) or *None* if controller is busy."""
+        """
+        Queries the current cube slot.
+
+        Returns:
+            int | None: Current slot or None if unavailable.
+
+        Raises:
+            RuntimeError: If the controller returns an error.
+        """
         rep = self._send_cmd(f"{self._cube_prefix}{self._cube_cmd}?")
         while rep.strip(" +") in {"", "CUBE", "MU"}:   # skip empty / ack
             rep = self._com.readline().strip().decode(errors="replace")
@@ -163,7 +227,16 @@ class OlympusLamp(Lamp):
         return self._parse_slot(rep)
     
     def _set_cube(self,pos):
-        """Move the cube wheel to *pos* (1‑based slot)."""
+        """
+        Move the cube wheel to *pos* (1‑based slot).
+        
+        Args:
+            pos (int): Target slot (1-based).
+
+        Raises:
+            RuntimeError: If cube is not detected or movement times out.
+            ValueError: If slot is out of range.
+        """
         if self._cube_cmd is None:
             raise RuntimeError("OlympusLamp: Cube wheel not detected")
         if self._cube_slots and not (1 <= pos <= self._cube_slots):
@@ -196,6 +269,12 @@ class OlympusLamp(Lamp):
         """
         Move the cube wheel to *filter* (numeric slot).
         Raises `RuntimeError` on time-out or protocol error.
+        
+        Args:
+            filter (int | None): Target slot.
+
+        Raises:
+            RuntimeError: If movement fails.
         """
         if filter is None:
             self.info("OlympusLamp: No filter specified, skipping set_filter.")
@@ -213,7 +292,12 @@ class OlympusLamp(Lamp):
 
 
     def get_filter(self) -> int | None:
-        """Return current numeric cube slot (or *None* if indeterminate)."""
+        """
+        Return current numeric cube slot (or *None* if indeterminate).
+        
+        Returns:
+            int | None: Current slot or last known value if unavailable.
+        """
         if self._cube_cmd is None:
             return None
         try:

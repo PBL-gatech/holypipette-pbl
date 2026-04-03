@@ -9,16 +9,38 @@ import math
 
 
 class FocusHelper():
+    """
+    A utility class for automating microscope focus using image-based metrics.
+    """
     FOCUSING_MAX_SPEED = 25
     NORMAL_MAX_SPEED = 10000
 
     def __init__(self, microscope: Microscope, camera: Camera):
+        """
+        Initializes the FocusHelper with a microscope and camera.
+
+        Args:
+            microscope (Microscope): Microscope object to control focus.
+            camera (Camera): Camera object to acquire images for focus scoring.
+        """
         self.microscope = microscope
         self.camera = camera
 
     def autofocusContinuous(self, distance, timeout=1):
+        """
+        Moves the microscope over a given distance while continuously collecting focus scores.
 
+        Args:
+            distance (float): Distance to move the microscope (microns).
+            timeout (float): Maximum time to wait for movement (seconds).
 
+        Returns:
+            bestPos (float): Microscope position with highest focus score.
+            bestScore (float): Maximum focus score observed.
+
+        Raises:
+            RuntimeError: If no focus data was collected.
+        """
         focusThread = FocusUpdater(self.microscope, self.camera)
         focusThread.start()
         commandedPos = self.microscope.position() + distance
@@ -43,6 +65,12 @@ class FocusHelper():
         return bestPos, bestScore
 
     def autofocus(self, dist=100):
+        """
+        Performs an autofocus procedure by scanning forward and backward to find the best focus.
+
+        Args:
+            dist (float): Distance to scan in each direction (microns).
+        """
         self.microscope.set_max_speed(self.FOCUSING_MAX_SPEED)
         initPos = self.microscope.position()
         # print("Moving downward to collect forward scores..")
@@ -70,7 +98,23 @@ class FocusHelper():
 
 
 class FocusUpdater(Thread):
+    """
+    Background thread that continuously collects focus scores from frames 
+    while the microscope moves.
+    """
     def __init__(self, microscope: Microscope, camera: Camera):
+        """
+        Initializes the FocusUpdater thread for continuous focus scoring.
+
+        Args:
+            microscope (Microscope): Microscope object to track position.
+            camera (Camera): Camera object providing frames for focus computation.
+
+        Attributes:
+            isRunning (bool): Flag to control thread execution.
+            posFocusList (list): List of [position, focusScore] pairs collected.
+            lastFrame (int): Last frame number processed to avoid duplicates.
+        """
         super().__init__()
         self.isRunning = True
         self.camera = camera
@@ -79,6 +123,10 @@ class FocusUpdater(Thread):
         self.lastFrame = -1
 
     def run(self):
+        """
+        Thread entry point. Continuously monitors camera frames, computes focus scores,
+        and appends them to posFocusList until stopped.
+        """
         while self.isRunning:
             if len(self.camera.raw_frame_queue) == 0:
                 time.sleep(0.01)
@@ -96,6 +144,15 @@ class FocusUpdater(Thread):
         self.posFocusList = np.array(self.posFocusList)
 
     def _getFocusScore(self, image):
+        """
+        Computes a focus metric for a given image using Sobel edge detection.
+
+        Args:
+            image (ndarray): Grayscale image to compute focus on.
+
+        Returns:
+            score (float): Computed focus score.
+        """
         focusSize = 512
         x = image.shape[1] / 2 - focusSize / 2
         y = image.shape[0] / 2 - focusSize / 2
@@ -108,6 +165,9 @@ class FocusUpdater(Thread):
         return score
 
     def stop(self):
+        """
+        Stops the thread gracefully by setting isRunning to False.
+        """
         self.isRunning = False
 
 class StageCalHelper():
@@ -118,16 +178,35 @@ class StageCalHelper():
     NORMAL_MAX_SPEED = 10000
 
     def __init__(self, stage: Manipulator, camera: Camera, frameLag: int):
+        """
+        Initializes the StageCalHelper for stage calibration using optical flow.
+
+        Args:
+            stage (Manipulator): Stage object to move and track positions.
+            camera (Camera): Camera object to acquire frames for optical flow.
+            frameLag (int): Number of frames to lag when computing motion.
+
+        Attributes:
+            lastFrameNo (int): Last frame number processed.
+        """
         self.stage : Manipulator = stage
         self.camera : Camera = camera
         self.lastFrameNo : int = None
         self.frameLag = frameLag
 
     def calibrateContinuous(self, distance, video=False):
-        '''Tell the stage to go a certain distance at a low max speed.
+        '''
+        Tell the stage to go a certain distance at a low max speed.
            Take a bunch of pictures and run optical flow. Use optical flow information
            to create a linear transform from stage microns to image pixels.
            if set, video creates an mp4 of the optical flow running in the project directory.
+        
+        Args:
+            distance (float): Distance to move stage (microns).
+            video (bool): Whether to record an MP4 showing the optical flow.
+
+        Returns:
+            mat (ndarray): 2x3 affine transformation matrix (stage microns -> image pixels).
         '''
         #move the microscope a certain distance forward and up
         currPos = self.stage.position()
@@ -219,6 +298,15 @@ class StageCalHelper():
         return mat
 
     def calcOpticalFlowP0(self, firstFrame):
+        """
+        Detects good feature points in the first frame for optical flow tracking.
+
+        Args:
+            firstFrame (ndarray): Grayscale image frame to detect corners on.
+
+        Returns:
+            p0 (ndarray): Initial points for optical flow tracking.
+        """
         #params for corner detector
         feature_params = dict(maxCorners = 100,
                                 qualityLevel = 0.1,
@@ -230,6 +318,17 @@ class StageCalHelper():
         return p0
     
     def calcMotionTranslation(self, lastFrame, currFrame):
+        """
+        Computes translation between two frames using ECC image alignment.
+
+        Args:
+            lastFrame (ndarray): Previous grayscale frame.
+            currFrame (ndarray): Current grayscale frame.
+
+        Returns:
+            x_pix (float): Horizontal translation in pixels.
+            y_pix (float): Vertical translation in pixels.
+        """
         warp_mode = cv2.MOTION_TRANSLATION
         warp_matrix = np.eye(2, 3, dtype=np.float32)
         criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 5000,  1e-10)
@@ -247,6 +346,18 @@ class StageCalHelper():
         return x_pix, y_pix
 
     def calcOpticalFlow(self, lastFrame, currFrame, p0):
+        """
+        Calculates the median optical flow vector between two frames for given points.
+
+        Args:
+            lastFrame (ndarray): Previous grayscale frame.
+            currFrame (ndarray): Current grayscale frame.
+            p0 (ndarray): Points in lastFrame to track.
+
+        Returns:
+            x_pix (float): Median horizontal motion in pixels.
+            y_pix (float): Median vertical motion in pixels.
+        """
         #params for optical flow
         lk_params = dict(winSize  = (20, 20),
                     maxLevel = 20)
@@ -268,6 +379,12 @@ class StageCalHelper():
 
     def calibrate(self, dist=500):
         '''Calibrates the microscope stage using optical flow and stage encoders to create a um -> pixels transformation matrix
+        
+        Args:
+            dist (float): Distance for calibration movement (microns).
+
+        Returns:
+            mat (ndarray): 2x3 affine transformation matrix for stage-to-image mapping.
         '''
 
         self.stage.set_max_speed(self.CAL_MAX_SPEED)

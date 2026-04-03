@@ -2,6 +2,12 @@ import cv2
 import time
 
 def main():
+    """
+    Capture and display live camera feed with frame-per-second (FPS) monitoring.
+
+    Raises:
+        RuntimeError: If the camera cannot be opened.
+    """
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)      # drop CAP_DSHOW on Linux/macOS
     if not cap.isOpened():
         raise RuntimeError("Couldn't open camera.")

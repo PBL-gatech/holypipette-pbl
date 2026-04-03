@@ -20,6 +20,14 @@ from patcherbot.controller import RequestedAbortException, RequestedSuccessExcep
 
 
 class StateMachineLogger:
+    """
+    Light-weight logger for Autopatcher state machine attempts.
+
+    - Creates one session folder (YYYY_MM_DD-HH_MM) per run.
+    - Creates one sub-folder per attempt: session/attempt_<n>/.
+    - Writes one pickle and one JSON per state.
+    - Uses Unix-epoch seconds for timestamps.
+    """
     # ---------- outcome codes ---------- #
     SUCCESS = 0
     FAILURE = 1
@@ -40,13 +48,14 @@ class StateMachineLogger:
                  base_path: str = "experiments/Data/state_recorder_data/",
                  attempt_id: int = 1):
         """
-        Parameters
-        ----------
-        base_path  : str
-            Root folder **without** the date stamp. A single session folder
-            (YYYY_MM_DD-HH_MM) is created once under this root.
-        attempt_id : int
-            Numeric counter supplied by the caller (AutoPatcher).
+        Initialize the state machine logger.
+
+        Args:
+            base_path (str):
+                Root folder **without** the date stamp. A single session folder
+                (YYYY_MM_DD-HH_MM) is created once under this root.
+            attempt_id (int):
+                Numeric counter supplied by the caller (AutoPatcher).
         """
         # Initialise the session folder only once
         if StateMachineLogger._session_folder is None:
@@ -72,13 +81,12 @@ class StateMachineLogger:
         Stamp the *started* time (first call only) and record the
         system-mode code supplied by the caller.
 
-        Parameters
-        ----------
-        state        : str
-            Name of the state being entered.
-        system_mode  : int | None
-            One of the CLASSIC / MANUAL / AGENT / NOMODE codes.  If None,
-            NOMODE is stored.
+        Args:
+            state (str):
+                Name of the state being entered.
+            system_mode (int | None):
+                One of the CLASSIC / MANUAL / AGENT / NOMODE codes.  If None,
+                NOMODE is stored.
         """
         if system_mode is None:
             system_mode = StateMachineLogger.NOMODE
@@ -98,7 +106,16 @@ class StateMachineLogger:
                 record["system_mode"] = system_mode
 
     def finish(self, state: str, outcome: int) -> None:
-        """Stamp *finished*, set outcome, and write the pickle and JSON files."""
+        """
+        Stamp *finished*, set outcome, and write the pickle and JSON files.
+        
+        Args:
+            state (str): Name of the state being finished.
+            outcome (int): One of SUCCESS, FAILURE, or ABORTED.
+
+        Raises:
+            KeyError: If the state has not been started.
+        """
         with self._lock:
             rec = self._states[state]                      # must exist
             rec["finished"] = time.time()
@@ -111,6 +128,16 @@ class StateMachineLogger:
     # internal helper
     # ------------------------------------------------------------------ #
     def _save(self, state: str, record: Dict) -> None:
+        """
+        Internal helper to save a state record to pickle and JSON.
+
+        Args:
+            state (str): Name of the state.
+            record (Dict): State record containing started, finished, outcome, system_mode.
+
+        Raises:
+            TypeError: If timestamp values are invalid.
+        """
         # Defensive copy and validation
         def _coerce_timestamp(value):
             if value is None:
@@ -147,6 +174,12 @@ class StateMachineLogger:
 def record_state(state_name: str):
     """
     Decorator to log state transitions with StateMachineLogger.
+
+    Args:
+        state_name (str): Name of the state for logging.
+
+    Returns:
+        Callable: Wrapped function that logs start/finish of the state.
 
     >>> @record_state("gigaseal")
     >>> def gigaseal(self): ...

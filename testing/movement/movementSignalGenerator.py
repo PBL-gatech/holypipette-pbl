@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import math
 
 class SignalGenerator:
+    """A utility class for generating, processing, and exporting time-series signals."""
     def __init__(self, sampling_rate=500, amplitude=10):
         """
         Initialize the SignalGenerator with default parameters.

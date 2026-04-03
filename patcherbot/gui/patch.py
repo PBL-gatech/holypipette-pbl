@@ -25,11 +25,27 @@ import pickle
 import os
 
 class PatchGui(ManipulatorGui):
+    """
+    GUI class for controlling the automated patch-clamp system. Inherits from ManipulatorGui.
 
+    Provides cell selection display, integration with pipette and patching interfaces, 
+    and configurable controls for manual and automated patching tasks.
+    """
     patch_command_signal = QtCore.pyqtSignal(MethodType, object)
     patch_reset_signal = QtCore.pyqtSignal(TaskController)
 
     def __init__(self, camera, aux_camera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager: RecordingStateManager, with_tracking=False):
+        """
+        Initialize the patch GUI.
+
+        Args:
+            camera: Primary camera object for live imaging.
+            aux_camera: Auxiliary camera object.
+            pipette_interface (PipetteInterface): Interface for controlling pipette manipulations.
+            patch_interface (AutoPatchInterface): Interface for automated patching operations.
+            recording_state_manager (RecordingStateManager): Manager for recording state and sessions.
+            with_tracking (bool, optional): Whether to enable tracking features. Defaults to False.
+        """
         super(PatchGui, self).__init__(camera, aux_camera, pipette_interface, with_tracking=with_tracking, recording_state_manager=recording_state_manager)
 
         self.setWindowTitle("Patch GUI")
@@ -58,6 +74,10 @@ class PatchGui(ManipulatorGui):
         self.add_tab(classic_patching_tab, 'Classic Auto Patching', index = 0)
 
     def register_commands(self):
+        """
+        Register GUI mouse and keyboard actions to patching interface commands.
+        Overrides parent method to include patch-specific actions.
+        """
         super(PatchGui, self).register_commands()
         # self.register_mouse_action(Qt.LeftButton, Qt.ShiftModifier,
         #                            self.patch_interface.patch_with_move)
@@ -73,6 +93,13 @@ class PatchGui(ManipulatorGui):
                                  self.patch_interface.clean_pipette)
 
     def toggle_cell_list_window(self, checked=None):
+        """
+        Toggle the visibility of the CellListWindow.
+
+        Args:
+            checked (bool, optional): If True, shows the window; if False, hides it. 
+                If None, uses the current button state.
+        """
         if checked is None:
             checked = self.show_cells_button.isChecked()
         if checked:
@@ -86,6 +113,10 @@ class PatchGui(ManipulatorGui):
             self.cell_list_window.close()
 
     def _cells_window_closed(self):
+        """
+        Slot called when the CellListWindow is closed. Stops the update timer and
+        resets the toggle button.
+        """
         self._cell_list_timer.stop()
         if self.show_cells_button.isChecked():
             self.show_cells_button.blockSignals(True)
@@ -94,6 +125,12 @@ class PatchGui(ManipulatorGui):
         self.show_cells_button.setText("Show Cells")
 
     def _refresh_cell_list_window(self, force=False):
+        """
+        Update the CellListWindow with current cells from patch_interface.
+
+        Args:
+            force (bool, optional): If True, forces a full refresh regardless of previous signature.
+        """
         if not self.cell_list_window.isVisible():
             return
         cells = list(self.patch_interface.cells_to_patch)
@@ -107,7 +144,15 @@ class PatchGui(ManipulatorGui):
         self._cell_list_signature = signature
 
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
+    """A QGroupBox subclass with collapsible content area and custom styling."""
     def __init__(self, title="", parent=None):
+        """
+        Initialize a collapsible group box.
+
+        Args:
+            title (str, optional): The title text of the collapsible group. Defaults to "".
+            parent (QWidget, optional): Parent widget. Defaults to None.
+        """
         super(CollapsibleGroupBox, self).__init__(parent)
         self.setTitle("")  # Set the group box title to be blank to allow custom styling
 
@@ -182,6 +227,9 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
         self.setLayout(self.main_layout)
 
     def on_toggle(self):
+        """
+        Slot triggered by toggle_button click to show or hide the content area.
+        """
         if self.toggle_button.isChecked():
             self.content_area.show()
             self.toggle_button.setArrowType(Qt.DownArrow)
@@ -190,6 +238,12 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
             self.toggle_button.setArrowType(Qt.RightArrow)
 
     def setContentLayout(self, layout):
+        """
+        Set the layout for the collapsible content area.
+
+        Args:
+            layout (QtWidgets.QLayout): The layout to set in the content area.
+        """
         # Remove existing layout if any
         while self.content_layout.count():
             child = self.content_layout.takeAt(0)
@@ -198,9 +252,17 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
         self.content_layout.addLayout(layout)
 
 class CellListWindow(QtWidgets.QDialog):
+    """Dialog window displaying a list of selected cells with images and stage positions."""
     closed = QtCore.pyqtSignal()
 
     def __init__(self, parent=None, thumbnail_size=96):
+        """
+        Initialize a cell list window.
+
+        Args:
+            parent (QWidget, optional): Parent widget. Defaults to None.
+            thumbnail_size (int, optional): Size of cell image thumbnails in pixels. Defaults to 96.
+        """
         super().__init__(parent=parent)
         self.setWindowTitle("Selected Cells")
         self.setWindowFlags(self.windowFlags() | Qt.Tool)
@@ -228,10 +290,24 @@ class CellListWindow(QtWidgets.QDialog):
         self.setLayout(layout)
 
     def closeEvent(self, event):
+        """
+        Overridden close event to emit the 'closed' signal.
+
+        Args:
+            event (QCloseEvent): Close event.
+        """
         self.closed.emit()
         super().closeEvent(event)
 
     def update_cells(self, cells, stage_reference=None, full_refresh=True):
+        """
+        Update the table with current cell information.
+
+        Args:
+            cells (list): List of cells to display.
+            stage_reference (optional): Reference stage position.
+            full_refresh (bool, optional): Whether to force full update. Defaults to True.
+        """
         if self.table.rowCount() != len(cells):
             self.table.setRowCount(len(cells))
             full_refresh = True
@@ -247,6 +323,15 @@ class CellListWindow(QtWidgets.QDialog):
                 self._set_item(row, 4, self._format_vec(stage_um))
 
     def _unpack_cell(self, cell):
+        """
+        Unpack a cell tuple into stage positions and images.
+
+        Args:
+            cell (tuple or None): Cell data tuple.
+
+        Returns:
+            tuple: (stage_px, img, stage_um, img_fluo)
+        """
         if cell is None:
             return None, None, None, None
         if len(cell) >= 4:
@@ -256,6 +341,14 @@ class CellListWindow(QtWidgets.QDialog):
         return None, None, None, None
 
     def _set_item(self, row, col, text):
+        """
+        Set a text item in the table at specified row and column.
+
+        Args:
+            row (int): Row index.
+            col (int): Column index.
+            text (str): Text to set.
+        """
         item = self.table.item(row, col)
         if item is None:
             item = QtWidgets.QTableWidgetItem()
@@ -264,6 +357,15 @@ class CellListWindow(QtWidgets.QDialog):
         item.setText(text)
 
     def _set_image_cell(self, row, col, image, empty_text=""):
+        """
+        Set a cell widget in the table with an image or placeholder text.
+
+        Args:
+            row (int): Row index.
+            col (int): Column index.
+            image (ndarray or None): Image to display.
+            empty_text (str, optional): Text if image is None. Defaults to "".
+        """
         if image is None:
             self.table.removeCellWidget(row, col)
             item = QtWidgets.QTableWidgetItem(empty_text)
@@ -286,6 +388,15 @@ class CellListWindow(QtWidgets.QDialog):
         self.table.setCellWidget(row, col, label)
 
     def _image_to_pixmap(self, image):
+        """
+        Convert a NumPy image array to QPixmap for display.
+
+        Args:
+            image (ndarray): Input image.
+
+        Returns:
+            QPixmap or None: Pixmap to display, or None if image is invalid.
+        """
         if image is None:
             return None
         img = np.array(image)
@@ -310,6 +421,15 @@ class CellListWindow(QtWidgets.QDialog):
         return QtGui.QPixmap.fromImage(q_image)
 
     def _normalize_to_uint8(self, img):
+        """
+        Normalize a NumPy image to 8-bit range [0, 255].
+
+        Args:
+            img (ndarray): Input image.
+
+        Returns:
+            ndarray: 8-bit normalized image.
+        """
         img = img.astype(np.float32)
         min_val = float(np.min(img))
         max_val = float(np.max(img))
@@ -320,13 +440,29 @@ class CellListWindow(QtWidgets.QDialog):
         return img.astype(np.uint8)
 
     def _format_vec(self, vec):
+        """
+        Format a numeric vector for display in the table.
+
+        Args:
+            vec (array-like or None): Vector to format.
+
+        Returns:
+            str: Comma-separated formatted string or "N/A".
+        """
         if vec is None:
             return "N/A"
         arr = np.array(vec).astype(float).ravel()
         return ", ".join(f"{v:.1f}" for v in arr)
 
 class ButtonTabWidget(QtWidgets.QWidget):
+    """
+    A QWidget subclass for organizing buttons, position displays, and sequential command execution 
+    in a GUI. Supports collapsible sections, dynamic button styling, and periodic updates of position labels.
+    """
     def __init__(self):
+        """
+        Initialize a button tab widget.
+        """
         super().__init__()
         self.pos_update_timers = []
         self.pos_labels = []
@@ -340,9 +476,19 @@ class ButtonTabWidget(QtWidgets.QWidget):
 
 
     def do_nothing(self):
+        """Dummy function for buttons that are not yet implemented."""
         pass  # a dummy function for buttons that aren't implemented yet
     
     def run_sequential_commands(self, cmds, button=None, section=None, button_name=None):
+        """
+        Executes a list of commands sequentially, handling both synchronous and asynchronous commands.
+
+        Args:
+            cmds (list or callable): Commands to execute sequentially. Can be nested lists.
+            button (QPushButton, optional): The button that triggered the commands.
+            section (str, optional): The section name for styling and color logic.
+            button_name (str, optional): The name of the button triggering the commands.
+        """
         # Ensure cmds is a list
         if not isinstance(cmds, list):
             cmds = [cmds]
@@ -377,6 +523,15 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self._run_next_seq_command()
 
     def _flatten_sequential_cmds(self, cmds):
+        """
+        Recursively flattens nested lists of commands into a single list.
+
+        Args:
+            cmds (list): A (possibly nested) list of commands.
+
+        Returns:
+            list: Flattened list of commands.
+        """
         flat_cmds = []
         for cmd in cmds:
             if isinstance(cmd, list):
@@ -386,13 +541,22 @@ class ButtonTabWidget(QtWidgets.QWidget):
         return flat_cmds
 
     def _reset_section_button_colors(self, section):
-        """Reset colors for all buttons in a section"""
+        """
+        Reset colors for all buttons in a section
+        
+        Args:
+            section (str): The section whose buttons should be reset.
+        """
         if section in self.section_buttons:
             for button_info in self.section_buttons[section]:
                 button = button_info[0]
                 button.setStyleSheet("")  # This will revert to the style from CollapsibleGroupBox
 
     def _run_next_seq_command(self):
+        """
+        Executes the next command in a stored sequential command list, handling asynchronous completion
+        signals and updating button styles.
+        """
         if self._seq_index >= len(self._seq_cmds):
             # No more commands; sequence complete
             # Update button color if this section should change colors and it's not a reset button
@@ -439,6 +603,12 @@ class ButtonTabWidget(QtWidgets.QWidget):
 
 
     def run_command(self, cmds):
+        """
+        Executes one or more commands immediately. Supports nested lists of commands.
+
+        Args:
+            cmds (callable or list): Command(s) to execute.
+        """
         if isinstance(cmds, list):
             for cmd in cmds:
                 if isinstance(cmd, list):
@@ -451,6 +621,12 @@ class ButtonTabWidget(QtWidgets.QWidget):
     
 
     def execute_command(self, cmd):
+        """
+        Executes a single command, handling asynchronous commands with task_description attribute.
+
+        Args:
+            cmd (callable): Command to execute.
+        """
         logging.info(f"Executing command: {cmd}")
         if hasattr(cmd, 'task_description'):
             self.start_task(cmd.task_description, cmd.__self__)
@@ -463,6 +639,13 @@ class ButtonTabWidget(QtWidgets.QWidget):
             cmd()
 
     def _set_button_completion_style(self, button, color="rgba(0, 0, 255, 0.3)"):
+        """
+        Applies a completion style to a button, typically after a command sequence completes.
+
+        Args:
+            button (QPushButton): The button to style.
+            color (str, optional): Background color to apply. Defaults to a light blue overlay.
+        """
         if button is None:
             return
         button.setStyleSheet(f"""
@@ -485,9 +668,26 @@ class ButtonTabWidget(QtWidgets.QWidget):
         """)
 
     def _set_button_active_style(self, button, color="rgba(173, 216, 230, 0.5)"):
+        """
+        Applies an active style to a button during execution of its associated commands.
+
+        Args:
+            button (QPushButton): The button to style.
+            color (str, optional): Background color to apply. Defaults to semi-transparent light blue.
+        """
         self._set_button_completion_style(button, color)
 
     def addPositionBox(self, name: str, layout, update_func, tare_func=None, axes=['x', 'y', 'z']):
+        """
+        Adds a collapsible box displaying position labels for each axis, with optional tare button.
+
+        Args:
+            name (str): Title of the box.
+            layout (QLayout): Parent layout to add the box to.
+            update_func (callable): Function to update position labels, accepts list of label indices.
+            tare_func (callable, optional): Function to tare the manipulator.
+            axes (list of str, optional): Axes to display. Defaults to ['x', 'y', 'z'].
+        """
         # Use CollapsibleGroupBox instead of QGroupBox
         box = CollapsibleGroupBox(name)
         row = QtWidgets.QHBoxLayout()
@@ -516,6 +716,16 @@ class ButtonTabWidget(QtWidgets.QWidget):
         self.pos_update_timers.append(pos_timer)
 
     def positionAndTareBox(self, name: str, layout, update_func, tare_funcs, axes=['x', 'y', 'z']):
+        """
+        Adds a collapsible box displaying individual axis positions with separate tare buttons per axis.
+
+        Args:
+            name (str): Title of the box.
+            layout (QLayout): Parent layout to add the box to.
+            update_func (callable): Function to update position labels, accepts list of label indices.
+            tare_funcs (list of callables): Tare functions, one per axis.
+            axes (list of str, optional): Axes to display. Defaults to ['x', 'y', 'z'].
+        """
         # Use CollapsibleGroupBox instead of QGroupBox
         box = CollapsibleGroupBox(name)
         main_layout = QtWidgets.QHBoxLayout()
@@ -550,6 +760,23 @@ class ButtonTabWidget(QtWidgets.QWidget):
                     cmds, sequential=False, change_color_on_complete=False, 
                     completion_color="rgba(0, 0, 255, 0.3)",
                     change_color_during=None):
+        """
+        Adds a collapsible box containing a list of buttons arranged in rows, with optional sequential execution
+        and color-change behavior on completion or during execution.
+
+        Args:
+            box_name (str): Title of the collapsible section.
+            layout (QVBoxLayout): Parent layout to add the box to.
+            buttonNames (list of list of str): Names of buttons arranged by rows.
+            cmds (list or list of list of callables): Commands corresponding to each button.
+            sequential (bool, optional): Whether to run commands sequentially. Defaults to False.
+            change_color_on_complete (bool, optional): Whether to change button color when commands complete. Defaults to False.
+            completion_color (str, optional): Color to apply on completion. Defaults to blue overlay.
+            change_color_during (list or bool, optional): Button names to style during execution, or True for all.
+
+        Returns:
+            list: List of button tuples for the section.
+        """
         # Use CollapsibleGroupBox instead of QGroupBox
         box = CollapsibleGroupBox(box_name)
         rows = QtWidgets.QVBoxLayout()
@@ -604,16 +831,29 @@ class ButtonTabWidget(QtWidgets.QWidget):
         return section_buttons
 
     def get_section_button(self, section: str, name: str):
+        """
+        Retrieves a QPushButton object by section and button name.
+
+        Args:
+            section (str): Section name.
+            name (str): Button name.
+
+        Returns:
+            QPushButton or None: The button object if found, else None.
+        """
         return self.section_button_map.get(section, {}).get(name)
 
 
 class FileSelector(QWidget):
+    """A widget that provides a file selection dialog and emits the selected file path."""
     fileSelected = pyqtSignal(str)  # Signal to emit the selected file path
 
     def __init__(self):
+        """Initializes the FileSelector widget."""
         super().__init__()
 
     def open_file_dialog(self):
+        """Opens a file dialog for selecting a CSV file and emits the selected file path."""
         # Open the file dialog in non-blocking mode
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
@@ -626,7 +866,21 @@ class FileSelector(QWidget):
             # Emit the signal with the selected file path
             self.fileSelected.emit(file_name)
 class ClassicPatchButtons(ButtonTabWidget):
+    """
+    GUI widget that provides grouped controls for calibration, movement,
+    testing, lighting, patching, and recording in an automated patch-clamp system.
+    """
     def __init__(self, patch_interface: AutoPatchInterface, pipette_interface: PipetteInterface, start_task, interface_signals, recording_state_manager: RecordingStateManager):
+        """
+        Initializes the ClassicPatchButtons GUI and sets up all control sections.
+
+        Args:
+            patch_interface (AutoPatchInterface): Interface for patching operations.
+            pipette_interface (PipetteInterface): Interface for pipette control.
+            start_task (callable): Function to start tasks.
+            interface_signals (dict): Signals for interfacing with controllers.
+            recording_state_manager (RecordingStateManager): Recording state manager.
+        """
         super().__init__()
         self.patch_interface = patch_interface
         self.pipette_interface = pipette_interface
@@ -772,17 +1026,25 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.setLayout(layout)
 
     def load_calibration(self):
+        """Opens a file dialog and connects selection to calibration loading."""
         self.file_selector.fileSelected.connect(self.load_calibration_file)  # Connect the signal to the slot
         self.file_selector.open_file_dialog()  # Open the file dialog
 
 
     def load_calibration_file(self, file_path):
+        """
+        Loads a calibration file into the pipette interface.
+
+        Args:
+            file_path (str): Path to the calibration file.
+        """
         # call pipette.interface.read_calibration
-            logging.info(f"Loading calibration file: {file_path}")
-            self.pipette_interface.read_calibration(file_path)
+        logging.info(f"Loading calibration file: {file_path}")
+        self.pipette_interface.read_calibration(file_path)
 
 
     def test_movement(self):
+        """Opens a movement file for testing. Starts recording if not already enabled."""
         # check if recording is enabled
         if self.recording_state_manager.is_recording_enabled():
             # Opens the file selector dialog without blocking the main thread
@@ -795,24 +1057,33 @@ class ClassicPatchButtons(ButtonTabWidget):
             self.file_selector.open_file_dialog()
         
     def load_movement_file(self, file_path):
+        """
+        Loads a movement file and sends it to the patch interface.
+
+        Args:
+            file_path (str): Path to the movement file.
+        """
         logging.info(f"Loading movement file: {file_path}")
         # # send file to the pipette interface
         self.patch_interface.send_movement_file(file_path)
 
         
     def toggle_recording(self):
+        """Toggles the recording state on or off."""
         if self.recording_state_manager.is_recording_enabled():
             self.stop_recording()
         else:
             self.start_recording()
 
     def start_recording(self):
+        """Enables recording and updates UI state."""
         self.recording_state_manager.set_recording(True)
         self.record_button.setText("Stop Recording")
         self.record_button.setStyleSheet("background-color: red; color: white;border-radius: 5px; padding: 5px;")
         logging.info("Recording started")
 
     def stop_recording(self):
+        """Disables recording, finalizes logging, and updates UI state."""
         self.recording_state_manager.set_recording(False)
         self.recorder.handle_recording_stopped()
         self.record_button.setText("Start Recording")
@@ -820,6 +1091,12 @@ class ClassicPatchButtons(ButtonTabWidget):
         logging.info("Recording stopped")
 
     def _update_cell_sorter_led_button_style(self, enabled: bool):
+        """
+        Updates the visual style of the LED toggle button.
+
+        Args:
+            enabled (bool): Whether the LED is enabled.
+        """
         if enabled:
             self.cell_sorter_led_button.setStyleSheet("""
                 QPushButton {
@@ -843,6 +1120,12 @@ class ClassicPatchButtons(ButtonTabWidget):
             self.cell_sorter_led_button.setStyleSheet("")
 
     def _set_cell_sorter_led_state(self, enabled: bool):
+        """
+        Sets the LED state and updates both UI and hardware.
+
+        Args:
+            enabled (bool): Desired LED state.
+        """
         if self.cell_sorter_led_button.isChecked() != enabled:
             self.cell_sorter_led_button.blockSignals(True)
             self.cell_sorter_led_button.setChecked(enabled)
@@ -854,26 +1137,42 @@ class ClassicPatchButtons(ButtonTabWidget):
             self.patch_interface.cell_sorter_led_off()
 
     def cell_sorter_led_off(self):
+        """Turns the cell sorter LED off."""
         self._set_cell_sorter_led_state(False)
 
     def cell_sorter_led_on(self):
+        """Turns the cell sorter LED on."""
         self._set_cell_sorter_led_state(True)
 
     def toggle_cell_sorter_led(self, checked=None):
+        """
+        Toggles the LED state based on button state or provided value.
+
+        Args:
+            checked (bool, optional): Desired LED state. If None, uses button state.
+        """
         enabled = self.cell_sorter_led_button.isChecked() if checked is None else bool(checked)
         self._set_cell_sorter_led_state(enabled)
 
 
 
     def close(self):
+        """Closes the widget and releases recorder resources."""
         self.recorder.close()
         super(ClassicPatchButtons, self).close()
 
     def closeEvent(self, event):
+        """
+        Handles the widget close event and ensures recorder cleanup.
+
+        Args:
+            event (QCloseEvent): Close event.
+        """
         self.recorder.close()
         super(ClassicPatchButtons, self).closeEvent(event)
 
     def tare_pipette(self):
+        """Sets the current pipette position as the zero reference."""
         currPos = self.pipette_interface.calibrated_unit.unit.position()
         self.tare_pipette_pos = currPos
         self.pipette_interface.tare_pipette = np.array(self.tare_pipette_pos)
@@ -881,6 +1180,12 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.pipette_interface.write_tare()
 
     def update_pipette_pos_labels(self, indices):
+        """
+        Updates pipette position labels and logs movement data if recording.
+
+        Args:
+            indices (list[int]): Indices of label widgets to update.
+        """
         # Update the position labels
         # start_time = time.perf_counter_ns()
         # currPos = self.pipette_interface.calibrated_unit.unit.position()
@@ -908,6 +1213,7 @@ class ClassicPatchButtons(ButtonTabWidget):
             label.setText(f'{label.text().split(":")[0]}: {currPos[i]:.2f}')
 
     def tare_stage_x(self):
+        """Sets the current stage X position as the zero reference."""
         xPos = self.pipette_interface.calibrated_stage.position(0)
         self.currx_stage_pos = [xPos, 0, 0]
         # update pipette controller stage tare at x position as a numpy array
@@ -916,6 +1222,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.pipette_interface.write_tare()
 
     def tare_stage_y(self):
+        """Sets the current stage Y position as the zero reference."""
         yPos = self.pipette_interface.calibrated_stage.position(1)
         self.curry_stage_pos = [0, yPos, 0]
         # update pipette controller stage tare at y position as a numpy array
@@ -924,6 +1231,7 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.pipette_interface.write_tare()
 
     def tare_stage_z(self):
+        """Sets the current stage Z position as the zero reference."""
         zPos = self.pipette_interface.microscope.position()
         self.currz_stage_pos = [0, 0, zPos]
         # update pipette controller stage tare at z position as a numpy array
@@ -932,6 +1240,12 @@ class ClassicPatchButtons(ButtonTabWidget):
         self.pipette_interface.write_tare()
 
     def update_stage_pos_labels(self, indices):
+        """
+        Updates stage position labels relative to tare values.
+
+        Args:
+            indices (list[int]): Indices of label widgets to update.
+        """
         xyRecPos = self.pipette_interface.calibrated_stage.position()
         zRecPos = self.pipette_interface.microscope.position()
         xyPos = xyRecPos - self.currx_stage_pos[0:2] - self.curry_stage_pos[0:2]

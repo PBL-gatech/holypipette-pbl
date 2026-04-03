@@ -16,7 +16,18 @@ from collections import defaultdict
 # ---------------------------
 
 class WebpSequence:
+    """Lazy loader for a sequence of .webp images."""
     def __init__(self, folder, resize_long_edge=None):
+        """
+        Initialize the WebpSequence.
+
+        Args:
+            folder: Path to directory containing .webp images.
+            resize_long_edge: Optional target size for longest edge.
+
+        Raises:
+            FileNotFoundError: If no images are found.
+        """
         self.paths = natsorted([p for p in glob.glob(os.path.join(folder, "*.webp"))])
         if not self.paths:
             raise FileNotFoundError(f"No .webp images found in: {folder}")
@@ -25,10 +36,26 @@ class WebpSequence:
         self.H, self.W = f0.shape[:2]
 
     def __len__(self):
+        """
+        Get the number of frames in the sequence.
+
+        Returns:
+            Total number of frames.
+        """
         return len(self.paths)
 
     @staticmethod
     def _resize(img, resize_long_edge):
+        """
+        Resize an image while preserving aspect ratio.
+
+        Args:
+            img: Input image array.
+            resize_long_edge: Target size for longest edge.
+
+        Returns:
+            Resized image array.
+        """
         if not resize_long_edge:
             return img
         h, w = img.shape[:2]
@@ -39,6 +66,18 @@ class WebpSequence:
 
     @lru_cache(maxsize=128)  # keep last ~128 frames in RAM
     def _decode_index(self, idx):
+        """
+        Decode and cache an image at a given index.
+
+        Args:
+            idx: Frame index.
+
+        Returns:
+            Decoded RGB image array.
+
+        Raises:
+            IndexError: If index is out of bounds.
+        """
         img = iio.imread(self.paths[idx])  # RGB uint8
         if img.ndim == 2:
             img = np.stack([img]*3, axis=-1)
@@ -46,6 +85,15 @@ class WebpSequence:
         return img
 
     def get(self, idx):
+        """
+        Retrieve a frame by index.
+
+        Args:
+            idx: Frame index.
+
+        Returns:
+            RGB image array.
+        """
         # idx: 0..len-1
         return self._decode_index(idx)
 
@@ -54,6 +102,16 @@ class WebpSequence:
 # ---------------------------
 
 def to_video_tensor(frames, device):
+    """
+    Convert a list of frames into a PyTorch video tensor.
+
+    Args:
+        frames: List of RGB image arrays.
+        device: Target device ("cpu" or "cuda").
+
+    Returns:
+        Tensor of shape [1, T, 3, H, W].
+    """
     # frames: list of RGB uint8 arrays [H,W,3]
     arr = np.stack(frames, axis=0)                 # T,H,W,3
     ten = torch.from_numpy(arr).float()            # 0..255
@@ -61,7 +119,14 @@ def to_video_tensor(frames, device):
     return ten
 
 class OnlineCoTrackerRunner:
+    """Wrapper for CoTracker3 online model for streaming inference."""
     def __init__(self, device="cuda"):
+        """
+        Initialize the CoTracker3 model.
+
+        Args:
+            device: Device to run the model on.
+        """
         self.device = device
         # Lazy download/load happens here; defer creating this class until needed.
         self.model = torch.hub.load("facebookresearch/co-tracker", "cotracker3_online").to(device).eval()
@@ -71,9 +136,20 @@ class OnlineCoTrackerRunner:
     @torch.inference_mode()
     def run_streaming(self, seq: WebpSequence, queries_txy, add_support_grid=True):
         """
-        seq: WebpSequence (RGB, lazy)
-        queries_txy: np.float32 [N,3] (t, x, y) at the sequence resolution
-        returns tracks [T,N,2], vis [T,N]
+        Run streaming tracking on a sequence.
+
+        Args:
+            seq: WebpSequence object.
+            queries_txy: Array of query points [N,3] as (t, x, y).
+            add_support_grid: Whether to include support grid points.
+
+        Returns:
+            Tuple of:
+                tracks: Array [T, N, 2] of tracked coordinates.
+                vis: Array [T, N] of visibility scores.
+
+        Raises:
+            ValueError: If no queries are provided.        
         """
         if queries_txy is None or len(queries_txy) == 0:
             raise ValueError("No queries provided. Click points to track.")
@@ -116,16 +192,43 @@ class OnlineCoTrackerRunner:
 # ---------------------------
 
 def draw_text(img, text, org=(10,20)):
+    """
+    Draw outlined text on an image.
+
+    Args:
+        img: Image array (BGR).
+        text: Text string to draw.
+        org: Bottom-left corner of text.
+    """
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 3, cv2.LINE_AA)
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 1, cv2.LINE_AA)
 
 def distinct_color(i, n=20):
+    """
+    Generate a visually distinct color.
+
+    Args:
+        i: Index of the color.
+        n: Total number of distinct hues.
+
+    Returns:
+        BGR color tuple.
+    """
     hue = (i % n) / float(n)
     color = np.array(cv2.cvtColor(np.uint8([[[int(hue*180), 200, 255]]]), cv2.COLOR_HSV2BGR)[0,0])
     return (int(color[0]), int(color[1]), int(color[2]))  # BGR
 
 class Player:
+    """Interactive player for browsing frames and selecting tracking points."""
     def __init__(self, seq: WebpSequence, window="CoTracker3", add_support_grid=True):
+        """
+        Initialize the player UI.
+
+        Args:
+            seq: WebpSequence instance.
+            window: Window name.
+            add_support_grid: Enable support grid.
+        """
         self.seq = seq
         self.T = len(seq)
         self.H, self.W = seq.H, seq.W
@@ -145,10 +248,26 @@ class Player:
         cv2.setMouseCallback(self.window, self._on_mouse)
 
     def _on_seek(self, val):
+        """
+        Handle trackbar seek event.
+
+        Args:
+            val: Frame index selected.
+        """
         self.idx = int(val)
         self.refresh()
 
     def _on_mouse(self, event, x, y, flags, userdata):
+        """
+        Handle mouse interactions for adding/removing tracking points.
+
+        Args:
+            event: Mouse event type.
+            x: X coordinate.
+            y: Y coordinate.
+            flags: Event flags.
+            userdata: Additional data.
+        """
         if event == cv2.EVENT_LBUTTONDOWN:
             qi = len(self.queries)
             self.queries.append((float(self.idx), float(x), float(y)))
@@ -171,6 +290,12 @@ class Player:
             self.refresh()
 
     def _draw(self):
+        """
+        Render the current frame with overlays.
+
+        Returns:
+            Image with annotations.
+        """
         frame_rgb = self.seq.get(self.idx)
         img = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
         for qi in self.queries_by_t.get(self.idx, []):
@@ -194,11 +319,18 @@ class Player:
         return img
 
     def refresh(self):
+        """Refresh the display window."""
         img = self._draw()
         cv2.imshow(self.window, img)
         cv2.setTrackbarPos("frame", self.window, self.idx)
 
     def collect_queries_txy(self):
+        """
+        Compact and reindex query points.
+
+        Returns:
+            Array of query points [N,3] as (t, x, y).
+        """
         compact, new_colors = [], []
         self.queries_by_t = defaultdict(list)
         for i,q in enumerate(self.queries):
@@ -215,6 +347,12 @@ class Player:
 # ---------------------------
 
 def main():
+    """
+    Entry point for the interactive tracking application.
+
+    Raises:
+        Exception: If tracking or model loading fails.
+    """
     # >>> set your defaults here <<<
     folder = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\rig_recorder_data\2025_07_31-17_11\camera_frames"   # use an absolute path
     resize_long_edge = 256               # 0 = keep original resolution

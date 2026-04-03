@@ -15,6 +15,16 @@ __all__ = ['FakeManipulator']
 
 class FakeManipulator(Manipulator):
     def __init__(self, min=None, max=None):
+        """
+        Initialize the FakeManipulator with axis limits and state variables.
+
+        Args:
+            min: Minimum position limits for each axis.
+            max: Maximum position limits for each axis.
+
+        Raises:
+            ValueError: If min and max are provided but have different lengths.
+        """
         Manipulator.__init__(self)
         # Minimum and maximum positions for all axes.
         self.min = min
@@ -36,12 +46,18 @@ class FakeManipulator(Manipulator):
         """
         Set the maximum speed. (Note that for some reason when you specify
         1000 as the max speed it actually moves at ~82 um/s.)
+
+        Args:
+            speed: Maximum speed value in device units.
         """
         self.max_speed = speed / 1000 * 82
 
     def set_max_accel(self, accel):
         """
         Set the maximum acceleration (not used in this simulation).
+
+        Args:
+            accel: Acceleration value.
         """
         self.max_accel = accel
 
@@ -49,11 +65,13 @@ class FakeManipulator(Manipulator):
         """
         Returns the current position(s) in micrometers.
         
-        Parameters
-        ----------
-        axis : int or None
-            If None, returns the positions for all axes (as a numpy array);
-            otherwise, returns the position for the given axis (numbered starting at 1).
+        Args:
+            axis (int or None):
+                If None, returns the positions for all axes (as a numpy array);
+                otherwise, returns the position for the given axis (numbered starting at 1).
+
+        Returns:
+            Union[np.ndarray, float]: Positions of all axes or a single axis value.
         """
         if axis is None:
             # Update all axes and return a copy of the positions.
@@ -70,15 +88,13 @@ class FakeManipulator(Manipulator):
         """
         Returns the current positions for the given axes.
         
-        Parameters
-        ----------
-        axes : iterable
-            List of axis numbers.
+        Args:
+            axes (iterable):
+                List of axis numbers.
         
-        Returns
-        -------
-        np.ndarray
-            A NumPy array containing the positions for the specified axes.
+        Returns:
+            np.ndarray:
+                A NumPy array containing the positions for the specified axes.
         """
         for axis in axes:
             self.update_axis(axis)
@@ -90,11 +106,13 @@ class FakeManipulator(Manipulator):
     def update_axis(self, axis):
         """
         Updates the position on the given axis if a command is being executed.
+
+        Args:
+            axis: Axis number (1-indexed).
         
-        Returns
-        -------
-        bool
-            True if the move command is still running, False otherwise.
+        Returns:
+            bool:
+                True if the move command is still running, False otherwise.
         """
         idx = axis - 1
         # Nothing commanded on this axis.
@@ -128,14 +146,16 @@ class FakeManipulator(Manipulator):
         """
         Moves the given axis to an absolute position x (in um).
 
-        Parameters
-        ----------
-        x : float
-            Target position in micrometers.
-        axis : int
-            Axis number (starting at 1).
-        speed : int or None
-            Speed in the same units as set_max_speed. If None, the max speed is used.
+        Args:
+            x (float):
+                Target position in micrometers.
+            axis (int):
+                Axis number (starting at 1).
+            speed (int or None):
+                Speed in the same units as set_max_speed. If None, the max speed is used.
+
+            Raises:
+                RuntimeError: If the axis is already executing another command.
         """
         self.abort_if_requested()
         if self.update_axis(axis):
@@ -163,14 +183,13 @@ class FakeManipulator(Manipulator):
         """
         Moves a group of axes to the specified absolute positions.
         
-        Parameters
-        ----------
-        x : iterable
-            Target positions (in um) for each axis.
-        axes : iterable
-            List of axis numbers.
-        speed : int or None
-            Speed to use for all axes (if provided).
+        Args:
+            x (iterable):
+                Target positions (in um) for each axis.
+            axes (iterable):
+                List of axis numbers.
+            speed (int or None):
+                Speed to use for all axes (if provided).
         """
         self.abort_if_requested()
         for target, axis in zip(x, axes):
@@ -180,14 +199,13 @@ class FakeManipulator(Manipulator):
         """
         Moves the given axis by a relative amount.
         
-        Parameters
-        ----------
-        dx : float
-            Displacement (in um) to move the axis.
-        axis : int
-            Axis number (starting at 1).
-        speed : int or None
-            Speed (if provided, otherwise max_speed is used).
+        Args:
+            dx (float):
+                Displacement (in um) to move the axis.
+            axis (int):
+                Axis number (starting at 1).
+            speed (int or None):
+                Speed (if provided, otherwise max_speed is used).
         """
         self.abort_if_requested()
         current_pos = self.position(axis)
@@ -198,15 +216,14 @@ class FakeManipulator(Manipulator):
         """
         Moves a group of axes by a relative displacement.
         
-        Parameters
-        ----------
-        dx : float or iterable
-            If a scalar, the same displacement (in um) is applied to all axes.
-            Otherwise, dx should be an iterable of displacements.
-        axes : iterable
-            List of axis numbers.
-        speed : int or None
-            Speed (if provided).
+        Args:
+            dx (float or iterable):
+                If a scalar, the same displacement (in um) is applied to all axes.
+                Otherwise, dx should be an iterable of displacements.
+            axes (iterable):
+                List of axis numbers.
+            speed (int or None):
+                Speed (if provided).
         """
         # Determine whether dx is scalar or iterable.
         try:
@@ -226,18 +243,16 @@ class FakeManipulator(Manipulator):
         """
         Moves the given group of axes continuously at the specified velocity.
         
-        Parameters
-        ----------
-        vel : float or iterable
-            Velocity in um/s. If a scalar, that velocity is used for all axes.
-        axes : iterable
-            List of axis numbers.
+        Args:
+            vel (float or iterable):
+                Velocity in um/s. If a scalar, that velocity is used for all axes.
+            axes (iterable):
+                List of axis numbers.
             
-        Notes
-        -----
-        Because this is a velocity move, the setpoint is set to an
-        infinite value (in the correct direction) so that the axis keeps moving
-        until a stop command is issued.
+        Notes:
+            Because this is a velocity move, the setpoint is set to an
+            infinite value (in the correct direction) so that the axis keeps moving
+            until a stop command is issued.
         """
         self.abort_if_requested()
         current_time = time.time()
@@ -259,10 +274,9 @@ class FakeManipulator(Manipulator):
         """
         Stops any movement on the specified axis.
         
-        Parameters
-        ----------
-        axis : int
-            Axis number (starting at 1).
+        Args:
+            axis (int):
+                Axis number (starting at 1).
         """
         self.update_axis(axis)
         idx = axis - 1
@@ -274,10 +288,9 @@ class FakeManipulator(Manipulator):
         """
         Blocks until the specified axes have finished moving.
         
-        Parameters
-        ----------
-        axes : iterable or None
-            List of axis numbers to wait for. If None, waits for all axes.
+        Args
+            axes (iterable or None):
+                List of axis numbers to wait for. If None, waits for all axes.
         """
         if axes is None:
             axes = range(1, self.num_axes + 1)
@@ -296,16 +309,18 @@ class FakeManipulator(Manipulator):
         """
         Blocks until the given axes reach the target positions within the specified precision.
         
-        Parameters
-        ----------
-        position : float or iterable
-            Target position(s) in um.
-        axes : iterable or None
-            List of axis numbers to check. If None, all axes are used.
-        precision : float
-            Allowed error (in um) between current and target positions.
-        timeout : float
-            Maximum time (in seconds) to wait before raising an error.
+        Args:
+            position (float or iterable):
+                Target position(s) in um.
+            axes (iterable or None):
+                List of axis numbers to check. If None, all axes are used.
+            precision (float):
+                Allowed error (in um) between current and target positions.
+            timeout (float):
+                Maximum time (in seconds) to wait before raising an error.
+            
+        Raises:
+            RuntimeError: If the timeout is exceeded before reaching targets.
         """
         start_time = time.time()
         if axes is None:

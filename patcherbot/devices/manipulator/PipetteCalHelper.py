@@ -12,6 +12,18 @@ import logging
 
 
 def _resolve_model_path(model_name):
+    """
+    Resolves a pipette model path string into an absolute Path object.
+
+    If `model_name` is None or an empty string, returns None. If it is relative,
+    the path is assumed to be relative to the project's `deepLearning/pipetteModel` folder.
+
+    Args:
+        model_name (str or None): Name or path of the model file.
+
+    Returns:
+        Path or None: Absolute Path to the model if given, else None.
+    """
     if model_name is None:
         return None
     if isinstance(model_name, str) and not model_name.strip():
@@ -46,6 +58,16 @@ class PipetteCalHelper():
     NORMAL_MAX_SPEED = 1000
 
     def __init__(self, pipette: Manipulator, microscope: Microscope, camera: Camera, calibrated_stage, config=None):
+        """
+        Initializes the PipetteCalHelper.
+
+        Args:
+            pipette (Manipulator): The pipette manipulator to calibrate.
+            microscope (Microscope): Microscope used to image the pipette.
+            camera (Camera): Camera capturing the pipette.
+            calibrated_stage: Reference stage for relative positioning.
+            config: Optional configuration object with model paths.
+        """
         self.pipette: Manipulator = pipette
         self.microscope: Microscope = microscope
         self.camera = camera
@@ -71,6 +93,14 @@ class PipetteCalHelper():
            is paired with the pipette’s encoder (x, y) coordinates.
          - A small move (with added randomness) is commanded between points so that the
            calibration data covers a larger area.
+
+        Args:
+            num_points (int): Number of calibration points to collect. Default is 10.
+            xy_step (float): Nominal step size (in microns) between consecutive points. Default is 5.
+            max_retries (int): Maximum retries per point if pipette detection fails. Default is 5.
+
+        Returns:
+            bool: True if the requested number of points were successfully collected, False otherwise.
         """
         self.cal_points = []
         for i in range(num_points):
@@ -88,6 +118,12 @@ class PipetteCalHelper():
         """
         Attempt to record a calibration point. If no pipette is detected in the image,
         jitter the pipette and retry.
+
+        Args:
+            max_retries (int): Maximum number of attempts before giving up. Default is 5.
+
+        Returns:
+            bool: True if a point was successfully recorded, False if all retries failed.
         """
         for _ in range(max_retries):
             before = len(self.cal_points)
@@ -185,6 +221,14 @@ class PipetteCalHelper():
 
 class PipetteFocusHelper():
     def __init__(self, pipette: Manipulator, camera: Camera, config=None):
+        """
+        Initializes the PipetteFocusHelper.
+
+        Args:
+            pipette (Manipulator): The pipette manipulator to focus.
+            camera (Camera): Camera used for image capture.
+            config: Optional configuration object with model paths.
+        """
         self.pipette = pipette
         self.camera = camera
         self.config = config

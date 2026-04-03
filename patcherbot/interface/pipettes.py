@@ -20,6 +20,19 @@ class PipetteInterface(TaskInterface):
 
     def __init__(self, stage, microscope: Microscope, camera, unit, cellsorterManip, cellsorterController,
                  config_filename='calibration.pickle', calibration_data=None):
+        """
+        Initialize the PipetteInterface with hardware components and calibration configuration.
+
+        Args:
+            stage (object): Stage device.
+            microscope (Microscope): Microscope device.
+            camera (object): Camera device.
+            unit (object): Manipulator unit.
+            cellsorterManip (object): Cell sorter manipulator.
+            cellsorterController (object): Cell sorter controller.
+            config_filename (str, optional): Calibration file name.
+            calibration_data (dict, optional): Calibration configuration data.
+        """
         super().__init__()
         self.microscope = microscope
         self.camera = camera
@@ -77,6 +90,14 @@ class PipetteInterface(TaskInterface):
         self.tare_stage = np.array([None, None, None])
 
     def connect(self, main_gui):
+        """
+        Connect interface signals to the GUI (currently unused).
+
+        Args:
+            main_gui (object): Main GUI instance.
+        
+        Note: This method is currently unimplemented.
+        """
         pass #TODO: unused?
 
     @blocking_command(category='Manipulators',
@@ -84,30 +105,61 @@ class PipetteInterface(TaskInterface):
              task_description='Moving to a repeatable position in the z axis',
              default_arg=10)
     def fix_backlash(self, none):
+        """
+        Move the microscope to eliminate backlash and ensure repeatable positioning.
+
+        Args:
+            none (object): Unused parameter.
+        """
         self.execute(self.microscope.fix_backlash)
 
     @command(category='Manipulators',
              description='Record a calibration point at the current position',
              default_arg=10)
     def record_cal_point(self, none):
+        """
+        Record the current position as a calibration point.
+
+        Args:
+            none (object): Unused parameter.
+        """
         self.calibrated_unit.record_cal_point()
     
     @command(category='Manipulators',
              description='Finish calibration',
              default_arg=10)
     def finish_calibration(self, none):
+        """
+        Finalize the calibration process for the manipulator.
+
+        Args:
+            none (object): Unused parameter.
+        """
         self.calibrated_unit.finish_calibration()
 
     @command(category='Manipulators',
              description='Move pipette in x direction by {:.0f}μm',
              default_arg=10)
     def move_pipette_x(self, distance):
+        """
+        Move the pipette along the x-axis by a specified distance.
+
+        Args:
+            distance (float): Distance to move in micrometers.
+        """
         self.calibrated_unit.relative_move(distance, axis=0)
 
 
     @command(category='Manipulators',
                 description='Write current calibration to file')
     def write_calibration(self):
+        """
+        Save calibration data and key positions to a file.
+
+        Raises:
+            RuntimeError: If calibration or required positions are not set.
+            Exception: If writing to file fails.
+        """
         if not self.calibrated_stage.calibrated:
             raise RuntimeError('Stage not calibrated')
         if not self.calibrated_unit.calibrated:
@@ -153,6 +205,12 @@ class PipetteInterface(TaskInterface):
     def read_calibration(self, config_filename='calibration.pickle'):
         '''
         Read calibration from file.
+
+        Args:
+            config_filename (str, optional): Path to calibration file.
+
+        Raises:
+            RuntimeError: If calibration file is not found.
         '''
         if os.path.isfile(config_filename):
             with open(config_filename, 'rb') as f:
@@ -177,6 +235,13 @@ class PipetteInterface(TaskInterface):
              description='write the current tared position to file',
              success_message='Tared position written to file')
     def write_tare(self):
+        """
+        Save the current tared positions of pipette and stage to a file.
+
+        Raises:
+            RuntimeError: If tare positions are not set.
+            Exception: If writing to file fails.
+        """
         if self.tare_pipette is None or self.tare_stage is None:
             raise RuntimeError('Tare position not set')
         try:
@@ -200,24 +265,43 @@ class PipetteInterface(TaskInterface):
     @command(category='Manipulators',
                 description='recalibrate manipulator offset while preserving matrix')
     def recalibrate_manipulator(self):
+        """Recalibrate the manipulator offset while preserving calibration matrix."""
         self.calibrated_unit.recalibrate_pipette()
             
     @command(category='Manipulators',
              description='Move pipette in y direction by {:.0f}μm',
              default_arg=10)
     def move_pipette_y(self, distance):
+        """
+        Move the pipette along the y-axis by a specified distance.
+
+        Args:
+            distance (float): Distance to move in micrometers.
+        """
         self.calibrated_unit.relative_move(distance, axis=1)
 
     @command(category='Manipulators',
              description='Move pipette in z direction by {:.0f}μm',
              default_arg=-1000)
     def move_pipette_z(self, distance):
+        """
+        Move the pipette along the z-axis by a specified distance.
+
+        Args:
+            distance (float): Distance to move in micrometers.
+        """
         self.calibrated_unit.relative_move(distance, axis=2)
 
     @command(category='Manipulators',
              description='Move pipette in xyz direction by {:.0f}μm',
              default_arg=-500)
     def move_pipette_xyz(self, distance):
+        """
+        Move the pipette in 3D space based on pipette angle configuration.
+
+        Args:
+            distance (float): Movement magnitude in micrometers.
+        """
         # currently utilized for automatic safe space saving
         angle = np.deg2rad(self.calibrated_unit.config.pipette_y_rotation)
         distance = np.array([distance*np.cos(angle),0,distance*np.sin(angle)])
@@ -227,6 +311,12 @@ class PipetteInterface(TaskInterface):
              description='Move microscope by {:.0f}μm',
              default_arg=-500) 
     def move_microscope(self, distance):
+        """
+        Move the microscope along its axis.
+
+        Args:
+            distance (float): Distance to move in micrometers.
+        """
         # self.info(f'Moving microscope by {distance}μm')
         self.microscope.relative_move(distance)
 
@@ -234,6 +324,7 @@ class PipetteInterface(TaskInterface):
              description='Set the position of the floor (cover slip)',
              success_message='Cover slip position stored')
     def set_floor(self):
+        """Store the current microscope position as the coverslip floor."""
         self.microscope.floor_Z = float(self.microscope.position())
         self.info(f'Cell plane position set to {self.microscope.floor_Z}')
 
@@ -241,6 +332,12 @@ class PipetteInterface(TaskInterface):
              description='Move stage vertically by {:.0f}μm',
              default_arg=-50)
     def move_stage_vertical(self, distance):
+        """
+        Move the stage vertically.
+
+        Args:
+            distance (float): Distance to move in micrometers.
+        """
         if distance < 0:
             print(f"distance is negative: {distance}")
         self.calibrated_stage.relative_move(distance, axis=1)
@@ -249,6 +346,12 @@ class PipetteInterface(TaskInterface):
              description='Move stage horizontally by {:.0f}μm',
              default_arg=10)
     def move_stage_horizontal(self, distance):
+        """
+        Move the stage horizontally.
+
+        Args:
+            distance (float): Distance to move in micrometers.
+        """
         if distance < 0:
             print(f"distance is negative: {distance}")
         self.calibrated_stage.relative_move(distance, axis=0)
@@ -257,33 +360,44 @@ class PipetteInterface(TaskInterface):
                       description='Calibrate stage only',
                       task_description='Calibrating stage')
     def calibrate_stage(self):
+        """Perform calibration of the stage."""
         self.execute([self.calibrated_stage.calibrate])
 
     @blocking_command(category='Manipulators',
                       description='Calibrate manipulator',
                       task_description='Calibrating manipulator')
     def calibrate_manipulator(self):
+        """Perform calibration of the manipulator."""
         self.execute([self.calibrated_unit.calibrate_pipette])
     @blocking_command(category='Manipulators',
                         description='Home the manipulator',
                         task_description='Homing the manipulator')
     def Home_manipulator(self):
+        """Move the manipulator to its home position."""
         self.execute([self.calibrated_unit.home])
         
     @blocking_command(category='Manipulators',
                      description = 'Center the Pipette',
                       task_description='Centering the Pipette')
     def center_pipette(self):
+        """Center the pipette in the field of view."""
         self.execute([self.calibrated_unit.center_pipette])
     @blocking_command(category='Manipulators',
                      description = 'direct the Pipette',
                       task_description='Directing the Pipette')
     def direct_pipette(self,desired_px):
+        """
+        Direct the pipette toward a specified pixel position.
+
+        Args:
+            desired_px (array-like): Target pixel coordinates.
+        """
         self.execute([self.calibrated_unit.direct_pipette], argument= desired_px)
     @blocking_command(category='Manipulators and Stage',
                       description='Follow stage',
                         task_description='Following the stage')
     def follow_stage(self):
+        """Move the pipette to follow stage movements."""
         self.execute([self.calibrated_unit.follow_stage])
 
 
@@ -291,6 +405,7 @@ class PipetteInterface(TaskInterface):
                       description='Move pipette randomly in xyz',
                         task_description='displacing pipette randomly in xyz...')
     def move_pipette_random(self):
+        """Move the pipette randomly in 3D space."""
         self.execute([self.calibrated_unit.move_pipette_random])
 
 
@@ -299,18 +414,26 @@ class PipetteInterface(TaskInterface):
                         description='focus the stage',
                         task_description='Focusing the stage')
     def focus_stage(self):
+        """Autofocus the stage."""
         self.execute([self.calibrated_stage.focus])
         
     @blocking_command(category='Manipulators',
                       description='Focus the pipette',
                       task_description='Calibrating manipulator')
     def focus_pipette(self):
+        """Autofocus the pipette."""
         self.execute([self.calibrated_unit.autofocus_pipette])
 
     @blocking_command(category='Manipulators',
                      description='Move pipette to position',
                      task_description='Moving to position with safe approach')
     def move_pipette(self, xy_position):
+        """
+        Move the pipette safely to a specified XY position.
+
+        Args:
+            xy_position (tuple): Target (x, y) position.
+        """
         x, y = xy_position
         position = np.array([x, y, self.microscope.position()])
         self.debug('asking for safe move to {}'.format(position))
@@ -320,6 +443,15 @@ class PipetteInterface(TaskInterface):
                     description='Raise the pipette high enough to insert the coverslip',
                     task_description='Raising the pipette high enough to insert the coverslip')
     def raise_pipette(self, raise_distance = 1000):
+        """
+        Raise the pipette to allow coverslip insertion.
+
+        Args:
+            raise_distance (float, optional): Height to raise (unused directly).
+
+        Raises:
+            RuntimeError: If pipette is already raised.
+        """
         if self.pos_before_raise is None:
             self.pos_before_raise = self.calibrated_unit.dev.position()
             position = np.array([self.pos_before_raise[0], self.pos_before_raise[1], 0])
@@ -331,6 +463,12 @@ class PipetteInterface(TaskInterface):
                 description='Lower the pipette after inserting the coverslip',
                 task_description='Lowering the pipette after inserting the coverslip')
     def lower_pipette(self):
+        """
+        Return the pipette to its previous position after raising.
+
+        Raises:
+            RuntimeError: If pipette was not previously raised.
+        """
         if self.pos_before_raise is not None:
             self.execute(self.calibrated_unit.absolute_move, argument=self.pos_before_raise)
             self.pos_before_raise = None
@@ -341,15 +479,29 @@ class PipetteInterface(TaskInterface):
                     description='calibrate the cell sorter',
                     task_description='Calibrating the cell sorter')
     def calibrate_cell_sorter(self):
+        """Perform calibration of the cell sorter."""
         self.execute(self.calibrated_cellsorter.calibrate)
 
     def set_cell_sorter_led(self, enabled: bool, ring: int = 1):
+        """
+        Enable or disable the LED ring on the cell sorter.
+
+        Args:
+            enabled (bool): Whether to enable the LED.
+            ring (int, optional): LED ring index.
+        """
         self.calibrated_cellsorter.set_led_ring_enabled(enabled, ring)
 
     @blocking_command(category='Manipulators',
                      description='Move stage to position',
                      task_description='Moving stage to position')
     def move_stage(self, xy_position):
+        """
+        Move the stage to a specified position.
+
+        Args:
+            xy_position (tuple): Target (x, y) position.
+        """
         x, y = xy_position
         position = np.array([x, y])
         self.debug('asking for reference move to {}'.format(position))
@@ -360,6 +512,12 @@ class PipetteInterface(TaskInterface):
                       description='Go to the floor (cover slip)',
                       task_description='Go to the floor (cover slip)')
     def go_to_floor(self):
+        """
+        Move the microscope to the stored coverslip floor position.
+
+        Raises:
+            RuntimeError: If floor position is not set.
+        """
         if self.microscope.floor_Z is None:
             raise RuntimeError("Coverslip floor must be set.")
         self.execute(self.microscope.move_to_floor)

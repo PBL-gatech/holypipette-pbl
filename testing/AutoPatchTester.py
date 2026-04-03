@@ -24,7 +24,27 @@ def _load_hdf5_sequence(
     *,
     demo_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Load a single demonstration sequence from an HDF5 file."""
+    """
+    Load a single demonstration sequence from an HDF5 file.
+
+    Args:
+        data_path (Path): Path to the HDF5 dataset file.
+        demo_id (Optional[str]): Specific demonstration key to load. If None,
+            the first available demo is used.
+
+    Returns:
+        Dict[str, Any]: Dictionary containing:
+            - demo_id (str): Identifier of the loaded demonstration
+            - images (np.ndarray): Image sequence (N, H, W, C)
+            - resistance (np.ndarray): Resistance values per frame
+            - pipette_positions (np.ndarray): Pipette positions (N, 3)
+            - stage_positions (np.ndarray): Stage positions (N, 3)
+            - actions (np.ndarray): Action sequence
+
+    Raises:
+        FileNotFoundError: If the dataset file does not exist.
+        ValueError: If required groups or demo data are missing or malformed.
+    """
     data_path = Path(data_path)
     if not data_path.exists():
         raise FileNotFoundError(f"Dataset not found at {data_path}")
@@ -81,7 +101,20 @@ def _load_hdf5_sequence(
     }
 
 class HuntTester(CellHunter):
-    """Dataset-driven tester built on ``CellHunter`` auto-patching policy."""
+    """
+    Dataset-driven tester built on ``CellHunter`` auto-patching policy.
+    
+    Args:
+        model_path (Path | str): Path to ONNX model.
+        data_path (Path | str): Path to dataset file.
+        providers (Optional[Sequence[str]]): ONNX runtime providers.
+        demo_id (Optional[str]): Demonstration ID to load.
+        seq_len (int): Sequence length for model input.
+        num_layers (int): Number of model layers.
+        hidden_size (int): Hidden state size.
+        prefill_init (bool): Whether to prefill hidden state.
+        center_crop (bool): Whether to center crop images.
+    """
 
     def __init__(
         self,
@@ -96,6 +129,26 @@ class HuntTester(CellHunter):
         prefill_init: bool = False,
         center_crop: bool = True,
     ) -> None:
+        """
+        Initialize a HuntTester instance using a dataset and model.
+
+        Args:
+            model_path (Path | str): Path to the ONNX model file.
+            data_path (Path | str): Path to the HDF5 dataset.
+            providers (Optional[Sequence[str]]): ONNX runtime providers.
+            demo_id (Optional[str]): Demonstration ID to load from dataset.
+            seq_len (int): Sequence length used by the model.
+            num_layers (int): Number of recurrent layers.
+            hidden_size (int): Hidden state size for the model.
+            prefill_init (bool): Whether to prefill hidden states before inference.
+            center_crop (bool): Whether to apply center cropping to input images.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If image data does not have shape (N, H, W, C).
+        """
         self.model_path = Path(model_path)
         self.data_path = Path(data_path)
         self.dataset = _load_hdf5_sequence(self.data_path, demo_id=demo_id)
@@ -137,9 +190,24 @@ class HuntTester(CellHunter):
 
     @property
     def num_frames(self) -> int:
+        """
+        Get number of frames in the dataset.
+
+        Returns:
+            int: Total number of frames.
+        """
         return self.images.shape[0]
 
     def set_goal(self, index: int) -> None:
+        """
+        Set the goal frame for inference.
+
+        Args:
+            index (int): Frame index to use as goal.
+
+        Raises:
+            IndexError: If index is out of valid range.
+        """
         if not 0 <= index < self.num_frames:
             raise IndexError(f"Goal index {index} out of range (0, {self.num_frames - 1})")
         self.goal_index = index
@@ -151,6 +219,19 @@ class HuntTester(CellHunter):
         }
 
     def observation_at(self, idx: int) -> Dict[str, np.ndarray]:
+        """
+        Retrieve observation at a specific frame.
+
+        Args:
+            idx (int): Frame index.
+
+        Returns:
+            Dict[str, np.ndarray]: Observation dictionary containing image,
+            pipette position, stage position, and resistance.
+
+        Raises:
+            IndexError: If index is out of range.
+        """
         if not 0 <= idx < self.num_frames:
             raise IndexError(f"Frame {idx} out of range (0, {self.num_frames - 1})")
         return {
@@ -161,6 +242,15 @@ class HuntTester(CellHunter):
         }
 
     def run_inference(self, idx: int):
+        """
+        Run model inference for a specific frame.
+
+        Args:
+            idx (int): Frame index.
+
+        Returns:
+            Any: Model output actions.
+        """
         obs = self.observation_at(idx)
         model_input: Dict[str, Any]
         if self.goal_input_names:
@@ -172,6 +262,16 @@ class HuntTester(CellHunter):
 
     @staticmethod
     def calculate_error(pred, gt) -> np.ndarray:
+        """
+        Compute element-wise error between prediction and ground truth.
+
+        Args:
+            pred (Any): Predicted values.
+            gt (Any): Ground truth values.
+
+        Returns:
+            np.ndarray: Difference array (pred - gt).
+        """
         pred_arr = np.asarray(pred).reshape(-1)
         gt_arr = np.asarray(gt).reshape(-1)
         return pred_arr - gt_arr
@@ -192,6 +292,26 @@ class PipetteControlTester(PipetteFinder):
         prefill_init: bool = False,
         center_crop: bool = False,
     ) -> None:
+        """
+        Initialize a PipetteControlTester instance using a dataset and model.
+
+        Args:
+            model_path (Path | str): Path to the ONNX model file.
+            data_path (Path | str): Path to the HDF5 dataset.
+            providers (Optional[Sequence[str]]): ONNX runtime providers.
+            demo_id (Optional[str]): Demonstration ID to load from dataset.
+            seq_len (int): Sequence length used by the model.
+            num_layers (int): Number of recurrent layers.
+            hidden_size (int): Hidden state size for the model.
+            prefill_init (bool): Whether to prefill hidden states before inference.
+            center_crop (bool): Whether to apply center cropping to input images.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If image data does not have shape (N, H, W, C).
+        """
         self.model_path = Path(model_path)
         self.data_path = Path(data_path)
         self.dataset = _load_hdf5_sequence(self.data_path, demo_id=demo_id)
@@ -231,9 +351,24 @@ class PipetteControlTester(PipetteFinder):
 
     @property
     def num_frames(self) -> int:
+        """
+        Get number of frames in the dataset.
+
+        Returns:
+            int: Total number of frames.
+        """
         return self.images.shape[0]
 
     def set_goal(self, index: int) -> None:
+        """
+        Set the goal frame for inference.
+
+        Args:
+            index (int): Frame index to use as goal.
+
+        Raises:
+            IndexError: If index is out of valid range.
+        """
         if not 0 <= index < self.num_frames:
             raise IndexError(f"Goal index {index} out of range (0, {self.num_frames - 1})")
         self.goal_index = index
@@ -244,6 +379,18 @@ class PipetteControlTester(PipetteFinder):
         }
 
     def observation_at(self, idx: int) -> Dict[str, np.ndarray]:
+        """
+        Retrieve observation at a specific frame.
+
+        Args:
+            idx (int): Frame index.
+
+        Returns:
+            Dict[str, np.ndarray]: Observation dictionary.
+
+        Raises:
+            IndexError: If index is out of range.
+        """
         if not 0 <= idx < self.num_frames:
             raise IndexError(f"Frame {idx} out of range (0, {self.num_frames - 1})")
         return {
@@ -253,6 +400,15 @@ class PipetteControlTester(PipetteFinder):
         }
 
     def run_inference(self, idx: int):
+        """
+        Run model inference for a specific frame.
+
+        Args:
+            idx (int): Frame index.
+
+        Returns:
+            Any: Model output actions.
+        """
         obs = self.observation_at(idx)
         model_input: Dict[str, Any]
         if self.goal_input_names:
@@ -264,6 +420,16 @@ class PipetteControlTester(PipetteFinder):
 
     @staticmethod
     def calculate_error(pred, gt) -> np.ndarray:
+        """
+        Compute element-wise error between prediction and ground truth.
+
+        Args:
+            pred (Any): Predicted values.
+            gt (Any): Ground truth values.
+
+        Returns:
+            np.ndarray: Difference array (pred - gt).
+        """
         pred_arr = np.asarray(pred).reshape(-1)
         gt_arr = np.asarray(gt).reshape(-1)
         return pred_arr - gt_arr
@@ -286,6 +452,28 @@ class AutoPatchTester:
         position_round_decimals: Optional[int] = 2,
         tester_kwargs: Optional[Dict[str, Any]] = None,
     ) -> None:
+        """
+        Initialize the AutoPatchTester for evaluating auto-patching models.
+
+        Args:
+            model_path (Path | str): Path to the ONNX model file.
+            data_path (Path | str): Path to the HDF5 dataset.
+            providers (Optional[Sequence[str]]): ONNX runtime providers.
+            demo_id (Optional[str]): Demonstration ID to load.
+            tester_cls (Type[Any]): Tester class to instantiate (e.g., HuntTester).
+            action_slice (slice): Slice selecting relevant action dimensions.
+            save_dir (Optional[Path | str]): Directory to save outputs.
+            animation_fname (str): Filename for saved trajectory animation.
+            animation_fps (int): Frames per second for animation.
+            position_round_decimals (Optional[int]): Decimal precision for rounding positions.
+            tester_kwargs (Optional[Dict[str, Any]]): Additional keyword arguments for tester.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If dataset dimensions are incompatible with model expectations.
+        """
         self.model_path = Path(model_path)
         self.data_path = Path(data_path)
         self.providers = providers
@@ -335,6 +523,15 @@ class AutoPatchTester:
 
 
     def _rounded_positions(self, array: np.ndarray) -> np.ndarray:
+        """
+        Optionally round position arrays.
+
+        Args:
+            array (np.ndarray): Input position array.
+
+        Returns:
+            np.ndarray: Rounded or original array.
+        """
         if array is None:
             return None
         if self.position_round_decimals is None:
@@ -343,6 +540,7 @@ class AutoPatchTester:
 
 
     def run(self) -> None:
+        """Execute full testing pipeline including inference, plotting, and animation."""
         self._compute_latency_and_error()
         self._plot_static_trajectory()
         self._plot_raw_predictions()
@@ -350,6 +548,12 @@ class AutoPatchTester:
         self._animate_trajectory(save_gif=True)
 
     def _compute_latency_and_error(self) -> None:
+        """
+        Run inference across all frames and compute latency and prediction error.
+
+        Raises:
+            RuntimeError: If inference fails to produce valid outputs.
+        """
         print("[INFO] Running inference over frames...")
         self.lat_ms.clear()
         self.error_frames.clear()
@@ -400,6 +604,12 @@ class AutoPatchTester:
         self._integrate_pipette_predictions()
 
     def _integrate_pipette_predictions(self) -> None:
+        """
+        Integrate predicted action deltas into pipette trajectories.
+
+        Raises:
+            RuntimeError: If required data is missing or insufficient.
+        """
         if not self.stored_actions:
             raise RuntimeError('No actions stored; run _compute_latency_and_error() first')
         pred_actions = np.asarray(self.stored_actions)
@@ -455,6 +665,12 @@ class AutoPatchTester:
         )
 
     def _plot_static_trajectory(self) -> None:
+        """
+        Plot static 3D trajectories comparing predicted and observed pipette motion.
+
+        Raises:
+            RuntimeError: If trajectory data is unavailable.
+        """
         if (
             self.reference_pip_positions is None
             or self.predicted_pip_positions is None
@@ -577,6 +793,12 @@ class AutoPatchTester:
 
 
     def _plot_raw_predictions(self) -> None:
+        """
+        Plot predicted vs observed action deltas over time.
+
+        Raises:
+            RuntimeError: If delta data is unavailable or empty.
+        """
         if self.predicted_pip_deltas is None:
             raise RuntimeError('Predicted deltas unavailable; call run() first')
         if self.observed_pip_deltas is None:
@@ -618,6 +840,12 @@ class AutoPatchTester:
         plt.tight_layout()
         plt.show()
     def _plot_predicted_xy_trajectory(self) -> None:
+        """
+        Plot predicted XY trajectory over time steps.
+
+        Raises:
+            RuntimeError: If predicted trajectory data is unavailable.
+        """
         if self.predicted_pip_positions is None:
             raise RuntimeError('Predicted trajectory unavailable; call run() first')
         
@@ -650,6 +878,15 @@ class AutoPatchTester:
         plt.show()
 
     def _animate_trajectory(self, *, save_gif: bool = True) -> None:
+        """
+        Animate 3D pipette trajectory over time.
+
+        Args:
+            save_gif (bool): Whether to save animation as a GIF.
+
+        Raises:
+            RuntimeError: If trajectory data is unavailable.
+        """
         if (
             self.reference_pip_positions is None
             or self.predicted_pip_positions is None

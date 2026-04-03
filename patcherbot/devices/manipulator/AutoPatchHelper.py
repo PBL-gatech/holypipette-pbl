@@ -29,6 +29,22 @@ class AutoPatchHelper:
         calibrate_inputs: Optional[bool] = None,
         calibrate_outputs: Optional[bool] = None,
     ):
+        """
+        Initialize the AutoPatchHelper with model instances and calibration settings.
+
+        Args:
+            calibration_enabled (bool):
+                Global default flag to enable calibration for both inputs and outputs.
+                Used when specific input/output flags are not provided.
+
+            calibrate_inputs (Optional[bool]):
+                Whether to apply calibration to model inputs (microns → pixels).
+                If None, inherits from calibration_enabled.
+
+            calibrate_outputs (Optional[bool]):
+                Whether to apply calibration to model outputs (pixels → microns).
+                If None, inherits from calibration_enabled.
+        """
         self.hunter = CellHunter()
         self.finder = PipetteFinder()
         self.gigasealer = GigaSealer()
@@ -51,6 +67,17 @@ class AutoPatchHelper:
         self._axis_meta = {}
 
     def _actor_for(self, which: str):
+        """
+        Return the model instance corresponding to a given stage name.
+
+        Args:
+            which (str):
+                Model identifier ("hunt", "find_pipette", "gigaseal", "break_in").
+
+        Returns:
+            Optional[Any]:
+                The corresponding model instance, or None if not found.
+        """
         return {
             "hunt": self.hunter,
             "find_pipette": self.finder,
@@ -59,6 +86,17 @@ class AutoPatchHelper:
         }.get(which)
 
     def _model_dims(self, which: str) -> Tuple[int, int, Optional[int]]:
+        """
+        Retrieve and cache axis dimension information for a model.
+
+        Args:
+            which (str):
+                Model identifier.
+
+        Returns:
+            Tuple[int, int, Optional[int]]:
+                Tuple containing (pipette_dim, stage_dim, optional_extra_dim).
+        """
         cached = self._axis_meta.get(which)
         if cached is not None:
             return cached
@@ -70,6 +108,21 @@ class AutoPatchHelper:
         return dims
 
     def _trim_axes_for(self, pip, stage, which: str):
+        """
+        Resize and pad pipette and stage vectors to match model input dimensions.
+
+        Args:
+            pip (Sequence[float]):
+                Pipette position vector.
+            stage (Sequence[float]):
+                Stage position vector.
+            which (str):
+                Model identifier.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]:
+                Trimmed and padded pipette and stage vectors.
+        """
         pip_dim, stage_dim, _ = self._model_dims(which)
         pip_arr = np.asarray(pip, np.float32).reshape(-1)
         stage_arr = np.asarray(stage, np.float32).reshape(-1)
@@ -88,13 +141,42 @@ class AutoPatchHelper:
         return pip_arr.astype(np.float32), stage_arr.astype(np.float32)
 
     def _pad_output(self, stage_vec: np.ndarray, pip_vec: np.ndarray) -> np.ndarray:
+        """
+        Combine stage and pipette outputs into a fixed-length vector.
+
+        Args:
+            stage_vec (np.ndarray):
+                Stage output vector.
+            pip_vec (np.ndarray):
+                Pipette output vector.
+
+        Returns:
+            np.ndarray:
+                Combined output vector of length at least 6.
+        """
         combined = np.concatenate([stage_vec, pip_vec])
         if combined.size < 6:
             combined = np.pad(combined, (0, 6 - combined.size), constant_values=0.0)
         return combined
 
     def load_calibration(self, path: Optional[Union[str, Path]] = None):
-        """Load calibration data and cache the affine transforms."""
+        """
+        Load calibration data and cache the affine transforms.
+        
+        Args:
+            path (Optional[Union[str, Path]]):
+                Path to calibration file (JSON or pickle). Uses default if None.
+
+        Returns:
+            Dict[str, Any]:
+                Dictionary containing calibration matrices and offsets.
+
+        Raises:
+            FileNotFoundError:
+                If the calibration file does not exist.
+            ValueError:
+                If the calibration format is invalid.
+        """
         candidate = path or self.calibration_path or DEFAULT_CALIBRATION_PATH
         candidate = Path(candidate).expanduser()
         if not candidate.exists():
@@ -139,7 +221,15 @@ class AutoPatchHelper:
         }
 
     def set_calibration_usage(self, *, inputs: Optional[bool] = None, outputs: Optional[bool] = None) -> None:
-        """Toggle calibration independently for model inputs and outputs."""
+        """
+        Toggle calibration independently for model inputs and outputs.
+        
+        Args:
+            inputs (Optional[bool]):
+                Whether to apply calibration to inputs.
+            outputs (Optional[bool]):
+                Whether to apply calibration to outputs.
+        """
         if inputs is not None:
             self._calibration_usage["inputs"] = bool(inputs)
         if outputs is not None:
@@ -148,22 +238,70 @@ class AutoPatchHelper:
 
     @property
     def use_calibrated_inputs(self) -> bool:
+        """
+        Check if input calibration is enabled.
+
+        Returns:
+            bool:
+                True if calibration is applied to inputs.
+        """
         return self._calibration_usage["inputs"]
 
     @use_calibrated_inputs.setter
     def use_calibrated_inputs(self, enabled: bool) -> None:
+        """
+        Enable or disable input calibration.
+
+        Args:
+            enabled (bool):
+                Desired calibration state.
+        """
         self.set_calibration_usage(inputs=enabled)
 
     @property
     def use_calibrated_outputs(self) -> bool:
+        """
+        Check if output calibration is enabled.
+
+        Returns:
+            bool:
+                True if calibration is applied to outputs.
+        """
         return self._calibration_usage["outputs"]
 
     @use_calibrated_outputs.setter
     def use_calibrated_outputs(self, enabled: bool) -> None:
+        """
+        Enable or disable output calibration.
+
+        Args:
+            enabled (bool):
+                Desired calibration state.
+        """
         self.set_calibration_usage(outputs=enabled)
 
     def apply_calibration(self, values: Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]], *, direction: str = "to_pixels", split: bool = False, ignore_offsets: Optional[dict] = None):
-        """Convert coordinates between microns and pixels using cached calibration matrices."""
+        """
+        Convert coordinates between microns and pixels using cached calibration matrices.
+        
+        Args:
+            values (Union[Sequence[float], Tuple[Sequence[float], Sequence[float]]]):
+                Combined or separate stage and pipette coordinates.
+            direction (str):
+                Conversion direction ("to_pixels" or "to_microns").
+            split (bool):
+                Whether to return stage and pipette separately.
+            ignore_offsets (Optional[dict]):
+                Flags to ignore offsets for specific components.
+
+        Returns:
+            Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+                Converted coordinates.
+
+        Raises:
+            ValueError:
+                If direction is invalid or input format is incorrect.
+        """
         mode = direction.lower()
         if mode in {"to_pixels", "microns_to_pixels", "um_to_pixels", "forward"}:
             forward = True
@@ -238,6 +376,14 @@ class AutoPatchHelper:
           • Wrapper models (obs::/goal::): build {"obs": (...), "goal": partial or omitted}
             and pass RAW HWC image + raw numerics (normalization handled inside ONNX).
           • Legacy models: pass (pip, stage, img, res); CellHunter will normalize/crop/stack.
+        
+        Args:
+        model_input (Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]):
+            Tuple containing (pipette_positions, stage_positions, image, resistance).
+
+        Returns:
+            List[float]:
+                Predicted movement vector in microns.
         """
         # Ensure model is loaded and wrapper flags are known
         if self.hunter.session is None:
@@ -307,6 +453,14 @@ class AutoPatchHelper:
         Preprocess + handshake for pipette localisation.
           - Wrapper models (obs::/goal::): build {"obs": (...)} and pass raw HWC image.
           - Legacy models: pass (pip, stage, img); PipetteFinder normalises internally.
+        
+        Args:
+            model_input (Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]):
+                Tuple containing (pipette_positions, stage_positions, image, resistance).
+
+        Returns:
+            List[float]:
+                Predicted pipette position vector in microns.
         """
         if self.finder.session is None:
             self.prepare_model("find_pipette")
@@ -380,8 +534,30 @@ class AutoPatchHelper:
         return self.clamp_positions(pos_um)
 
     def gigaseal(self,mode,type,input):
+       """
+        Placeholder for gigaseal stage inference.
+
+        Args:
+            mode (Any):
+                Execution mode.
+            type (Any):
+                Model or operation type.
+            input (Any):
+                Input data.
+        """
        pass
     def breakin(self,mode,type,input):
+        """
+        Placeholder for break-in stage inference.
+
+        Args:
+            mode (Any):
+                Execution mode.
+            type (Any):
+                Model or operation type.
+            input (Any):
+                Input data.
+        """
         pass
 
     def pathplan(self, pos):
@@ -394,6 +570,14 @@ class AutoPatchHelper:
         • Computes velocities with central differences (forward/backward for the edges).
         • Duplicates the 3‑D velocity into the 6‑output format.
         • Limits each 3‑D velocity vector to `max_speed`.
+        
+        Args:
+            pos (Sequence[Sequence[float]]):
+                List of 3D positions over time.
+
+        Returns:
+            List[float]:
+                Flattened velocity vector sequence.
         """
         # Guard against too few points
         if len(pos) < 2:
@@ -431,6 +615,19 @@ class AutoPatchHelper:
         return vel_flat
 
     def clamp_positions(self, positions, max_distance=2000.0):
+        """
+        Clamp position values to a maximum magnitude.
+
+        Args:
+            positions (Sequence[float]):
+                Position vector.
+            max_distance (float):
+                Maximum allowed absolute value.
+
+        Returns:
+            List[float]:
+                Clamped position values.
+        """
         # ensure 1-D float array
         arr = np.asarray(positions, dtype=float).ravel()
         # clamp both positive and negative to ±max_distance
@@ -442,6 +639,11 @@ class AutoPatchHelper:
         """
         Prepare a given model for accurate inferencing. requires loading and preloading inputs to provide an accurate prediction set
 
+        Args:
+            model (str):
+                Model identifier.
+            model_input (Sequence[Any]):
+                Sequence of input observations.
         """
         if model == 'hunt':
             self.hunter.load_model()
@@ -491,6 +693,22 @@ class AutoPatchHelper:
         Loads the selected model and records whether it uses new wrapper IO (obs::/goal::).
         Compatible with your call site: self.autopatchhelper.prepare_model("hunt")
         You may optionally pass an explicit `onnx_path` to control which policy is loaded.
+        
+        Args:
+            which (str):
+                Model identifier.
+            onnx_path (Optional[str]):
+                Path to ONNX model file.
+            providers (Optional[Any]):
+                Execution providers.
+
+        Returns:
+            AutoPatchHelper:
+                Instance with initialized model.
+
+        Raises:
+            ValueError:
+                If model identifier is unknown.
         """
         if which == "hunt":
             self.hunter.load_model(onnx_path, providers=providers)
@@ -531,6 +749,20 @@ class AutoPatchHelper:
         """
         Store a (possibly partial) goal. Any missing keys (e.g., image) will be mirrored
         from the current observation by the wrapper-aware path in CellHunter.
+        
+        Args:
+            pip (Optional[Sequence[float]]):
+                Target pipette position.
+            stage (Optional[Sequence[float]]):
+                Target stage position.
+            resistance (Optional[Sequence[float]]):
+                Target resistance values.
+            image (Optional[np.ndarray]):
+                Target image.
+
+        Returns:
+            AutoPatchHelper:
+                Instance with stored goal state.
         """
         g = {}
         if pip is not None:

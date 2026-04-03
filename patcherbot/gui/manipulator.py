@@ -18,11 +18,24 @@ import cv2
 
 
 class ManipulatorGui(CameraGui):
-
+    """GUI for controlling a manipulator and its associated cameras."""
     pipette_command_signal = QtCore.pyqtSignal(MethodType, object)
     pipette_reset_signal = QtCore.pyqtSignal(TaskController)
 
     def __init__(self, camera, aux_camera, pipette_interface, with_tracking=False, recording_state_manager: RecordingStateManager = None):
+        """
+        Initialize the manipulator GUI.
+
+        Attributes:
+            microscope_camera: The main microscope camera.
+            pipette_camera: Auxiliary camera for pipette view.
+            interface: Manipulator interface for pipette.
+            control_thread: Thread in which the manipulator interface runs.
+            image_save_number (int): Counter for saved images.
+            show_tip_on (bool): Whether the tip is currently being displayed.
+            tip_x, tip_y: Coordinates of pipette tip.
+            tip_t0: Timestamp when tip display started.
+        """
         super(ManipulatorGui, self).__init__(camera, aux_camera=aux_camera, with_tracking=with_tracking, recording_state_manager=recording_state_manager)
         self.setWindowTitle("Pipette GUI")
         self.microscope_camera = camera
@@ -57,6 +70,9 @@ class ManipulatorGui(CameraGui):
     def display_manipulator(self, pixmap):
         '''
         Displays the number of the selected manipulator.
+
+        Args:
+            pixmap (QPixmap): The image to draw on.
         '''
         if getattr(self, 'active_camera_role', 'main') != 'main':
             return
@@ -68,6 +84,18 @@ class ManipulatorGui(CameraGui):
 
     def draw_scale_bar(self, pixmap, text=True, autoscale=True,
                        position=True):
+        """
+        Draw a scale bar on the pixmap to indicate physical distances.
+
+        Args:
+            pixmap (QPixmap): Image to draw the scale bar on.
+            text (bool, optional): Whether to show length text. Defaults to True.
+            autoscale (bool, optional): Whether to automatically scale the bar. Defaults to True.
+            position (bool, optional): Whether to consider position adjustments. Defaults to True.
+
+        Raises:
+            ValueError: If autoscale is True but text is False.
+        """
         if getattr(self, 'active_camera_role', 'main') != 'main':
             return
         if autoscale and not text:
@@ -112,6 +140,13 @@ class ManipulatorGui(CameraGui):
             painter.end()
 
     def register_commands(self, manipulator_keys = True):
+        """
+        Register keyboard and mouse commands for controlling the manipulator,
+        stage, and cameras.
+
+        Args:
+            manipulator_keys (bool, optional): Whether to register manipulator keybindings. Defaults to True.
+        """
         super(ManipulatorGui, self).register_commands()
 
         if manipulator_keys:
@@ -220,6 +255,12 @@ class ManipulatorGui(CameraGui):
     @command(category='Manipulators',
              description='Show the tip of selected manipulator')
     def show_tip_switch(self):
+        """
+        Activate display of the pipette tip for one second.
+
+        Raises:
+            CalibrationError: If the manipulator unit is not calibrated.
+        """
         try:
             self.tip_x, self.tip_y, _ = self.interface.calibrated_unit.reference_position()
             self.tip_t0 = time.time()
@@ -228,6 +269,12 @@ class ManipulatorGui(CameraGui):
             return
 
     def show_tip(self, pixmap):
+        """
+        Display the pipette tip on the provided pixmap if show_tip_on is True.
+
+        Args:
+            pixmap (QPixmap): Image to draw the tip on.
+        """
         # Show the tip of the electrode
         if self.show_tip_on:
             if getattr(self, 'active_camera_role', 'main') != 'main':
@@ -256,6 +303,10 @@ class ManipulatorGui(CameraGui):
     @command(category='Camera',
              description='Save the current image to the outputs folder')
     def save_image(self):
+        """
+        Capture and save the current image from the camera to the outputs folder.
+        Image filenames are indexed using image_save_number.
+        """
         #get the current image
         currImg = self.camera.get_16bit_image()
 
@@ -266,6 +317,12 @@ class ManipulatorGui(CameraGui):
 
 
     def display_timer(self, pixmap):
+        """
+        Draw a runtime timer on the provided pixmap, based on interface timer.
+
+        Args:
+            pixmap (QPixmap): Image to draw the timer on.
+        """
         interface = self.interface
         painter = QtGui.QPainter(pixmap)
         pen = QtGui.QPen(QtGui.QColor(200, 0, 0, 125))

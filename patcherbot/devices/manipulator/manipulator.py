@@ -20,9 +20,21 @@ __all__ = ['Manipulator', 'ManipulatorError']
 
 class ManipulatorError(Exception):
     def __init__(self, message = 'Device is not calibrated'):
+        """
+        Initialize a ManipulatorError with a custom message.
+
+        Args:
+            message: Optional error message describing the issue.
+        """
         self.message = message
 
     def __str__(self):
+        """
+        String representation of the error.
+
+        Returns:
+            str: The error message.
+        """
         return self.message
 
 
@@ -31,33 +43,34 @@ class Manipulator(TaskController):
         '''
         Current position along an axis.
 
-        Parameters
-        ----------
-        axis : axis number
+        Args:
+            axis: Axis number.
 
-        Returns
-        -------
-        The current position of the device axis in um.
+        Returns:
+            float: The current position of the device axis in um.
         '''
         return 0. # fake
 
     def save_state(self):
+        """Save the current manipulator state for later recovery."""
         self.saved_state = self.position()
 
     def delete_state(self):
+        """Delete the previously saved manipulator state."""
         self.saved_state = None
 
     def recover_state(self):
+        """Recover the manipulator to the previously saved state."""
         self.absolute_move(self.saved_state)
 
     def  absolute_move(self, x, axis=None, speed=None):
         '''
         Moves the device axis to position x.
 
-        Parameters
-        ----------
-        axis: axis number
-        x : target position in um.
+        Args:
+            x: Target position in um.
+            axis: Axis number.
+            speed: Optional movement speed.
         '''
         #self.abort_if_requested()
         pass
@@ -66,10 +79,10 @@ class Manipulator(TaskController):
         '''
         Moves the device axis by relative amount x in um.
 
-        Parameters
-        ----------
-        axis: axis number
-        x : position shift in um.
+        Args:
+            x: Position shift in um.
+            axis: Axis number.
+            speed: Optional movement speed.
         '''
         if speed is not None:
             ##self.abort_if_requested()
@@ -82,14 +95,11 @@ class Manipulator(TaskController):
         '''
         Current position along a group of axes.
 
-        Parameters
-        ----------
-        axes : list of axis numbers
+       Args:
+            axes: List of axis numbers.
 
-        Returns
-        -------
-        np.ndarray
-            The current position of the device axes in um (vector).
+        Returns:
+            np.ndarray: The current position of the device axes in um (vector).
         '''
         return np.array([self.position(axis) for axis in axes])
 
@@ -97,10 +107,10 @@ class Manipulator(TaskController):
         '''
         Moves the device group of axes to position x.
 
-        Parameters
-        ----------
-        axes : list of axis numbers
-        x : target position in um (vector or list).
+        Args:
+            x: Target positions in um (vector or list).
+            axes: List of axis numbers.
+            speed: Optional movement speed.
         '''
         #self.abort_if_requested()
         # self.info('Moving axes %s to position %s' % (axes, x))
@@ -111,16 +121,19 @@ class Manipulator(TaskController):
         '''
         Moves the device group of axes by relative amount x in um.
 
-        Parameters
-        ----------
-        axes : list of axis numbers
-        x : position shift in um (vector or list).
+        Args:
+            x: Position shift in um (vector or list).
+            axes: List of axis numbers.
+            speed: Optional movement speed.
         '''
         self.absolute_move_group(array(self.position_group(axes))+array(x), axes)
 
     def stop(self, axis):
         """
         Stops current movements.
+        
+        Args:
+            axis: Axis number.
         """
 
         pass
@@ -129,9 +142,8 @@ class Manipulator(TaskController):
         """
         Waits until motors have stopped.
 
-        Parameters
-        ----------
-        axes : list of axis numbers
+        Args:
+            axes: List of axis numbers, or None for all axes.
         """
         previous_position = self.position_group(axes)
         new_position = None
@@ -145,12 +157,14 @@ class Manipulator(TaskController):
         Waits until position is reached within precision, and raises an error if the
         target is not reached after the time out, unless the manipulator is still moving.
 
-        Parameters
-        ----------
-        position : target position in micrometer
-        axes : axis number of list of axis numbers
-        precision : precision in micrometer
-        timeout : time out in second
+        Args:
+            position: Target position(s) in micrometers.
+            axes: Axis number or list of axis numbers.
+            precision: Allowed error in micrometers.
+            timeout: Maximum wait time in seconds.
+
+        Raises:
+            ManipulatorError: If the timeout is exceeded before reaching target.
         """
         axes = array(axes)
         position = array(position)

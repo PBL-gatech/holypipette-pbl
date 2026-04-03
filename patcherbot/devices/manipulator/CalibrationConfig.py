@@ -9,6 +9,11 @@ __all__ = ["CalibrationConfig"]
 
 
 class CalibrationConfig(Config):
+    """
+    Configuration container for calibration parameters of manipulator, stage,
+    and pipette systems, including motion settings, coordinate transforms,
+    pressure calibration, and AI-assisted features.
+    """
     position_update = NumberWithUnit(1000, unit="ms",
                                      doc="dt for updating displayed pos.",
                                      bounds=(0, 10000))

@@ -17,8 +17,22 @@ __all__ = ['LiveFeedQt']
 
 
 class LiveFeedQt(QtWidgets.QLabel):
+    """
+    A QLabel-based widget that displays live camera feed, optionally logs frames,
+    and allows custom image and display editing functions.
+    """
     def __init__(self, camera: Camera, recording_state_manager: RecordingStateManager, image_edit=None, display_edit=None, mouse_handler=None, parent=None, log_processed_frames=False, frame_folder_name: str = "camera_frames"):
-
+        """
+        Args:
+            camera (Camera): The camera object providing frames.
+            recording_state_manager (RecordingStateManager): Manager for controlling recording state.
+            image_edit (callable, optional): Function to modify raw numpy frames before display. Defaults to identity.
+            display_edit (callable, optional): Function to modify QPixmap frames for GUI overlay. Defaults to identity.
+            mouse_handler (callable, optional): Function to handle mouse events on the widget. Defaults to None.
+            parent (QWidget, optional): Parent Qt widget. Defaults to None.
+            log_processed_frames (bool, optional): Whether to log processed frames or raw frames. Defaults to False.
+            frame_folder_name (str, optional): Subfolder name for storing frames. Defaults to "camera_frames".
+        """
         super(LiveFeedQt, self).__init__(parent=parent)
         # The image_edit function (does nothing by default) gets the raw
         # unscaled image (i.e. a numpy array), while the display_edit
@@ -62,6 +76,12 @@ class LiveFeedQt(QtWidgets.QLabel):
         # timer.start(33) # 30 fps --> but avctually 21.5 fps
 
     def mousePressEvent(self, event):
+        """
+        Handle mouse press events on the widget.
+
+        Args:
+            event (QMouseEvent): The mouse event object.
+        """
         # Ignore clicks that are not on the image
         xs = event.x() - self.size().width() * 0.5
         ys = event.y() - self.size().height() * 0.5
@@ -74,6 +94,7 @@ class LiveFeedQt(QtWidgets.QLabel):
             self.mouse_handler(event)
 
     def log_frame_rate(self):
+        """Calculate and log the current frame rate based on the last processed frame."""
     # Calculate and log the frame rate at which images are processed
         current_time = time.time()
         if self.last_frame_time is not None:
@@ -83,14 +104,33 @@ class LiveFeedQt(QtWidgets.QLabel):
         self.last_frame_time = current_time
 
     def set_log_processed_frames(self, value: bool) -> None:
+        """
+        Enable or disable logging of processed frames.
+
+        Args:
+            value (bool): True to log processed frames, False to log raw frames.
+        """
         self.log_processed_frames = bool(value)
 
     def set_camera_metadata(self, camera: Camera) -> None:
+        """
+        Update the widget with a new camera object and its metadata.
+
+        Args:
+            camera (Camera): New camera object to use.
+        """
         self.camera = camera
         self.width, self.height = self.camera.width, self.camera.height
 
     @QtCore.pyqtSlot()
     def update_image(self):
+        """
+        Fetch the latest frame from the camera, apply edits, log the frame, 
+        convert to QImage, scale it to widget size, and display it.
+
+        Raises:
+            Exception: Any exception raised during frame processing is caught and printed.
+        """
         try:
             # get last frame from camera
             frame_info = self.camera.last_frame_pair()

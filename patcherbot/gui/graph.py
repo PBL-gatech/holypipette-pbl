@@ -39,13 +39,26 @@ __all__ = [
 
 
 class ProtocolGraph(QWidget):
+    """Base class for electrophysiology protocol graphs."""
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager,
                  window_title: str, y_label: str, y_unit: str,
                  x_label: str, x_unit: str, ephys_filename: str):
-        super().__init__()
-        self.recording_state_manager = recording_state_manager
-        self.graph_interface= graph_interface
-     
+        """
+        Initialize the protocol graph window and setup plotting.
+
+        Args:
+            graph_interface (GraphInterface): Interface to access DAQ data and graphing utilities.
+            recording_state_manager (RecordingStateManager): Tracks sample number and recording state.
+            window_title (str): Title for the graph window.
+            y_label (str): Label for the Y-axis.
+            y_unit (str): Unit for the Y-axis.
+            x_label (str): Label for the X-axis.
+            x_unit (str): Unit for the X-axis.
+            ephys_filename (str): Base filename for saving ephys data.
+            super().__init__()
+            self.recording_state_manager = recording_state_manager
+            self.graph_interface= graph_interface
+        """
 
         # Set window title and layout
         self.setWindowTitle(window_title)
@@ -83,10 +96,23 @@ class ProtocolGraph(QWidget):
                                         recording_state_manager=self.recording_state_manager)
 
     def update_plot(self):
-        """This method should be overridden by subclasses."""
+        """
+        Abstract method to update the graph with new data.
+
+        Raises:
+            NotImplementedError: Must be implemented in subclasses.
+        """
         raise NotImplementedError("Subclasses must implement update_plot()")
 class CurrentProtocolGraph(ProtocolGraph):
+    """Graph for visualizing current-clamp protocol data."""
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        """
+        Initialize the Current Protocol graph.
+
+        Args:
+            graph_interface (GraphInterface): Interface to access DAQ data and graphing utilities.
+            recording_state_manager (RecordingStateManager): Tracks sample number and recording state.
+        """
         super().__init__(graph_interface, recording_state_manager,
                          window_title="Current Protocol",
                          y_label="Voltage", y_unit="V",
@@ -94,6 +120,9 @@ class CurrentProtocolGraph(ProtocolGraph):
                          ephys_filename="CurrentProtocol")
 
     def update_plot(self):
+        """
+        Update the plot with new current protocol data and log ephys traces.
+        """
         # Check if new data exists and if it’s different from what was last displayed
         if self.graph_interface.daq.current_protocol_data is None or self.latestDisplayedData == self.graph_interface.daq.current_protocol_data:
             return
@@ -138,7 +167,18 @@ class CurrentProtocolGraph(ProtocolGraph):
         self.latestDisplayedData = (self.graph_interface.daq.current_protocol_data.copy() 
                                     if self.graph_interface.daq.current_protocol_data is not None else None)
 class VoltageProtocolGraph(ProtocolGraph):
+    """
+    Graph for visualizing voltage-clamp protocols (membrane tests).
+
+        """
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        """
+        Initialize the Voltage Protocol graph.
+        
+        Args:
+                graph_interface (GraphInterface): Interface to access DAQ data and graphing utilities.
+                recording_state_manager (RecordingStateManager): Tracks sample number and recording state.
+        """
         super().__init__(graph_interface, recording_state_manager,
                          window_title="Voltage Protocol (Membrane Test)",
                          y_label="PicoAmps", y_unit="A",
@@ -146,6 +186,9 @@ class VoltageProtocolGraph(ProtocolGraph):
                          ephys_filename="VoltageProtocol")
 
     def update_plot(self):
+        """
+        Update the plot with voltage-clamp sweeps or membrane-test data and log ephys traces.
+        """
         daq = self.graph_interface.daq
         sweeps_raw = daq.voltage_protocol_data
         membrane_test = daq.voltage_membrane_test
@@ -234,7 +277,15 @@ class VoltageProtocolGraph(ProtocolGraph):
         daq.vclamp_steps = None
         daq.vclamp_hold_value = None
 class LeakSubtractionGraph(ProtocolGraph):
+    """Graph for visualizing leak subtraction (P/4) protocol data."""
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        """
+        Initialize the Leak Subtraction graph.
+
+        Args:
+            graph_interface (GraphInterface): Interface to access DAQ data and graphing utilities.
+            recording_state_manager (RecordingStateManager): Tracks sample number and recording state.
+        """
         super().__init__(
             graph_interface,
             recording_state_manager,
@@ -247,6 +298,9 @@ class LeakSubtractionGraph(ProtocolGraph):
         )
 
     def update_plot(self):
+        """
+        Update the plot with leak subtraction sweeps and log ephys traces.
+        """
         daq = self.graph_interface.daq
         leak_data = getattr(daq, "leak_subtraction_data", None)
         if leak_data is None or len(leak_data) == 0:
@@ -298,7 +352,15 @@ class LeakSubtractionGraph(ProtocolGraph):
         daq.leak_subtraction_data = None
         daq.leak_subtraction_meta = None
 class HoldingProtocolGraph(ProtocolGraph):
+    """Graph for visualizing holding protocols (E/I PSC tests)."""
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        """
+        Initialize the Holding Protocol graph.
+        
+        Args:
+            graph_interface (GraphInterface): Interface to access DAQ data and graphing utilities.
+            recording_state_manager (RecordingStateManager): Tracks sample number and recording state.
+        """
         super().__init__(graph_interface, recording_state_manager,
                          window_title="Holding Protocol (E/I PSC Test)",
                          y_label="PicoAmps", y_unit="A",
@@ -306,6 +368,7 @@ class HoldingProtocolGraph(ProtocolGraph):
                          ephys_filename="HoldingProtocol")
 
     def update_plot(self):
+        """Update the plot with holding protocol data and log ephys traces."""
         if self.graph_interface.daq.holding_protocol_data is None:
             return
 
@@ -330,6 +393,7 @@ class HoldingProtocolGraph(ProtocolGraph):
         self.graph_interface.daq.holding_protocol_data = None  # Reset after plotting
 
 class OptogeneticBaseGraph(ProtocolGraph):
+    """Base class for optogenetic stimulation protocol graphs."""
     def __init__(
         self,
         graph_interface: GraphInterface,
@@ -338,6 +402,15 @@ class OptogeneticBaseGraph(ProtocolGraph):
         window_title: str,
         protocol_key: str,
     ):
+        """
+        Initialize the Optogenetic protocol graph.
+
+        Args:
+            graph_interface (GraphInterface): Interface to access DAQ data and graphing utilities.
+            recording_state_manager (RecordingStateManager): Tracks sample number and recording state.
+            window_title (str): Title for the graph window.
+            protocol_key (str): Key to identify the protocol in the DAQ's optogenetic data.
+        """
         super().__init__(
             graph_interface,
             recording_state_manager,
@@ -351,6 +424,7 @@ class OptogeneticBaseGraph(ProtocolGraph):
         self.protocol_key = protocol_key
 
     def update_plot(self):
+        """Update the plot with optogenetic protocol data and log ephys traces and stimulation metadata."""
         daq = self.graph_interface.daq
         entry = daq.pop_optogenetic_entry(self.protocol_key)
         if entry is None:
@@ -491,7 +565,15 @@ class OptogeneticBaseGraph(ProtocolGraph):
 
 
 class OptogeneticStimProtocolGraph(OptogeneticBaseGraph):
+    """Graph for visualizing optogenetic stimulation protocols (power control)."""
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        """
+        Initialize the Optogenetic Stim Protocol graph.
+        
+        Args:
+            graph_interface (GraphInterface): Interface to access DAQ data and graphing utilities.
+            recording_state_manager (RecordingStateManager): Tracks sample number and recording state.
+        """
         super().__init__(
             graph_interface,
             recording_state_manager,
@@ -501,7 +583,15 @@ class OptogeneticStimProtocolGraph(OptogeneticBaseGraph):
 
 
 class OptogeneticWavelengthProtocolGraph(OptogeneticBaseGraph):
+    """Graph for visualizing optogenetic wavelength protocols."""
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
+        """
+        Initialize the Optogenetic Wavelength Protocol graph.
+
+        Args:
+            graph_interface (GraphInterface): Interface to access DAQ data and graphing utilities.
+            recording_state_manager (RecordingStateManager): Tracks sample number and recording state.
+        """
         super().__init__(
             graph_interface,
             recording_state_manager,
@@ -510,9 +600,16 @@ class OptogeneticWavelengthProtocolGraph(OptogeneticBaseGraph):
         )
 
 class NoiseGraph(QWidget):
+    """Graph for visualizing and analyzing noise in electrophysiology recordings."""
     noise_state_changed = pyqtSignal(bool)
 
     def __init__(self, graph_interface: GraphInterface):
+        """
+        Initialize the Noise Graph and its plots.
+        
+        Args:
+            graph_interface (GraphInterface): Interface to access DAQ data and compute noise metrics.
+        """
         super().__init__()
         self.graph_interface = graph_interface
         self.setWindowTitle("Noise Graph (4-10 ms)")
@@ -556,9 +653,20 @@ class NoiseGraph(QWidget):
         self.closeEvent = lambda event: (event.ignore(), self.stop())
 
     def is_active(self):
+        """
+        Check if the noise graph update timer is active.
+
+        Returns:
+            bool: True if the graph is actively updating, False otherwise.
+        """
         return self.updateTimer.isActive()
 
     def start(self):
+        """
+        Start updating the noise graph and make it visible.
+        Emits:
+            noise_state_changed: True
+        """
         if not self.updateTimer.isActive():
             self.updateTimer.start(self.updateDt)
         self.setHidden(False)
@@ -566,12 +674,25 @@ class NoiseGraph(QWidget):
         self.noise_state_changed.emit(True)
 
     def stop(self):
+        """
+        Stop updating the noise graph and hide it.
+        Emits:
+            noise_state_changed: False
+        """
         if self.updateTimer.isActive():
             self.updateTimer.stop()
         self.setHidden(True)
         self.noise_state_changed.emit(False)
 
     def update_plot(self):
+        """
+        Fetch noise metrics from GraphInterface and update the zoom and FFT plots.
+
+        Updates:
+            p2pLabel, stdLabel, avgP2pLabel: Display peak-to-peak, std deviation, and average P2P metrics.
+            zoomPlot: Time-domain plot of noise.
+            fftPlot: Frequency-domain plot of noise.
+        """
         metrics = self.graph_interface.get_noise_metrics()
         if not metrics:
             return
@@ -594,6 +715,10 @@ class NoiseGraph(QWidget):
             self.fftPlot.plot(freqs, fft_magnitude, pen="k")
 
 class EPhysGraph(QWidget):
+    """
+    GUI for electrophysiology experiments with live plotting, pressure control, laser control,
+    and data logging.
+    """
     pressureLowerBound = -450
     pressureUpperBound = 730
     laserPowerLowerBound = 0
@@ -610,8 +735,10 @@ class EPhysGraph(QWidget):
     def __init__(self, graph_interface: GraphInterface, recording_state_manager: RecordingStateManager):
         """
         Initialize the electrophysiology GUI.
-        :param graph_interface: An instance of GraphInterface that abstracts hardware operations.
-        :param recording_state_manager: The recording state manager used for data logging.
+        
+        Args:
+            graph_interface (GraphInterface): An instance of GraphInterface that abstracts hardware operations.
+            recording_state_manager (RecordingStateManager): The recording state manager used for data logging.
         """
         super().__init__()
         self.setWindowTitle("Electrophysiology")
@@ -898,7 +1025,6 @@ class EPhysGraph(QWidget):
         """
         When a pressure value is entered in the text box, update the setpoint.
         it triggers the slider to change which updates the pressure.
-
         """
         try:
             text = self.pressureCommandBox.text().replace("Set to:", "").replace("mbar", "").strip()
@@ -914,6 +1040,9 @@ class EPhysGraph(QWidget):
             logging.error(f"Error in pressureCommandBoxReturnPressed: {e}")
 
     def incrementPressure(self):
+        """
+        Increase the pressure slider by 5 units without exceeding the upper bound.
+        """
         current_value = self.pressureCommandSlider.value()
         new_value = current_value + 5
         if new_value <= self.pressureUpperBound:
@@ -921,6 +1050,9 @@ class EPhysGraph(QWidget):
             self.pressureCommandSlider.sliderReleased.emit()
 
     def decrementPressure(self):
+        """
+        Decrease the pressure slider by 5 units without going below the lower bound.
+        """
         current_value = self.pressureCommandSlider.value()
         new_value = current_value - 5
         if new_value >= self.pressureLowerBound:
@@ -968,6 +1100,9 @@ class EPhysGraph(QWidget):
         self.graph_interface.setCellMode(not mode)
 
     def updateModeType(self):
+        """
+        Update the mode toggle button to reflect the current cell/bath mode.
+        """
         if self.graph_interface.getCellMode():
             self.modelType.setStyleSheet("background-color: green; color: white; border-radius: 5px; padding: 5px;")
             self.modelType.setText("Cell Mode")
@@ -985,6 +1120,9 @@ class EPhysGraph(QWidget):
         QtCore.QTimer.singleShot(250, self.reset_zap_button)
 
     def reset_zap_button(self):
+        """
+        Reset the zap button appearance after zap execution.
+        """
         self.zapButton.setStyleSheet("")
 
     def handle_zap_duration_change(self):
@@ -1022,6 +1160,15 @@ class EPhysGraph(QWidget):
             logging.error(f"Error in laserPowerBoxReturnPressed: {e}")
 
     def _resolve_laser_label(self, wavelength):
+        """
+        Determine the display label and color for a given laser wavelength.
+
+        Args:
+            wavelength (int | str | object): Laser wavelength or named channel.
+
+        Returns:
+            tuple: Label string and hex color code.
+        """
         if wavelength is None:
             return "Unknown", "#e0e0e0"
         if isinstance(wavelength, str):
@@ -1049,6 +1196,10 @@ class EPhysGraph(QWidget):
         return name, "#e0e0e0"
 
     def update_laser_controls(self):
+        """
+        Refresh the laser control widgets (power, toggle button, left/right arrows)
+        to reflect current GraphInterface state.
+        """
         power_state = self.graph_interface.get_laser_power_state()
         wavelength = self.graph_interface.get_laser_wavelength()
         power = self.graph_interface.get_laser_power()
@@ -1077,25 +1228,43 @@ class EPhysGraph(QWidget):
         )
 
     def updateNoiseButton(self, active):
+        """
+        Update noise check button label based on active state.
+
+        Args:
+            active (bool): True if noise check is running, False otherwise.
+        """
         if active:
             self.noiseButton.setText("Stop Noise Check")
         else:
             self.noiseButton.setText("Check Noise")
 
     def toggleNoise(self):
+        """
+        Start or stop the noise check via the NoiseGraph interface.
+        """
         if self.noiseGraph.is_active():
             self.noiseGraph.stop()
         else:
             self.noiseGraph.start()
 
     def handle_laser_left(self):
+        """
+        Shift laser wavelength down via GraphInterface and update controls.
+        """
         self.graph_interface.wavelength_down()
         self.update_laser_controls()
 
     def handle_laser_right(self):
+        """
+        Shift laser wavelength up via GraphInterface and update controls.
+        """
         self.graph_interface.wavelength_up()
         self.update_laser_controls()
 
     def handle_laser_toggle(self):
+        """
+        Toggle laser output on/off via GraphInterface and update controls.
+        """
         self.graph_interface.toggle_laser_output()
         self.update_laser_controls()

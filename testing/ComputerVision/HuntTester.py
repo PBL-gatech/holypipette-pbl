@@ -33,6 +33,20 @@ class HuntTester:
     """
 
     def __init__(self, onnx_path=None, providers=None, num_layers=2, hidden_size=400):
+        """
+        Initialize the HuntTester with optional model loading and default RNN settings.
+
+        Args:
+            onnx_path (str | Path, optional):
+                Path to the ONNX model file. If provided, the model is loaded during initialization.
+            providers (list[str], optional):
+                Execution providers for ONNX Runtime (e.g., ["CPUExecutionProvider", "CUDAExecutionProvider"]).
+                If None, defaults will be used in load_model.
+            num_layers (int, optional):
+                Default number of recurrent layers for the model (used if not inferred from ONNX metadata).
+            hidden_size (int, optional):
+                Default hidden state size for the recurrent model (used if not inferred from ONNX metadata).
+        """
         self.session = None
         self.input_names = None
         self.output_names = None
@@ -55,6 +69,23 @@ class HuntTester:
             self.load_model(onnx_path, providers)
 
     def load_model(self, onnx_path=None, providers=None):
+        """
+        Load an ONNX model and extract input/output metadata.
+
+        Args:
+            onnx_path (str | Path, optional): Path to ONNX file. If None,
+                attempts to locate a model automatically.
+            providers (list[str], optional): ONNX Runtime providers.
+
+        Returns:
+            tuple:
+                session (onnxruntime.InferenceSession): Loaded ONNX session.
+                input_names (list[str]): Names of model inputs.
+                output_names (list[str]): Names of model outputs.
+
+        Raises:
+            FileNotFoundError: If no ONNX file is found.
+        """
         if providers is None:
             providers = ["CPUExecutionProvider"]
         if onnx_path is None or not Path(onnx_path).exists():
@@ -108,8 +139,26 @@ class HuntTester:
         return self.session, self.input_names, self.output_names
 
     def inference(self, img_q, pip_q, stage_q, res_q, h0=None, c0=None):
-        """Run a single forward pass.
+        """
+        Run a single forward pass.
         Works with legacy sequence models, legacy single-step, and new wrapper exports.
+
+        Args:
+            img_q (Sequence): Image history buffer.
+            pip_q (Sequence): Pipette position history.
+            stage_q (Sequence): Stage position history.
+            res_q (Sequence): Resistance history.
+            h0 (np.ndarray, optional): Initial hidden state.
+            c0 (np.ndarray, optional): Initial cell state.
+
+        Returns:
+            tuple:
+                action (np.ndarray): Predicted action vector of shape (1,6).
+                new_h0 (np.ndarray): Updated hidden state.
+                new_c0 (np.ndarray): Updated cell state.
+
+        Raises:
+            RuntimeError: If model outputs have unexpected shape.
         """
         # Helper to expand arrays to expected ONNX ranks / dtype
         def _expand(name, arr):
@@ -233,6 +282,20 @@ class ModelTester:
     """
 
     def __init__(self, session, input_names, output_names, input_path=None):
+        """
+        Initialize the ModelTester with an ONNX session and optional dataset.
+
+        Args:
+            session (onnxruntime.InferenceSession):
+                Active ONNX Runtime session used for inference.
+            input_names (Sequence[str]):
+                Names of model input tensors.
+            output_names (Sequence[str]):
+                Names of model output tensors.
+            input_path (str | Path, optional):
+                Path to an HDF5 dataset containing demonstration data. If provided,
+                images, sensor data, and ground-truth actions are loaded.
+        """
         self.session = session
         self.in_desc = {i.name: i for i in session.get_inputs()}
         self.input_names = set(self.in_desc.keys())
@@ -310,6 +373,18 @@ class ModelTester:
         """
         Center-crop the HxWx3 image to (crop_h, crop_w), then resize back to original (H, W).
         Keeps ONNX input shape identical to training-time encoder output dims (post-crop).
+        
+        Args:
+            im (np.ndarray):
+                Input image array of shape (H, W, 3).
+            crop_h (int, optional):
+                Height of the crop.
+            crop_w (int, optional):
+                Width of the crop.
+
+        Returns:
+            np.ndarray:
+                Cropped and resized image in CHW format, normalized to [0,1].
         """
         H0, W0 = im.shape[:2]
         y0 = max(0, (H0 - crop_h) // 2)
@@ -322,12 +397,46 @@ class ModelTester:
 
     # --------------------------------------------------------------
     def _stack_3d(self, q):              # → (1,16,features or 3,H,W)
+        """
+        Stack a sequence into a 3D tensor with batch dimension.
+
+        Args:
+            q (collections.deque):
+                Sequence of arrays.
+
+        Returns:
+            np.ndarray:
+                Stacked array with shape (1, T, ...).
+        """
         return np.stack(q, 0)[None]
 
     def _stack_2d(self, q):              # → (1,16)
+        """
+        Stack a sequence into a 2D tensor with batch dimension.
+
+        Args:
+            q (collections.deque):
+                Sequence of scalar values.
+
+        Returns:
+            np.ndarray:
+                Stacked array with shape (1, T).
+        """
         return np.stack(q, 0).reshape(1, -1)
 
     def run_inference(self, idx):
+        """
+        Run model inference for a specific timestep.
+
+        Args:
+            idx (int):
+                Index of the current frame in the dataset.
+
+        Returns:
+            np.ndarray | None:
+                Predicted action vector of shape (1,6), or None if sequence
+                warm-up is incomplete.
+        """
         img, res, pip, stage = (self.images[idx],
                                 self.resistance[idx],
                                 self.pipette_positions[idx],
@@ -469,10 +578,15 @@ class ModelTester:
         """
         Absolute error on each of the 6 action axes.
 
-        Parameters
-        ----------
-        pred : (1,6) or (6,) array
-        gt   : (6,)  array
+        Args:
+            pred (np.ndarray):
+                Predicted action array of shape (1,6) or (6,).
+            gt (np.ndarray):
+                Ground-truth action array of shape (6,).
+
+        Returns:
+            np.ndarray:
+                Error vector of shape (6,).
         """
         pred = np.asarray(pred).reshape(-1)    # → (6,)
         gt = np.asarray(gt).reshape(-1)        # already (6,)
@@ -516,6 +630,22 @@ class ModelAnalyzer:
         animation_fname: str = "pipette_trajectory.gif",
         animation_fps: int = 60,
     ) -> None:
+        """
+        Initialize the ModelAnalyzer with model and dataset paths.
+
+        Args:
+            model_path (str | Path):
+                Path to the ONNX model file.
+            data_path (str | Path):
+                Path to the HDF5 dataset used for evaluation.
+            save_dir (str | Path, optional):
+                Directory where output artifacts (e.g., animations) will be saved.
+                Defaults to the model's parent directory.
+            animation_fname (str, optional):
+                Filename for the generated trajectory animation.
+            animation_fps (int, optional):
+                Frames per second for the output animation.
+        """
         self.model_path = Path(model_path)
         self.data_path = Path(data_path)
         self.save_dir = Path(save_dir) if save_dir is not None else self.model_path.parent
@@ -587,7 +717,13 @@ class ModelAnalyzer:
     # ------------------------------------------------------------------
 
     def _integrate_pipette_predictions(self) -> None:
-        """Integrate predicted pipette deltas -> absolute positions (single-pass)."""
+        """
+        Integrate predicted pipette deltas -> absolute positions (single-pass).
+        
+        Raises:
+            RuntimeError:
+                If no stored actions are available.
+        """
         # 1) Build predicted delta array from stored actions (shape ~ (n, 1, 6) or (n,6))
         if not hasattr(self, 'stored_actions') or len(self.stored_actions) == 0:
             raise RuntimeError("No stored actions found — call _compute_latency_and_error() first.")
@@ -628,6 +764,13 @@ class ModelAnalyzer:
     # ------------------------------------------------------------------
 
     def _plot_static_trajectory(self) -> None:
+        """
+        Generate a static 3D plot comparing predicted and observed trajectories.
+
+        Raises:
+            RuntimeError:
+                If trajectory data has not been computed.
+        """
         if self.predicted_pip_positions is None or self.observed_pip_positions is None:
             raise RuntimeError("Prediction data not initialised — call run() first.")
 
@@ -701,6 +844,17 @@ class ModelAnalyzer:
     # ------------------------------------------------------------------
 
     def _animate_trajectory(self, *, save_gif: bool = True) -> None:
+        """
+        Create and optionally save an animated 3D trajectory visualization.
+
+        Args:
+            save_gif (bool, optional):
+                Whether to save the animation as a GIF file.
+                
+        Raises:
+            RuntimeError:
+                If trajectory data has not been computed.
+        """
         if self.predicted_pip_positions is None or self.observed_pip_positions is None:
             raise RuntimeError("Prediction data not initialised — call run() first.")
 

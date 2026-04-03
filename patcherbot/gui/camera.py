@@ -31,7 +31,14 @@ from .livefeed import LiveFeedQt
 
 
 class Logger(QtCore.QAbstractTableModel, logging.Handler):
+    """
+    A Qt table model that also acts as a logging handler.
+
+    Stores log messages in a table format suitable for display in a QTableView.
+    Can save messages to a file and color-code by log level.
+    """
     def __init__(self):
+        """Initialize the Logger model and logging handler."""
         super(Logger, self).__init__()
         # We do not actually use the formatter, but the asctime attribute is
         # available if the formatter requires it
@@ -39,6 +46,12 @@ class Logger(QtCore.QAbstractTableModel, logging.Handler):
         self.messages = []
 
     def emit(self, record):
+        """
+        Process a log record and insert it into the table model.
+
+        Args:
+            record (logging.LogRecord): Log record to process.
+        """
         self.format(record)
         entry = (record.levelno,
                  datetime.datetime.strptime(record.asctime, '%Y-%m-%d %H:%M:%S,%f'),
@@ -52,18 +65,57 @@ class Logger(QtCore.QAbstractTableModel, logging.Handler):
         self.endInsertRows()
 
     def rowCount(self, parent=None):
+        """
+        Return the number of rows in the table model.
+
+        Args:
+            parent: Qt parent index (ignored).
+
+        Returns:
+            int: Number of log messages.
+        """
         return len(self.messages)
 
     def columnCount(self, parent=None):
+        """
+        Return the number of rows in the table model.
+
+        Args:
+            parent: Qt parent index (ignored).
+
+        Returns:
+            int: Number of log messages.
+        """
         return 4
 
     def headerData(self, section, orientation, role):
+        """
+        Return header text for a column.
+
+        Args:
+            section (int): Column index.
+            orientation (Qt.Orientation): Horizontal or vertical.
+            role (Qt.ItemDataRole): Role requesting the data.
+
+        Returns:
+            str or None: Header label if role is DisplayRole, otherwise None.
+        """
         if role != Qt.DisplayRole:
             return
         if orientation == Qt.Horizontal:
             return ['', 'time', 'origin', 'message'][section]
 
     def data(self, index, role):
+        """
+        Return data for a given table index and role.
+
+        Args:
+            index (QModelIndex): Table index.
+            role (Qt.ItemDataRole): Data role.
+
+        Returns:
+            object: Display value or color depending on role.
+        """
         if not index.isValid():
             return None
         if index.row() >= len(self.messages) or index.row() < 0:
@@ -103,6 +155,15 @@ class Logger(QtCore.QAbstractTableModel, logging.Handler):
                 return QtGui.QColor('darkred')
 
     def save_to_file(self, filename):
+        """
+        Save all logged messages to a text file.
+
+        Args:
+            filename (str): Path to save file.
+
+        Raises:
+            OSError, IOError: If file cannot be written.
+        """
         with open(filename, 'w') as f:
             for entry in self.messages:
                 level, asctime, name, message, exc_info, thread = entry
@@ -121,6 +182,12 @@ class Logger(QtCore.QAbstractTableModel, logging.Handler):
 
 
 class LogViewerWindow(QtWidgets.QMainWindow):
+    """
+    A main window displaying logs using a Logger model.
+
+    Provides filtering by log level, saving logs to file, and scrolls
+    automatically when new messages are added.
+    """
     close_signal = QtCore.pyqtSignal()
     levels = collections.OrderedDict([('DEBUG',logging.DEBUG),
                                       ('INFO', logging.INFO),
@@ -128,6 +195,12 @@ class LogViewerWindow(QtWidgets.QMainWindow):
                                       ('ERROR', logging.ERROR)])
 
     def __init__(self, parent):
+        """
+        Initialize the LogViewerWindow.
+       
+        Args:
+            parent: Parent Qt widget.
+        """
         super(LogViewerWindow, self).__init__(parent=parent)
         self.setWindowTitle('Log')
         self.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -160,10 +233,24 @@ class LogViewerWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(central_widget)
 
     def closeEvent(self, event):
+        """
+        Handle the window close event.
+
+        Emits the `close_signal`.
+
+        Args:
+            event (QCloseEvent): Close event.
+        """
         self.close_signal.emit()
         super(LogViewerWindow, self).closeEvent(event)
 
     def set_level(self, level_idx):
+        """
+        Filter log messages by log level.
+
+        Args:
+            level_idx (int): Index of selected level in levels combobox.
+        """
         levelno = list(self.levels.values())[level_idx]
         if self.current_levelno == levelno:
             return
@@ -175,6 +262,7 @@ class LogViewerWindow(QtWidgets.QMainWindow):
         self.current_levelno = levelno
 
     def save_log(self):
+        """Open a file dialog to save the log contents to a file."""
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Log File',
                                                             filter='Text files(*.txt)',
                                                             options=QtWidgets.QFileDialog.DontUseNativeDialog)
@@ -188,10 +276,22 @@ class LogViewerWindow(QtWidgets.QMainWindow):
 
 
 class KeyboardHelpWindow(QtWidgets.QMainWindow):
+    """
+    A help window for displaying keyboard and mouse actions.
+
+    Supports registering key actions, mouse actions, and custom actions,
+    organized by categories.
+    """
 
     close_signal = QtCore.pyqtSignal()
 
     def __init__(self, parent):
+        """
+        Initialize the KeyboardHelpWindow.
+
+        Args:
+            parent: Parent Qt widget.
+        """
         super(KeyboardHelpWindow, self).__init__(parent=parent)
         self.setWindowTitle('Keyboard/mouse commands')
         self.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -203,27 +303,60 @@ class KeyboardHelpWindow(QtWidgets.QMainWindow):
         self.custom_catalog = collections.OrderedDict()
 
     def keyPressEvent(self, event):
+        """
+        Forward key press events to the parent window.
+
+        Args:
+            event (QKeyEvent): Key press event.
+        """
         # Forward key presses to the parent window
         return self.parent().keyPressEvent(event)
 
     def register_key_action(self, key, modifier, category, description):
+        """
+        Register a key action for the help window.
+
+        Args:
+            key (int): Qt key code.
+            modifier (Qt.KeyboardModifier): Optional modifier.
+            category (str): Category of the action.
+            description (str): Description of the action.
+        """
         if category not in self.key_catalog:
             self.key_catalog[category] = []
         self.key_catalog[category].append((key, modifier, description))
         self.update_text()
 
     def register_mouse_action(self, click_type, modifier, category, description):
+        """
+        Register a mouse action for the help window.
+
+        Args:
+            click_type (Qt.MouseButton): Type of mouse click.
+            modifier (Qt.KeyboardModifier): Optional modifier.
+            category (str): Action category.
+            description (str): Description of the action.
+        """
         if category not in self.mouse_catalog:
             self.mouse_catalog[category] = []
         self.mouse_catalog[category].append((click_type, modifier, description))
         self.update_text()
 
     def register_custom_action(self, category, action, description):
+        """
+        Register a custom (non-key/mouse) action.
+
+        Args:
+            category (str): Action category.
+            action (str): Action name.
+            description (str): Description of the action.
+        """
         if category not in self.custom_catalog:
             self.custom_catalog[category] = []
         self.custom_catalog[category].append((action, description))
 
     def update_text(self):
+        """Update the displayed HTML table of all registered actions."""
         lines = []
         # Keys
         for category, key_info in self.key_catalog.items():
@@ -265,6 +398,16 @@ class KeyboardHelpWindow(QtWidgets.QMainWindow):
         self.label.setText(text)
 
     def _format_action(self, action, description):
+        """
+        Format a single action/description pair as HTML table rows.
+
+        Args:
+            action (str): Action key or mouse description.
+            description (str): Action description.
+
+        Returns:
+            list: List of HTML strings representing the table row.
+        """
         lines = ['<tr>',
                  '<td style="font-family: monospace; font-weight: bold; align: center; padding-right: 1ex">{}</td>'
                  '<td>{}</td>'.format(action, description),
@@ -272,16 +415,39 @@ class KeyboardHelpWindow(QtWidgets.QMainWindow):
         return lines
 
     def closeEvent(self, event):
+        """
+        Handle the window close event.
+
+        Emits the `close_signal`.
+
+        Args:
+            event (QCloseEvent): Close event.
+        """
         self.close_signal.emit()
         super(KeyboardHelpWindow, self).closeEvent(event)
 
 
 class LogNotifyHandler(logging.Handler):
+    """
+    A logging handler that emits messages through a Qt signal.
+    """
     def __init__(self, signal):
+        """
+        Initialize the LogNotifyHandler.
+
+        Args:
+            signal: Qt signal used to emit log messages.
+        """
         super(LogNotifyHandler, self).__init__()
         self.signal = signal
 
     def emit(self, record):
+        """
+        Emit a log message through the provided Qt signal.
+
+        Args:
+            record (logging.LogRecord): Log record.
+        """
         self.format(record)
         if record.exc_info is None:
             message = record.msg
@@ -291,7 +457,20 @@ class LogNotifyHandler(logging.Handler):
         self.signal.emit(message)
 
 class RecordingDialog(QDialog):
+    """
+    Dialog for configuring video recording settings.
+    """
     def __init__(self, base_directory, frame_rate, pixels, settings, parent=None):
+        """
+        Initialize the RecordingDialog.
+
+        Args:
+            base_directory (str): Base directory for saving recordings.
+            frame_rate (float): Camera frame rate.
+            pixels (int): Number of pixels per frame.
+            settings (dict): Existing recording settings.
+            parent: Parent Qt widget.
+        """
         super(RecordingDialog, self).__init__(parent=parent)
 
         self.frame_rate = frame_rate
@@ -359,9 +538,16 @@ class RecordingDialog(QDialog):
         self.setLayout(self.layout)
     
     def prefix_edited(self):
+        """Update the prefix preview label when the prefix is changed."""
         self.prefix_preview.setText('<i>{}_00000.tiff</i>'.format(self.prefix_edit.text()))
 
     def skip_edited(self, value):
+        """
+        Update frame rate label based on skip frames value.
+        
+        Args:
+            value (int): Number of frames to skip.
+        """
         if self.frame_rate > 0:
             rate = '~{:.1f}'.format(self.frame_rate / (value + 1))
         else:
@@ -369,15 +555,28 @@ class RecordingDialog(QDialog):
         self.frame_rate_label.setText('<i>{} frames per second</i>'.format(rate))
 
     def memory_edited(self, value):
+        """
+        Update the estimated number of frames in memory queue.
+
+        Args:
+            value (int): Memory size in MB.
+        """
         self.file_queue_frames.setText('<i>space for ~{} frames in queue'.format(int(value*1e6/self.pixels)))
 
     def directory_clicked(self):
+        """Open a folder selection dialog and update the directory edit."""
         folder = self.select_folder()
         if folder is not None:
             print(folder, folder)
             self.directory_edit.setText(folder)
 
     def select_folder(self):
+        """
+        Open a QFileDialog to select a folder.
+
+        Returns:
+            str or None: Selected folder path, or None if cancelled.
+        """
         dialog = QFileDialog(self)
         dialog.setFileMode(QFileDialog.Directory)
         dialog.setOption(QFileDialog.ShowDirsOnly)
@@ -418,6 +617,21 @@ class CameraGui(QtWidgets.QMainWindow):
     def __init__(self, camera, aux_camera=None, recording_state_manager=None,
                  image_edit=None, display_edit=None,
                  with_tracking=False, base_directory='.'):
+        """
+        Initialize the CameraGui.
+
+        Args:
+            camera: Primary camera object.
+            aux_camera: Optional auxiliary camera.
+            recording_state_manager: Manager controlling recording state.
+            image_edit (callable or list, optional): Image processing functions.
+            display_edit (callable or list, optional): Display overlay functions.
+            with_tracking (bool): Enable object tracking interface.
+            base_directory (str): Base directory for recordings.
+
+        Raises:
+            ValueError: If recording_state_manager is not provided.
+        """
         super().__init__()
         self.main_camera = camera
         self.aux_camera = aux_camera
@@ -614,6 +828,7 @@ class CameraGui(QtWidgets.QMainWindow):
         self.log_signal.connect(self.error_status)
 
     def _update_switch_button_text(self):
+        """Updates the label of the switch view button based on the current active camera."""
         if not hasattr(self, 'switch_view_button') or self.switch_view_button is None:
             return
         if self.aux_camera is None:
@@ -625,26 +840,36 @@ class CameraGui(QtWidgets.QMainWindow):
             self.switch_view_button.setText('Switch to Microscope View')
 
     def normalize_active_camera(self):
+        """Normalize the active camera’s image."""
         if self.active_interface is None:
             return
         self.active_interface.normalize()
 
     def unnormalize_active_camera(self):
+        """Unnormalize the active camera’s image."""
         if self.active_interface is None:
             return
         self.active_interface.unnormalize()
 
     def snap_active_camera_image(self):
+        """Take a snapshot from the active camera."""
         if self.active_interface is None:
             return
         self.active_interface.snap_image()
 
     def handle_autonormalize_change(self, state):
+        """
+        Enable or disable auto-normalization when the checkbox changes.
+
+        Args:
+            state (int): Qt checkbox state (0=unchecked, 2=checked).
+        """
         if self.active_interface is None:
             return
         self.active_interface.autonormalize(bool(state))
 
     def apply_active_exposure(self):
+        """Apply the exposure time entered in the setexposure_edit box to the active camera."""
         if self.active_interface is None:
             self.setexposure_edit.clear()
             return
@@ -657,12 +882,19 @@ class CameraGui(QtWidgets.QMainWindow):
         self.setexposure_edit.clear()
 
     def toggle_camera_view(self):
+        """Switch between main and auxiliary camera views."""
         if self.aux_camera is None:
             return
         target_role = 'aux' if self.active_camera_role == 'main' else 'main'
         self._set_active_camera(target_role)
 
     def _set_active_camera(self, role):
+        """
+        Sets the active camera and updates all associated interfaces and views.
+
+        Args:
+            role (str): Target camera role ('main' or 'aux').
+        """
         if role not in ('main', 'aux'):
             return
         if role == 'main' and self.main_camera is None:
@@ -684,12 +916,14 @@ class CameraGui(QtWidgets.QMainWindow):
         self._sync_interface_activity()
 
     def _sync_interface_activity(self):
+        """Synchronizes the active state of camera interfaces with the selected camera."""
         if self.main_interface is not None:
             self.main_interface.set_active(self.active_camera_role == 'main')
         if self.aux_interface is not None:
             self.aux_interface.set_active(self.active_camera_role == 'aux')
 
     def _rebind_camera_key_actions(self):
+        """Rebinds stored camera key actions to the currently active camera interface."""
         if self.active_interface is None:
             return
         for key, modifier, method_name, argument, _ in self._camera_key_bindings:
@@ -699,6 +933,16 @@ class CameraGui(QtWidgets.QMainWindow):
             self.register_key_action(key, modifier, command, argument, default_doc=False)
 
     def register_camera_key_action(self, key, modifier, method_name, argument=None, default_doc=True):
+        """
+        Registers a key binding for a camera-specific action.
+
+        Args:
+            key (Qt.Key): Key to bind.
+            modifier (Qt.Modifier or None): Modifier key required for the binding.
+            method_name (str): Name of the method to invoke on the camera interface.
+            argument (Any, optional): Argument to pass to the method.
+            default_doc (bool, optional): Whether to include in help documentation.
+        """
         binding = (key, modifier, method_name, argument, default_doc)
         if binding not in self._camera_key_bindings:
             self._camera_key_bindings.append(binding)
@@ -710,6 +954,12 @@ class CameraGui(QtWidgets.QMainWindow):
         self.register_key_action(key, modifier, command, argument, default_doc=default_doc)
 
     def _current_video_widget(self):
+        """
+        Retrieves the currently active video widget.
+
+        Returns:
+            QWidget or None: The active video widget, if available.
+        """
         return getattr(self, 'active_video', None)
 
     # Add a cross to the display
@@ -718,10 +968,8 @@ class CameraGui(QtWidgets.QMainWindow):
         Draws a cross at the center. Meant to be used as a ``display_edit``
         function.
 
-        Parameters
-        ----------
-        pixmap : `QPixmap`
-            The pixmap to draw on.
+        Args:
+            pixmap (QPixmap): The pixmap to draw on.
         '''
         painter = QtGui.QPainter(pixmap)
         pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 125))
@@ -738,10 +986,8 @@ class CameraGui(QtWidgets.QMainWindow):
         Draws a circle at the center. Meant to be used as a ``display_edit``
         function.
 
-        Parameters
-        ----------
-        pixmap : `QPixmap`
-            The pixmap to draw on.
+        Args:
+            pixmap (QPixmap): The pixmap to draw on.
         '''
         painter = QtGui.QPainter(pixmap)
         pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 125))
@@ -756,10 +1002,8 @@ class CameraGui(QtWidgets.QMainWindow):
         Applies the functions stored in `~.CameraGui.display_edit_funcs` to the
         video image pixmap.
 
-        Parameters
-        ----------
-        pixmap : `QPixmap`
-            The pixmap to draw on.
+        Args:
+            pixmap (QPixmap): The pixmap to draw on.
         '''
         if self.show_overlay:
             for func in self.display_edit_funcs:
@@ -770,34 +1014,45 @@ class CameraGui(QtWidgets.QMainWindow):
         Applies the functions stored in `~.CameraGui.image_edit_funcs` to the
         video image. Each function works on the result of the previous function
 
-        Parameters
-        ----------
-        image : `~numpy.ndarray`
-            The original video image  or the image returned by a previously
-            called function.
+        Args:
+            image (~numpy.ndarray):
+                The original video image  or the image returned by a previously
+                called function.
 
-        Returns
-        -------
-        new_image : `~numpy.ndarray`
-            The post-processed image. Should be of the same size and data type
-            as the original image.
+        Returns:
+            new_image (~numpy.ndarray):
+                The post-processed image. Should be of the same size and data type
+                as the original image.
         '''
         for func in self.image_edit_funcs:
             image = func(image)
         return image
 
     def closeEvent(self, evt):
+       """
+       Handles the Qt close event for the window.
+
+        Args:
+            evt (QCloseEvent): Close event.
+       """
        self.close()
        return super(CameraGui, self).closeEvent(evt)
 
     @command(category='General',
              description='Exit the application')
     def exit(self):
+        """Closes the application."""
         self.close()
 
     @command(category='Camera',
              description='Toggle recording image files to disk')
     def toggle_recording(self, *args):
+        """
+        Starts or stops recording for all available cameras.
+
+        Args:
+            *args: Additional arguments (unused).
+        """
         if self.is_recording:
             for cam in filter(None, [self.main_camera, self.aux_camera]):
                 stop_method = getattr(cam, 'stop_recording', None)
@@ -901,24 +1156,23 @@ class CameraGui(QtWidgets.QMainWindow):
         '''
         Link a mouse click on the camera image to an action.
 
-        Parameters
-        ----------
-        click_type : `.Qt.MouseButton`
-            The type of click that should be handled as a ``Qt`` constant, e.g.
-            `.Qt.LeftButton` or `.Qt.RightButton`.
-        modifier : `.Qt.Modifer` or ``None``
-            The modifier that needs to be pressed at the same time to trigger
-            the action. The modifier needs to be given as a ``Qt`` constant,
-            e.g. `.Qt.ShiftModifier` or `.Qt.ControlModifier`. Alternatively,
-            ``None`` can be used to specify that the mouse click should lead to
-            the action independent of the modifier.
-        command : method
-            A method implementing the action that has been annotated with the
-            `@command <.command>` or `@blocking_command <.blocking_command>`
-            decorator.
-        default_doc : bool, optional
-            Whether to include the action in the automatically generated help.
-            Defaults to ``True``.
+        Args:
+            click_type (.Qt.MouseButton):
+                The type of click that should be handled as a ``Qt`` constant, e.g.
+                `.Qt.LeftButton` or `.Qt.RightButton`.
+            modifier (.Qt.Modifer or `None`):
+                The modifier that needs to be pressed at the same time to trigger
+                the action. The modifier needs to be given as a ``Qt`` constant,
+                e.g. `.Qt.ShiftModifier` or `.Qt.ControlModifier`. Alternatively,
+                ``None`` can be used to specify that the mouse click should lead to
+                the action independent of the modifier.
+            command (method):
+                A method implementing the action that has been annotated with the
+                `@command <.command>` or `@blocking_command <.blocking_command>`
+                decorator.
+            default_doc (bool, optional):
+                Whether to include the action in the automatically generated help.
+                Defaults to ``True``.
         '''
         self.mouse_actions[(click_type, modifier)] = command
         if default_doc:
@@ -927,6 +1181,12 @@ class CameraGui(QtWidgets.QMainWindow):
                                                    command.auto_description())
 
     def video_mouse_press(self, event):
+        """
+        Handles mouse press events on the video display and triggers bound actions.
+
+        Args:
+            event (QMouseEvent): Mouse event.
+        """
         # Look for an exact match first (key + modifier)
         event_tuple = (event.button(), int(event.modifiers()))
         command = self.mouse_actions.get(event_tuple, None)
@@ -963,15 +1223,28 @@ class CameraGui(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot('QString')
     def status_message_updated(self, message):
+        """
+        Updates the status bar styling when a new message is set.
+
+        Args:
+            message (str): Status message.
+        """
         if not message:
             self.status_bar.setStyleSheet('QStatusBar{color: black;}')
 
     @QtCore.pyqtSlot('QString')
     def error_status(self, message):
+        """
+        Displays an error message in the status bar.
+
+        Args:
+            message (str): Error message.
+        """
         self.status_bar.setStyleSheet('QStatusBar{color: red;}')
         self.status_bar.showMessage(message, 5000)
 
     def initialize(self):
+        """Initializes interfaces, connects signals, and registers commands."""
         for interface, (command_signal, reset_signal) in self.interface_signals.items():
             command_signal.connect(interface.command_received)
             reset_signal.connect(interface.reset_requested)
@@ -992,28 +1265,27 @@ class CameraGui(QtWidgets.QMainWindow):
         '''
         Link a keypress to an action.
 
-        Parameters
-        ----------
-        key : `.Qt.Key`
-            The key that should be handled, specified as a ``Qt`` constant, e.g.
-            `.Qt.Key_X` or `.Qt.Key_5`.
-        modifier : `.Qt.Modifer` or ``None``
-            The modifier that needs to be pressed at the same time to trigger
-            the action. The modifier needs to be given as a ``Qt`` constant,
-            e.g. `.Qt.ShiftModifier` or `.Qt.ControlModifier`. Alternatively,
-            ``None`` can be used to specify that the keypress should lead to
-            the action independent of the modifier.
-        command : method
-            A method implementing the action that has been annotated with the
-            `@command <.command>` or `@blocking_command <.blocking_command>`
-            decorator.
-        argument : object, optional
-            An additional argument that should be handled to the method defined
-            as ``command``. Can be used to re-use the same action in a
-            parametrized way (e.g. steps of different size).
-        default_doc : bool, optional
-            Whether to include the action in the automatically generated help.
-            Defaults to ``True``.
+        Args:
+            key (.Qt.Key):
+                The key that should be handled, specified as a ``Qt`` constant, e.g.
+                `.Qt.Key_X` or `.Qt.Key_5`.
+            modifier (.Qt.Modifer` or `None`):
+                The modifier that needs to be pressed at the same time to trigger
+                the action. The modifier needs to be given as a ``Qt`` constant,
+                e.g. `.Qt.ShiftModifier` or `.Qt.ControlModifier`. Alternatively,
+                ``None`` can be used to specify that the keypress should lead to
+                the action independent of the modifier.
+            command (method):
+                A method implementing the action that has been annotated with the
+                `@command <.command>` or `@blocking_command <.blocking_command>`
+                decorator.
+            argument (object, optional):
+                An additional argument that should be handled to the method defined
+                as ``command``. Can be used to re-use the same action in a
+                parametrized way (e.g. steps of different size).
+            default_doc (bool, optional):
+                Whether to include the action in the automatically generated help.
+                Defaults to ``True``.
         '''
         self.key_actions[(key, modifier)] = (command, argument)
         if default_doc:
@@ -1022,6 +1294,13 @@ class CameraGui(QtWidgets.QMainWindow):
                                                  command.auto_description(argument))
 
     def start_task(self, task_name, interface):
+        """
+        Initializes UI state for a running task.
+
+        Args:
+            task_name (str): Name of the task.
+            interface (TaskController): Interface handling the task.
+        """
         self.status_bar.clearMessage()
         self.task_progress_text.setText(task_name + '...')
         self.task_progress.setVisible(True)
@@ -1040,12 +1319,20 @@ class CameraGui(QtWidgets.QMainWindow):
         self.running_task_interface.complete_task()
 
     def abort_task(self):
+        """Aborts the currently running task and disables related UI controls."""
         self.task_abort_button.setEnabled(False)
         self.task_success_button.setEnabled(False)
         self.running_task_interface.abort_task()
 
     @QtCore.pyqtSlot(int, object)
     def task_finished(self, exit_reason, controller_or_message):
+        """
+        Handles completion of a task, updating UI state and optionally prompting for reset.
+
+        Args:
+            exit_reason (int): Status code indicating task result.
+            controller_or_message (object): Controller instance or message string.
+        """
         if self.running_task is None:
             # This might be a success message for a non-blocking command
             if isinstance(controller_or_message, str):
@@ -1087,6 +1374,12 @@ class CameraGui(QtWidgets.QMainWindow):
 
 
     def keyPressEvent(self, event):
+        """
+        Handles key press events and dispatches registered commands.
+
+        Args:
+            event (QKeyEvent): Key press event.
+        """
         # We remove the keypad modifier, since we do not want to make a
         # difference between key presses as part of the keypad or on the main
         # keyboard (e.g. for the +/- keys). Most importantly, arrow keys always
@@ -1118,9 +1411,11 @@ class CameraGui(QtWidgets.QMainWindow):
     @command(category='General',
              description='Toggle display of keyboard/mouse commands')
     def help_keypress(self):
+        """Toggles the help window via keypress."""
         self.help_button.click()
 
     def toggle_help(self):
+        """Shows or hides the help window based on toggle state."""
         if self.help_button.isChecked():
             self.help_window.show()
             # We need to keep the focus
@@ -1131,9 +1426,11 @@ class CameraGui(QtWidgets.QMainWindow):
     @command(category='General',
              description='Toggle display of log output')
     def log_keypress(self):
+        """Toggles the log window via keypress."""
         self.log_button.click()
 
     def toggle_log(self):
+        """Shows or hides the log window based on toggle state."""
         if self.log_button.isChecked():
             self.log_window.setVisible(True)
             # We need to keep the focus
@@ -1143,6 +1440,13 @@ class CameraGui(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot('QString', 'QString')
     def set_status_message(self, category, message):
+        """
+        Updates or removes a categorized status message in the status bar.
+
+        Args:
+            category (str): Category of the message.
+            message (str or None): Message text or None to remove
+        """
         if message is None and category in self.status_messages:
             del self.status_messages[category]
         else:
@@ -1153,6 +1457,13 @@ class CameraGui(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(int, int)
     def splitter_size_changed(self, pos, index):
+        """
+        Handles splitter movement to update configuration panel visibility.
+
+        Args:
+            pos (int): Position of the splitter.
+            index (int): Index of the splitter handle.
+        """
         if not self.config_button:
             return  # nothing to do
         # If the splitter is moved all the way to the right, get back the focus
@@ -1163,12 +1474,26 @@ class CameraGui(QtWidgets.QMainWindow):
             self.config_button.setChecked(True)
 
     def add_config_gui(self, config):
+        """
+        Adds a configuration GUI tab for the given config object.
+
+        Args:
+            config (Config): Configuration object.
+        """
         logging.debug('Adding config GUI for {}'.format(config.name))
         config_gui = ConfigGui(config)
         self.config_tab.addTab(config_gui, config.name)
         logging.debug('Config GUI added')
 
     def add_tab(self, tab, name, index=None):
+        """
+        Adds a new tab to the configuration panel.
+
+        Args:
+            tab (QWidget): Tab widget to add.
+            name (str): Tab label.
+            index (int, optional): Position to insert the tab.
+        """
         if index is None:
             self.config_tab.addTab(tab, name)
         else:
@@ -1177,14 +1502,17 @@ class CameraGui(QtWidgets.QMainWindow):
     @command(category='General',
              description='Show/hide the configuration pane')
     def configuration_keypress(self):
+        """Toggles the configuration panel via keypress."""
         self.config_button.click()
 
     @command(category='General',
              description='Show/hide the overlay information on the image')
     def toggle_overlay(self):
+        """Toggles overlay display on the camera image."""
         self.show_overlay = not self.show_overlay
 
     def toggle_configuration_display(self):
+        """Shows or hides the configuration panel by adjusting splitter sizes."""
         current_sizes = self.splitter.sizes()
         if current_sizes[1] == 0:
             min_size = self.config_tab.sizeHint().width()
@@ -1198,16 +1526,43 @@ class CameraGui(QtWidgets.QMainWindow):
 
 
 class ElidedLabel(QtWidgets.QLabel):
+    """
+    A QLabel subclass that truncates text with an ellipsis if it exceeds
+    the available display width.
+
+    Ensures long text strings fit within constrained UI layouts.
+    """
     def __init__(self, text, minimum_width=200, *args, **kwds):
+        """
+        Initializes an ElidedLabel with text truncation behavior.
+
+        Args:
+            text (str): Full label text.
+            minimum_width (int, optional): Minimum width before eliding.
+            *args: Additional positional arguments.
+            **kwds: Additional keyword arguments.
+        """
         self.minimum_width = minimum_width
         self.text = text
         super(ElidedLabel, self).__init__(*args, **kwds)
 
     def minimumSizeHint(self):
+        """
+        Provides the minimum size hint for the label.
+
+        Returns:
+            QSize: Minimum size hint.
+        """
         return QtCore.QSize(self.minimum_width,
                             super(ElidedLabel, self).minimumSizeHint().height())
 
     def resizeEvent(self, event):
+        """
+        Handles resizing and updates displayed text with elision if needed.
+
+        Args:
+            event (QResizeEvent): Resize event.
+        """
         metric = QtGui.QFontMetrics(self.font())
         elidedText = metric.elidedText(self.text, QtCore.Qt.ElideRight,
                                        self.width())
@@ -1215,9 +1570,22 @@ class ElidedLabel(QtWidgets.QLabel):
 
 
 class ConfigGui(QtWidgets.QWidget):
+    """
+    A graphical user interface for displaying and interacting with camera feeds.
+
+    Supports multiple cameras, live video display, recording, user input
+    handling (keyboard/mouse), and integration with camera control interfaces.
+    """
     value_changed_signal = QtCore.pyqtSignal('QString', object)
 
     def __init__(self, config, show_name=False):
+        """
+        Initializes the configuration GUI with editable parameter widgets.
+
+        Args:
+            config (Config): Configuration object.
+            show_name (bool, optional): Whether to display config name.
+        """
         super(ConfigGui, self).__init__()
         self.config = config
         self.config._value_changed = self.value_changed
@@ -1302,7 +1670,12 @@ class ConfigGui(QtWidgets.QWidget):
     def value_changed(self, key, value):
         """Relay parameter updates coming from the Config object.
         Numeric parameters are scaled by their unit magnitude; non‑numeric
-        (e.g. Selector / Boolean) are forwarded unchanged."""
+        (e.g. Selector / Boolean) are forwarded unchanged.
+        
+        Args:
+            key (str): Parameter name.
+            value (object): Updated value.
+        """
         if key not in self.value_widgets:
             return
 
@@ -1317,6 +1690,13 @@ class ConfigGui(QtWidgets.QWidget):
 
     @QtCore.pyqtSlot('QString', object)
     def display_changed_value(self, key, value):
+        """
+        Updates GUI widgets to reflect new parameter values.
+
+        Args:
+            key (str): Parameter name.
+            value (object): New value.
+        """
         box = self.findChild(QtWidgets.QCheckBox, key)
         if box is not None:
             box.blockSignals(True)
@@ -1346,23 +1726,66 @@ class ConfigGui(QtWidgets.QWidget):
 
 
     def set_numerical_value(self, name, value):
+        """
+        Sets a numerical parameter value in the config.
+
+        Args:
+            name (str): Parameter name.
+            value (float): Value to set.
+        """
         setattr(self.config, name, value)
 
     def set_numerical_value_with_unit(self, name, magnitude, value):
+        """
+        Sets a numerical parameter value with unit scaling.
+
+        Args:
+            name (str): Parameter name.
+            magnitude (float): Unit scaling factor.
+            value (float): Value to set (pre-scaled).
+        """
         setattr(self.config, name, value * magnitude)
 
     def set_boolean_value(self, name, widget):
+        """
+        Sets a boolean parameter value based on widget state.
+
+        Args:
+            name (str): Parameter name.
+            widget (QCheckBox): Checkbox widget.
+        """
         setattr(self.config, name, widget.isChecked())
 
     def set_selector_value(self, name, options, index):
+        """
+        Sets a selector parameter value based on selected index.
+
+        Args:
+            name (str): Parameter name.
+            options (list): Available options.
+            index (int): Selected index.
+        """
         if 0 <= index < len(options):
             setattr(self.config, name, options[index])
 
     def set_string_value(self, name, value):
+        """
+        Sets a string parameter value in the config.
+
+        Args:
+            name (str): Parameter name.
+            value (str): Value to set.
+        """
         setattr(self.config, name, value)
 
 
     def save_config(self):
+        """
+        Saves the current configuration to a file.
+
+        Raises:
+            Exception: If saving fails.
+        """
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save configuration",
                                                             filter='Configuration files (*.yaml)',
                                                             options=QtWidgets.QFileDialog.DontUseNativeDialog)
@@ -1375,6 +1798,12 @@ class ConfigGui(QtWidgets.QWidget):
                 QtWidgets.QMessageBox.warning(self, 'Saving failed', err + '\n' + str(ex), QtWidgets.QMessageBox.Ok)
 
     def load_config(self):
+        """
+        Loads configuration values from a file.
+
+        Raises:
+            Exception: If loading fails.
+        """
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load configuration",
                                                             filter='Configuration files (*.yaml)',
                                                             options=QtWidgets.QFileDialog.DontUseNativeDialog)

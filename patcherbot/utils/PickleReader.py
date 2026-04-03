@@ -48,7 +48,18 @@ except Exception:  # pragma: no cover
 # --- Core utilities ----------------------------------------------------------
 
 def load_pickle(path: str) -> Any:
-    """Load a pickle file, with a fallback encoding for older pickles."""
+    """
+    Load a pickle file, with a fallback encoding for older pickles.    
+
+    Args:
+        path (str): Path to the pickle file.
+
+    Returns:
+        Any: Deserialized Python object.
+
+    Raises:
+        RuntimeError: If loading fails with both default and latin1 encodings.
+    """
     with open(path, "rb") as f:  # type: ignore[call-arg]
         try:
             return pickle.load(f)
@@ -64,7 +75,15 @@ def load_pickle(path: str) -> Any:
 
 
 def summarize(obj: Any) -> str:
-    """Human-friendly one-line summary of an object."""
+    """
+    Human-friendly one-line summary of an object.
+    
+    Args:
+        obj (Any): Object to summarize.
+
+    Returns:
+        str: Summary string describing the object.
+    """
     try:
         if pd is not None and isinstance(obj, pd.DataFrame):
             return f"pandas.DataFrame shape={obj.shape} columns={list(obj.columns)[:10]}{'...' if obj.shape[1] > 10 else ''}"
@@ -85,7 +104,15 @@ def summarize(obj: Any) -> str:
 
 
 def is_tabular(obj: Any) -> bool:
-    """Heuristic: object has a table-like shape suitable for CSV export."""
+    """
+    Heuristic: object has a table-like shape suitable for CSV export.
+    
+    Args:
+        obj (Any): Object to evaluate.
+
+    Returns:
+        bool: True if object appears tabular, False otherwise.
+    """
     if pd is not None and isinstance(obj, pd.DataFrame):
         return True
     if isinstance(obj, list) and obj and all(isinstance(x, dict) for x in obj):
@@ -100,7 +127,17 @@ def is_tabular(obj: Any) -> bool:
 
 
 def to_jsonable(obj: Any, *, max_items: int = 2000, _seen: set[int] | None = None) -> Any:
-    """Convert arbitrary objects to a JSON-serializable preview, with size guard."""
+    """
+    Convert arbitrary objects to a JSON-serializable preview, with size guard.
+    
+    Args:
+        obj (Any): Object to convert.
+        max_items (int, optional): Maximum number of items to include in sequences.
+        _seen (set[int], optional): Internal set for recursion tracking.
+
+    Returns:
+        Any: JSON-compatible representation of the object.
+    """
     # Simple primitives bypass recursion tracking
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
@@ -188,11 +225,28 @@ def to_jsonable(obj: Any, *, max_items: int = 2000, _seen: set[int] | None = Non
 # --- Export helpers ----------------------------------------------------------
 
 def write_json(obj: Any, out_json: str) -> None:
+    """
+    Write a JSON-serializable object to a file.
+
+    Args:
+        obj (Any): JSON-serializable object.
+        out_json (str): Output file path.
+    """
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
 
 
 def write_csv_from_tabular(obj: Any, out_csv: str) -> None:
+    """
+    Export a tabular object to CSV format.
+
+    Args:
+        obj (Any): Tabular object (DataFrame, list of dicts, or dict of lists).
+        out_csv (str): Output CSV file path.
+
+    Raises:
+        ValueError: If object cannot be converted to a tabular format.
+    """
     if pd is not None and isinstance(obj, pd.DataFrame):
         obj.to_csv(out_csv, index=False)
         return
@@ -230,6 +284,12 @@ def write_csv_from_tabular(obj: Any, out_csv: str) -> None:
 
 
 def process_pickle(path: str) -> None:
+    """
+    Load, summarize, and export a pickle file to JSON and optionally CSV.
+
+    Args:
+        path (str): Path to the pickle file.
+    """
     print(f"\n=== Processing: {path} ===")
     data = load_pickle(path)
     print("Summary:", summarize(data))

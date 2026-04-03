@@ -68,6 +68,17 @@ class CellTrackHelper:
         use_ai_features: bool | None = None,
         **matcher_kwargs: object,
     ) -> None:
+        """
+        Initialize the CellTrackHelper.
+
+        Args:
+            stage: Stage controller used for positioning (not directly used in this class).
+            camera: Camera object providing image dimensions (must expose width and height).
+            use_ai_features: Whether to enable AI-based matching and segmentation.
+                Defaults to True if not provided.
+            **matcher_kwargs: Additional keyword arguments forwarded to PatchMatcher.
+
+        """
         self.stage = stage
         self.camera = camera
         self.width = int(getattr(camera, "width", 0) or 0)
@@ -221,6 +232,15 @@ class CellTrackHelper:
 
     # ------------------------------------------------------------------ #
     def _ensure_matcher(self) -> PatchMatcher:
+        """
+        Lazily initialize and return the PatchMatcher instance.
+
+        Returns:
+            PatchMatcher: Initialized matcher instance.
+
+        Raises:
+            NotImplementedError: If AI features are disabled or matcher initialization fails.
+        """
         if not self.use_ai_features:
             raise NotImplementedError("AI features disabled; LightGlue matching unavailable.")
         if self._matcher_error is not None:
@@ -234,6 +254,15 @@ class CellTrackHelper:
         return self._matcher
 
     def _ensure_segmentor(self) -> CellSegmentor2:
+        """
+        Lazily initialize and return the CellSegmentor2 instance.
+
+        Returns:
+            CellSegmentor2: Initialized segmentation model.
+
+        Raises:
+            NotImplementedError: If AI features are disabled or segmentor initialization fails.
+        """
         if not self.use_ai_features:
             raise NotImplementedError("AI features disabled; SAM2 segmentation unavailable.")
         if self._segmentor_error is not None:
@@ -254,7 +283,21 @@ class CellTrackHelper:
         *,
         max_refine_distance: float,
     ) -> Optional[np.ndarray]:
-        """Try segmentation with jittered seeds and keep the closest valid centroid."""
+        """
+        Try segmentation with jittered seeds and keep the closest valid centroid.
+
+        Args:
+            image: Current image array.
+            coarse_point: Initial centroid estimate from LightGlue.
+            offsets: Sequence of (dx, dy) offsets applied to the coarse point as seeds.
+            max_refine_distance: Maximum allowed distance from coarse_point for valid refinement.
+
+        Returns:
+            Optional[np.ndarray]: Refined centroid if successful, otherwise None.
+
+        Raises:
+            NotImplementedError: If segmentation is unavailable.
+        """
         try:
             self._prime_segmentor(image)
         except NotImplementedError:
@@ -291,7 +334,19 @@ class CellTrackHelper:
         image: np.ndarray,
         seed_point: np.ndarray,
     ) -> Optional[np.ndarray]:
-        """Convenience wrapper for single-pass segmentation on *image*."""
+        """
+        Convenience wrapper for single-pass segmentation on *image*.
+       
+        Args:
+            image: Image to segment.
+            seed_point: Seed point used for segmentation.
+
+        Returns:
+            Optional[np.ndarray]: Computed centroid if segmentation succeeds, otherwise None.
+
+        Raises:
+            NotImplementedError: If segmentation is unavailable.
+        """
         try:
             self._prime_segmentor(image)
         except NotImplementedError:
@@ -302,14 +357,33 @@ class CellTrackHelper:
         return self._segment_from_seed(seed_point)
 
     def _prime_segmentor(self, image: np.ndarray) -> None:
-        """Load *image* into the SAM2 predictor."""
+        """
+        Load *image* into the SAM2 predictor.
+        
+        Args:
+            image: Image to load into the segmentor.
+
+        Returns:
+            None
+
+        Raises:
+            NotImplementedError: If segmentation is unavailable.
+        """
         segmentor = self._ensure_segmentor()
         prepped = self._prepare_for_segmentation(image)
         segmentor.load_image(image=prepped)
         segmentor.set_image()
 
     def _segment_from_seed(self, seed_point: np.ndarray) -> Optional[np.ndarray]:
-        """Run SAM2 with a single positive seed and return the centroid."""
+        """
+        Run SAM2 with a single positive seed and return the centroid.
+        
+        Args:
+            seed_point: (x, y) seed location for segmentation.
+
+        Returns:
+            Optional[np.ndarray]: Centroid of the segmented region if successful, otherwise None.
+        """
         segmentor = self._ensure_segmentor()
         point = np.asarray(seed_point, dtype=np.float32)
         if point.shape != (2,):
@@ -338,7 +412,15 @@ class CellTrackHelper:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _compute_centroid(mask: np.ndarray) -> Optional[np.ndarray]:
-        """Return centroid `[cx, cy]` (float32) or `None` if mask is empty."""
+        """
+        Return centroid `[cx, cy]` (float32) or `None` if mask is empty.
+        
+        Args:
+            mask: Segmentation mask.
+
+        Returns:
+            Optional[np.ndarray]: Centroid [x, y] if valid, otherwise None.
+        """
         if mask.ndim == 3:
             mask = mask[0]
 
@@ -378,7 +460,15 @@ class CellTrackHelper:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _prepare_match_tensor(image: np.ndarray) -> torch.Tensor:
-        """Convert image to a 3xHxW float tensor in [0, 1] for LightGlue."""
+        """
+        Convert image to a 3xHxW float tensor in [0, 1] for LightGlue.
+        
+        Args:
+            image: Input image.
+
+        Returns:
+            torch.Tensor: Image tensor formatted for matching.
+        """
         rgb = CellTrackHelper._ensure_rgb(image)
         arr = rgb.astype(np.float32)
         if arr.max() > 1.0:
@@ -393,7 +483,15 @@ class CellTrackHelper:
 
     @staticmethod
     def _prepare_for_segmentation(image: np.ndarray) -> np.ndarray:
-        """Return a uint8 BGR image suitable for SAM2."""
+        """
+        Return a uint8 BGR image suitable for SAM2.
+        
+        Args:
+            image: Input image.
+
+        Returns:
+            np.ndarray: Image converted to uint8 BGR format.
+        """
         bgr = CellTrackHelper._ensure_bgr(image)
         if bgr.dtype == np.uint16:
             bgr = (bgr / 257.0).astype(np.uint8)
@@ -406,7 +504,15 @@ class CellTrackHelper:
 
     @staticmethod
     def _ensure_numpy(image: ImageInput) -> Optional[np.ndarray]:
-        """Convert supported image inputs into numpy arrays."""
+        """
+        Convert supported image inputs into numpy arrays.
+        
+        Args:
+            image: Input image (numpy array or torch tensor).
+
+        Returns:
+            Optional[np.ndarray]: Converted numpy array, or None if unsupported.
+        """
         if isinstance(image, np.ndarray):
             return image
         if isinstance(image, torch.Tensor):
@@ -421,7 +527,18 @@ class CellTrackHelper:
 
     @staticmethod
     def _ensure_rgb(image: np.ndarray) -> np.ndarray:
-        """Ensure *image* is an RGB array (H, W, 3)."""
+        """
+        Ensure *image* is an RGB array (H, W, 3).
+        
+        Args:
+            image: Input image.
+
+        Returns:
+            np.ndarray: Image in RGB format.
+
+        Raises:
+            ValueError: If image shape is unsupported.
+        """
         if image.ndim == 2:
             return cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
         if image.ndim == 3 and image.shape[2] == 1:
@@ -433,7 +550,18 @@ class CellTrackHelper:
 
     @staticmethod
     def _ensure_bgr(image: np.ndarray) -> np.ndarray:
-        """Ensure *image* is a BGR array (H, W, 3)."""
+        """
+        Ensure *image* is a BGR array (H, W, 3).
+        
+        Args:
+            image: Input image.
+
+        Returns:
+            np.ndarray: Image in BGR format.
+
+        Raises:
+            ValueError: If image shape is unsupported.
+        """
         if image.ndim == 2:
             return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         if image.ndim == 3 and image.shape[2] == 1:
@@ -444,14 +572,34 @@ class CellTrackHelper:
 
     @staticmethod
     def _clamp_point(point: np.ndarray, width: int, height: int) -> np.ndarray:
-        """Clamp a point to image bounds."""
+        """
+        Clamp a point to image bounds.
+        
+        Args:
+            point: Point to clamp.
+            width: Image width.
+            height: Image height.
+
+        Returns:
+            np.ndarray: Clamped point within bounds.
+        """
         x = float(np.clip(point[0], 0.0, max(width - 1, 0)))
         y = float(np.clip(point[1], 0.0, max(height - 1, 0)))
         return np.array([x, y], dtype=np.float32)
 
     @staticmethod
     def _point_within(point: np.ndarray, width: int, height: int) -> bool:
-        """Check that *point* lies inside image bounds."""
+        """
+        Check that *point* lies inside image bounds.
+        
+        Args:
+            point: Point to check.
+            width: Image width.
+            height: Image height.
+
+        Returns:
+            bool: True if point lies within bounds, otherwise False.
+        """
         x, y = float(point[0]), float(point[1])
         return 0.0 <= x < width and 0.0 <= y < height
 
@@ -481,6 +629,16 @@ class CellTrackTester:
         offsets: Optional[Sequence[Tuple[float, float]]] = None,
         max_refine_distance: float = 120.0,
     ) -> None:
+        """
+        Initialize the CellTrackTester.
+
+        Args:
+            reference_image: Path to the template/reference image.
+            current_image: Path to the current frame image.
+            features: Feature extractor type for PatchMatcher.
+            offsets: Optional segmentation seed offsets.
+            max_refine_distance: Maximum allowed refinement distance in pixels.
+        """
         self.reference_path = Path(reference_image)
         self.current_path = Path(current_image)
         self.reference_image = self._load_image(self.reference_path)
@@ -539,6 +697,17 @@ class CellTrackTester:
         reference_mask: Optional[np.ndarray],
         reference_centroid: np.ndarray,
     ) -> dict:
+        """
+        Compute LightGlue matching and generate overlay outputs.
+
+        Args:
+            reference_mask: Optional segmentation mask of the template image.
+            reference_centroid: Centroid of the reference object.
+
+        Returns:
+            dict: Dictionary containing match data, coarse_point, overlay image,
+            and optionally warped_mask.
+        """
         tmpl_np = self.reference_image
         curr_np = self.current_image
 
@@ -613,7 +782,15 @@ class CellTrackTester:
         self,
         prompt_point: np.ndarray,
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """Segment the template image to recover mask + centroid."""
+        """
+        Segment the template image to recover mask + centroid.
+        
+        Args:
+            prompt_point: Seed point for segmentation.
+
+        Returns:
+            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: Mask and centroid.
+        """
         try:
             self.helper._prime_segmentor(self.reference_image)
         except Exception as exc:  # pragma: no cover - external dependency
@@ -639,7 +816,15 @@ class CellTrackTester:
         self,
         coarse_point: np.ndarray,
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """Segmentation refinement around the LightGlue target in the current frame."""
+        """
+        Segmentation refinement around the LightGlue target in the current frame.
+        
+        Args:
+            coarse_point: Initial centroid estimate.
+
+        Returns:
+            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: Best mask and centroid.
+        """
         try:
             self.helper._prime_segmentor(self.current_image)
         except Exception as exc:  # pragma: no cover - external dependency
@@ -695,6 +880,18 @@ class CellTrackTester:
         coarse_point: np.ndarray,
         refined_centroid: Optional[np.ndarray],
     ) -> None:
+        """
+        Display matching and segmentation results.
+
+        Args:
+            reference_mask: Mask of reference image.
+            warped_mask: Warped reference mask.
+            current_mask: Mask of current image.
+            overlay_image: Overlay image.
+            reference_centroid: Reference centroid.
+            coarse_point: Coarse centroid estimate.
+            refined_centroid: Refined centroid.
+        """
         template_overlay = self._overlay_mask(self.reference_image.copy(), reference_mask, color=(0, 165, 255))
         if reference_centroid is not None:
             self._draw_marker(template_overlay, reference_centroid, color=(0, 140, 255))
@@ -755,7 +952,18 @@ class CellTrackTester:
         color: Tuple[int, int, int] = (0, 255, 0),
         alpha: float = 0.4,
     ) -> np.ndarray:
-        """Overlay *mask* onto *image* using the provided colour."""
+        """
+        Overlay *mask* onto *image* using the provided colour.
+        
+        Args:
+            image: Base image.
+            mask: Mask to overlay.
+            color: Overlay color.
+            alpha: Blending factor.
+
+        Returns:
+            np.ndarray: Image with overlay applied.
+        """
         output = image.copy()
         if mask is None:
             return output
@@ -785,6 +993,18 @@ class CellTrackTester:
 
     @staticmethod
     def _load_image(path: Path) -> np.ndarray:
+        """
+        Load an image from disk.
+
+        Args:
+            path: Path to image file.
+
+        Returns:
+            np.ndarray: Loaded image.
+
+        Raises:
+            FileNotFoundError: If image cannot be loaded.
+        """
         img = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if img is None:
             raise FileNotFoundError(f"Unable to load image from {path}")
@@ -792,10 +1012,27 @@ class CellTrackTester:
 
     @staticmethod
     def _bgr_to_rgb(image: np.ndarray) -> np.ndarray:
+        """
+        Convert a BGR image to RGB.
+
+        Args:
+            image: BGR image.
+
+        Returns:
+            np.ndarray: RGB image.
+        """
         return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     @staticmethod
     def _draw_marker(image: np.ndarray, point: Optional[np.ndarray], color: Tuple[int, int, int]) -> None:
+        """
+        Draw a marker on an image.
+
+        Args:
+            image: Image to draw on.
+            point: Location to draw marker.
+            color: Marker color.
+        """
         if point is None:
             return
         x, y = int(round(point[0])), int(round(point[1]))

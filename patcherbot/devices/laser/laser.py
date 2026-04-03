@@ -30,41 +30,86 @@ class Laser(TaskController):
         self._initialize()
 
     def _initialize(self):
-        """Initialize the Laser with any necessary commands."""
+        """
+        Initialize the Laser with any necessary commands.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError("This method should be implemented by subclasses.")
 
     def power_on(self):
-        """Power on the Laser."""
+        """
+        Power on the Laser.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError("This method should be implemented by subclasses.")
     
     def power_off(self):
-        """Power off the Laser."""
+        """
+        Power off the Laser.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError("This method should be implemented by subclasses.")
     
     def get_power_state(self):
-        """Get the current state of the Laser power and its power level."""
+        """
+        Get the current state of the Laser power and its power level.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError("This method should be implemented by subclasses.")
     
     def set_wavelength(self, wavelength=None):
-        """Set the excitation wavelength for the Laser."""
+        """
+        Set the excitation wavelength for the Laser.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError("This method should be implemented by subclasses.")
     
     def get_wavelength(self):
-        """Get the current excitation wavelength of the Laser."""
+        """
+        Get the current excitation wavelength of the Laser.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError("This method should be implemented by subclasses.")
 
     def set_power_level(self, power_percent: float, wavelength=None):
-        """Set the power level of a given excitation wavelength."""
+        """
+        Set the power level of a given excitation wavelength.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError("This method should be implemented by subclasses.")
 
     def get_laser_temp(self):
-        """Get a temperature reading if supported by the Laser."""
+        """
+        Get a temperature reading if supported by the Laser.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError("This method should be implemented by subclasses.")
 
 
 
     def get_laser_state(self):
-        """Get the current state of the Laser (power level, wavelength, temperature)."""
+        """
+        Get the current state of the Laser (power level, wavelength, temperature).
+        
+        Returns:
+            dict: Dictionary containing power state, wavelength, and temperature.
+        """
         laser_state =  {
             "power_state": self.get_power_state(),
             "wavelength": self.get_wavelength(),
@@ -74,7 +119,16 @@ class Laser(TaskController):
         return laser_state
     
     def excite(self, power_on=None, excitation_wavelength=None):
-        """Enable a specific wavelength or turn it off."""
+        """
+        Enable a specific wavelength or turn it off.
+        
+        Args:
+            power_on: Desired power level.
+            excitation_wavelength: Wavelength to set.
+
+        Returns:
+            dict: Updated laser state.
+        """
         laser_state = self.get_laser_state()
         if excitation_wavelength is not None:
             self.set_wavelength(excitation_wavelength)
@@ -101,6 +155,23 @@ class Laser(TaskController):
     ):
         """
         Build a randomized optogenetic protocol for wavelengths or power levels.
+        
+        Args:
+            wavelengths (list[str | int]): Available wavelengths.
+            powers (list[int | float]): Available power levels.
+            randomize_target (str): Parameter to randomize ("wavelength" or "power").
+            stabilize_time (float): Initial stabilization duration (s).
+            off_time (float): Off duration between steps (s).
+            on_time (float): On duration per step (s).
+            replicates (int): Number of repetitions.
+            randomize (bool): Whether to shuffle sequence order.
+            power_divisor (float): Scaling factor for power values.
+
+        Returns:
+            list[dict]: List of protocol steps.
+
+        Raises:
+            ValueError: If inputs are invalid.
         """
         if wavelengths is None or len(wavelengths) == 0:
             raise ValueError("wavelengths must contain at least one entry")
@@ -207,7 +278,13 @@ class FakeLaser(Laser):
     Fake Laser that only logs actions.
     """
     def __init__(self, *args, **kwargs):
-        """Initialize the fake Laser."""
+        """
+        Initialize the fake Laser.
+        
+        Args:
+            *args: Positional arguments passed to base class.
+            **kwargs: Keyword arguments passed to base class.
+        """
         super().__init__(*args, **kwargs)
         self.wavelength = None
         self.power_state = "off"
@@ -224,29 +301,57 @@ class FakeLaser(Laser):
         self.info("FakeLaser: Power on.")
 
     def power_off(self):
-        """Fake implementation of powering off the Laser."""
+        """
+        Fake implementation of powering off the Laser.
+        """
         self.power_state = "off"
         self.info("FakeLaser: Power off.")
 
     def get_power_state(self):
-        """Fake implementation of getting the Laser power state."""
+        """
+        Fake implementation of getting the Laser power state.
+        
+        Returns:
+            str: "on" or "off".
+        """
         return self.power_state
 
     def set_wavelength(self, wavelength=None):
-        """Fake implementation of setting the excitation wavelength."""
+        """
+        Fake implementation of setting the excitation wavelength.
+        
+        Args:
+            wavelength: Wavelength identifier.
+        """
         self.wavelength = wavelength
         self.info(f"FakeLaser: wavelength set to {wavelength}.")
 
     def get_wavelength(self):
-        """Fake implementation of getting the current excitation wavelength."""
+        """
+        Fake implementation of getting the current excitation wavelength.
+        
+        Returns:
+            Any: Current wavelength.
+        """
         return self.wavelength
 
     def set_power_level(self, power_percent: float, wavelength=None):
-        """Fake implementation of setting the power level for a excitation wavelength."""
+        """
+        Fake implementation of setting the power level for a excitation wavelength.
+        
+        Args:
+            power_percent (float): Desired power percentage.
+            wavelength: Optional wavelength (unused).
+        """
         clamped = int(max(0, min(100, round(power_percent))))
         self.power_levels = clamped
         self.info(f"FakeLaser: Power set to {clamped}%.")
 
     def get_laser_temp(self):
-        """Fake implementation returning a placeholder temperature."""
+        """
+        Fake implementation returning a placeholder temperature.
+        
+        Returns:
+            float: Placeholder temperature value.
+        """
         return 25.0

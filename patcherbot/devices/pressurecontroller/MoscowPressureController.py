@@ -34,6 +34,38 @@ class MoscowPressureController(PressureController):
                  native_zero=None, native_per_mbar=None,
                  sensor_offset=None, sensor_scale=None,
                  serial_cmd_timeout=None):
+        """
+        Initialize a MoscowPressureController instance.
+
+        Args:
+            channel (int): Pressure box channel number.
+            controllerSerial (serial.Serial, optional): Serial port connected to the
+                Arduino controlling the pressure output. Defaults to None.
+            readerSerial (serial.Serial, optional): Serial port connected to the pressure
+                sensor Arduino. Defaults to None.
+            validProducts (list[str], optional): USB product names allowed for discovery.
+            validVIDs (list[int], optional): USB Vendor IDs allowed for discovery.
+            nativeZero (float, optional): Native DAC units corresponding to 0 mBar.
+            nativePerMbar (float, optional): DAC units per mBar of pressure.
+            readerOffset (float, optional): Offset for the pressure sensor before scaling.
+            readerScale (float, optional): Scale factor for the pressure sensor.
+            serialCmdTimeout (float, optional): Maximum allowed time for serial commands in seconds.
+            valid_products (list[str], optional): Alias for `validProducts`.
+            valid_vids (list[int], optional): Alias for `validVIDs`.
+            native_zero (float, optional): Alias for `nativeZero`.
+            native_per_mbar (float, optional): Alias for `nativePerMbar`.
+            sensor_offset (float, optional): Alias for `readerOffset`.
+            sensor_scale (float, optional): Alias for `readerScale`.
+            serial_cmd_timeout (float, optional): Alias for `serialCmdTimeout`.
+
+        Raises:
+            Exception: If `controllerSerial` or `readerSerial` are not provided.
+        
+        Notes:
+            - Sets initial pressure to 0 mBar and starts the acquisition thread at 60 Hz.
+            - Sets initial state to non-atmospheric mode (controlled pressure).
+            - Any argument that is `None` will be replaced with the class default.
+        """
         super().__init__()
         # time.sleep(2) # wait for arduino to boot up
 
@@ -89,6 +121,9 @@ class MoscowPressureController(PressureController):
     def set_pressure(self, pressure):
         '''
         Tell pressure controller to go to a given setpoint pressure in mbar
+        
+        Args:
+            pressure (float): Target pressure in mBar.
         '''
         nativeUnits = self.mbarToNative(pressure)
         # self.info(f"Setting pressure to {nativeUnits} mbar")
@@ -96,7 +131,13 @@ class MoscowPressureController(PressureController):
     
     def mbarToNative(self, pressure):
         '''
-        Comvert from a pressure in mBar to native units
+        Convert from a pressure in mBar to native units
+        
+        Args:
+            pressure (float): Pressure in mBar.
+
+        Returns:
+            int: DAC units clamped to 0 – (2 * nativeZero).
         '''
         raw_pressure = int((pressure * self.nativePerMbar + self.nativeZero))
         return min(max(raw_pressure, 0), self.nativeZero * 2) # clamp native units to 0-3924
@@ -104,7 +145,13 @@ class MoscowPressureController(PressureController):
 
     def nativeToMbar(self, raw_pressure) -> float:
         '''
-        Comvert from native units to a pressure in mBar
+        Convert from native units to a pressure in mBar
+        
+        Args:
+            raw_pressure (int): DAC units.
+
+        Returns:
+            float: Pressure in mBar.
         '''
         pressure = (raw_pressure - self.nativeZero) / self.nativePerMbar
         return pressure
@@ -112,6 +159,9 @@ class MoscowPressureController(PressureController):
     def set_pressure_raw(self, raw_pressure: int):
         '''
         Tell pressure controller to go to a given setpoint pressure in native DAC units
+        
+        Args:
+            raw_pressure (int): Target pressure in native DAC units.
         '''
         self.setpoint_raw = raw_pressure
         self.info(f"Setting pressure to {self.nativeToMbar(raw_pressure)} mbar (raw: {raw_pressure})")
@@ -125,12 +175,18 @@ class MoscowPressureController(PressureController):
     def get_pressure(self) -> float:
         '''
         Gets the current setpoint in millibar
+        
+        Returns:
+            float: Setpoint pressure in mBar.
         '''
         return self.nativeToMbar(self.setpoint_raw)
 
     def measure(self) -> float:
         '''
         Read the pressure sensor value from the Arduino
+        
+        Returns:
+            float: Measured pressure in mBar.
         '''
         pressureVal = self.lastVal
 
@@ -154,6 +210,9 @@ class MoscowPressureController(PressureController):
     
     def pulse(self, delayMs):
         '''Tell the onboard arduino to pulse pressure for a certain period of time
+        
+        Args:
+            delayMs (int): Duration of pulse in milliseconds.
         '''
         cmd = f"pulse {self.channel} {delayMs}\n"
         self.info(f"Pulsing pressure for {delayMs} ms")
@@ -164,6 +223,9 @@ class MoscowPressureController(PressureController):
         '''Send a serial command activating or deactivating the atmosphere solenoid valve
            atm = True -> pressure output is at atmospheric pressure 
            atm = False -> pressure output comes from pressure regulator
+        
+        Args:
+            atm (bool): True for atmospheric mode, False for regulated pressure.
         '''
         if atm:
             cmd = f"switchAtm {self.channel}\n" # switch to ATM command

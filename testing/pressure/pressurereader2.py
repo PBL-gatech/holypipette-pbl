@@ -14,15 +14,28 @@ import pyqtgraph as pg
 import time
 
 class SerialReaderThread(QThread):
+    """Thread for reading data from a serial port in the background."""
     data_received = pyqtSignal(float, float)  # Signal to emit timestamp and value
     error_occurred = pyqtSignal(str)          # Signal to emit error messages
 
     def __init__(self, serial_port, parent=None):
+        """
+        Initialize the SerialReaderThread.
+
+        Args:
+            serial_port (serial.Serial): Opened serial port object to read from.
+            parent (QObject, optional): Parent QObject.
+        """
         super().__init__(parent)
         self.serial_port = serial_port
         self.is_running = True
 
     def run(self):
+        """
+        Main thread loop to read lines from the serial port.
+        Parses lines starting with 'S' and ending with 'E' as numeric values.
+        Emits data_received or error_occurred signals.
+        """
         while self.is_running and self.serial_port and self.serial_port.is_open:
             try:
                 if self.serial_port.in_waiting > 0:
@@ -44,18 +57,31 @@ class SerialReaderThread(QThread):
                 break
 
     def stop(self):
+        """Stop the thread and wait for termination."""
         self.is_running = False
         self.wait()
 
 class SerialWriterThread(QThread):
+    """Thread for sending repeated commands to a serial port at a fixed rate."""
     error_occurred = pyqtSignal(str)  # Signal to emit error messages
 
     def __init__(self, serial_port, parent=None):
+        """
+        Initialize the SerialWriterThread.
+
+        Args:
+            serial_port (serial.Serial): Opened serial port object to write to.
+            parent (QObject, optional): Parent QObject.
+        """
         super().__init__(parent)
         self.serial_port = serial_port
         self.is_running = True
 
     def run(self):
+        """
+        Main thread loop to send 'R' commands at ~30 Hz.
+        Emits error_occurred on exceptions.
+        """
         while self.is_running and self.serial_port and self.serial_port.is_open:
             try:
                 self.serial_port.write(b'R')
@@ -65,11 +91,14 @@ class SerialWriterThread(QThread):
                 break
 
     def stop(self):
+        """Stop the thread and wait for termination."""
         self.is_running = False
         self.wait()
 
 class PressureReaderApp(QWidget):
+    """PyQt5 application for real-time pressure sensor monitoring and recording."""
     def __init__(self):
+        """Initialize the PressureReaderApp UI and internal state."""
         super().__init__()
         self.serial_port = None
         self.is_connected = False
@@ -86,6 +115,7 @@ class PressureReaderApp(QWidget):
         self.plot_data = np.zeros(100)  # Buffer for last 100 data points
 
     def initUI(self):
+        """Initialize the user interface components."""
         self.setFixedSize(700, 500)  # Updated window size
         layout = QHBoxLayout()
 
@@ -126,7 +156,12 @@ class PressureReaderApp(QWidget):
         self.setWindowTitle('Pressure Reader Control')
 
     def create_communication_box(self):
-        """ Create communication box with COM port selection """
+        """
+        Create communication box with COM port selection
+        
+        Returns:
+            QGroupBox: Communication box widget.
+        """
         com_box = QGroupBox("Communication")
         com_layout = QVBoxLayout()
 
@@ -144,7 +179,12 @@ class PressureReaderApp(QWidget):
         return com_box
 
     def create_acquisition_box(self):
-        """ Create data acquisition box with Start Read and Start Record buttons """
+        """
+        Create data acquisition box with Start Read and Start Record buttons
+        
+        Returns:
+            QGroupBox: Acquisition box widget.
+        """
         acquisition_box = QGroupBox("Data Acquisition")
         acquisition_layout = QVBoxLayout()
 
@@ -195,7 +235,12 @@ class PressureReaderApp(QWidget):
             QMessageBox.warning(self, "Warning", "Please select a valid COM port")
 
     def toggle_read(self, checked):
-        """ Start or stop reading data from the pressure sensor """
+        """
+        Start or stop reading data from the pressure sensor 
+        
+        Args:
+            checked (bool): True to start reading, False to stop.
+        """
         if checked:
             self.read_button.setText("Stop Read")
             self.is_reading = True
@@ -235,7 +280,12 @@ class PressureReaderApp(QWidget):
             self.hide_plot()
 
     def toggle_record(self, checked):
-        """ Start or stop recording the data to a CSV file """
+        """
+        Start or stop recording the data to a CSV file
+        
+        Args:
+            checked (bool): True to start recording, False to stop.
+        """
         if checked:
             self.record_button.setText("Stop Recording")
             self.is_recording = True  # Set recording flag to True
@@ -252,7 +302,12 @@ class PressureReaderApp(QWidget):
             self.close_csv_file()
 
     def create_csv_file(self, directory):
-        """ Create a new CSV file in the selected directory with an incrementer """
+        """
+        Create a new CSV file in the selected directory with an incrementer 
+        
+        Args:
+            directory (str): Directory path to save the CSV.
+        """
         self.recording_count += 1  # Increment the recording counter
         date_str = QDateTime.currentDateTime().toString("MM_dd_yyyy")
         filename = f"PressureReaderRec_{date_str}_{self.recording_count}.csv"  # Append recording count
@@ -280,7 +335,13 @@ class PressureReaderApp(QWidget):
                 self.csv_writer = None
 
     def handle_new_data(self, timestamp, value):
-        """ Handle new data received from the serial port """
+        """
+        Handle new data received from the serial port
+        
+        Args:
+            timestamp (float): Time of the data reading.
+            value (float): Pressure value from the sensor.
+        """
         # Display data
         # value = float((value - 516.72)/0.3923) # conversion to raw because the seeed is not working
         self.data_display.append(f"time: {timestamp:.2f}s, pressure: {value:.2f}mbar")
@@ -294,7 +355,12 @@ class PressureReaderApp(QWidget):
             self.csv_writer.writerow([timestamp, value])
 
     def handle_error(self, message):
-        """ Handle errors emitted from threads """
+        """
+        Handle errors emitted from threads
+        
+        Args:
+            message (str): Error message.
+        """
         self.data_display.append(message)
         QMessageBox.critical(self, "Error", message)
         # Optionally, stop reading if a critical error occurs
@@ -325,7 +391,12 @@ class PressureReaderApp(QWidget):
         self.logo_label.show()
 
     def closeEvent(self, event):
-        """ Handle application exit """
+        """
+        Handle application exit
+        
+        Args:
+            event (QCloseEvent): Close event.
+        """
         self.is_reading = False
         # Stop reader thread
         if self.reader_thread and self.reader_thread.isRunning():
@@ -340,7 +411,12 @@ class PressureReaderApp(QWidget):
         event.accept()
 
     def showEvent(self, event):
-        """ Initialize the plot timer when the window is shown """
+        """
+        Initialize the plot timer when the window is shown
+        
+        Args:
+            event (QShowEvent): Show event.
+        """
         super().showEvent(event)
         # Initialize plot timer after the window is shown
         self.plot_timer = QTimer()

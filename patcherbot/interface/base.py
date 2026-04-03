@@ -19,21 +19,23 @@ def command(category, description, default_arg=None, success_message=None):
     Decorator that annotates a function with information about the implemented
     command.
 
-    Parameters
-    ----------
-    category : str
-        The command category (used for structuring the help window).
-    description : str
-        A descriptive text for the command (used in the help window).
-    default_arg : object, optional
-        A default argument provided to the method or ``None`` (the default).
-    success_message : str, optional
-        A message that will be displayed in the status bar of the GUI window
-        after the execution of the command. For simple commands that have visual
-        feedback, e.g. moving the manipulator or changing the exposure time,
-        this should not be set to avoid unnecessary messages. For actions that
-        have no visual feedback, e.g. storing a position, this should be set to
-        give the user an indication that something happened.
+    Args:
+        category (str):
+            The command category (used for structuring the help window).
+        description (str):
+            A descriptive text for the command (used in the help window).
+        default_arg (object, optional):
+            A default argument provided to the method or ``None`` (the default).
+        success_message (str, optional):
+            A message that will be displayed in the status bar of the GUI window
+            after the execution of the command. For simple commands that have visual
+            feedback, e.g. moving the manipulator or changing the exposure time,
+            this should not be set to avoid unnecessary messages. For actions that
+            have no visual feedback, e.g. storing a position, this should be set to
+            give the user an indication that something happened.
+    
+    Returns:
+        function: A decorator that wraps a command method with metadata and execution behavior.
     '''
     def decorator(func):
         @functools.wraps(func)
@@ -104,16 +106,18 @@ def blocking_command(category, description, task_description,
     Decorator that annotates a function with information about the implemented
     (blocking) command.
 
-    Parameters
-    ----------
-    category : str
-        The command category (used for structuring the help window).
-    description : str
-        A descriptive text for the command (used in the help window).
-    task_description : str
-        Text that will be displayed to the user while the task is running
-    default_arg : object, optional
-        A default argument provided to the method or ``None`` (the default).
+    Args:
+        category (str):
+            The command category (used for structuring the help window).
+        description (str):
+            A descriptive text for the command (used in the help window).
+        task_description (str):
+            Text that will be displayed to the user while the task is running
+        default_arg (object, optional):
+            A default argument provided to the method or ``None`` (the default).
+        
+    Returns:
+        function: A decorator that wraps a blocking command method with metadata.
     '''
     def decorator(func):
         @functools.wraps(func)
@@ -190,6 +194,7 @@ class TaskInterface(QtCore.QObject, LoggingObject):
     task_finished = QtCore.pyqtSignal(int, object)
 
     def __init__(self):
+        """Initialize the TaskInterface and set the current controller reference."""
         super().__init__()
         self._current_controller = None
 
@@ -203,12 +208,11 @@ class TaskInterface(QtCore.QObject, LoggingObject):
         emitted. Note that the handling of errors *within* the command, as well
         as the handling of abort requests is performed in the `.execute` method.
 
-        Parameters
-        ----------
-        command : method
-            A reference to the requested command.
-        argument : object
-            The argument of the requested command (possibly ``None``).
+        Args:
+            command (method):
+                A reference to the requested command.
+            argument (object):
+                The argument of the requested command (possibly ``None``).
         """
         try:
             if argument is None:
@@ -220,6 +224,17 @@ class TaskInterface(QtCore.QObject, LoggingObject):
             self.task_finished.emit(1, None)
 
     def _execute_single_task(self, controller, func, argument):
+        """
+        Execute a single task on a controller with state management and error handling.
+
+        Args:
+            controller (TaskController): Controller executing the task.
+            func (MethodType): Task method to execute.
+            argument (object): Argument passed to the task, or None.
+
+        Returns:
+            bool: True if the task completed successfully, False otherwise.
+        """
         controller.save_state()
 
         self._current_controller = controller
@@ -275,23 +290,24 @@ class TaskInterface(QtCore.QObject, LoggingObject):
         Can either execute a single task or a chain of tasks where each task is
         only executed when the previous was successful.
 
-        Parameters
-        ----------
-        task: method or list of methods
-            A method of a `TaskController` object that should be executed, or
-            a list of such methods.
-        argument : object or list of object, optional
-            An argument that will be provided to ``task`` or ``None`` (the
-            default). For a chain of function calls, provide a list of
-            arguments.
+        Args:
+            task (MethodType or list[MethodType]):
+                A method of a `TaskController` object that should be executed, or
+                a list of such methods.
+            argument (object or list[object], optional):
+                An argument that will be provided to ``task`` or ``None`` (the
+                default). For a chain of function calls, provide a list of
+                arguments.
 
-        Returns
-        -------
-        bool
-            ``True`` if all tasks completed successfully, ``False`` otherwise.
-            This can be used to manually enchain multiple tasks to avoid calling
-            subsequent tasks after a failed/aborted task. Note that it can be
-            easier to pass a list of functions instead.
+        Returns:
+            bool:
+                ``True`` if all tasks completed successfully, ``False`` otherwise.
+                This can be used to manually enchain multiple tasks to avoid calling
+                subsequent tasks after a failed/aborted task. Note that it can be
+                easier to pass a list of functions instead.
+
+        Raises:
+            TypeError: If a provided task is not a method of a TaskController instance.
         """
         if not isinstance(task, Sequence):
             task = [task]
@@ -321,12 +337,10 @@ class TaskInterface(QtCore.QObject, LoggingObject):
         Slot that will be triggered when the user asks for resetting the state
         after an aborted or failed command.
 
-        Parameters
-        ----------
-        controller : `.TaskController`
-            The object that was executing the task that failed or was aborted.
-            This object is requested to reset its state.
-
+        Args:
+            controller (TaskController):
+                The object that was executing the task that failed or was aborted.
+                This object is requested to reset its state.
         """
         try:
             # Reset request flags to avoid triggering another abort or success
@@ -367,9 +381,8 @@ class TaskInterface(QtCore.QObject, LoggingObject):
         Connect signals to slots in the main GUI. Will be called automatically
         during initialization of the GUI.
 
-        Parameters
-        ----------
-        main_gui : `.CameraGui`
-            The main GUI in control.
+        Args:
+            main_gui (CameraGui):
+                The main GUI in control.
         """
         pass

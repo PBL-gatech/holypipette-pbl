@@ -24,7 +24,15 @@ VENDORED = {
 
 
 def _lightglue_package_data(repo_root: Path) -> list[str]:
-    """Collect vendored LightGlue files relative to patcherbot package root."""
+    """
+    Collect vendored LightGlue files relative to patcherbot package root.
+    
+    Args:
+        repo_root: Root directory of the repository.
+
+    Returns:
+        List of relative file paths for all files within the LightGlue directory.
+    """
     package_root = repo_root / "patcherbot"
     lightglue_root = package_root / "deepLearning" / "cellModel" / "LightGlue"
     if not lightglue_root.exists():
@@ -37,7 +45,18 @@ def _lightglue_package_data(repo_root: Path) -> list[str]:
 
 
 def persist_lightglue_manifest(repo_root: Path) -> Path | None:
-    """Write a manifest of LightGlue files for packaging or verification."""
+    """
+    Write a manifest of LightGlue files for packaging or verification.
+    
+    Args:
+        repo_root: Root directory of the repository.
+
+    Returns:
+        Path to the generated manifest file, or None if no files were found.
+    
+    Raises:
+        OSError: If the manifest file cannot be written.
+    """
     entries = _lightglue_package_data(repo_root)
     if not entries:
         return None
@@ -47,6 +66,17 @@ def persist_lightglue_manifest(repo_root: Path) -> Path | None:
 
 
 def install_target(name: str, target: Path, source: str) -> None:
+    """
+    Install a Python package from a source repository into a target directory.
+
+    Args:
+        name: Identifier for the package being installed.
+        target: Directory where the package will be installed.
+        source: Pip-compatible source string (e.g., git URL).
+
+    Raises:
+        subprocess.CalledProcessError: If the pip installation command fails.
+    """
     target.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable,
@@ -64,7 +94,18 @@ def install_target(name: str, target: Path, source: str) -> None:
 
 
 def persist_vendor_paths(targets: list[Path]) -> Path:
-    """Drop a .pth file into site-packages so vendored modules are importable."""
+    """
+    Drop a .pth file into site-packages so vendored modules are importable.
+    
+    Args:
+        targets: List of directories containing vendored packages.
+
+    Returns:
+        Path to the created .pth file.
+
+    Raises:
+        OSError: If the .pth file cannot be written.
+    """
     site_packages = Path(sysconfig.get_paths()["purelib"])
     site_packages.mkdir(parents=True, exist_ok=True)
     pth_path = site_packages / "patcherbot_vendored.pth"
@@ -74,6 +115,13 @@ def persist_vendor_paths(targets: list[Path]) -> Path:
 
 
 def main() -> None:
+    """
+    Install vendored deep learning repositories and configure import paths.
+
+    Raises:
+        subprocess.CalledProcessError: If any package installation fails.
+        OSError: If writing helper files fails.
+    """
     repo_root = Path(__file__).resolve().parents[1]
     installed_targets = []
     for name, (rel_target, src) in VENDORED.items():

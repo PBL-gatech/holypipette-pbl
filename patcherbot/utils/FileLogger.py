@@ -11,7 +11,25 @@ import pandas as pd
 
 
 class FileLogger(threading.Thread):
+    """
+    Threaded logger for recording experimental data including graph values,
+    movement data, and camera frames. Supports batching, asynchronous writes,
+    and optional video frame handling.
+    """
     def __init__(self, recording_state_manager, folder_path="experiments/Data/", recorder_filename="recording", filetype="csv", isVideo=False, frame_batch_size=500, frame_folder_name="camera_frames", aux_frame_folder_name="aux_camera_frames"):
+        """
+        Initialize the FileLogger.
+
+        Args:
+            recording_state_manager: Object controlling recording state.
+            folder_path (str, optional): Base directory for saving data.
+            recorder_filename (str, optional): Name of the output file.
+            filetype (str, optional): File extension for the main log file.
+            isVideo (bool, optional): Whether video frame saving is enabled.
+            frame_batch_size (int, optional): Maximum number of frames to batch.
+            frame_folder_name (str, optional): Folder name for primary camera frames.
+            aux_frame_folder_name (str, optional): Folder name for auxiliary camera frames.
+        """
         super().__init__()
         self.recording_state_manager = recording_state_manager
         self.time_truth = datetime.now()
@@ -56,6 +74,12 @@ class FileLogger(threading.Thread):
         logging.info(f"FileLogger initialized. Folder path set to: {self.folder_path}")
 
     def create_folder(self):
+        """
+        Create required directories for recording if recording is enabled.
+
+        Raises:
+            OSError: If directory creation fails.
+        """
         # Check if the recording is enabled before creating the folder
         if self.recording_state_manager.is_recording_enabled() and not self.folder_created:
             try:
@@ -68,6 +92,7 @@ class FileLogger(threading.Thread):
 
 
     def open(self):
+        """Open the main log file and write headers if the file is empty."""
         self.file = open(self.filename, 'a+')
         if len(self.file.readlines()) == 0:
             if self.filename == self.folder_path + "movement_recording.csv":
@@ -79,6 +104,12 @@ class FileLogger(threading.Thread):
         print(f"Opened file at: {self.filename}")
 
     def _write_to_file(self, contents):
+        """
+        Write a single string of data to the log file.
+
+        Args:
+            contents (str): Data string to write.
+        """
         if self.file is None:
             self.open()
         self.file.write(contents)
@@ -87,6 +118,12 @@ class FileLogger(threading.Thread):
         # print("Wrote file contents at path: ", self.filename)
 
     def _write_to_file_batch(self, contents):
+        """
+        Write multiple lines of data to the log file.
+
+        Args:
+            contents (list[str]): List of data strings.
+        """
         if self.file is None:
             self.open()
         self.file.writelines(contents)
@@ -95,8 +132,18 @@ class FileLogger(threading.Thread):
         # print("Wrote file contents at path: ", self.filename)
 
     def write_graph_data(self, time_value, pressure: float, resistance: float, current, voltage):
-    # ? time_current is probably not necessary, will remove in a future commit when confirmed.
-    # def write_graph_data(self, time_value, pressure: float, resistance: float, time_current, current):
+        """
+        Log a single graph data point asynchronously.
+
+        Args:
+            time_value: Timestamp value.
+            pressure (float): Pressure measurement.
+            resistance (float): Resistance measurement.
+            current: Current measurement.
+            voltage: Voltage measurement.
+        """
+        # ? time_current is probably not necessary, will remove in a future commit when confirmed.
+        # def write_graph_data(self, time_value, pressure: float, resistance: float, time_current, current):
         if not self.recording_state_manager.is_recording_enabled():
             return
         if time_value == self.last_graph_time:
@@ -109,6 +156,14 @@ class FileLogger(threading.Thread):
         threading.Thread(target=self._write_to_file, args=(content,)).start()
 
     def write_movement_data_batch(self, time_value, stage_x, stage_y, stage_z, pipette_x, pipette_y, pipette_z):
+        """
+        Buffer movement data and write in batches.
+
+        Args:
+            time_value: Timestamp value.
+            stage_x, stage_y, stage_z: Stage coordinates.
+            pipette_x, pipette_y, pipette_z: Pipette coordinates.
+        """
         # start_time = time.perf_counter_ns()
         if not self.recording_state_manager.is_recording_enabled():
             return
@@ -128,6 +183,12 @@ class FileLogger(threading.Thread):
         # print(f"Time taken to write movement data: {(end_time - start_time)/1e6} ms")
 
     def _flush_contents(self, data):
+        """
+        Flush buffered data to disk asynchronously.
+
+        Args:
+            data (collections.deque): Buffered data.
+        """
         if data:
             contents = data.copy()
             data.clear()
@@ -135,6 +196,13 @@ class FileLogger(threading.Thread):
             threading.Thread(target=self._write_to_file_batch, args=(contents,)).start()
 
     def _save_image(self, frame, path):
+        """
+        Buffer an image frame for batched disk writing.
+
+        Args:
+            frame: Image data.
+            path (str): File path to save the image.
+        """
         self.batch_frames.append((frame, path))
         if len(self.batch_frames) >= self.frame_batch_limit:
             # logging.info(f"Batch size reached for FRAMES. Writing to disk at {datetime.now() - self.time_truth} seconds after start")
@@ -142,11 +210,13 @@ class FileLogger(threading.Thread):
             threading.Thread(target=self._write_batch_to_disk).start()
     
     def _save_image_sleep(self):
+        """Flush any buffered frames to disk."""
         if self.batch_frames:
             self.write_frame.clear()
             threading.Thread(target=self._write_batch_to_disk).start()
 
     def _write_batch_to_disk(self):
+        """Write all buffered image frames to disk."""
         while self.batch_frames:
             frame, path = self.batch_frames.popleft()
             # imwrite(path, frame)
@@ -155,6 +225,14 @@ class FileLogger(threading.Thread):
         self.write_frame.set()  # Signal that image saving is done
 
     def write_camera_frames(self, time_value, frame, frameno):
+        """
+        Save primary camera frames with batching.
+
+        Args:
+            time_value: Timestamp value.
+            frame: Image data.
+            frameno (int): Frame number.
+        """
         if not self.recording_state_manager.is_recording_enabled():
             self._save_image_sleep()
             return
@@ -173,6 +251,14 @@ class FileLogger(threading.Thread):
         self.last_frameno = frameno
 
     def write_aux_camera_frames(self, time_value, frame, frameno):
+        """
+        Save auxiliary camera frames with batching.
+
+        Args:
+            time_value: Timestamp value.
+            frame: Image data.
+            frameno (int): Frame number.
+        """
         if not self.recording_state_manager.is_recording_enabled():
             self._save_image_sleep()
             return
@@ -185,11 +271,24 @@ class FileLogger(threading.Thread):
         self.last_aux_frameno = frameno
 
     def setBatchGraph(self, value=True):
+        """
+        Enable or disable batch mode for graph data.
+
+        Args:
+            value (bool, optional): Batch mode flag.
+        """
         self.batch_mode_graph = value
     def setBatchMoves(self, value=True):
+        """
+        Enable or disable batch mode for movement data.
+
+        Args:
+            value (bool, optional): Batch mode flag.
+        """
         self.batch_mode_movements = value
 
     def flush_movement_data(self):
+        """Flush any remaining buffered movement data to disk."""
         if not self.write_event.is_set():
             self.write_event.wait()
         if not self.movement_contents:
@@ -212,12 +311,14 @@ class FileLogger(threading.Thread):
         self.write_event.set()
 
     def handle_recording_stopped(self):
+        """Handle cleanup when recording stops, ensuring all data is written."""
         if self.is_video and self.write_frame:
             self._save_image_sleep()
             self.write_frame.wait()
         self.flush_movement_data()
 
     def close(self):
+        """Close the logger, ensuring all pending writes and frames are saved."""
         if self.file is not None:
             logging.info("Closing file: %s", self.filename)
             # if self.batch_mode_graph and self.graph_contents:

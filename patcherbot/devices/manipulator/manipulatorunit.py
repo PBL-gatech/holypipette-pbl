@@ -16,10 +16,11 @@ __all__ = ['ManipulatorUnit']
 class ManipulatorUnit(Manipulator):
     def __init__(self, dev, axes):
         '''
-        Parameters
-        ----------
-        dev : underlying device
-        axes : list of 3 axis indexes
+        Initialize a ManipulatorUnit, representing a subset of a device.
+
+        Args:
+            dev: The underlying device (Manipulator) to control.
+            axes: List of 3 axis indices corresponding to this unit.
         '''
         Manipulator.__init__(self)
         self.dev = dev
@@ -32,13 +33,11 @@ class ManipulatorUnit(Manipulator):
         '''
         Current position along an axis.
 
-        Parameters
-        ----------
-        axis : axis number starting at 0; if None, all XYZ axes
+        Args:
+            axis: Axis number starting at 0; if None, returns all XYZ axes.
 
-        Returns
-        -------
-        The current position of the device axis in um.
+        Returns:
+            The current position in micrometers (um), or a NumPy array of positions.
         '''
         if axis is None: # all positions in a vector
             #return array([self.dev.position(self.axes[axis]) for axis in range(len(self.axes))])
@@ -50,10 +49,11 @@ class ManipulatorUnit(Manipulator):
         '''
         Moves the device axis to position x in um.
 
-        Parameters
-        ----------
-        axis : axis number starting at 0; if None, all XYZ axes
-        x : target position in um.
+        Args:
+            x: Target position in um, or list/array for all axes.
+            axis: Axis number starting at 0; if None, applies to all axes.
+            blocking: If True, waits until movement completes.
+            speed: Speed of movement (optional).
         '''
 
         if axis is None:
@@ -77,6 +77,11 @@ class ManipulatorUnit(Manipulator):
     def absolute_move_group(self, x, axes, speed=None):
         '''
         Moves the device axes to positions x in um.
+
+        Args:
+            x: Target positions in um (vector/list).
+            axes: List of axis indices (relative to this unit).
+            speed: Speed of movement (optional).
         '''
 
         # self.info('Moving axes %s to position %s' % (axes, x))
@@ -87,10 +92,10 @@ class ManipulatorUnit(Manipulator):
         '''
         Moves the device axis by relative amount x in um.
 
-        Parameters
-        ----------
-        axis : axis number starting at 0; if None, all XYZ axes
-        x : position shift in um.
+        Args:
+            x: Relative displacement in um, or list/array for all axes.
+            axis: Axis number starting at 0; if None, applies to all axes.
+            speed: Speed of movement (optional).
         '''
         # self.abort_if_requested()
         if axis is None:
@@ -105,10 +110,10 @@ class ManipulatorUnit(Manipulator):
         '''
         Moves the device in um/s by relative amount x in all axes.
 
-        Parameters  
-        ----------
-        axis : axis number starting at 0; if None, all XYZ axes
-        x : position shift in um.
+        Args:
+            x: Relative displacement in um, or list/array for all axes.
+            axis: Axis number starting at 0; if None, applies to all axes.
+            speed: Speed of movement (optional).
         '''
         self.dev.relative_move_group(x, self.axes,speed)
 
@@ -116,6 +121,9 @@ class ManipulatorUnit(Manipulator):
     def absolute_move_group_velocity(self, vel):
         '''
         Moves the device in um/s.
+
+        Args:
+            vel: Velocity in um/s (scalar or iterable).
         '''
 
         self.dev.absolute_move_group_velocity(vel)
@@ -131,6 +139,9 @@ class ManipulatorUnit(Manipulator):
     def wait_until_still(self, axes = None):
         """
         Waits for the motors to stop.
+
+        Args:
+            axes: Axis indices relative to this unit; if None, waits for all axes.
         """
         if axes is None: # all axes
             axes = arange(len(self.axes))
@@ -146,33 +157,56 @@ class ManipulatorUnit(Manipulator):
         Waits until position is reached within precision, and raises an error if the
         target is not reached after the time out, unless the manipulator is still moving.
 
-        Parameters
-        ----------
-        position : target position in micrometer
-        axes : axis number of list of axis numbers
-        precision : precision in micrometer
-        timeout : time out in second
+        Args:
+            position: Target position(s) in um.
+            axes: Axis indices relative to this unit; if None, applies to all axes.
+            precision: Allowed error in um.
+            timeout: Maximum wait time in seconds.
         """
         self.dev.wait_until_reached(position, axes, precision, timeout)
 
     def set_max_speed(self, speed):
+        """
+        Set maximum speed for the unit.
+
+        Args:
+            speed: Maximum speed to set (if supported).
+        """
         if speed is None:
             return
         if hasattr(self.dev, "set_max_speed"):
             self.dev.set_max_speed(speed)
     
     def set_max_accel(self, accel):
+        """
+        Set maximum acceleration for the unit.
+
+        Args:
+            accel: Maximum acceleration to set (if supported).
+        """
         if accel is None:
             return
         if hasattr(self.dev, "set_max_accel"):
             self.dev.set_max_accel(accel)
 
     def get_max_speed(self):
+        """
+        Get maximum speed for the unit.
+
+        Returns:
+            Maximum speed if available, else None.
+        """
         if hasattr(self.dev, "get_max_speed"):
             return self.dev.get_max_speed()
         return None
 
     def get_max_accel(self):
+        """
+        Get maximum acceleration for the unit.
+
+        Returns:
+            Maximum acceleration if available, else None.
+        """
         if hasattr(self.dev, "get_max_accel"):
             return self.dev.get_max_accel()
         return None

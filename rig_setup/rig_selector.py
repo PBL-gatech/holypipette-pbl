@@ -21,6 +21,17 @@ from .rig_config import DEVICE_SLOTS, RigConfigError, RigConfigManager
 
 
 def _get_nested(params: Dict[str, Any], dotted: str, default=None):
+    """
+    Retrieve a nested value from a dictionary using a dotted key path.
+
+    Args:
+        params: Dictionary to search within.
+        dotted: Dot-separated key string (e.g., "a.b.c").
+        default: Value to return if the key path does not exist.
+
+    Returns:
+        The value at the specified nested key, or default if not found.
+    """
     cur = params
     parts = dotted.split(".")
     for p in parts:
@@ -31,6 +42,14 @@ def _get_nested(params: Dict[str, Any], dotted: str, default=None):
 
 
 def _set_nested(params: Dict[str, Any], dotted: str, value: Any) -> None:
+    """
+    Set a nested value in a dictionary using a dotted key path.
+
+    Args:
+        params: Dictionary to modify.
+        dotted: Dot-separated key string (e.g., "a.b.c").
+        value: Value to assign at the nested location.
+    """
     cur = params
     parts = dotted.split(".")
     for p in parts[:-1]:
@@ -41,6 +60,19 @@ def _set_nested(params: Dict[str, Any], dotted: str, value: Any) -> None:
 
 
 def _coerce(text: str, typ: str) -> Any:
+    """
+    Convert a string to a specified type.
+
+    Args:
+        text: Input string value.
+        typ: Target type ("int", "float", "bool", or "str").
+
+    Returns:
+        The converted value.
+
+    Raises:
+        ValueError: If conversion fails for int or float.
+    """
     if typ == "int":
         return int(text)
     if typ == "float":
@@ -51,7 +83,17 @@ def _coerce(text: str, typ: str) -> Any:
 
 
 class SettingsDialog(QDialog):
+    """Dialog for editing device parameter fields."""
     def __init__(self, slot: str, fields: List[Dict[str, Any]], params: Dict[str, Any], parent=None):
+        """
+        Initialize the settings dialog UI.
+
+        Args:
+            slot: Device slot name.
+            fields: Field definitions for editable parameters.
+            params: Existing parameter values.
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle(f"{slot} settings")
         self.fields = fields
@@ -90,6 +132,12 @@ class SettingsDialog(QDialog):
         self.setLayout(layout)
 
     def get_params(self) -> Dict[str, Any]:
+        """
+        Retrieve updated parameters from user input.
+
+        Returns:
+            Dictionary of updated parameters.
+        """
         params = self.params.copy()
         for key, widget in self.inputs.items():
             text = widget.text().strip()
@@ -109,6 +157,15 @@ class RigBuilderDialog(QDialog):
     """Dialog for composing a new rig configuration."""
 
     def __init__(self, manager: RigConfigManager, parent=None, initial_config: Dict[str, Any] | None = None, save_path: Path | None = None):
+        """
+        Initialize the rig builder dialog.
+
+        Args:
+            manager: Configuration manager instance.
+            parent: Optional parent widget.
+            initial_config: Existing config to load into the UI.
+            save_path: Path where config will be saved.
+        """
         super().__init__(parent)
         self.manager = manager
         self.setWindowTitle("Create Rig Configuration")
@@ -123,6 +180,7 @@ class RigBuilderDialog(QDialog):
             self._load_config(self.initial_config)
 
     def _build_ui(self) -> None:
+        """Construct the dialog user interface."""
         layout = QVBoxLayout()
         self.setLayout(layout)
 
@@ -158,6 +216,13 @@ class RigBuilderDialog(QDialog):
         layout.addLayout(btns)
 
     def _apply_option_defaults(self, slot: str, combo: QComboBox) -> None:
+        """
+        Apply default parameters for a selected device option.
+
+        Args:
+            slot: Device slot name.
+            combo: ComboBox containing device options.
+        """
         opt = combo.currentData()
         if not isinstance(opt, dict):
             return
@@ -165,6 +230,12 @@ class RigBuilderDialog(QDialog):
         self.slot_rows[slot]["params"] = params.copy()
 
     def _open_settings(self, slot: str) -> None:
+        """
+        Open the settings dialog for a specific device slot.
+
+        Args:
+            slot: Device slot name.
+        """
         widgets = self.slot_rows[slot]
         opt = widgets["combo"].currentData()
         if not isinstance(opt, dict):
@@ -177,6 +248,12 @@ class RigBuilderDialog(QDialog):
             widgets["params"] = new_params
 
     def _on_save(self) -> None:
+        """
+        Open the settings dialog for a specific device slot.
+
+        Args:
+            slot: Device slot name.
+        """
         name = self.name_edit.text().strip() or "Custom Rig"
         devices: Dict[str, Any] = {}
 
@@ -202,6 +279,12 @@ class RigBuilderDialog(QDialog):
         self.accept()
 
     def _load_config(self, config: Dict[str, Any]) -> None:
+        """
+        Load an existing configuration into the UI.
+
+        Args:
+            config: Configuration dictionary.
+        """
         devices = config.get("devices", {})
         for slot, spec in devices.items():
             if slot not in self.slot_rows:
@@ -225,6 +308,13 @@ class RigSelectorDialog(QDialog):
     """Dialog to select or create a rig configuration before launching the GUI."""
 
     def __init__(self, manager: RigConfigManager, parent=None):
+        """
+        Initialize the rig selector dialog.
+
+        Args:
+            manager: Configuration manager instance.
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self.manager = manager
         self.setWindowTitle("Select Rig Configuration")
@@ -235,6 +325,7 @@ class RigSelectorDialog(QDialog):
         self._reload_configs()
 
     def _build_ui(self) -> None:
+        """Construct the dialog user interface."""
         layout = QVBoxLayout()
         self.setLayout(layout)
 
@@ -269,6 +360,7 @@ class RigSelectorDialog(QDialog):
         layout.addLayout(action_row)
 
     def _reload_configs(self) -> None:
+        """Reload available configuration files into the dropdown."""
         current = self.config_combo.currentData()
         self.config_combo.blockSignals(True)
         self.config_combo.clear()
@@ -285,14 +377,21 @@ class RigSelectorDialog(QDialog):
         self._update_path_display()
 
     def _update_path_display(self) -> None:
+        """
+        Update displayed path information for the selected configuration.
+        
+        Note: This method is currently unimplemented.
+        """
         pass
 
     def _browse_for_config(self) -> None:
+        """Open file dialog to manually select a configuration file."""
         path_str, _ = QFileDialog.getOpenFileName(self, "Select rig config", str(self.manager.config_dir), "JSON (*.json)")
         if path_str:
             self.selected_path = Path(path_str)
 
     def _create_config(self) -> None:
+        """Launch the rig builder dialog to create a new configuration."""
         builder = RigBuilderDialog(self.manager, self)
         if builder.exec_() == QDialog.Accepted and builder.saved_path:
             self.selected_path = builder.saved_path
@@ -302,6 +401,7 @@ class RigSelectorDialog(QDialog):
                 self.config_combo.setCurrentIndex(idx)
 
     def _edit_config(self) -> None:
+        """Open the selected configuration for editing."""
         path = self.selected_path or self.config_combo.currentData()
         if not isinstance(path, Path):
             QMessageBox.warning(self, "No configuration", "Select a config to edit.")
@@ -320,6 +420,7 @@ class RigSelectorDialog(QDialog):
                 self.config_combo.setCurrentIndex(idx)
 
     def _on_accept(self) -> None:
+        """Confirm selection of a configuration and close the dialog."""
         if self.selected_path is None:
             data = self.config_combo.currentData()
             if isinstance(data, Path):

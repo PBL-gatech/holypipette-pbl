@@ -10,7 +10,21 @@ from patcherbot.controller import TaskController
 __all__ = ['CalibratedCellSorter']
 
 class CalibratedCellSorter(TaskController):
+    """
+    Controller for a calibrated cell sorter system that integrates a manipulator,
+    pressure/valve controller, stage, microscope, and camera.
+    """
     def __init__(self, cellsorterManip: CellSorterManip, cellSorterController: CellSorterController, stage, microscope, camera: Camera):
+        """
+        Initialize the calibrated cell sorter controller.
+
+        args:
+            cellsorterManip (CellSorterManip): Manipulator controlling cell sorter position.
+            cellSorterController (CellSorterController): Controller for valves and LEDs.
+            stage: Motorized stage object used for positioning.
+            microscope: Microscope controller for Z positioning.
+            camera (Camera): Camera used for imaging and calibration.
+        """
         self.cellsorterManip = cellsorterManip
         self.cellsorterController = cellSorterController
         self.stage = stage
@@ -24,34 +38,97 @@ class CalibratedCellSorter(TaskController):
         self.fastMoveSpeed = 5
 
     def pulse_suction(self, duration):
+        """
+        Activate suction for a specified duration.
+
+        args:
+            duration (float): Time in seconds to apply suction.
+        """
         self.cellsorterController.open_valve_for_time(1, duration)
 
     def pulse_pressure(self, duration):
+        """
+        Activate pressure for a specified duration.
+
+        args:
+            duration (float): Time in seconds to apply pressure.
+        """
         self.cellsorterController.open_valve_for_time(2, duration)
     
     def position(self):
+        """
+        Get the current position of the cell sorter.
+
+        returns:
+            float: Current position value from the manipulator.
+        """
         return self.cellsorterManip.position()
     
     def absolute_move(self, position, velocity=None):
+        """
+        Move the cell sorter to an absolute position.
+
+        args:
+            position (float): Target position.
+            velocity (float, optional): Movement speed.
+        """
         print('velocity', velocity)
         self.cellsorterManip.absolute_move(position, velocity=velocity)
     
     def relative_move(self, position, velocity=None):
+        """
+        Move the cell sorter relative to its current position.
+
+        args:
+            position (float): Relative displacement.
+            velocity (float, optional): Movement speed.
+        """
         self.cellsorterManip.relative_move(position, velocity=velocity)
 
     def set_led_status(self, status, ring=None):
+        """
+        Set the LED status of the cell sorter.
+
+        args:
+            status: LED state (implementation-defined).
+            ring (optional): LED ring identifier.
+        """
         self.cellsorterController.set_led(status)
         if ring != None:
             self.cellsorterController.set_led_ring(ring)
 
     def get_led_status(self):
+        """
+        Get the current LED status.
+
+        returns:
+            Any: Current LED state from the controller.
+        """
         return self.cellsorterController.get_led()
 
     def set_led_ring_enabled(self, status, ring=1):
+        """
+        Enable or disable the LED ring.
+
+        args:
+            status: Desired LED state.
+            ring (int, optional): Ring identifier. Defaults to 1.
+        """
         self.set_led_status(status, ring)
 
 
     def calibrate(self):
+        """
+        Calibrate the cell sorter using image-based detection.
+
+        Detects the pipette location using a Hough Circle transform,
+        determines its pixel offset, and records the Z position of
+        the coverslip.
+
+        raises:
+            Exception: If the stage is not calibrated.
+            Exception: If no circles or multiple circles are detected.
+        """
         #make sure stage is calibrated
         if not self.stage.calibrated:
             raise Exception("Stage is not calibrated")
@@ -90,11 +167,23 @@ class CalibratedCellSorter(TaskController):
         self.calibrated = True
 
     def raise_pipette(self):
+        """Raise the pipette away from the sample."""
         self.cellsorterManip.set_max_speed(self.fastMoveSpeed)
         self.absolute_move(self.position() + 5)
         self.cellsorterManip.wait_until_still()
     
     def center_cellsorter_on_point(self, point): #x,y in pixels, z in stage units
+        """
+        Center the cell sorter on a given image point.
+
+        args:
+            point (tuple): (x, y, z) target where x and y are pixel coordinates,
+                        and z is in stage units.
+
+        raises:
+            Exception: If stage or cell sorter is not calibrated.
+            Exception: If microscope focal plane is not set.
+        """
         x, y, z = point
         if not self.stage.calibrated:
             raise Exception("Stage is not calibrated")

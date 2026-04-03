@@ -33,10 +33,25 @@ verbose = True
 
 
 class CalibrationError(Exception):
+    """
+    Exception raised when a device is not calibrated or requires recalibration.
+    """
     def __init__(self, message='Device is not calibrated'):
+        """
+        Initialize the calibration error.
+
+        Args:
+            message (str, optional): Error message describing the calibration issue.
+        """
         self.message = message
 
     def __str__(self):
+        """
+        Return the string representation of the error.
+
+        Returns:
+            str: Error message.
+        """
         return self.message
 
 
@@ -48,12 +63,12 @@ class CalibratedUnit(ManipulatorUnit):
         The stage refers to a platform on which the unit is mounted, which can
         be None.
 
-        Parameters
-        ----------
-        unit : ManipulatorUnit for the (XYZ) unit
-        stage : CalibratedUnit for the stage
-        microscope : ManipulatorUnit for the microscope (single axis)
-        camera : a camera, ie, object with a snap() method (optional, for visual calibration)
+        Args:
+            unit (ManipulatorUnit): ManipulatorUnit for the (XYZ) unit
+            stage (CalibratedUnit, optional): CalibratedUnit for the stage
+            microscope (ManipulatorUnit, optional): ManipulatorUnit for the microscope (single axis)
+            camera (object, optional): a camera, ie, object with a snap() method (optional, for visual calibration)
+            config (CalibrationConfig, optional): Configuration parameters for calibration.
         '''
         ManipulatorUnit.__init__(self, unit.dev, unit.axes)
         self.saved_state_question = ('Move manipulator and stage back to '
@@ -93,6 +108,7 @@ class CalibratedUnit(ManipulatorUnit):
         self.pipetteFocusHelper = PipetteFocusHelper(unit, camera, config=self.config)
 
     def save_state(self):
+        """Save the current position of the manipulator, stage, and microscope."""
         if self.stage is not None:
             self.stage.save_state()
         if self.microscope is not None:
@@ -100,6 +116,7 @@ class CalibratedUnit(ManipulatorUnit):
         self.saved_state = self.position()
 
     def delete_state(self):
+        """Delete the saved state."""
         if self.stage is not None:
             self.stage.delete_state()
         if self.microscope is not None:
@@ -107,6 +124,7 @@ class CalibratedUnit(ManipulatorUnit):
         self.saved_state = None
 
     def recover_state(self):
+        """Restore the previously saved state."""
         if self.stage is not None:
             self.stage.recover_state()
         if self.microscope is not None:
@@ -117,6 +135,12 @@ class CalibratedUnit(ManipulatorUnit):
     def pixels_to_um(self, pos_pixels):
         '''
         Converts pixel coordinates to pipette um.
+
+        Args:
+            pos_pixels (array-like): Position in pixel coordinates.
+
+        Returns:
+            numpy.ndarray: Position in microns.
         '''
         if self.Minv.shape[1] == 2: #2x2 stage movement
             xy = dot(self.Minv, pos_pixels[0:2]) + self.r0_inv[0:2]
@@ -127,6 +151,12 @@ class CalibratedUnit(ManipulatorUnit):
     def pixels_to_um_relative(self, pos_pixels):
         '''
         Converts pixel coordinates to pipette um.
+
+        Args:
+            pos_pixels (array-like): Pixel displacement.
+
+        Returns:
+            numpy.ndarray: Displacement in microns.
         '''
         if self.Minv.shape[1] == 2: #2x2 stage movement
             xy = dot(self.Minv, pos_pixels[0:2])
@@ -137,12 +167,24 @@ class CalibratedUnit(ManipulatorUnit):
     def um_to_pixels(self, pos_microns):
         '''
         Converts um to pixel coordinates.
+
+        Args:
+            pos_microns (array-like): Position in microns.
+
+        Returns:
+            numpy.ndarray: Position in pixels.
         '''
         return dot(self.M, pos_microns) + self.r0 - self.emperical_offset
     
     def um_to_pixels_relative(self, pos_microns):
         '''
         Converts um to pixel coordinates.
+
+        Args:
+            pos_microns (array-like): Displacement in microns.
+
+        Returns:
+            numpy.ndarray: Displacement in pixels.
         '''
         return dot(self.M, pos_microns)
     
@@ -151,9 +193,11 @@ class CalibratedUnit(ManipulatorUnit):
         '''
         Position of the pipette in pixels (camera coordinate frame)
 
-        Returns
-        -------
-        The current position in um as an XYZ vector.
+        Args:
+            include_offset (bool, optional): Whether to include empirical offset.
+
+        Returns:
+            numpy.ndarray: Position in pixel coordinates.
         '''
         pos_um = self.position() # position vector (um) in manipulator unit system
         self.debug(f"pipette position: {pos_um}")
@@ -169,10 +213,11 @@ class CalibratedUnit(ManipulatorUnit):
         '''
         Moves the unit to position pos_pixels in reference camera system, without moving the stage.
 
-        Parameters
-        ----------
-        r : XYZ position vector in um
+        Args:
+            pos_pixels (array-like): Target position in pixels.
 
+        Raises:
+            RuntimeError: If the target contains NaN values.
         '''
         self.abort_if_requested()
         if np.isnan(np.array(pos_pixels)).any():
@@ -198,8 +243,7 @@ class CalibratedUnit(ManipulatorUnit):
 
 
     def autofocus_pipette(self):
-        '''Use the microscope image to put the pipette in focus
-        '''
+        '''Use the microscope image to put the pipette in focus'''
         self.debug('Autofocusing pipette')
         self.abort_if_requested()
         self.pipetteFocusHelper.focus()
@@ -209,10 +253,12 @@ class CalibratedUnit(ManipulatorUnit):
         Moves the device to position x (an XYZ vector) in a way that minimizes
         interaction with tissue.
 
-        Parameters
-        ----------
-        r : target position in um, an (X,Y,Z) vector
-        yolo_correction : if True, corrects the pipette position using YOLO object detection
+        Args:
+            r : target position in um, an (X,Y,Z) vector
+            yolo_correction : if True, corrects the pipette position using YOLO object detection
+        
+        Raises:
+            CalibrationError: If unit is not calibrated or needs recalibration.
         '''
         if not self.calibrated:
             raise CalibrationError
@@ -224,6 +270,12 @@ class CalibratedUnit(ManipulatorUnit):
     def pixel_per_um(self, M=None):
         '''
         Returns the objective magnification in pixel per um, calculated for each manipulator axis.
+        
+        Args:
+            M (numpy.ndarray, optional): Transformation matrix.
+
+        Returns:
+            list: Pixel-per-micron values for each axis.
         '''
         if M is None:
             M = self.M
@@ -237,6 +289,16 @@ class CalibratedUnit(ManipulatorUnit):
         '''
         Rotate coordinates about one or more axes using configured angles.
         Accepts a single axis (0/1/2) or an ordered list/tuple of axes.
+        
+        Args:
+            coordinates (array-like): Input coordinates.
+            axis (int or sequence): Axis or axes to rotate about (0=X, 1=Y, 2=Z).
+
+        Returns:
+            numpy.ndarray: Rotated coordinates.
+
+        Raises:
+            ValueError: If an invalid axis is provided.
         '''
         if coordinates is None:
             return None
@@ -314,6 +376,9 @@ class CalibratedUnit(ManipulatorUnit):
         """
         Moves the pipette so that its detected position matches the requested image coordinates.
         If no coordinates are provided, the pipette is centered in the camera view.
+        
+        Args:
+            desired_px (array-like, optional): Target pixel position. Defaults to image center.
         """
         self.abort_if_requested()
         # (1) Retrieve an image from the raw frame queue.
@@ -378,6 +443,9 @@ class CalibratedUnit(ManipulatorUnit):
     def finish_calibration(self):
         '''
         Automatic calibration of the pipette manipulator.
+
+        Raises:
+            CalibrationError: If calibration matrices contain invalid values.
         '''
         
         # move the pipette and create a calibration matrix (pix -> um)
@@ -420,7 +488,11 @@ class CalibratedUnit(ManipulatorUnit):
     
 
     def recalibrate_pipette(self):
-        '''recalibrate pipette offset while keeping matrix
+        '''
+        recalibrate pipette offset while keeping matrix
+        
+        Raises:
+            Exception: If initial calibration has not been performed.
         '''
         if self.M is None or self.Minv is None:
             raise Exception("initial calibration required for single point recalibration!")
@@ -463,6 +535,9 @@ class CalibratedUnit(ManipulatorUnit):
     def follow_stage(self, movement = 100):
         '''
         Moves the pipette to follow the stage, method used for testing/calibration.
+        
+        Args:
+            movement (float, optional): Movement magnitude.
         '''
         #1. move stage by movement in both axes randomly
         movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), 0])
@@ -478,6 +553,9 @@ class CalibratedUnit(ManipulatorUnit):
     def move_pipette_random(self, movement = 100):
         '''
         Moves the pipette randomly in xy plane, method used for testing/calibration.
+        
+        Args:
+            movement (float, optional): Movement magnitude.
         '''
         movement_vector = np.array([movement * (np.random.rand() - 0.5), movement * (np.random.rand() - 0.5), 0])
         self.relative_move(movement_vector)
@@ -487,6 +565,9 @@ class CalibratedUnit(ManipulatorUnit):
     def save_configuration(self):
         '''
         Outputs configuration in a dictionary.
+
+        Returns:
+            dict: Calibration parameters.
         '''
         config = {'up_direction' : self.up_direction,
                   'M' : self.M,
@@ -499,6 +580,9 @@ class CalibratedUnit(ManipulatorUnit):
         '''
         Loads configuration from dictionary config.
         Variables not present in the dictionary are untouched.
+        
+        Args:
+            config (dict): Configuration dictionary.
         '''
         self.M = config.get('M', self.M)
         self.Minv = pinv(self.M)
@@ -524,6 +608,19 @@ class CalibratedStage(CalibratedUnit):
     '''
     def __init__(self, unit, stage=None, microscope=None, camera=None,
                  config=None):
+        """
+        Initialize a calibrated XY stage.
+
+        Args:
+            unit (ManipulatorUnit): Stage hardware.
+            stage (CalibratedUnit, optional): Parent stage.
+            microscope (ManipulatorUnit, optional): Microscope controller.
+            camera (object, optional): Camera device.
+            config (CalibrationConfig, optional): Configuration settings.
+
+        Raises:
+            CalibrationError: If the unit does not have exactly two axes.
+        """
         CalibratedUnit.__init__(self, unit, stage, microscope, camera,
                                 config=config)
         self.saved_state_question = 'Move stage back to initial position?'
@@ -543,7 +640,11 @@ class CalibratedStage(CalibratedUnit):
             raise CalibrationError('The unit should have exactly two axes for horizontal calibration.')
 
     def reference_position(self):
-        '''Returns the offset (in pixels) of the stage compared to where it was when calibrated
+        '''
+        Returns the offset (in pixels) of the stage compared to where it was when calibrated
+        
+        Returns:
+            numpy.ndarray: Pixel offset.
         '''
         #get delta in um
         posDelta = self.unit.position()
@@ -565,10 +666,9 @@ class CalibratedStage(CalibratedUnit):
         Moves the device to position x (an XYZ vector) in a way that minimizes
         interaction with tissue.
 
-        Parameters
-        ----------
-        r : target position in um, an (X,Y,Z) vector
-        yolo_correction : if True, corrects the pipette position using YOLO object detection
+        Args:
+            r : target position in um, an (X,Y,Z) vector
+            yolo_correction : if True, corrects the pipette position using YOLO object detection
         '''
         if not self.calibrated:
             raise CalibrationError
@@ -592,9 +692,11 @@ class CalibratedStage(CalibratedUnit):
         '''
         Moves the unit by vector r in reference camera system, without moving the stage.
 
-        Parameters
-        ----------
-        pos_pix : position in pixels
+        Args:
+            pos_pix : position in pixels
+
+        Raises:
+            CalibrationError: If not calibrated.
         '''
         if not self.calibrated:
             raise CalibrationError
@@ -642,14 +744,12 @@ class CalibratedStage(CalibratedUnit):
         Stops when the unit's position is out of range, unless
         width and height are specified.
 
-        Parameters
-        ----------
-        width : total width in pixel (optional)
-        height : total height in pixel (optional)
+        Args:
+            width (int, optional): total width in pixel (optional)
+            height (int, optional): total height in pixel (optional)
 
-        Returns
-        -------
-        A large image of the mosaic.
+        Returns:
+            numpy.ndarray: A large image of the mosaic.
         '''
         u0=self.position()
         if width == None:
@@ -698,6 +798,13 @@ class CalibratedStage(CalibratedUnit):
         Returns `self.wait_until_still` (callable) so the GUI's `execute([...])`
         pipeline keeps working.
         
+        Args:
+            cell (tuple): Cell data including coordinates and reference image.
+            check_same_cell (bool, optional): Whether to verify same cell.
+            use_centroid (bool, optional): Use centroid for positioning.
+
+        Returns:
+            callable: wait_until_still function.
         """
         _cell_coords, reference_image, _position = cell
 
@@ -766,6 +873,13 @@ class CalibratedStage(CalibratedUnit):
         Find the cell centroid in pixel space.
 
         Returns the centroid position (in pixels) as a numpy array.
+
+        Args:
+            cell (tuple): Cell data.
+            use_centroid (bool, optional): Use centroid detection.
+
+        Returns:
+            tuple: (centroid, error_px)
         """
         _cell_coords, reference_image, _position = cell
 
@@ -817,6 +931,7 @@ class FixedStage(CalibratedUnit):
     A stage that cannot move. This is used to simplify the code.
     '''
     def __init__(self):
+        """Initialize a fixed (non-movable) stage."""
         self.stage = None
         self.microscope = None
         self.r = array([0.,0.,0.]) # position in reference system
@@ -824,14 +939,43 @@ class FixedStage(CalibratedUnit):
         self.calibrated = True
 
     def position(self):
+        """
+        Get current position.
+
+        Returns:
+            numpy.ndarray: Position vector.
+        """
         return self.u
 
     def reference_position(self):
+        """
+        Get reference position.
+
+        Returns:
+            numpy.ndarray: Reference position.
+        """
         return self.r
 
     def reference_move(self, r):
+        """
+        Attempt to move the fixed stage in reference coordinates.
+
+        Args:
+            r (array-like): Target position in pixel coordinates.
+        
+        Note: This method has not been implemented.
+        """
         # The fixed stage cannot move: maybe raise an error?
         pass
 
     def absolute_move(self, x, axis = None):
+        """
+        Attempt to move the fixed stage in absolute coordinates.
+
+        Args:
+            x (array-like): Target position in stage coordinates.
+            axis (int, optional): Specific axis to move.
+
+        Note: This method has not been implemented.
+        """
         pass
