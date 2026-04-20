@@ -40,13 +40,16 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import io
 import json
 import os
+import re
 import warnings
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 import albumentations as A
 import h5py
@@ -117,6 +120,7 @@ class ActionSelector:
     include_stage: bool = False
     include_pipette: bool = True
     include_pressure: bool = False
+    pressure_use_raw_values: bool = True
     include_high_level: bool = False
     stage_axes: AxisToggle = field(default_factory=AxisToggle)
     pipette_axes: AxisToggle = field(default_factory=AxisToggle)
@@ -140,6 +144,11 @@ class ActionSelector:
         if not self.include_pipette:
             return []
         return [f"pipette_{axis}" for axis in self.pipette_axes.enabled_labels()]
+
+    def pressure_axis_labels(self) -> List[str]:
+        if not self.include_pressure:
+            return []
+        return ["commanded_pressure_mbar", "pressure_atm_state"]
 
 
 @dataclass(slots=True)
@@ -169,6 +178,9 @@ class DatasetBuilderSettings:
     center_crop: bool = False # set to true to center crop images around pipette
     inaction: int = 0 # maximum number of consecutive zero-action steps to keep
     inaction_tolerance: float = 0 # per-axis magnitude treated as inactivity
+    skip_invalid_observations: bool = True # drop timesteps with NaN/Inf payloads in the selected data
+    gigaseal_resistance_cutoff_enabled: bool = False # stop gigaseal trajectories once resistance reaches the cutoff
+    gigaseal_resistance_cutoff: float = 1200.0
 
 
 @dataclass(slots=True)
@@ -186,6 +198,15 @@ class _StateDatasetContext:
 # Utility helpers
 # ---------------------------------------------------------------------------
 
+_LOG_TIMEZONE = ZoneInfo("America/New_York")
+_PRESSURE_EVENT_DEDUP_TOLERANCE_SECONDS = 0.1
+_PRESSURE_RAW_RE = re.compile(
+    r"^Setting pressure to (?P<value>[+-]?(?:\d+(?:\.\d+)?|\.\d+)) mbar \(raw: (?P<raw>[^)]+)\)$"
+)
+_PRESSURE_PLAIN_RE = re.compile(
+    r"^Setting pressure to (?P<value>[+-]?(?:\d+(?:\.\d+)?|\.\d+)) mbar$"
+)
+
 def _slugify_state_name(name: str) -> str:
     """Return a filesystem friendly slug for a state name."""
 
@@ -202,12 +223,72 @@ def _stable_int_seed(*parts: object) -> int:
 
 
 def _shift_forward(arr: np.ndarray) -> np.ndarray:
-    """Return a copy of ``arr`` shifted left with the final element repeated."""
+    """Return a copy of `arr` shifted left with the final element repeated."""
 
     out = np.empty_like(arr)
     out[:-1] = arr[1:]
     out[-1] = arr[-1]
     return out
+
+
+def _read_csv_with_fallback(
+    path: Path,
+    *,
+    encodings: Sequence[str] = ("utf-8", "utf-8-sig", "cp1252", "latin-1"),
+    **kwargs,
+) -> pd.DataFrame:
+    """Load a CSV trying multiple encodings before replacing undecodable bytes."""
+
+    last_error: Optional[Exception] = None
+    for encoding in encodings:
+        try:
+            return pd.read_csv(path, encoding=encoding, **kwargs)
+        except (UnicodeDecodeError, LookupError) as exc:
+            last_error = exc
+            continue
+    with path.open("rb") as fh:
+        buffer = fh.read().decode("utf-8", errors="replace")
+    if last_error is not None:
+        warnings.warn(
+            f"Decoding issues detected while reading {path}; characters outside the fallback encoding were replaced.",
+            RuntimeWarning,
+        )
+    return pd.read_csv(io.StringIO(buffer), **kwargs)
+
+
+def _normalize_log_message(message: object) -> str:
+    """Collapse embedded whitespace so quoted multiline CSV messages are matchable."""
+
+    if pd.isna(message):
+        return ""
+    return re.sub(r"\s+", " ", str(message)).strip()
+
+
+def _local_time_columns_to_epoch(
+    time_series: pd.Series,
+    ms_series: pd.Series,
+) -> pd.Series:
+    """Convert local log time columns into Unix epoch seconds."""
+
+    ms_text = (
+        ms_series.fillna("")
+        .astype(str)
+        .str.strip()
+        .str.extract(r"(\d+)", expand=False)
+        .fillna("0")
+        .str.zfill(3)
+    )
+    combined = time_series.fillna("").astype(str).str.strip() + "." + ms_text
+    parsed = pd.to_datetime(
+        combined,
+        format="%Y-%m-%d %H:%M:%S.%f",
+        errors="coerce",
+    )
+    return parsed.apply(
+        lambda value: value.to_pydatetime().replace(tzinfo=_LOG_TIMEZONE).timestamp()
+        if not pd.isna(value)
+        else np.nan
+    )
 
 
 def _positions_to_deltas(positions: np.ndarray) -> np.ndarray:
@@ -466,6 +547,9 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.pipette_final_pos_color_dot = settings.pipette_final_pos_color_dot
         self.inaction = settings.inaction
         self.inaction_tolerance = settings.inaction_tolerance
+        self.skip_invalid_observations = settings.skip_invalid_observations
+        self.gigaseal_resistance_cutoff_enabled = settings.gigaseal_resistance_cutoff_enabled
+        self.gigaseal_resistance_cutoff = settings.gigaseal_resistance_cutoff
         self.val_ratio = settings.val_ratio
         self.omit_stage_movement = settings.omit_stage_movement
         self.rng = np.random.default_rng(settings.random_seed)
@@ -483,6 +567,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self._using_cv_movement_file = False
         self._last_pipette_scale: Tuple[float, float] = (1.0, 1.0)
         self._last_action_representation = "velocity" if self.use_velocities else "delta"
+        self._pressure_event_cache: Dict[str, pd.DataFrame] = {}
 
         self.dataset_dir, self.dataset_path = _ensure_dataset_stub(settings.dataset_name, create_file=False)
         self._base_dataset_name = self.dataset_name
@@ -592,7 +677,19 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
     # ------------------------------------------------------------------
     # --- filtering --------------------------------------------------------
-    def filter_inactive_actions(self, actions: np.ndarray, *arrays: np.ndarray) -> tuple:
+    @staticmethod
+    def _finite_row_mask(array: np.ndarray) -> np.ndarray:
+        """Return a boolean mask marking rows whose payload is entirely finite."""
+
+        array = np.asarray(array)
+        if array.ndim == 0:
+            raise ValueError("Expected an array with a leading sample dimension")
+        if array.shape[0] == 0:
+            return np.zeros(0, dtype=bool)
+        flattened = array.reshape(array.shape[0], -1)
+        return np.isfinite(flattened).all(axis=1)
+
+    def filter_inactive_actions(self, actions: np.ndarray, *arrays: Optional[np.ndarray]) -> tuple:
         """Drop contiguous segments where all action components remain zero."""
         if self.inaction == 0:
             return (actions,) + arrays
@@ -612,8 +709,75 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 if start < e:
                     keep[start:e] = False
 
-        filtered = (actions[keep],) + tuple(arr[keep] for arr in arrays)
+        filtered = (actions[keep],) + tuple(None if arr is None else arr[keep] for arr in arrays)
         return filtered
+
+    def filter_attempt_timesteps(
+        self,
+        actions: np.ndarray,
+        dones: np.ndarray,
+        pressure_values: Optional[np.ndarray],
+        resistance_values: Optional[np.ndarray],
+        current_values: Optional[np.ndarray],
+        voltage_values: Optional[np.ndarray],
+        stage_positions: Optional[np.ndarray],
+        pipette_positions: Optional[np.ndarray],
+        camera_frames: Optional[np.ndarray],
+    ):
+        """Filter invalid and inactive timesteps while keeping all payloads aligned."""
+
+        payloads: List[Optional[np.ndarray]] = [
+            dones,
+            pressure_values,
+            resistance_values,
+            current_values,
+            voltage_values,
+            stage_positions,
+            pipette_positions,
+            camera_frames,
+        ]
+
+        invalid_removed = 0
+        if self.skip_invalid_observations:
+            keep = self._finite_row_mask(actions)
+            for array in payloads:
+                if array is None:
+                    continue
+                keep &= self._finite_row_mask(array)
+
+            if not np.all(keep):
+                invalid_removed = int(np.count_nonzero(~keep))
+                actions = actions[keep]
+                payloads = [None if array is None else array[keep] for array in payloads]
+
+        before_inactive = actions.shape[0]
+        filtered = self.filter_inactive_actions(actions, *payloads)
+        actions = filtered[0]
+        payloads = list(filtered[1:])
+        inactive_removed = before_inactive - actions.shape[0]
+
+        dones = payloads[0]
+        if dones is None:
+            dones = np.zeros(actions.shape[0], dtype=np.float64)
+        else:
+            dones = np.zeros(dones.shape[0], dtype=dones.dtype)
+        if dones.size:
+            dones[-1] = 1
+        payloads[0] = dones
+
+        return (
+            actions,
+            payloads[0],
+            payloads[1],
+            payloads[2],
+            payloads[3],
+            payloads[4],
+            payloads[5],
+            payloads[6],
+            payloads[7],
+            invalid_removed,
+            inactive_removed,
+        )
 
     # --- CSV conversion utilities ----------------------------------------
     def convert_graph_recording_csv_to_new_format(self, demo_file_path: str) -> None:
@@ -711,6 +875,225 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             movement_values = movement_values[::step]
         return graph_values, movement_values
 
+    @staticmethod
+    def _nearest_timestamp_indices(
+        reference_timestamps: np.ndarray,
+        target_timestamps: np.ndarray,
+    ) -> np.ndarray:
+        """Return indices of the nearest reference timestamp for each target timestamp."""
+
+        if target_timestamps.size == 0:
+            return np.zeros(0, dtype=np.int64)
+        if reference_timestamps.size == 0:
+            raise ValueError("reference_timestamps must be non-empty")
+
+        right = np.searchsorted(reference_timestamps, target_timestamps)
+        left = np.clip(right - 1, 0, len(reference_timestamps) - 1)
+        right = np.clip(right, 0, len(reference_timestamps) - 1)
+        choose_right = np.abs(reference_timestamps[right] - target_timestamps) < np.abs(
+            reference_timestamps[left] - target_timestamps
+        )
+        return np.where(choose_right, right, left)
+
+    @staticmethod
+    def _filter_plain_pressure_events(
+        plain_events: pd.DataFrame,
+        raw_timestamps: np.ndarray,
+    ) -> pd.DataFrame:
+        """Keep fallback pressure logs only when no raw controller event occurred nearby."""
+
+        if plain_events.empty or raw_timestamps.size == 0:
+            return plain_events
+
+        plain_timestamps = plain_events["timestamp"].to_numpy(dtype=np.float64)
+        right = np.searchsorted(raw_timestamps, plain_timestamps)
+        left = np.clip(right - 1, 0, raw_timestamps.size - 1)
+        right = np.clip(right, 0, raw_timestamps.size - 1)
+        nearest_diff = np.minimum(
+            np.abs(raw_timestamps[left] - plain_timestamps),
+            np.abs(raw_timestamps[right] - plain_timestamps),
+        )
+        keep_mask = nearest_diff > _PRESSURE_EVENT_DEDUP_TOLERANCE_SECONDS
+        return plain_events.loc[keep_mask].copy()
+
+    def _parse_pressure_log_events(
+        self,
+        log_values: pd.DataFrame,
+        *,
+        log_file: Path,
+    ) -> pd.DataFrame:
+        """Return pressure setpoint and ATM toggle events from a day log."""
+
+        required_columns = {"Time(HH:MM:SS)", "Time(ms)", "Message"}
+        missing = sorted(required_columns.difference(log_values.columns))
+        if missing:
+            raise RuntimeError(f"Missing required log columns in {log_file}: {', '.join(missing)}")
+
+        timestamps = _local_time_columns_to_epoch(log_values["Time(HH:MM:SS)"], log_values["Time(ms)"])
+        messages = log_values["Message"].map(_normalize_log_message)
+        valid_mask = (~timestamps.isna()) & messages.ne("")
+        filtered_logs = pd.DataFrame(
+            {
+                "timestamp": timestamps.loc[valid_mask].astype(np.float64),
+                "message": messages.loc[valid_mask],
+            }
+        )
+        if filtered_logs.empty:
+            return pd.DataFrame(
+                columns=["timestamp", "event_kind", "commanded_pressure_mbar", "pressure_atm_state"]
+            )
+
+        raw_matches = filtered_logs["message"].str.extract(_PRESSURE_RAW_RE)
+        raw_mask = raw_matches["value"].notna()
+        raw_events = pd.DataFrame(
+            {
+                "timestamp": filtered_logs.loc[raw_mask, "timestamp"].to_numpy(dtype=np.float64),
+                "event_kind": "pressure",
+                "commanded_pressure_mbar": raw_matches.loc[raw_mask, "value"].astype(np.float64).to_numpy(),
+                "pressure_atm_state": np.nan,
+            }
+        )
+
+        plain_matches = filtered_logs["message"].str.extract(_PRESSURE_PLAIN_RE)
+        plain_mask = plain_matches["value"].notna()
+        plain_events = pd.DataFrame(
+            {
+                "timestamp": filtered_logs.loc[plain_mask, "timestamp"].to_numpy(dtype=np.float64),
+                "event_kind": "pressure",
+                "commanded_pressure_mbar": plain_matches.loc[plain_mask, "value"].astype(np.float64).to_numpy(),
+                "pressure_atm_state": np.nan,
+            }
+        )
+        if raw_events.empty:
+            raw_timestamps = np.zeros(0, dtype=np.float64)
+        else:
+            raw_timestamps = np.sort(raw_events["timestamp"].to_numpy(dtype=np.float64))
+        plain_events = self._filter_plain_pressure_events(plain_events, raw_timestamps)
+
+        atm_mask = filtered_logs["message"].str.startswith("Switching to ATM", na=False)
+        atm_events = pd.DataFrame(
+            {
+                "timestamp": filtered_logs.loc[atm_mask, "timestamp"].to_numpy(dtype=np.float64),
+                "event_kind": "atm_state",
+                "commanded_pressure_mbar": np.nan,
+                "pressure_atm_state": np.ones(int(atm_mask.sum()), dtype=np.float64),
+            }
+        )
+
+        pressure_mode_mask = filtered_logs["message"].str.startswith("Switching to Pressure", na=False)
+        pressure_mode_events = pd.DataFrame(
+            {
+                "timestamp": filtered_logs.loc[pressure_mode_mask, "timestamp"].to_numpy(dtype=np.float64),
+                "event_kind": "atm_state",
+                "commanded_pressure_mbar": np.nan,
+                "pressure_atm_state": np.zeros(int(pressure_mode_mask.sum()), dtype=np.float64),
+            }
+        )
+
+        event_frames = [frame for frame in (raw_events, plain_events, atm_events, pressure_mode_events) if not frame.empty]
+        if not event_frames:
+            return pd.DataFrame(
+                columns=["timestamp", "event_kind", "commanded_pressure_mbar", "pressure_atm_state"]
+            )
+
+        pressure_events = pd.concat(event_frames, ignore_index=True)
+        pressure_events = pressure_events.drop_duplicates(
+            subset=["timestamp", "event_kind", "commanded_pressure_mbar", "pressure_atm_state"]
+        )
+        pressure_events = pressure_events.sort_values("timestamp", kind="stable").reset_index(drop=True)
+        return pressure_events
+
+    def _load_pressure_log_events(self, rig_recorder_data_folder: str) -> pd.DataFrame:
+        """Load and cache pressure controller events for the recording day."""
+
+        day_token = rig_recorder_data_folder.split("-", 1)[0]
+        cached = self._pressure_event_cache.get(day_token)
+        if cached is not None:
+            return cached
+
+        log_file = Path("experiments/Data/log_data") / f"logs_{day_token}.csv"
+        if not log_file.exists():
+            raise FileNotFoundError(
+                f"Pressure Action requires the matching day log, but {log_file} was not found."
+            )
+
+        try:
+            log_values = _read_csv_with_fallback(log_file, on_bad_lines="skip")
+        except Exception as exc:
+            raise RuntimeError(f"Failed reading pressure-action log file {log_file}: {exc}") from exc
+
+        pressure_events = self._parse_pressure_log_events(log_values, log_file=log_file)
+        if pressure_events.empty:
+            raise RuntimeError(
+                f"Pressure Action is enabled, but no parsable pressure events were found in {log_file}."
+            )
+
+        self._pressure_event_cache[day_token] = pressure_events
+        return pressure_events
+
+    def get_attempt_pressure_action_values(
+        self,
+        attempt_graph_values: np.ndarray,
+        pressure_events: pd.DataFrame,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Return commanded pressure and ATM state arrays aligned to graph timestamps."""
+
+        graph_timestamps = attempt_graph_values[:, 0].astype(np.float64, copy=False)
+        if graph_timestamps.size == 0:
+            empty = np.zeros(0, dtype=np.float64)
+            return empty, empty
+
+        start_timestamp = float(graph_timestamps[0])
+        end_timestamp = float(graph_timestamps[-1])
+        relevant_events = pressure_events.loc[pressure_events["timestamp"] <= end_timestamp].copy()
+
+        initial_pressure = 0.0
+        initial_atm_state = 0.0
+        if not relevant_events.empty:
+            pre_start_events = relevant_events.loc[relevant_events["timestamp"] < start_timestamp]
+            if not pre_start_events.empty:
+                prior_pressure = pre_start_events.loc[
+                    pre_start_events["event_kind"] == "pressure", "commanded_pressure_mbar"
+                ]
+                if not prior_pressure.empty:
+                    initial_pressure = float(prior_pressure.iloc[-1])
+                prior_state = pre_start_events.loc[
+                    pre_start_events["event_kind"] == "atm_state", "pressure_atm_state"
+                ]
+                if not prior_state.empty:
+                    initial_atm_state = float(prior_state.iloc[-1])
+
+        selector = self.action_selector
+        if selector.pressure_use_raw_values:
+            commanded_pressure = np.full(graph_timestamps.shape[0], initial_pressure, dtype=np.float64)
+        else:
+            commanded_pressure = np.zeros(graph_timestamps.shape[0], dtype=np.float64)
+        atm_state = np.full(graph_timestamps.shape[0], initial_atm_state, dtype=np.float64)
+
+        in_attempt_events = relevant_events.loc[relevant_events["timestamp"] >= start_timestamp].copy()
+        if in_attempt_events.empty:
+            return commanded_pressure, atm_state
+
+        graph_indices = self._nearest_timestamp_indices(
+            graph_timestamps,
+            in_attempt_events["timestamp"].to_numpy(dtype=np.float64),
+        )
+        in_attempt_events.loc[:, "graph_index"] = graph_indices
+
+        pressure_changes = in_attempt_events.loc[in_attempt_events["event_kind"] == "pressure"]
+        if selector.pressure_use_raw_values:
+            for event in pressure_changes.itertuples(index=False):
+                commanded_pressure[int(event.graph_index):] = float(event.commanded_pressure_mbar)
+        else:
+            for event in pressure_changes.itertuples(index=False):
+                commanded_pressure[int(event.graph_index)] = float(event.commanded_pressure_mbar)
+
+        state_changes = in_attempt_events.loc[in_attempt_events["event_kind"] == "atm_state"]
+        for event in state_changes.itertuples(index=False):
+            atm_state[int(event.graph_index):] = float(event.pressure_atm_state)
+
+        return commanded_pressure, atm_state
+
     def get_timestamps_for_all_successful_state_attempts(
         self,
         rig_recorder_data_folder: str,
@@ -781,6 +1164,32 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         elif i1 + 1 < len(ts) and abs(ts[i1 + 1] - last_timestamp) < abs(ts[i1] - last_timestamp):
             i1 += 1
         return graph_values[i0 : i1 + 1]
+
+    def truncate_attempt_for_state(
+        self,
+        attempt_graph_values: np.ndarray,
+        attempt_movement_values: np.ndarray,
+        state_name: str,
+    ) -> Tuple[np.ndarray, np.ndarray, bool]:
+        """Apply state-specific trimming rules before feature extraction."""
+
+        if not self.gigaseal_resistance_cutoff_enabled:
+            return attempt_graph_values, attempt_movement_values, False
+        if "gigaseal" not in _slugify_state_name(state_name):
+            return attempt_graph_values, attempt_movement_values, False
+        if attempt_graph_values.shape[0] == 0:
+            return attempt_graph_values, attempt_movement_values, False
+
+        resistance_values = attempt_graph_values[:, 2].astype(np.float64)
+        cutoff_hits = np.flatnonzero(
+            np.isfinite(resistance_values) & (resistance_values >= self.gigaseal_resistance_cutoff)
+        )
+        if cutoff_hits.size == 0:
+            return attempt_graph_values, attempt_movement_values, False
+
+        end_idx = int(cutoff_hits[0]) + 1
+        trimmed = end_idx < attempt_graph_values.shape[0]
+        return attempt_graph_values[:end_idx], attempt_movement_values[:end_idx], trimmed
 
     @staticmethod
     def associate_attempt_movement_and_graph_values(
@@ -1113,7 +1522,8 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
     def get_attempt_next_observations(
         self,
-        attempt_graph_values: np.ndarray,
+        pressure_values: Optional[np.ndarray],
+        resistance_values: Optional[np.ndarray],
         current_values: Optional[np.ndarray],
         voltage_values: Optional[np.ndarray],
         stage_positions: Optional[np.ndarray],
@@ -1128,15 +1538,13 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
         selector = self.observation_selector
 
-        if selector.include_pressure:
-            pressure = attempt_graph_values[:, 1].astype(np.float64)
-            next_pressure_values: Optional[np.ndarray] = _shift_forward(pressure)
+        if selector.include_pressure and pressure_values is not None:
+            next_pressure_values: Optional[np.ndarray] = _shift_forward(pressure_values)
         else:
             next_pressure_values = None
 
-        if selector.include_resistance:
-            resistance = attempt_graph_values[:, 2].astype(np.float64)
-            next_resistance_values: Optional[np.ndarray] = _shift_forward(resistance)
+        if selector.include_resistance and resistance_values is not None:
+            next_resistance_values: Optional[np.ndarray] = _shift_forward(resistance_values)
         else:
             next_resistance_values = None
 
@@ -1180,7 +1588,9 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def get_attempt_actions(
         self,
         attempt_movement_values: np.ndarray,
+        attempt_graph_values: Optional[np.ndarray] = None,
         rig_recorder_data_folder: Optional[str] = None,
+        pressure_events: Optional[pd.DataFrame] = None,
     ) -> np.ndarray:
         """Return low-level per-step deltas or per-observation velocities."""
         timestamps = attempt_movement_values[:, 0].astype(np.float64, copy=False)
@@ -1230,6 +1640,20 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             axis_labels = [f"pipette_{AxisToggle.AXIS_NAMES[idx]}" for idx in pip_indices]
             action_labels.extend(axis_labels)
 
+        if selector.include_pressure:
+            if attempt_graph_values is None:
+                raise ValueError("attempt_graph_values is required when Pressure Action is enabled")
+            if pressure_events is None:
+                raise ValueError("pressure_events are required when Pressure Action is enabled")
+            commanded_pressure, atm_state = self.get_attempt_pressure_action_values(
+                attempt_graph_values,
+                pressure_events,
+            )
+            selected_components.append(
+                np.column_stack([commanded_pressure, atm_state]).astype(np.float64, copy=False)
+            )
+            action_labels.extend(selector.pressure_axis_labels())
+
         if selected_components:
             actions = np.hstack(selected_components)
         else:
@@ -1267,90 +1691,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         selector = self.observation_selector
         effective_include_camera = include_camera and selector.include_camera
 
-        obs_entries = [
-            ("pressure", pressure_values),
-            ("resistance", resistance_values),
-            ("current", current_values),
-            ("voltage", voltage_values),
-            ("stage_positions", stage_positions),
-            ("pipette_positions", pipette_positions),
-        ]
-        obs_entries = [(name, arr) for name, arr in obs_entries if arr is not None]
-
-        camera_entry: Optional[Tuple[str, np.ndarray]]
-        if effective_include_camera and camera_frames is not None:
-            camera_entry = ("camera_image", camera_frames)
-        else:
-            camera_entry = None
-
-        next_entries: List[Tuple[str, np.ndarray]] = []
-        if include_next_obs:
-            raw_next = [
-                ("next_pressure", next_pressure_values),
-                ("next_resistance", next_resistance_values),
-                ("next_current", next_current_values),
-                ("next_voltage", next_voltage_values),
-                ("next_stage_positions", next_stage_positions),
-                ("next_pipette_positions", next_pipette_positions),
-            ]
-            next_entries = [(name, arr) for name, arr in raw_next if arr is not None]
-            if effective_include_camera and next_camera_frames is not None:
-                next_entries.append(("next_camera_image", next_camera_frames))
-
-        payload_names: List[str] = ["actions", "dones"]
-        payload_arrays: List[np.ndarray] = [actions, dones]
-
-        for name, arr in obs_entries:
-            payload_names.append(name)
-            payload_arrays.append(arr)
-
-        if camera_entry is not None:
-            payload_names.append(camera_entry[0])
-            payload_arrays.append(camera_entry[1])
-
-        for name, arr in next_entries:
-            payload_names.append(name)
-            payload_arrays.append(arr)
-
-        filtered = self.filter_inactive_actions(*payload_arrays)
-        filtered_map = {name: value for name, value in zip(payload_names, filtered)}
-
-        actions = filtered_map["actions"]
-        dones = filtered_map["dones"]
-        pressure_values = filtered_map.get("pressure")
-        resistance_values = filtered_map.get("resistance")
-        current_values = filtered_map.get("current")
-        voltage_values = filtered_map.get("voltage")
-        stage_positions = filtered_map.get("stage_positions")
-        pipette_positions = filtered_map.get("pipette_positions")
-        camera_frames = filtered_map.get("camera_image")
-
-        if include_next_obs:
-            next_pressure_values = filtered_map.get("next_pressure")
-            next_resistance_values = filtered_map.get("next_resistance")
-            next_current_values = filtered_map.get("next_current")
-            next_voltage_values = filtered_map.get("next_voltage")
-            next_stage_positions = filtered_map.get("next_stage_positions")
-            next_pipette_positions = filtered_map.get("next_pipette_positions")
-            next_camera_frames = filtered_map.get("next_camera_image")
-
         num_samples = actions.shape[0]
-
-        obs_dict = {
-            "pressure": pressure_values,
-            "resistance": resistance_values,
-            "current": current_values,
-            "voltage": voltage_values,
-            "stage_positions": stage_positions,
-            "pipette_positions": pipette_positions,
-        }
-
-        pressure_values = obs_dict["pressure"]
-        resistance_values = obs_dict["resistance"]
-        current_values = obs_dict["current"]
-        voltage_values = obs_dict["voltage"]
-        stage_positions = obs_dict["stage_positions"]
-        pipette_positions = obs_dict["pipette_positions"]
         effective_include_camera = effective_include_camera and camera_frames is not None
 
         def _as_column(arr: np.ndarray) -> np.ndarray:
@@ -1472,6 +1813,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 "include_stage": act.include_stage,
                 "include_pipette": act.include_pipette,
                 "include_pressure": act.include_pressure,
+                "pressure_use_raw_values": act.pressure_use_raw_values,
                 "include_high_level": act.include_high_level,
                 "stage_axes": act.stage_axis_labels(),
                 "pipette_axes": act.pipette_axis_labels(),
@@ -1634,6 +1976,11 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             print("  no successful state attempts detected; skipping demo export")
             return
 
+        if self.action_selector.include_pressure:
+            pressure_events: Optional[pd.DataFrame] = self._load_pressure_log_events(rig_recorder_data_folder)
+        else:
+            pressure_events = None
+
         base_metadata_needs_update = False
 
         for state_name, attempt_ranges in state_attempts.items():
@@ -1648,6 +1995,23 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     attempt_movement_values = self.associate_attempt_movement_and_graph_values(
                         attempt_graph_values, movement_values
                     )
+                    (
+                        attempt_graph_values,
+                        attempt_movement_values,
+                        trimmed_for_gigaseal_cutoff,
+                    ) = self.truncate_attempt_for_state(
+                        attempt_graph_values,
+                        attempt_movement_values,
+                        state_name,
+                    )
+                    if attempt_graph_values.shape[0] == 0:
+                        print("    skipped - no samples after state trimming")
+                        continue
+                    if trimmed_for_gigaseal_cutoff:
+                        print(
+                            "    trimmed gigaseal attempt at resistance >= "
+                            f"{self.gigaseal_resistance_cutoff:g}"
+                        )
                     dones = self.get_attempt_dones(attempt_graph_values)
 
                     split_lbl = "valid" if self.rng.random() < self.val_ratio else "train"
@@ -1683,8 +2047,57 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         camera_frames,
                     ) = observations
 
+                    actions = self.get_attempt_actions(
+                        attempt_movement_values,
+                        attempt_graph_values=attempt_graph_values,
+                        rig_recorder_data_folder=rig_recorder_data_folder,
+                        pressure_events=pressure_events,
+                    )
+
+                    stage_moved = getattr(self, "_last_stage_motion_detected", False)
+                    if self.omit_stage_movement and stage_moved:
+                        print("    skipped - demo contains stage movement")
+                        self.end_filter_context()
+                        continue
+
+                    (
+                        actions,
+                        dones,
+                        pressure_values,
+                        resistance_values,
+                        current_values,
+                        voltage_values,
+                        stage_positions,
+                        pipette_positions,
+                        camera_frames,
+                        invalid_removed,
+                        inactive_removed,
+                    ) = self.filter_attempt_timesteps(
+                        actions,
+                        dones,
+                        pressure_values,
+                        resistance_values,
+                        current_values,
+                        voltage_values,
+                        stage_positions,
+                        pipette_positions,
+                        camera_frames,
+                    )
+                    if invalid_removed:
+                        print(
+                            "    removed "
+                            f"{invalid_removed} timestep(s) with NaN/Inf values in selected payloads"
+                        )
+                    if inactive_removed:
+                        print(f"    removed {inactive_removed} inactive timestep(s)")
+                    if actions.shape[0] == 0:
+                        print("    skipped - no samples remain after filtering")
+                        self.end_filter_context()
+                        continue
+
                     next_obs = self.get_attempt_next_observations(
-                        attempt_graph_values,
+                        pressure_values,
+                        resistance_values,
                         current_values,
                         voltage_values,
                         stage_positions,
@@ -1694,20 +2107,9 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         include_camera=include_camera,
                     )
 
-                    actions = self.get_attempt_actions(
-                        attempt_movement_values,
-                        rig_recorder_data_folder=rig_recorder_data_folder,
-                    )
-
-                    stage_moved = getattr(self, "_last_stage_motion_detected", False)
-                    if self.omit_stage_movement and stage_moved:
-                        print("    skipped - demo contains stage movement")
-                        self.end_filter_context()
-                        continue
-
                     if record_to_file:
                         demo_key = self.add_attempt_demo_to_dataset(
-                            num_samples=attempt_graph_values.shape[0],
+                            num_samples=actions.shape[0],
                             actions=actions,
                             dones=dones,
                             pressure_values=pressure_values,

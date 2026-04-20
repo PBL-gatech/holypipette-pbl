@@ -57,6 +57,7 @@ class DatasetBuilderGUI(QWidget):
         self._connect()
         self._update_dataset_name_preview()
         self._sync_cv_generation_controls()
+        self._sync_gigaseal_cutoff_controls()
         self._sync_selector_constraints()
 
     def _build_ui(self) -> None:
@@ -145,6 +146,20 @@ class DatasetBuilderGUI(QWidget):
         self.inaction_tolerance.setRange(0, 1000000)
         self.inaction_tolerance.setDecimals(4)
         self.inaction_tolerance.setValue(0.0)
+        self.skip_invalid_observations = QCheckBox("Skip timesteps with NaN/Inf in selected data")
+        self.skip_invalid_observations.setChecked(True)
+        self.skip_invalid_observations.setToolTip(
+            "Drop any timestep whose selected observation or action payload contains NaN or Inf values."
+        )
+        self.gigaseal_cutoff_enabled = QCheckBox("Gigaseal: stop at resistance cutoff")
+        self.gigaseal_cutoff_enabled.setToolTip(
+            "When enabled, gigaseal trajectories stop once resistance reaches the configured cutoff."
+        )
+        self.gigaseal_cutoff_value = QDoubleSpinBox()
+        self.gigaseal_cutoff_value.setRange(0.0, 1000000.0)
+        self.gigaseal_cutoff_value.setDecimals(3)
+        self.gigaseal_cutoff_value.setSingleStep(10.0)
+        self.gigaseal_cutoff_value.setValue(1200.0)
 
         self.load_next_obs = QCheckBox("Load next observations")
         self.use_velocities = QCheckBox("Use velocities")
@@ -200,6 +215,9 @@ class DatasetBuilderGUI(QWidget):
         form.addRow("Image Resize:", self.image_resize)
         form.addRow("Inaction Steps:", self.inaction)
         form.addRow("Inaction Tolerance:", self.inaction_tolerance)
+        form.addRow(self.skip_invalid_observations)
+        form.addRow(self.gigaseal_cutoff_enabled)
+        form.addRow("Gigaseal Resistance Cutoff:", self.gigaseal_cutoff_value)
         form.addRow(self.load_next_obs)
         form.addRow(self.use_velocities)
         form.addRow(self.omit_stage_movement)
@@ -273,6 +291,11 @@ class DatasetBuilderGUI(QWidget):
         self.act_pipette = QCheckBox("Pipette Action")
         self.act_pipette.setChecked(True)
         self.act_pressure = QCheckBox("Pressure Action")
+        self.act_pressure_raw = QCheckBox("Use Raw Pressure Action Values")
+        self.act_pressure_raw.setChecked(True)
+        self.act_pressure_raw.setToolTip(
+            "Store commanded pressure as raw mbar values across each attempt; ATM state is always one-hot."
+        )
 
         self.act_stage_x = QCheckBox("Stage X")
         self.act_stage_x.setChecked(True)
@@ -290,6 +313,7 @@ class DatasetBuilderGUI(QWidget):
         act_grid.addWidget(self.act_stage, 0, 0)
         act_grid.addWidget(self.act_pipette, 0, 1)
         act_grid.addWidget(self.act_pressure, 0, 2)
+        act_grid.addWidget(self.act_pressure_raw, 0, 3)
 
         act_grid.addWidget(QLabel("Stage Axes:"), 1, 0)
         act_grid.addWidget(self.act_stage_x, 1, 1)
@@ -318,9 +342,11 @@ class DatasetBuilderGUI(QWidget):
         self.dataset_name.textChanged.connect(self._update_dataset_name_preview)
         self.append_test_name.toggled.connect(self._update_dataset_name_preview)
         self.use_cv_defined_coords.toggled.connect(self._sync_cv_generation_controls)
+        self.gigaseal_cutoff_enabled.toggled.connect(self._sync_gigaseal_cutoff_controls)
 
         self.act_stage.toggled.connect(self._sync_selector_constraints)
         self.act_pipette.toggled.connect(self._sync_selector_constraints)
+        self.act_pressure.toggled.connect(self._sync_selector_constraints)
         self.obs_stage.toggled.connect(self._sync_selector_constraints)
         self.obs_pipette.toggled.connect(self._sync_selector_constraints)
         self.obs_stage_x.toggled.connect(self._sync_selector_constraints)
@@ -341,6 +367,9 @@ class DatasetBuilderGUI(QWidget):
         self.cv_filter_images.setEnabled(enabled)
         self.cv_focus_with_detector_crop.setEnabled(enabled)
         self.cv_use_kalman_focus_fusion.setEnabled(enabled)
+
+    def _sync_gigaseal_cutoff_controls(self) -> None:
+        self.gigaseal_cutoff_value.setEnabled(self.gigaseal_cutoff_enabled.isChecked())
 
     def _with_blocked_signals(self, *widgets):
         class _Blocker:
@@ -389,6 +418,7 @@ class DatasetBuilderGUI(QWidget):
             control.setEnabled(self.act_stage.isChecked())
         for control in (self.act_pip_x, self.act_pip_y, self.act_pip_z):
             control.setEnabled(self.act_pipette.isChecked())
+        self.act_pressure_raw.setEnabled(self.act_pressure.isChecked())
 
     def _append(self, text: str) -> None:
         self.log.append(text)
@@ -589,6 +619,9 @@ class DatasetBuilderGUI(QWidget):
         self._set_if(self.image_resize, settings.get("image_resize"))
         self._set_if(self.inaction, settings.get("inaction"))
         self._set_if(self.inaction_tolerance, settings.get("inaction_tolerance"))
+        self._set_if(self.skip_invalid_observations, settings.get("skip_invalid_observations"))
+        self._set_if(self.gigaseal_cutoff_enabled, settings.get("gigaseal_resistance_cutoff_enabled"))
+        self._set_if(self.gigaseal_cutoff_value, settings.get("gigaseal_resistance_cutoff"))
         self._set_if(self.load_next_obs, settings.get("load_next_obs"))
         self._set_if(self.use_velocities, settings.get("use_velocities"))
         self._set_if(self.use_cv_defined_coords, settings.get("prefer_cv_movement"))
@@ -625,6 +658,7 @@ class DatasetBuilderGUI(QWidget):
             self._set_if(self.act_stage, acfg.get("include_stage"))
             self._set_if(self.act_pipette, acfg.get("include_pipette"))
             self._set_if(self.act_pressure, acfg.get("include_pressure"))
+            self._set_if(self.act_pressure_raw, acfg.get("pressure_use_raw_values"))
             self._set_axis(self.act_stage_x, self.act_stage_y, self.act_stage_z, acfg.get("stage_axes"), "stage")
             self._set_axis(self.act_pip_x, self.act_pip_y, self.act_pip_z, acfg.get("pipette_axes"), "pipette")
 
@@ -639,6 +673,7 @@ class DatasetBuilderGUI(QWidget):
                         self._add_folder(f, root / f)
         self._update_dataset_name_preview()
         self._sync_cv_generation_controls()
+        self._sync_gigaseal_cutoff_controls()
         self._sync_selector_constraints()
         self._append(f"Loaded metadata: {p}")
 
@@ -695,6 +730,9 @@ class DatasetBuilderGUI(QWidget):
             center_crop=self.center_crop.isChecked(),
             inaction=int(self.inaction.value()),
             inaction_tolerance=float(self.inaction_tolerance.value()),
+            skip_invalid_observations=self.skip_invalid_observations.isChecked(),
+            gigaseal_resistance_cutoff_enabled=self.gigaseal_cutoff_enabled.isChecked(),
+            gigaseal_resistance_cutoff=float(self.gigaseal_cutoff_value.value()),
             observation_selector=ObservationSelector(
                 include_pressure=self.obs_pressure.isChecked(),
                 include_resistance=self.obs_resistance.isChecked(),
@@ -710,6 +748,7 @@ class DatasetBuilderGUI(QWidget):
                 include_stage=self.act_stage.isChecked(),
                 include_pipette=self.act_pipette.isChecked(),
                 include_pressure=self.act_pressure.isChecked(),
+                pressure_use_raw_values=self.act_pressure_raw.isChecked(),
                 include_high_level=False,
                 stage_axes=AxisToggle(self.act_stage_x.isChecked(), self.act_stage_y.isChecked(), self.act_stage_z.isChecked()),
                 pipette_axes=AxisToggle(self.act_pip_x.isChecked(), self.act_pip_y.isChecked(), self.act_pip_z.isChecked()),
