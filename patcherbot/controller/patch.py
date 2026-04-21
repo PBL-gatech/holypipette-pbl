@@ -1173,10 +1173,11 @@ class AutoPatcher(TaskController):
         averaged-resistance windows ≥ target to declare success, reducing
         false positives from transient spikes.
         """
-        if self.config.mode == 'Classic':
-            autoPressure = True
-        else:
-            autoPressure = False
+        autoPressure = (self.config.mode == 'Classic')
+        agentPressure = (self.config.mode == 'Agent')
+        if agentPressure:
+            self.info("Agent gigaseal mode detected; preparing gigaseal policy.")
+            self.agenthelper.prepare_model("gigaseal")
         self.info(f"{self.config.mode}: Attempting to form gigaseal...")
         self.amplifier.auto_fast_compensation()
         self.sleep(1)
@@ -1228,7 +1229,100 @@ class AutoPatcher(TaskController):
                 last_progress_time = time.time()
 
             # ---------------------- auto-pressure logic ----------------------
-            if autoPressure:
+            if agentPressure:
+                observation = self.observe(include_pressure_state=True)
+                observed_resistance = None
+                observed_pressure = None
+                observed_atm = bool(np.asarray(observation.get("pressure_atm_state"), dtype=float).reshape(-1)[0] >= 0.5)
+                if "resistance" in observation:
+                    try:
+                        observed_resistance = float(np.asarray(observation["resistance"], dtype=float).reshape(-1)[0])
+                        if not np.isfinite(observed_resistance):
+                            observed_resistance = None
+                    except (TypeError, ValueError, IndexError):
+                        observed_resistance = None
+                if "pressure" in observation:
+                    try:
+                        observed_pressure = float(np.asarray(observation["pressure"], dtype=float).reshape(-1)[0])
+                        if not np.isfinite(observed_pressure):
+                            observed_pressure = None
+                    except (TypeError, ValueError, IndexError):
+                        observed_pressure = None
+                self.info(
+                    "Gigaseal agent observation collected"
+                    + (
+                        f": resistance={observed_resistance:.3f} MΩ"
+                        if observed_resistance is not None
+                        else ""
+                    )
+                    + (
+                        f", pressure={observed_pressure:.3f} mbar"
+                        if observed_pressure is not None
+                        else ""
+                    )
+                    + f", atm={observed_atm}"
+                )
+                action = self.agenthelper.run_inference(observation=observation, is_demo=False)
+                self.info(f"Gigaseal agent raw action: {action}")
+                if action is None:
+                    self.warning("Gigaseal agent did not return an action; skipping pressure update for this iteration.")
+                else:
+                    try:
+                        action_array = np.asarray(action, dtype=float).reshape(-1)
+                    except (TypeError, ValueError) as exc:
+                        self.warning(f"Gigaseal agent action could not be converted to a numeric array: {exc}")
+                        action_array = None
+
+                    if action_array is not None:
+                        if action_array.size < 2:
+                            self.warning(
+                                f"Gigaseal agent action must have at least 2 values; received shape {action_array.shape}."
+                            )
+                        elif not np.isfinite(action_array[:2]).all():
+                            self.warning(f"Gigaseal agent action contains invalid values: {action_array[:2]}")
+                        else:
+                            commanded_pressure_raw = float(action_array[0])
+                            commanded_pressure = float(
+                                np.clip(commanded_pressure_raw, float(self.config.pressure_ramp_max), -5.0)
+                            )
+                            if not np.isclose(commanded_pressure, commanded_pressure_raw):
+                                self.warning(
+                                    "Gigaseal agent pressure command %.3f mbar clamped to %.3f mbar "
+                                    "(safe range %.3f to %.3f mbar)."
+                                    % (
+                                        commanded_pressure_raw,
+                                        commanded_pressure,
+                                        float(self.config.pressure_ramp_max),
+                                        -5.0,
+                                    )
+                                )
+                            target_atm = bool(float(action_array[1]) >= 0.5)
+                            self.info(
+                                "Gigaseal agent decoded action: "
+                                f"commanded_pressure={commanded_pressure:.3f} mbar, atm={target_atm}"
+                            )
+                            current_pressure = None
+                            try:
+                                current_pressure = float(np.asarray(self.pressure.get_pressure(), dtype=float).reshape(-1)[0])
+                                if not np.isfinite(current_pressure):
+                                    current_pressure = None
+                            except (TypeError, ValueError, IndexError):
+                                current_pressure = None
+                            current_atm = bool(self.pressure.get_ATM())
+                            pressure_matches = current_pressure is not None and np.isclose(current_pressure, commanded_pressure)
+                            atm_matches = current_atm == target_atm
+
+                            if not target_atm:
+                                if not pressure_matches:
+                                    self.pressure.set_pressure(commanded_pressure)
+                                if not atm_matches:
+                                    self.pressure.set_ATM(atm=False)
+                            else:
+                                if not atm_matches:
+                                    self.pressure.set_ATM(atm=True)
+                                if not pressure_matches:
+                                    self.pressure.set_pressure(commanded_pressure)
+            elif autoPressure:
                 # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
                 increase_gate = self.config.increase_slope_gate
                 constant_gate = self.config.constant_slope_gate
@@ -1316,6 +1410,10 @@ class AutoPatcher(TaskController):
         # ---------- initial setup (unchanged) ----------
         self.daq.setCellMode(True)
         autoPressure = (self.config.mode == 'Classic')
+        agentMode = (self.config.mode == 'Agent')
+        if agentMode:
+            self.info("Agent break-in mode detected; preparing break-in policy.")
+            self.agenthelper.prepare_model("break_in")
         self.info(f"{self.config.mode}: Attempting Break in...")
         self.sleep(3)
         self.pressure.set_pressure(self.config.pulse_pressure_break_in)
@@ -1357,8 +1455,57 @@ class AutoPatcher(TaskController):
             else:
                 good_count = 0             # reset streak on failure
 
-            # ---- 2) full break-in cycle (runs only after a “bad” access-R) ----
-            if autoPressure:
+            # ---- 2) full break-in cycle (runs only after a "bad" access-R) ----
+            if agentMode:
+                # ---------- Agent mode: let policy control ATM + zap ----------
+                trials += 1
+                self.debug(f"Trial: {trials} (Agent mode)")
+
+                # Collect observation with pressure state for the agent
+                observation = self.observe(include_pressure_state=True)
+                action = self.agenthelper.run_inference(observation=observation, is_demo=False)
+                self.info(f"Break-in agent raw action: {action}")
+
+                if action is None:
+                    self.warning("Break-in agent did not return an action; skipping action application for this iteration.")
+                else:
+                    try:
+                        action_array = np.asarray(action, dtype=float).reshape(-1)
+                    except (TypeError, ValueError) as exc:
+                        self.warning(f"Break-in agent action could not be converted to a numeric array: {exc}")
+                        action_array = None
+
+                    if action_array is not None:
+                        if action_array.size < 2:
+                            self.warning(
+                                f"Break-in agent action must have at least 2 values; received shape {action_array.shape}."
+                            )
+                        elif not np.isfinite(action_array[:2]).all():
+                            self.warning(f"Break-in agent action contains invalid values: {action_array[:2]}")
+                        else:
+                            # Decode ATM command (2nd dimension)
+                            target_atm = bool(float(action_array[1]) >= 0.5)
+                            current_atm = bool(self.pressure.get_ATM())
+                            if current_atm != target_atm:
+                                self.pressure.set_ATM(atm=target_atm)
+                                self.info(f"Break-in agent set ATM: {target_atm}")
+
+                            # Decode zap command (1st dimension)
+                            should_zap = bool(float(action_array[0]) >= 0.5)
+                            if should_zap and self.config.zap:
+                                self.info("zapping (Agent command)")
+                                self.amplifier.zap()
+                                self.sleep(0.5)
+
+                            self.info(
+                                "Break-in agent decoded action: "
+                                f"zap={should_zap}, atm={target_atm}"
+                            )
+
+                self.sleep(wait_period * (1 + trials / 2))
+
+            elif autoPressure:
+                # ---------- Classic mode: heuristic pressure pulsing + periodic zap ----------
                 trials += 1
                 self.debug(f"Trial: {trials}")
 
@@ -1378,7 +1525,7 @@ class AutoPatcher(TaskController):
 
                 self.sleep(1)
 
-            # slow ramps (only if previous access-R was “bad”)
+            # slow ramps (only if previous access-R was "bad")
             measuredResistance  = self.resistanceRamp()
             measuredCapacitance = self.capacitanceRamp()
 
@@ -2103,7 +2250,7 @@ class AutoPatcher(TaskController):
     def wavelength_up(self):
         self._step_laser_wavelength(1)
 
-    def observe(self):
+    def observe(self, include_pressure_state: bool = False):
         import time
         t0 = time.perf_counter()
 
@@ -2126,4 +2273,25 @@ class AutoPatcher(TaskController):
         t4 = time.perf_counter()
 
         # self.info(f"[observe timing] frame={ (t1-t0)*1e3:.1f} ms | detect={ (t2-t1)*1e3:.1f} ms | coords={ (t3-t2)*1e3:.1f} ms | resistanceRamp={ (t4-t3):.3f} s | total={ (t4-t0):.3f} s")
-        return [cvpi, st, img, res]
+        if not include_pressure_state:
+            return [cvpi, st, img, res]
+
+        try:
+            pressure = float(np.asarray(self.pressure.get_pressure(), dtype=float).reshape(-1)[0])
+            if not np.isfinite(pressure):
+                raise ValueError("pressure is not finite")
+        except (TypeError, ValueError, IndexError):
+            self.warning(
+                "observe(include_pressure_state=True) could not read a valid pressure setpoint; "
+                "using 0.0 mbar."
+            )
+            pressure = 0.0
+
+        return {
+            "pipette_positions": cvpi,
+            "stage_positions": st,
+            "camera_image": img,
+            "resistance": np.asarray([res], dtype=np.float32),
+            "pressure": np.asarray([pressure], dtype=np.float32),
+            "pressure_atm_state": np.asarray([float(bool(self.pressure.get_ATM()))], dtype=np.float32),
+        }
