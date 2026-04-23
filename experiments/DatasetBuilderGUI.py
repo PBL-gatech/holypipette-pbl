@@ -161,6 +161,15 @@ class DatasetBuilderGUI(QWidget):
         self.gigaseal_cutoff_value.setSingleStep(10.0)
         self.gigaseal_cutoff_value.setValue(1200.0)
 
+        self.obs_resistance_slope = QCheckBox("Resistance Slope")
+        self.obs_resistance_slope.setChecked(False)
+        self.obs_resistance_slope.setToolTip("Compute windowed numerical average slope of resistance per sample.")
+        self.slope_window_spin = QSpinBox()
+        self.slope_window_spin.setRange(5, 50)
+        self.slope_window_spin.setValue(20)
+        self.slope_window_spin.setEnabled(False)
+        self.slope_window_spin.setToolTip("Window size for resistance slope computation (5–50).")
+
         self.load_next_obs = QCheckBox("Load next observations")
         self.use_velocities = QCheckBox("Use velocities")
         self.use_velocities.setToolTip(
@@ -268,11 +277,14 @@ class DatasetBuilderGUI(QWidget):
 
         obs_grid.addWidget(self.obs_pressure, 0, 0)
         obs_grid.addWidget(self.obs_resistance, 0, 1)
-        obs_grid.addWidget(self.obs_current, 0, 2)
+        obs_grid.addWidget(self.obs_resistance_slope, 0, 2)
+        obs_grid.addWidget(self.obs_current, 0, 3)
         obs_grid.addWidget(self.obs_voltage, 1, 0)
         obs_grid.addWidget(self.obs_stage, 1, 1)
         obs_grid.addWidget(self.obs_pipette, 1, 2)
-        obs_grid.addWidget(self.obs_camera, 2, 0)
+        obs_grid.addWidget(self.obs_camera, 1, 3)
+        obs_grid.addWidget(QLabel("Slope Window:"), 2, 1)
+        obs_grid.addWidget(self.slope_window_spin, 2, 2)
 
         obs_grid.addWidget(QLabel("Stage Axes:"), 3, 0)
         obs_grid.addWidget(self.obs_stage_x, 3, 1)
@@ -344,6 +356,8 @@ class DatasetBuilderGUI(QWidget):
         self.use_cv_defined_coords.toggled.connect(self._sync_cv_generation_controls)
         self.gigaseal_cutoff_enabled.toggled.connect(self._sync_gigaseal_cutoff_controls)
 
+        self.obs_resistance.toggled.connect(self._sync_selector_constraints)
+        self.obs_resistance_slope.toggled.connect(self._sync_selector_constraints)
         self.act_stage.toggled.connect(self._sync_selector_constraints)
         self.act_pipette.toggled.connect(self._sync_selector_constraints)
         self.act_pressure.toggled.connect(self._sync_selector_constraints)
@@ -414,6 +428,10 @@ class DatasetBuilderGUI(QWidget):
             control.setEnabled(self.obs_stage.isChecked())
         for control in (self.obs_pip_x, self.obs_pip_y, self.obs_pip_z):
             control.setEnabled(self.obs_pipette.isChecked())
+        self.obs_resistance_slope.setEnabled(self.obs_resistance.isChecked())
+        self.slope_window_spin.setEnabled(
+            self.obs_resistance.isChecked() and self.obs_resistance_slope.isChecked()
+        )
         for control in (self.act_stage_x, self.act_stage_y, self.act_stage_z):
             control.setEnabled(self.act_stage.isChecked())
         for control in (self.act_pip_x, self.act_pip_y, self.act_pip_z):
@@ -622,6 +640,7 @@ class DatasetBuilderGUI(QWidget):
         self._set_if(self.skip_invalid_observations, settings.get("skip_invalid_observations"))
         self._set_if(self.gigaseal_cutoff_enabled, settings.get("gigaseal_resistance_cutoff_enabled"))
         self._set_if(self.gigaseal_cutoff_value, settings.get("gigaseal_resistance_cutoff"))
+        self._set_if(self.slope_window_spin, settings.get("resistance_slope_window"))
         self._set_if(self.load_next_obs, settings.get("load_next_obs"))
         self._set_if(self.use_velocities, settings.get("use_velocities"))
         self._set_if(self.use_cv_defined_coords, settings.get("prefer_cv_movement"))
@@ -647,6 +666,7 @@ class DatasetBuilderGUI(QWidget):
         if isinstance(ocfg, dict):
             self._set_if(self.obs_pressure, ocfg.get("include_pressure"))
             self._set_if(self.obs_resistance, ocfg.get("include_resistance"))
+            self._set_if(self.obs_resistance_slope, ocfg.get("include_resistance_slope"))
             self._set_if(self.obs_current, ocfg.get("include_current"))
             self._set_if(self.obs_voltage, ocfg.get("include_voltage"))
             self._set_if(self.obs_stage, ocfg.get("include_stage"))
@@ -733,9 +753,11 @@ class DatasetBuilderGUI(QWidget):
             skip_invalid_observations=self.skip_invalid_observations.isChecked(),
             gigaseal_resistance_cutoff_enabled=self.gigaseal_cutoff_enabled.isChecked(),
             gigaseal_resistance_cutoff=float(self.gigaseal_cutoff_value.value()),
+            resistance_slope_window=int(self.slope_window_spin.value()),
             observation_selector=ObservationSelector(
                 include_pressure=self.obs_pressure.isChecked(),
                 include_resistance=self.obs_resistance.isChecked(),
+                include_resistance_slope=self.obs_resistance_slope.isChecked(),
                 include_current=self.obs_current.isChecked(),
                 include_voltage=self.obs_voltage.isChecked(),
                 include_stage=self.obs_stage.isChecked(),

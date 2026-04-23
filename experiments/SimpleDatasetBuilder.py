@@ -90,6 +90,7 @@ class AxisToggle:
 class ObservationSelector:
     include_pressure: bool = True
     include_resistance: bool = True
+    include_resistance_slope: bool = False
     include_current: bool = False
     include_voltage: bool = False
     include_stage: bool = True
@@ -181,6 +182,7 @@ class DatasetBuilderSettings:
     skip_invalid_observations: bool = True # drop timesteps with NaN/Inf payloads in the selected data
     gigaseal_resistance_cutoff_enabled: bool = False # stop gigaseal trajectories once resistance reaches the cutoff
     gigaseal_resistance_cutoff: float = 1200.0
+    resistance_slope_window: int = 20
 
 
 @dataclass(slots=True)
@@ -718,6 +720,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         dones: np.ndarray,
         pressure_values: Optional[np.ndarray],
         resistance_values: Optional[np.ndarray],
+        resistance_slope_values: Optional[np.ndarray],
         current_values: Optional[np.ndarray],
         voltage_values: Optional[np.ndarray],
         stage_positions: Optional[np.ndarray],
@@ -730,6 +733,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             dones,
             pressure_values,
             resistance_values,
+            resistance_slope_values,
             current_values,
             voltage_values,
             stage_positions,
@@ -775,6 +779,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             payloads[5],
             payloads[6],
             payloads[7],
+            payloads[8],
             invalid_removed,
             inactive_removed,
         )
@@ -1220,6 +1225,31 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         """Return resistance values for the current attempt."""
         return attempt_graph_values[:, 2].astype(np.float64)
 
+    def _compute_resistance_slope(self, resistance_values: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        """Return a rolling average resistance slope aligned to each observation."""
+        if resistance_values is None:
+            return None
+
+        values = np.asarray(resistance_values, dtype=np.float64).reshape(-1)
+        slopes = np.zeros(values.shape[0], dtype=np.float64)
+        if values.shape[0] < 5:
+            return slopes
+
+        diffs = np.diff(values)
+        valid = np.isfinite(diffs)
+        max_window = min(50, max(5, int(self.settings.resistance_slope_window)))
+
+        for end_idx in range(diffs.shape[0]):
+            if end_idx < 3:
+                continue
+            window_size = min(max_window, end_idx + 1)
+            start_idx = end_idx + 1 - window_size
+            recent = diffs[start_idx:end_idx + 1]
+            recent_valid = valid[start_idx:end_idx + 1]
+            if np.any(recent_valid):
+                slopes[end_idx + 1] = float(np.mean(recent[recent_valid]))
+        return slopes
+
     def get_attempt_current_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
         """Parse JSON-encoded current waveform samples for the attempt."""
         return _parse_waveform_column(attempt_graph_values[:, 3])
@@ -1439,7 +1469,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         include_camera: bool = True,
         rotation_angle: Optional[float] = None,
     ):
-        """Return pressure, resistance, waveform, position, and optional image arrays."""
+        """Return selected observation arrays for the current attempt."""
         selector = self.observation_selector
 
         pressure_values: Optional[np.ndarray]
@@ -1453,6 +1483,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             resistance_values = self.get_attempt_resistance_values(attempt_graph_values)
         else:
             resistance_values = None
+
+        resistance_slope_values: Optional[np.ndarray]
+        if selector.include_resistance and selector.include_resistance_slope and resistance_values is not None:
+            resistance_slope_values = self._compute_resistance_slope(resistance_values)
+        else:
+            resistance_slope_values = None
 
         current_values: Optional[np.ndarray]
         if selector.include_current:
@@ -1513,6 +1549,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         return (
             pressure_values,
             resistance_values,
+            resistance_slope_values,
             current_values,
             voltage_values,
             stage_positions,
@@ -1524,6 +1561,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self,
         pressure_values: Optional[np.ndarray],
         resistance_values: Optional[np.ndarray],
+        resistance_slope_values: Optional[np.ndarray],
         current_values: Optional[np.ndarray],
         voltage_values: Optional[np.ndarray],
         stage_positions: Optional[np.ndarray],
@@ -1534,7 +1572,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     ):
         """Compute next-step observation arrays using :func:`_shift_forward`."""
         if not include_next_obs:
-            return (None,) * 7
+            return (None,) * 8
 
         selector = self.observation_selector
 
@@ -1547,6 +1585,11 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             next_resistance_values: Optional[np.ndarray] = _shift_forward(resistance_values)
         else:
             next_resistance_values = None
+
+        if selector.include_resistance_slope and resistance_slope_values is not None:
+            next_resistance_slope_values: Optional[np.ndarray] = _shift_forward(resistance_slope_values)
+        else:
+            next_resistance_slope_values = None
 
         if selector.include_current and current_values is not None:
             next_current_values: Optional[np.ndarray] = _shift_forward(current_values)
@@ -1577,6 +1620,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         return (
             next_pressure_values,
             next_resistance_values,
+            next_resistance_slope_values,
             next_current_values,
             next_voltage_values,
             next_stage_positions,
@@ -1671,6 +1715,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         dones: np.ndarray,
         pressure_values: Optional[np.ndarray],
         resistance_values: Optional[np.ndarray],
+        resistance_slope_values: Optional[np.ndarray],
         current_values: Optional[np.ndarray],
         voltage_values: Optional[np.ndarray],
         stage_positions: Optional[np.ndarray],
@@ -1678,6 +1723,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         camera_frames: Optional[np.ndarray],
         next_pressure_values: Optional[np.ndarray],
         next_resistance_values: Optional[np.ndarray],
+        next_resistance_slope_values: Optional[np.ndarray],
         next_current_values: Optional[np.ndarray],
         next_voltage_values: Optional[np.ndarray],
         next_stage_positions: Optional[np.ndarray],
@@ -1720,6 +1766,8 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 observations.create_dataset("pressure", data=_as_column(pressure_values))
             if resistance_values is not None:
                 observations.create_dataset("resistance", data=_as_column(resistance_values))
+            if resistance_slope_values is not None:
+                observations.create_dataset("resistance_slope", data=_as_column(resistance_slope_values))
             if current_values is not None:
                 observations.create_dataset("current", data=current_values)
             if voltage_values is not None:
@@ -1743,6 +1791,8 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     next_obs.create_dataset("pressure", data=_as_column(next_pressure_values))
                 if next_resistance_values is not None:
                     next_obs.create_dataset("resistance", data=_as_column(next_resistance_values))
+                if next_resistance_slope_values is not None:
+                    next_obs.create_dataset("resistance_slope", data=_as_column(next_resistance_slope_values))
                 if next_current_values is not None:
                     next_obs.create_dataset("current", data=next_current_values)
                 if next_voltage_values is not None:
@@ -1800,6 +1850,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             "observations": {
                 "include_pressure": obs.include_pressure,
                 "include_resistance": obs.include_resistance,
+                "include_resistance_slope": obs.include_resistance_slope,
                 "include_current": obs.include_current,
                 "include_voltage": obs.include_voltage,
                 "include_stage": obs.include_stage,
@@ -2040,6 +2091,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     (
                         pressure_values,
                         resistance_values,
+                        resistance_slope_values,
                         current_values,
                         voltage_values,
                         stage_positions,
@@ -2065,6 +2117,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         dones,
                         pressure_values,
                         resistance_values,
+                        resistance_slope_values,
                         current_values,
                         voltage_values,
                         stage_positions,
@@ -2077,6 +2130,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         dones,
                         pressure_values,
                         resistance_values,
+                        resistance_slope_values,
                         current_values,
                         voltage_values,
                         stage_positions,
@@ -2098,6 +2152,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     next_obs = self.get_attempt_next_observations(
                         pressure_values,
                         resistance_values,
+                        resistance_slope_values,
                         current_values,
                         voltage_values,
                         stage_positions,
@@ -2106,6 +2161,16 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         include_next_obs=include_next_obs,
                         include_camera=include_camera,
                     )
+                    (
+                        next_pressure_values,
+                        next_resistance_values,
+                        next_resistance_slope_values,
+                        next_current_values,
+                        next_voltage_values,
+                        next_stage_positions,
+                        next_pipette_positions,
+                        next_camera_frames,
+                    ) = next_obs
 
                     if record_to_file:
                         demo_key = self.add_attempt_demo_to_dataset(
@@ -2114,18 +2179,20 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                             dones=dones,
                             pressure_values=pressure_values,
                             resistance_values=resistance_values,
+                            resistance_slope_values=resistance_slope_values,
                             current_values=current_values,
                             voltage_values=voltage_values,
                             stage_positions=stage_positions,
                             pipette_positions=pipette_positions,
                             camera_frames=camera_frames,
-                            next_pressure_values=next_obs[0],
-                            next_resistance_values=next_obs[1],
-                            next_current_values=next_obs[2],
-                            next_voltage_values=next_obs[3],
-                            next_stage_positions=next_obs[4],
-                            next_pipette_positions=next_obs[5],
-                            next_camera_frames=next_obs[6],
+                            next_pressure_values=next_pressure_values,
+                            next_resistance_values=next_resistance_values,
+                            next_resistance_slope_values=next_resistance_slope_values,
+                            next_current_values=next_current_values,
+                            next_voltage_values=next_voltage_values,
+                            next_stage_positions=next_stage_positions,
+                            next_pipette_positions=next_pipette_positions,
+                            next_camera_frames=next_camera_frames,
                             include_next_obs=include_next_obs,
                             include_camera=include_camera,
                             split_label=split_lbl,

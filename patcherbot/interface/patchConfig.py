@@ -30,6 +30,10 @@ class PatchConfig(Config):
     
     max_R_increase = NumberWithUnit(1e6, bounds=(0, 500e6), doc='Increase in resistance over time', unit='MΩ', magnitude=1e6)
     cell_R_increase = Number(0.300, bounds=(0, 1), doc='Cell detection resistance limit') # in MOhm
+    
+    resistance_slope_enabled = Boolean(False, doc='Enable gigaseal resistance slope observations')
+    resistance_slope_window = Number(20, bounds=(5, 50), doc='Gigaseal resistance slope averaging window')
+    
     gigaseal_R = Number(1000, bounds=(100, 20000), doc='Gigaseal resistance')  # in MOhm
     gigaseal_min_delta_R = Number(15, bounds=(0, 1000), doc='Minimum resistance increase to extend deadline') # in MOhm
     hold_switch = Number(12, bounds=(1, 1000), doc='Hold switch divisor: gigaseal_R / hold_switch')
@@ -54,7 +58,7 @@ class PatchConfig(Config):
     auto_capture_fluo = Boolean(False, doc='Capture fluorescence image on cell selection')
     categories = [
         ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance','max_distance', 'cell_R_increase','max_locate_speed','max_descent_speed','max_clearing_speed','use_centroid','track_cell']),
-        ('Sealing', ['pressure_sealing', 'gigaseal_R', 'gigaseal_min_delta_R', 'hold_switch', 'increase_slope_gate', 'constant_slope_gate', 'decrease_slope_gate', 'measurement_speed', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
+        ('Sealing', ['pressure_sealing', 'gigaseal_R', 'gigaseal_min_delta_R', 'hold_switch', 'increase_slope_gate', 'constant_slope_gate', 'decrease_slope_gate', 'measurement_speed', 'resistance_slope_enabled', 'resistance_slope_window', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
         ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration','pulse_pressure_break_in','pulse_pressure_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('AutoPatching', ['cell_type_toggle','cell_type', 'mode','auto_clean_pipette']),
         ('Fluorescence', ['lamp', 'auto_capture_fluo'])  

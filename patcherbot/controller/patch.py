@@ -86,6 +86,8 @@ class AutoPatcher(TaskController):
         # True  -> interpret model output as velocity (xy px/s, z um/s) and stream velocity commands.
         self.velocity_prediction = False
         self._track_cell_ai_disabled_logged = False
+        self._resistance_raw_buffer = None
+        self._resistance_slope_cache = None
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -1162,6 +1164,25 @@ class AutoPatcher(TaskController):
             self.daq.resistance, num_measurements, interval
         )
 
+    def _update_resistance_slope_cache(self, avg_resistance: float, sample_interval: float) -> None:
+        """Update the cached gigaseal resistance slope from the raw resistance buffer."""
+        if self._resistance_raw_buffer is None:
+            return
+
+        self._resistance_raw_buffer.append(float(avg_resistance))
+        if len(self._resistance_raw_buffer) < 5:
+            self._resistance_slope_cache = None
+            return
+
+        diffs = np.diff(np.asarray(self._resistance_raw_buffer, dtype=np.float64))
+        if diffs.size == 0:
+            self._resistance_slope_cache = None
+            return
+
+        max_window = min(50, max(5, int(self.config.resistance_slope_window)))
+        window_size = min(max_window, diffs.size)
+        self._resistance_slope_cache = float(np.mean(diffs[-window_size:])) / float(sample_interval)
+
     def capacitanceRamp(self, num_measurements=5, interval=0.200):
         return self._safe_average(
             self.daq.capacitance, num_measurements, interval
@@ -1187,11 +1208,16 @@ class AutoPatcher(TaskController):
 
         num_slope_samples = 5
         sample_interval = float(self.config.measurement_speed)
+        enabled = bool(self.config.resistance_slope_enabled)
+        self._resistance_raw_buffer = collections.deque(maxlen=50) if enabled else None
+        self._resistance_slope_cache = None
 
         avg_resistance = self.resistanceRamp(
             num_measurements=num_slope_samples,
             interval=sample_interval,
         )
+        if enabled:
+            self._update_resistance_slope_cache(avg_resistance, sample_interval)
         consecutive_success = 0
 
         self.pressure.set_ATM(atm=True)
@@ -1221,6 +1247,8 @@ class AutoPatcher(TaskController):
                 num_measurements=num_slope_samples,
                 interval=sample_interval,
             )
+            if enabled:
+                self._update_resistance_slope_cache(avg_resistance, sample_interval)
 
             delta_resistance = avg_resistance - prev_resistance
             rate_mohm_per_sec = delta_resistance / (num_slope_samples * sample_interval)
@@ -1354,6 +1382,8 @@ class AutoPatcher(TaskController):
                         num_measurements=num_slope_samples,
                         interval=sample_interval,
                     )
+                    if enabled:
+                        self._update_resistance_slope_cache(testresistance, sample_interval)
                     difference = testresistance - avg_resistance
                     self.info(f"Test resistance: {testresistance} MΩ; difference: {difference} MΩ")
                     if difference < 0:
@@ -2287,7 +2317,7 @@ class AutoPatcher(TaskController):
             )
             pressure = 0.0
 
-        return {
+        observation = {
             "pipette_positions": cvpi,
             "stage_positions": st,
             "camera_image": img,
@@ -2295,3 +2325,10 @@ class AutoPatcher(TaskController):
             "pressure": np.asarray([pressure], dtype=np.float32),
             "pressure_atm_state": np.asarray([float(bool(self.pressure.get_ATM()))], dtype=np.float32),
         }
+        if (
+            bool(self.config.resistance_slope_enabled)
+            and self._resistance_slope_cache is not None
+            and np.isfinite(self._resistance_slope_cache)
+        ):
+            observation["resistance_slope"] = np.asarray([self._resistance_slope_cache], dtype=np.float32)
+        return observation
