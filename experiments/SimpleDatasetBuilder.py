@@ -149,7 +149,12 @@ class ActionSelector:
     def pressure_axis_labels(self) -> List[str]:
         if not self.include_pressure:
             return []
-        return ["commanded_pressure_mbar", "pressure_atm_state"]
+        pressure_axis = (
+            "commanded_pressure_mbar"
+            if self.pressure_use_raw_values
+            else "delta_pressure_mbar"
+        )
+        return [pressure_axis, "pressure_atm_state"]
 
 
 @dataclass(slots=True)
@@ -1019,7 +1024,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         log_file = Path("experiments/Data/log_data") / f"logs_{day_token}.csv"
         if not log_file.exists():
             raise FileNotFoundError(
-                f"Pressure Action requires the matching day log, but {log_file} was not found."
+                f"Day-log pressure events are required, but {log_file} was not found."
             )
 
         try:
@@ -1030,7 +1035,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         pressure_events = self._parse_pressure_log_events(log_values, log_file=log_file)
         if pressure_events.empty:
             raise RuntimeError(
-                f"Pressure Action is enabled, but no parsable pressure events were found in {log_file}."
+                f"No parsable day-log pressure events were found in {log_file}."
             )
 
         self._pressure_event_cache[day_token] = pressure_events
@@ -1040,6 +1045,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self,
         attempt_graph_values: np.ndarray,
         pressure_events: pd.DataFrame,
+        pressure_use_raw_values: Optional[bool] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Return commanded pressure and ATM state arrays aligned to graph timestamps."""
 
@@ -1061,7 +1067,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     pre_start_events["event_kind"] == "pressure", "commanded_pressure_mbar"
                 ]
                 if not prior_pressure.empty:
-                    initial_pressure = float(prior_pressure.iloc[-1])
+                    initial_pressure = float(np.rint(float(prior_pressure.iloc[-1])))
                 prior_state = pre_start_events.loc[
                     pre_start_events["event_kind"] == "atm_state", "pressure_atm_state"
                 ]
@@ -1069,14 +1075,19 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     initial_atm_state = float(prior_state.iloc[-1])
 
         selector = self.action_selector
-        if selector.pressure_use_raw_values:
-            commanded_pressure = np.full(graph_timestamps.shape[0], initial_pressure, dtype=np.float64)
-        else:
-            commanded_pressure = np.zeros(graph_timestamps.shape[0], dtype=np.float64)
+        use_raw_pressure_values = (
+            selector.pressure_use_raw_values
+            if pressure_use_raw_values is None
+            else bool(pressure_use_raw_values)
+        )
+        raw_commanded_pressure = np.full(graph_timestamps.shape[0], initial_pressure, dtype=np.float64)
         atm_state = np.full(graph_timestamps.shape[0], initial_atm_state, dtype=np.float64)
 
         in_attempt_events = relevant_events.loc[relevant_events["timestamp"] >= start_timestamp].copy()
         if in_attempt_events.empty:
+            commanded_pressure = raw_commanded_pressure if use_raw_pressure_values else np.zeros_like(
+                raw_commanded_pressure
+            )
             return commanded_pressure, atm_state
 
         graph_indices = self._nearest_timestamp_indices(
@@ -1086,17 +1097,24 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         in_attempt_events.loc[:, "graph_index"] = graph_indices
 
         pressure_changes = in_attempt_events.loc[in_attempt_events["event_kind"] == "pressure"]
-        if selector.pressure_use_raw_values:
-            for event in pressure_changes.itertuples(index=False):
-                commanded_pressure[int(event.graph_index):] = float(event.commanded_pressure_mbar)
-        else:
-            for event in pressure_changes.itertuples(index=False):
-                commanded_pressure[int(event.graph_index)] = float(event.commanded_pressure_mbar)
+        for event in pressure_changes.itertuples(index=False):
+            next_pressure = float(np.rint(float(event.commanded_pressure_mbar)))
+            graph_index = int(event.graph_index)
+            raw_commanded_pressure[graph_index:] = next_pressure
 
         state_changes = in_attempt_events.loc[in_attempt_events["event_kind"] == "atm_state"]
         for event in state_changes.itertuples(index=False):
             atm_state[int(event.graph_index):] = float(event.pressure_atm_state)
 
+        if use_raw_pressure_values:
+            commanded_pressure = raw_commanded_pressure
+        else:
+            delta_commanded_pressure = np.diff(
+                raw_commanded_pressure,
+                prepend=raw_commanded_pressure[:1],
+            )
+            delta_commanded_pressure[0] = 0.0
+            commanded_pressure = delta_commanded_pressure
         return commanded_pressure, atm_state
 
     def get_timestamps_for_all_successful_state_attempts(
@@ -1175,26 +1193,116 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         attempt_graph_values: np.ndarray,
         attempt_movement_values: np.ndarray,
         state_name: str,
-    ) -> Tuple[np.ndarray, np.ndarray, bool]:
+        pressure_events: Optional[pd.DataFrame] = None,
+        attempt_first_timestamp: Optional[float] = None,
+        attempt_last_timestamp: Optional[float] = None,
+    ) -> Tuple[np.ndarray, np.ndarray, bool, bool, Optional[str]]:
         """Apply state-specific trimming rules before feature extraction."""
 
-        if not self.gigaseal_resistance_cutoff_enabled:
-            return attempt_graph_values, attempt_movement_values, False
-        if "gigaseal" not in _slugify_state_name(state_name):
-            return attempt_graph_values, attempt_movement_values, False
+        is_gigaseal_state = "gigaseal" in _slugify_state_name(state_name)
         if attempt_graph_values.shape[0] == 0:
-            return attempt_graph_values, attempt_movement_values, False
+            return attempt_graph_values, attempt_movement_values, False, False, None
+
+        trimmed_for_gigaseal_start = False
+        if is_gigaseal_state:
+            if pressure_events is None:
+                raise RuntimeError(
+                    "Gigaseal dataset trimming requires parsed day-log pressure events."
+                )
+            if attempt_first_timestamp is None or attempt_last_timestamp is None:
+                raise RuntimeError(
+                    "Gigaseal dataset trimming requires the original state-attempt timestamps."
+                )
+
+            attempt_graph_values, attempt_movement_values, trimmed_for_gigaseal_start, skip_reason = (
+                self._trim_gigaseal_attempt_start_at_first_atm(
+                    attempt_graph_values,
+                    attempt_movement_values,
+                    pressure_events,
+                    attempt_first_timestamp,
+                    attempt_last_timestamp,
+                )
+            )
+            if skip_reason is not None:
+                return (
+                    attempt_graph_values,
+                    attempt_movement_values,
+                    trimmed_for_gigaseal_start,
+                    False,
+                    skip_reason,
+                )
+
+        if not is_gigaseal_state or not self.gigaseal_resistance_cutoff_enabled:
+            return attempt_graph_values, attempt_movement_values, trimmed_for_gigaseal_start, False, None
 
         resistance_values = attempt_graph_values[:, 2].astype(np.float64)
         cutoff_hits = np.flatnonzero(
             np.isfinite(resistance_values) & (resistance_values >= self.gigaseal_resistance_cutoff)
         )
         if cutoff_hits.size == 0:
-            return attempt_graph_values, attempt_movement_values, False
+            return attempt_graph_values, attempt_movement_values, trimmed_for_gigaseal_start, False, None
 
         end_idx = int(cutoff_hits[0]) + 1
         trimmed = end_idx < attempt_graph_values.shape[0]
-        return attempt_graph_values[:end_idx], attempt_movement_values[:end_idx], trimmed
+        return (
+            attempt_graph_values[:end_idx],
+            attempt_movement_values[:end_idx],
+            trimmed_for_gigaseal_start,
+            trimmed,
+            None,
+        )
+
+    def _trim_gigaseal_attempt_start_at_first_atm(
+        self,
+        attempt_graph_values: np.ndarray,
+        attempt_movement_values: np.ndarray,
+        pressure_events: pd.DataFrame,
+        attempt_first_timestamp: float,
+        attempt_last_timestamp: float,
+    ) -> Tuple[np.ndarray, np.ndarray, bool, Optional[str]]:
+        """Drop leading gigaseal rows before the initial near--5 mbar sample."""
+
+        if attempt_graph_values.shape[0] == 0:
+            return attempt_graph_values, attempt_movement_values, False, None
+
+        # Recompute the aligned raw pressure trace after each trim so the returned
+        # attempt itself starts on the first retained near--5 mbar sample.
+        trimmed = False
+        graph_values = attempt_graph_values
+        movement_values = attempt_movement_values
+
+        while graph_values.shape[0] > 0:
+            commanded_pressure, _ = self.get_attempt_pressure_action_values(
+                graph_values,
+                pressure_events,
+                pressure_use_raw_values=True,
+            )
+            pressure_ready_indices = np.flatnonzero(
+                np.isfinite(np.asarray(commanded_pressure, dtype=np.float64))
+                & (np.asarray(commanded_pressure, dtype=np.float64) <= -4.0)
+            )
+            if pressure_ready_indices.size == 0:
+                return (
+                    attempt_graph_values,
+                    attempt_movement_values,
+                    False,
+                    "no aligned near--5 mbar pressure sample was found in the attempt",
+                )
+
+            start_idx = int(pressure_ready_indices[0])
+            if start_idx == 0:
+                return graph_values, movement_values, trimmed, None
+
+            graph_values = graph_values[start_idx:]
+            movement_values = movement_values[start_idx:]
+            trimmed = True
+
+        return (
+            attempt_graph_values,
+            attempt_movement_values,
+            False,
+            "no samples remain after trimming to the near--5 mbar start",
+        )
 
     @staticmethod
     def associate_attempt_movement_and_graph_values(
@@ -2027,7 +2135,11 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             print("  no successful state attempts detected; skipping demo export")
             return
 
-        if self.action_selector.include_pressure:
+        requires_pressure_events = self.action_selector.include_pressure or any(
+            "gigaseal" in _slugify_state_name(state_name) for state_name in state_attempts
+        )
+
+        if requires_pressure_events:
             pressure_events: Optional[pd.DataFrame] = self._load_pressure_log_events(rig_recorder_data_folder)
         else:
             pressure_events = None
@@ -2049,15 +2161,32 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     (
                         attempt_graph_values,
                         attempt_movement_values,
+                        trimmed_for_gigaseal_start,
                         trimmed_for_gigaseal_cutoff,
+                        trim_skip_reason,
                     ) = self.truncate_attempt_for_state(
                         attempt_graph_values,
                         attempt_movement_values,
                         state_name,
+                        pressure_events=pressure_events,
+                        attempt_first_timestamp=attempt_first_timestamp,
+                        attempt_last_timestamp=attempt_last_timestamp,
                     )
+                    if trim_skip_reason is not None:
+                        warning_text = (
+                            f"Skipping successful '{state_name}' attempt in "
+                            f"{rig_recorder_data_folder} "
+                            f"({attempt_first_timestamp:.3f} -> {attempt_last_timestamp:.3f}): "
+                            f"{trim_skip_reason}."
+                        )
+                        warnings.warn(warning_text, RuntimeWarning)
+                        print(f"    skipped - {warning_text}")
+                        continue
                     if attempt_graph_values.shape[0] == 0:
                         print("    skipped - no samples after state trimming")
                         continue
+                    if trimmed_for_gigaseal_start:
+                        print("    trimmed gigaseal attempt start at first aligned near--5 mbar sample")
                     if trimmed_for_gigaseal_cutoff:
                         print(
                             "    trimmed gigaseal attempt at resistance >= "

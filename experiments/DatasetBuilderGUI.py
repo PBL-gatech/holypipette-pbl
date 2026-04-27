@@ -306,7 +306,9 @@ class DatasetBuilderGUI(QWidget):
         self.act_pressure_raw = QCheckBox("Use Raw Pressure Action Values")
         self.act_pressure_raw.setChecked(True)
         self.act_pressure_raw.setToolTip(
-            "Store commanded pressure as raw mbar values across each attempt; ATM state is always one-hot."
+            "If checked, store commanded pressure as carried raw mbar setpoints. "
+            "If unchecked, store only per-command pressure deltas from the previous setpoint. "
+            "ATM state is always one-hot."
         )
 
         self.act_stage_x = QCheckBox("Stage X")
