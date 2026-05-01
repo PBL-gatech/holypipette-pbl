@@ -151,6 +151,11 @@ class DatasetBuilderGUI(QWidget):
         self.skip_invalid_observations.setToolTip(
             "Drop any timestep whose selected observation or action payload contains NaN or Inf values."
         )
+        self.gigaseal_start_trim_enabled = QCheckBox("Gigaseal: start at first near--5 mbar command")
+        self.gigaseal_start_trim_enabled.setChecked(False)
+        self.gigaseal_start_trim_enabled.setToolTip(
+            "When enabled, discard leading gigaseal samples before the first aligned near--5 mbar command."
+        )
         self.gigaseal_cutoff_enabled = QCheckBox("Gigaseal: stop at resistance cutoff")
         self.gigaseal_cutoff_enabled.setToolTip(
             "When enabled, gigaseal trajectories stop once resistance reaches the configured cutoff."
@@ -225,6 +230,7 @@ class DatasetBuilderGUI(QWidget):
         form.addRow("Inaction Steps:", self.inaction)
         form.addRow("Inaction Tolerance:", self.inaction_tolerance)
         form.addRow(self.skip_invalid_observations)
+        form.addRow(self.gigaseal_start_trim_enabled)
         form.addRow(self.gigaseal_cutoff_enabled)
         form.addRow("Gigaseal Resistance Cutoff:", self.gigaseal_cutoff_value)
         form.addRow(self.load_next_obs)
@@ -261,6 +267,31 @@ class DatasetBuilderGUI(QWidget):
         self.obs_pipette.setChecked(True)
         self.obs_camera = QCheckBox("Camera Image")
         self.obs_camera.setChecked(True)
+        self.obs_gigaseal_log_resistance = QCheckBox("Gigaseal Log Resistance")
+        self.obs_gigaseal_log_resistance.setChecked(True)
+        self.obs_gigaseal_log_resistance.setToolTip(
+            "For gigaseal demos only, add obs/log_resistance as natural log resistance."
+        )
+        self.obs_gigaseal_pressure_state = QCheckBox("Gigaseal Pressure State")
+        self.obs_gigaseal_pressure_state.setChecked(True)
+        self.obs_gigaseal_pressure_state.setToolTip(
+            "For gigaseal demos only, add obs/pressure_atm_state from pressure/ATM command logs."
+        )
+        self.obs_gigaseal_effective_pressure = QCheckBox("Gigaseal Effective Pressure")
+        self.obs_gigaseal_effective_pressure.setChecked(True)
+        self.obs_gigaseal_effective_pressure.setToolTip(
+            "For gigaseal demos only, add obs/effective_pressure as commanded pressure unless ATM is active."
+        )
+        self.obs_gigaseal_action_count = QCheckBox("Gigaseal Observations Since Last Action")
+        self.obs_gigaseal_action_count.setChecked(True)
+        self.obs_gigaseal_action_count.setToolTip(
+            "For gigaseal demos only, add a count computed after filtering from the final action rows."
+        )
+        self.obs_gigaseal_time_since_action = QCheckBox("Gigaseal Time Since Last Action")
+        self.obs_gigaseal_time_since_action.setChecked(True)
+        self.obs_gigaseal_time_since_action.setToolTip(
+            "For gigaseal demos only, add obs/time_since_last_action in seconds after filtering."
+        )
 
         self.obs_stage_x = QCheckBox("Stage X")
         self.obs_stage_x.setChecked(True)
@@ -283,18 +314,23 @@ class DatasetBuilderGUI(QWidget):
         obs_grid.addWidget(self.obs_stage, 1, 1)
         obs_grid.addWidget(self.obs_pipette, 1, 2)
         obs_grid.addWidget(self.obs_camera, 1, 3)
-        obs_grid.addWidget(QLabel("Slope Window:"), 2, 1)
-        obs_grid.addWidget(self.slope_window_spin, 2, 2)
+        obs_grid.addWidget(self.obs_gigaseal_log_resistance, 2, 0, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_pressure_state, 2, 2, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_effective_pressure, 3, 0, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_action_count, 3, 2, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_time_since_action, 4, 0, 1, 2)
+        obs_grid.addWidget(QLabel("Slope Window:"), 4, 2)
+        obs_grid.addWidget(self.slope_window_spin, 4, 3)
 
-        obs_grid.addWidget(QLabel("Stage Axes:"), 3, 0)
-        obs_grid.addWidget(self.obs_stage_x, 3, 1)
-        obs_grid.addWidget(self.obs_stage_y, 3, 2)
-        obs_grid.addWidget(self.obs_stage_z, 3, 3)
+        obs_grid.addWidget(QLabel("Stage Axes:"), 5, 0)
+        obs_grid.addWidget(self.obs_stage_x, 5, 1)
+        obs_grid.addWidget(self.obs_stage_y, 5, 2)
+        obs_grid.addWidget(self.obs_stage_z, 5, 3)
 
-        obs_grid.addWidget(QLabel("Pipette Axes:"), 4, 0)
-        obs_grid.addWidget(self.obs_pip_x, 4, 1)
-        obs_grid.addWidget(self.obs_pip_y, 4, 2)
-        obs_grid.addWidget(self.obs_pip_z, 4, 3)
+        obs_grid.addWidget(QLabel("Pipette Axes:"), 6, 0)
+        obs_grid.addWidget(self.obs_pip_x, 6, 1)
+        obs_grid.addWidget(self.obs_pip_y, 6, 2)
+        obs_grid.addWidget(self.obs_pip_z, 6, 3)
 
         act_box = QGroupBox("Actions")
         act_grid = QGridLayout(act_box)
@@ -309,6 +345,11 @@ class DatasetBuilderGUI(QWidget):
             "If checked, store commanded pressure as carried raw mbar setpoints. "
             "If unchecked, store only per-command pressure deltas from the previous setpoint. "
             "ATM state is always one-hot."
+        )
+        self.act_pressure_binary = QCheckBox("Use Binary Pressure Actions")
+        self.act_pressure_binary.setToolTip(
+            "Replace pressure actions with event columns for -5 mbar, +5 mbar, and reset. "
+            "Reset means a pressure command moves toward zero by more than 5 mbar."
         )
 
         self.act_stage_x = QCheckBox("Stage X")
@@ -328,6 +369,7 @@ class DatasetBuilderGUI(QWidget):
         act_grid.addWidget(self.act_pipette, 0, 1)
         act_grid.addWidget(self.act_pressure, 0, 2)
         act_grid.addWidget(self.act_pressure_raw, 0, 3)
+        act_grid.addWidget(self.act_pressure_binary, 0, 4)
 
         act_grid.addWidget(QLabel("Stage Axes:"), 1, 0)
         act_grid.addWidget(self.act_stage_x, 1, 1)
@@ -363,6 +405,7 @@ class DatasetBuilderGUI(QWidget):
         self.act_stage.toggled.connect(self._sync_selector_constraints)
         self.act_pipette.toggled.connect(self._sync_selector_constraints)
         self.act_pressure.toggled.connect(self._sync_selector_constraints)
+        self.act_pressure_binary.toggled.connect(self._sync_selector_constraints)
         self.obs_stage.toggled.connect(self._sync_selector_constraints)
         self.obs_pipette.toggled.connect(self._sync_selector_constraints)
         self.obs_stage_x.toggled.connect(self._sync_selector_constraints)
@@ -438,7 +481,11 @@ class DatasetBuilderGUI(QWidget):
             control.setEnabled(self.act_stage.isChecked())
         for control in (self.act_pip_x, self.act_pip_y, self.act_pip_z):
             control.setEnabled(self.act_pipette.isChecked())
-        self.act_pressure_raw.setEnabled(self.act_pressure.isChecked())
+        pressure_enabled = self.act_pressure.isChecked()
+        self.act_pressure_binary.setEnabled(pressure_enabled)
+        self.act_pressure_raw.setEnabled(
+            pressure_enabled and not self.act_pressure_binary.isChecked()
+        )
 
     def _append(self, text: str) -> None:
         self.log.append(text)
@@ -640,6 +687,7 @@ class DatasetBuilderGUI(QWidget):
         self._set_if(self.inaction, settings.get("inaction"))
         self._set_if(self.inaction_tolerance, settings.get("inaction_tolerance"))
         self._set_if(self.skip_invalid_observations, settings.get("skip_invalid_observations"))
+        self._set_if(self.gigaseal_start_trim_enabled, settings.get("gigaseal_start_trim_enabled"))
         self._set_if(self.gigaseal_cutoff_enabled, settings.get("gigaseal_resistance_cutoff_enabled"))
         self._set_if(self.gigaseal_cutoff_value, settings.get("gigaseal_resistance_cutoff"))
         self._set_if(self.slope_window_spin, settings.get("resistance_slope_window"))
@@ -674,6 +722,26 @@ class DatasetBuilderGUI(QWidget):
             self._set_if(self.obs_stage, ocfg.get("include_stage"))
             self._set_if(self.obs_pipette, ocfg.get("include_pipette"))
             self._set_if(self.obs_camera, ocfg.get("include_camera"))
+            self._set_if(
+                self.obs_gigaseal_log_resistance,
+                ocfg.get("include_gigaseal_log_resistance"),
+            )
+            self._set_if(
+                self.obs_gigaseal_pressure_state,
+                ocfg.get("include_gigaseal_pressure_state"),
+            )
+            self._set_if(
+                self.obs_gigaseal_effective_pressure,
+                ocfg.get("include_gigaseal_effective_pressure"),
+            )
+            self._set_if(
+                self.obs_gigaseal_action_count,
+                ocfg.get("include_gigaseal_observations_since_last_action"),
+            )
+            self._set_if(
+                self.obs_gigaseal_time_since_action,
+                ocfg.get("include_gigaseal_time_since_last_action"),
+            )
             self._set_axis(self.obs_stage_x, self.obs_stage_y, self.obs_stage_z, ocfg.get("stage_axes"), "stage")
             self._set_axis(self.obs_pip_x, self.obs_pip_y, self.obs_pip_z, ocfg.get("pipette_axes"), "pipette")
         if isinstance(acfg, dict):
@@ -681,6 +749,7 @@ class DatasetBuilderGUI(QWidget):
             self._set_if(self.act_pipette, acfg.get("include_pipette"))
             self._set_if(self.act_pressure, acfg.get("include_pressure"))
             self._set_if(self.act_pressure_raw, acfg.get("pressure_use_raw_values"))
+            self._set_if(self.act_pressure_binary, acfg.get("pressure_use_binary_actions"))
             self._set_axis(self.act_stage_x, self.act_stage_y, self.act_stage_z, acfg.get("stage_axes"), "stage")
             self._set_axis(self.act_pip_x, self.act_pip_y, self.act_pip_z, acfg.get("pipette_axes"), "pipette")
 
@@ -753,6 +822,7 @@ class DatasetBuilderGUI(QWidget):
             inaction=int(self.inaction.value()),
             inaction_tolerance=float(self.inaction_tolerance.value()),
             skip_invalid_observations=self.skip_invalid_observations.isChecked(),
+            gigaseal_start_trim_enabled=self.gigaseal_start_trim_enabled.isChecked(),
             gigaseal_resistance_cutoff_enabled=self.gigaseal_cutoff_enabled.isChecked(),
             gigaseal_resistance_cutoff=float(self.gigaseal_cutoff_value.value()),
             resistance_slope_window=int(self.slope_window_spin.value()),
@@ -765,6 +835,11 @@ class DatasetBuilderGUI(QWidget):
                 include_stage=self.obs_stage.isChecked(),
                 include_pipette=self.obs_pipette.isChecked(),
                 include_camera=self.obs_camera.isChecked(),
+                include_gigaseal_log_resistance=self.obs_gigaseal_log_resistance.isChecked(),
+                include_gigaseal_pressure_state=self.obs_gigaseal_pressure_state.isChecked(),
+                include_gigaseal_effective_pressure=self.obs_gigaseal_effective_pressure.isChecked(),
+                include_gigaseal_observations_since_last_action=self.obs_gigaseal_action_count.isChecked(),
+                include_gigaseal_time_since_last_action=self.obs_gigaseal_time_since_action.isChecked(),
                 stage_axes=AxisToggle(self.obs_stage_x.isChecked(), self.obs_stage_y.isChecked(), self.obs_stage_z.isChecked()),
                 pipette_axes=AxisToggle(self.obs_pip_x.isChecked(), self.obs_pip_y.isChecked(), self.obs_pip_z.isChecked()),
             ),
@@ -773,6 +848,7 @@ class DatasetBuilderGUI(QWidget):
                 include_pipette=self.act_pipette.isChecked(),
                 include_pressure=self.act_pressure.isChecked(),
                 pressure_use_raw_values=self.act_pressure_raw.isChecked(),
+                pressure_use_binary_actions=self.act_pressure_binary.isChecked(),
                 include_high_level=False,
                 stage_axes=AxisToggle(self.act_stage_x.isChecked(), self.act_stage_y.isChecked(), self.act_stage_z.isChecked()),
                 pipette_axes=AxisToggle(self.act_pip_x.isChecked(), self.act_pip_y.isChecked(), self.act_pip_z.isChecked()),

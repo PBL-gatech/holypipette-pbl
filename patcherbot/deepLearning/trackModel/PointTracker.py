@@ -464,6 +464,144 @@ class PointTracker1(PointTracker):
         return arr.astype(np.uint8)
 
 
+class PointTracker2(PointTracker):
+    """
+    PointTracker2: Sparse point tracking with TAPNext++.
+
+    This tracker follows the PointTracker update contract but returns sparse point
+    displacements instead of dense optical flow.
+    """
+
+    def __init__(
+        self,
+        *args,
+        tapnext_kwargs: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        try:
+            from patcherbot.deepLearning.trackModel.tapnet.SimpleTapNext import SimpleTapNext
+        except ImportError:
+            import importlib.util
+            import sys
+
+            module_path = Path(__file__).resolve().parent / "tapnet" / "SimpleTapNext.py"
+            spec = importlib.util.spec_from_file_location("_patcherbot_simple_tapnext", module_path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Could not load SimpleTapNext from {module_path}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+            SimpleTapNext = module.SimpleTapNext
+
+        self.tapnext = SimpleTapNext(**(tapnext_kwargs or {}))
+
+    def reset(self) -> None:
+        super().reset()
+        if hasattr(self, "tapnext"):
+            self.tapnext.reset()
+
+    def set_points(self, points: Optional[Any]) -> None:
+        super().set_points(points)
+        if hasattr(self, "tapnext"):
+            self.tapnext.set_points(self._persistent_points_px)
+
+    def clear_points(self) -> None:
+        super().clear_points()
+        if hasattr(self, "tapnext"):
+            self.tapnext.set_points(None)
+
+    def update(
+        self,
+        image: np.ndarray,
+        points: Optional[Any] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> TrackingResult:
+        t_update_start = time.perf_counter()
+        if meta is None:
+            meta = {}
+
+        frame_roi, point_shift = self._frame_with_roi(image)
+        points_src = points
+        use_persistent_points = False
+        if points_src is None and self._persistent_points_px is not None:
+            points_src = self._persistent_points_px
+            use_persistent_points = True
+
+        points_roi = None
+        if points_src is not None:
+            points_full = self._normalize_points_input(points_src)
+            points_roi = points_full.copy()
+            points_roi[:, 0] -= point_shift[0]
+            points_roi[:, 1] -= point_shift[1]
+
+        result = self.tapnext.track(frame_roi, points_xy=points_roi)
+
+        points_px_out = None
+        disp_px_out = None
+        if result.points_px is not None:
+            points_new = result.points_px.copy()
+            points_new[:, 0] += point_shift[0]
+            points_new[:, 1] += point_shift[1]
+            points_px_out = points_new.astype(np.float32, copy=False)
+            disp_px_out = result.disp_px
+            if use_persistent_points:
+                self._persistent_points_px = points_px_out.copy()
+
+        self.prev_raw_shape = frame_roi.shape[:2]
+        self.frame_index += 1
+
+        scores: Dict[str, Any] = {
+            "status": result.status,
+            "frame_index": self.frame_index,
+            "tapnext_frame_index": result.frame_index,
+            "device": result.meta.get("device"),
+            "inference_ms": result.meta.get("inference_ms"),
+            "total_ms": (time.perf_counter() - t_update_start) * 1e3,
+        }
+        if result.visible is not None:
+            scores["visible_count"] = int(np.count_nonzero(result.visible))
+            scores["occluded_count"] = int(result.visible.shape[0] - np.count_nonzero(result.visible))
+            scores["visible"] = result.visible
+        if result.occluded is not None:
+            scores["occluded"] = result.occluded
+        if result.visible_logits is not None:
+            scores["visible_logits"] = result.visible_logits
+        if result.certainty is not None:
+            scores["certainty"] = result.certainty
+
+        if self.debug_timing and (
+            self.frame_index <= 3 or (self.frame_index % self.debug_interval == 0)
+        ):
+            frame_token = meta.get("frame_no", self.frame_index)
+            print(
+                f"[{self.debug_label}] frame={frame_token} status={result.status} "
+                f"inference={scores['inference_ms']:.2f}ms total={scores['total_ms']:.2f}ms"
+            )
+
+        return TrackingResult(
+            flow_px=None,
+            points_px=points_px_out,
+            disp_px=disp_px_out,
+            scores=scores,
+            meta=dict(meta),
+        )
+
+    def estimate_flow(
+        self,
+        prev_proc: np.ndarray,
+        curr_proc: np.ndarray,
+        mask: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+        raise NotImplementedError("PointTracker2 uses TAPNext++ sparse point tracking, not dense flow.")
+
+    def _frame_with_roi(self, image: np.ndarray) -> Tuple[np.ndarray, Tuple[float, float]]:
+        if self.roi is None:
+            return image, (0.0, 0.0)
+        x, y, w, h = self.roi
+        return image[int(y):int(y + h), int(x):int(x + w)], (float(x), float(y))
+
+
 class FrameStreamer:
     """
     Stream saved frames like an online feed and visualize sparse tracked points with trails.
@@ -488,6 +626,7 @@ class FrameStreamer:
         use_random_sparse_points: bool = False,
         random_seed: Optional[int] = None,
         random_candidate_oversample: int = 8,
+        use_feature_sparse_points: bool = False,
         window_name: str = "PointTracker Stream",
         playback_fps: float = 30.0,
         min_wait_ms: int = 1,
@@ -534,6 +673,7 @@ class FrameStreamer:
         # Backward-compatible alias used by older call-sites.
         self.middle_quarter_fraction = self.point_bounds_fraction
         self.use_random_sparse_points = bool(use_random_sparse_points)
+        self.use_feature_sparse_points = bool(use_feature_sparse_points)
         self.random_candidate_oversample = int(max(2, random_candidate_oversample))
         self._rng = np.random.default_rng(random_seed)
         self.window_name = window_name
@@ -790,10 +930,27 @@ class FrameStreamer:
     def _middle_quarter_bounds(self, width: int, height: int) -> Tuple[float, float, float, float]:
         width = int(max(2, width))
         height = int(max(2, height))
+        frac = float(np.clip(self.point_bounds_fraction, 1e-3, 1.0))
+
+        if self.tracker.roi is not None:
+            x, y, w, h = self.tracker.roi
+            x0 = float(np.clip(x, 0, width - 1))
+            y0 = float(np.clip(y, 0, height - 1))
+            x1 = float(np.clip(x + max(1, w) - 1, 0, width - 1))
+            y1 = float(np.clip(y + max(1, h) - 1, 0, height - 1))
+            center_x = 0.5 * (x0 + x1)
+            center_y = 0.5 * (y0 + y1)
+            half_w = 0.5 * frac * max(1.0, x1 - x0)
+            half_h = 0.5 * frac * max(1.0, y1 - y0)
+            xmin = max(0.0, center_x - half_w)
+            xmax = min(float(width - 1), center_x + half_w)
+            ymin = max(0.0, center_y - half_h)
+            ymax = min(float(height - 1), center_y + half_h)
+            return (xmin, xmax, ymin, ymax)
+
         max_x = float(width - 1)
         max_y = float(height - 1)
         # Centered region spanning `point_bounds_fraction` of width/height.
-        frac = float(np.clip(self.point_bounds_fraction, 1e-3, 1.0))
         half_w = 0.5 * frac
         half_h = 0.5 * frac
         xmin = (0.5 - half_w) * max_x
@@ -870,6 +1027,11 @@ class FrameStreamer:
         h, w = frame.shape[:2]
         if self.use_random_sparse_points:
             points = self._make_random_sparse_points(w, h, self.max_points)
+        elif self.use_feature_sparse_points:
+            points = self._make_feature_sparse_points(frame, self.max_points)
+            if points.shape[0] < self.max_points:
+                fallback = self._make_grid_points(w, h, self.max_points)
+                points = self._merge_candidate_points(points, fallback, self.max_points)
         else:
             points = self._make_grid_points(w, h, self.max_points)
         self.points_px = points[: self.max_points]
@@ -889,6 +1051,21 @@ class FrameStreamer:
                 missing,
                 existing=self.points_px if self.points_px.size else None,
             )
+        elif self.use_feature_sparse_points:
+            candidates = self._make_feature_sparse_points(
+                frame,
+                missing,
+                existing=self.points_px if self.points_px.size else None,
+            )
+            if candidates.shape[0] < missing:
+                fallback = self._make_grid_points(w, h, self.max_points)
+                if self.points_px.size:
+                    existing = self.points_px.astype(np.float32, copy=False)
+                    diffs = fallback[:, None, :] - existing[None, :, :]
+                    min_d2 = np.min(np.sum(diffs * diffs, axis=2), axis=1)
+                    min_allowed = (0.5 * float(self.min_distance)) ** 2
+                    fallback = fallback[min_d2 >= min_allowed]
+                candidates = self._merge_candidate_points(candidates, fallback, missing)
         else:
             candidates = self._make_grid_points(w, h, self.max_points)
             if self.points_px.size:
@@ -913,6 +1090,64 @@ class FrameStreamer:
             trail: Deque[Tuple[float, float]] = deque(maxlen=self.trail_length)
             trail.append((float(point[0]), float(point[1])))
             self.trails.append(trail)
+
+    def _make_feature_sparse_points(
+        self,
+        frame: np.ndarray,
+        n_points: int,
+        existing: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        if n_points <= 0:
+            return np.empty((0, 2), dtype=np.float32)
+
+        h, w = frame.shape[:2]
+        xmin, xmax, ymin, ymax = self._middle_quarter_bounds(w, h)
+        gray = self._gray(frame)
+        mask = np.zeros(gray.shape[:2], dtype=np.uint8)
+        x0 = int(np.floor(xmin))
+        x1 = int(np.ceil(xmax))
+        y0 = int(np.floor(ymin))
+        y1 = int(np.ceil(ymax))
+        mask[y0 : y1 + 1, x0 : x1 + 1] = 255
+
+        if existing is not None and np.size(existing) > 0:
+            refs = np.asarray(existing, dtype=np.float32).reshape(-1, 2)
+            for point in refs:
+                cv2.circle(
+                    mask,
+                    (int(round(float(point[0]))), int(round(float(point[1])))),
+                    max(1, int(self.min_distance)),
+                    0,
+                    -1,
+                )
+
+        corners = cv2.goodFeaturesToTrack(
+            gray,
+            maxCorners=int(max(1, n_points)),
+            qualityLevel=self.quality_level,
+            minDistance=float(self.min_distance),
+            mask=mask,
+            blockSize=self.block_size,
+            useHarrisDetector=False,
+        )
+        if corners is None:
+            return np.empty((0, 2), dtype=np.float32)
+        return corners.reshape(-1, 2).astype(np.float32)
+
+    @staticmethod
+    def _merge_candidate_points(
+        primary: np.ndarray,
+        fallback: np.ndarray,
+        max_points: int,
+    ) -> np.ndarray:
+        primary = np.asarray(primary, dtype=np.float32).reshape(-1, 2)
+        fallback = np.asarray(fallback, dtype=np.float32).reshape(-1, 2)
+        if primary.shape[0] >= int(max_points):
+            return primary[: int(max_points)]
+        if fallback.size == 0:
+            return primary
+        merged = np.vstack((primary, fallback))
+        return merged[: int(max_points)].astype(np.float32, copy=False)
 
     def _keep_points_in_frame(self, points: np.ndarray, width: int, height: int) -> np.ndarray:
         if points.size == 0:
@@ -1007,24 +1242,26 @@ class FrameStreamer:
 
 
 if __name__ == "__main__":
-    tracker = PointTracker1(
+    tracker = PointTracker2(
         normalize=True,
         blur_ksize=3,
         debug_timing=False,
         debug_interval=10,
     )
 
-    # path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\rig_recorder_data\2026_02_20-13_28\camera_frames" # tissue deform 
-    path = r"D:\holypipette_data_backup\experiments\Data\rig_recorder_data\2025_10_29-20_35\aux_camera_frames" # pipette approach
-    # path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\rig_recorder_data\2026_02_25-14_26\camera_frames" # cultured plate
+    path = r"D:\holypipette_data_backup\experiments\Data\rig_recorder_data\2026_02_20-13_28\camera_frames" # tissue deform 
+    # path  = r"D:\holypipette_data_backup\experiments\Data\rig_recorder_data\2026_02_20-13_28"
+    # path = r"D:\holypipette_data_backup\experiments\Data\rig_recorder_data\2025_10_29-20_35\aux_camera_frames" # pipette approach
+    # path = r"D:\holypipette_data_backup\experiments\Data\rig_recorder_data\2026_02_25-14_26\camera_frames" # cultured plate
     # path = r"C:\Users\sa-forest\Documents\GitHub\pipetteFindingCNN\pipettedata\SlicePipetteData\2025_10_30-17_29" # pipette movement
     streamer = FrameStreamer(
         path,
         tracker=tracker,
         max_points=24,
         trail_thickness=3,
-        point_bounds_fraction=1,
-        use_random_sparse_points=True,
+        point_bounds_fraction=0.10,
+        use_random_sparse_points=False,
+        use_feature_sparse_points=False,
         inference_scale=0.5,
         debug_timing=False,
         debug_interval=10,

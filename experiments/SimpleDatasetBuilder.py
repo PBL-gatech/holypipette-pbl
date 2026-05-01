@@ -96,6 +96,11 @@ class ObservationSelector:
     include_stage: bool = True
     include_pipette: bool = True
     include_camera: bool = True
+    include_gigaseal_log_resistance: bool = True
+    include_gigaseal_pressure_state: bool = True
+    include_gigaseal_effective_pressure: bool = True
+    include_gigaseal_observations_since_last_action: bool = True
+    include_gigaseal_time_since_last_action: bool = True
     stage_axes: AxisToggle = field(default_factory=AxisToggle)
     pipette_axes: AxisToggle = field(default_factory=AxisToggle)
 
@@ -122,6 +127,7 @@ class ActionSelector:
     include_pipette: bool = True
     include_pressure: bool = False
     pressure_use_raw_values: bool = True
+    pressure_use_binary_actions: bool = False
     include_high_level: bool = False
     stage_axes: AxisToggle = field(default_factory=AxisToggle)
     pipette_axes: AxisToggle = field(default_factory=AxisToggle)
@@ -149,6 +155,12 @@ class ActionSelector:
     def pressure_axis_labels(self) -> List[str]:
         if not self.include_pressure:
             return []
+        if self.pressure_use_binary_actions:
+            return [
+                "pressure_step_negative_5",
+                "pressure_step_positive_5",
+                "pressure_reset",
+            ]
         pressure_axis = (
             "commanded_pressure_mbar"
             if self.pressure_use_raw_values
@@ -185,6 +197,7 @@ class DatasetBuilderSettings:
     inaction: int = 0 # maximum number of consecutive zero-action steps to keep
     inaction_tolerance: float = 0 # per-axis magnitude treated as inactivity
     skip_invalid_observations: bool = True # drop timesteps with NaN/Inf payloads in the selected data
+    gigaseal_start_trim_enabled: bool = False # start gigaseal trajectories at the first near--5 mbar command
     gigaseal_resistance_cutoff_enabled: bool = False # stop gigaseal trajectories once resistance reaches the cutoff
     gigaseal_resistance_cutoff: float = 1200.0
     resistance_slope_window: int = 20
@@ -555,6 +568,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.inaction = settings.inaction
         self.inaction_tolerance = settings.inaction_tolerance
         self.skip_invalid_observations = settings.skip_invalid_observations
+        self.gigaseal_start_trim_enabled = settings.gigaseal_start_trim_enabled
         self.gigaseal_resistance_cutoff_enabled = settings.gigaseal_resistance_cutoff_enabled
         self.gigaseal_resistance_cutoff = settings.gigaseal_resistance_cutoff
         self.val_ratio = settings.val_ratio
@@ -723,8 +737,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self,
         actions: np.ndarray,
         dones: np.ndarray,
+        timestamp_values: Optional[np.ndarray],
         pressure_values: Optional[np.ndarray],
+        pressure_state_values: Optional[np.ndarray],
+        effective_pressure_values: Optional[np.ndarray],
         resistance_values: Optional[np.ndarray],
+        log_resistance_values: Optional[np.ndarray],
         resistance_slope_values: Optional[np.ndarray],
         current_values: Optional[np.ndarray],
         voltage_values: Optional[np.ndarray],
@@ -736,8 +754,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
         payloads: List[Optional[np.ndarray]] = [
             dones,
+            timestamp_values,
             pressure_values,
+            pressure_state_values,
+            effective_pressure_values,
             resistance_values,
+            log_resistance_values,
             resistance_slope_values,
             current_values,
             voltage_values,
@@ -774,17 +796,37 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             dones[-1] = 1
         payloads[0] = dones
 
+        (
+            dones,
+            timestamp_values,
+            pressure_values,
+            pressure_state_values,
+            effective_pressure_values,
+            resistance_values,
+            log_resistance_values,
+            resistance_slope_values,
+            current_values,
+            voltage_values,
+            stage_positions,
+            pipette_positions,
+            camera_frames,
+        ) = payloads
+
         return (
             actions,
-            payloads[0],
-            payloads[1],
-            payloads[2],
-            payloads[3],
-            payloads[4],
-            payloads[5],
-            payloads[6],
-            payloads[7],
-            payloads[8],
+            dones,
+            timestamp_values,
+            pressure_values,
+            pressure_state_values,
+            effective_pressure_values,
+            resistance_values,
+            log_resistance_values,
+            resistance_slope_values,
+            current_values,
+            voltage_values,
+            stage_positions,
+            pipette_positions,
+            camera_frames,
             invalid_removed,
             inactive_removed,
         )
@@ -1117,6 +1159,144 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             commanded_pressure = delta_commanded_pressure
         return commanded_pressure, atm_state
 
+    @staticmethod
+    def get_binary_pressure_action_values(raw_commanded_pressure: np.ndarray) -> np.ndarray:
+        """Return pressure step event columns: -5 step, +5 step, reset."""
+
+        raw_pressure = np.asarray(raw_commanded_pressure, dtype=np.float64).reshape(-1)
+        binary_actions = np.zeros((raw_pressure.shape[0], 3), dtype=np.float64)
+        if raw_pressure.size == 0:
+            return binary_actions
+
+        previous_pressure = np.empty_like(raw_pressure)
+        previous_pressure[0] = raw_pressure[0]
+        previous_pressure[1:] = raw_pressure[:-1]
+
+        delta_pressure = raw_pressure - previous_pressure
+        delta_pressure[0] = 0.0
+
+        active = delta_pressure != 0.0
+        toward_zero = (np.abs(raw_pressure) < np.abs(previous_pressure)) & (
+            np.abs(previous_pressure) > 0.0
+        )
+        reset = active & toward_zero & (np.abs(delta_pressure) > 5.0)
+
+        binary_actions[(delta_pressure < 0.0) & ~reset, 0] = 1.0
+        binary_actions[(delta_pressure > 0.0) & ~reset, 1] = 1.0
+        binary_actions[reset, 2] = 1.0
+        return binary_actions
+
+    def get_attempt_pressure_state_observation_values(
+        self,
+        attempt_graph_values: np.ndarray,
+        pressure_events: pd.DataFrame,
+    ) -> np.ndarray:
+        """Return the pressure controller ATM-state trace aligned to graph rows."""
+
+        _, atm_state = self.get_attempt_pressure_action_values(
+            attempt_graph_values,
+            pressure_events,
+            pressure_use_raw_values=True,
+        )
+        return atm_state.astype(np.float64, copy=False)
+
+    @staticmethod
+    def get_effective_pressure_observation_values(
+        commanded_pressure: np.ndarray,
+        atm_state: np.ndarray,
+    ) -> np.ndarray:
+        """Return pressure applied to the pipette after accounting for ATM mode."""
+
+        pressure = np.asarray(commanded_pressure, dtype=np.float64).reshape(-1)
+        atm = np.asarray(atm_state, dtype=np.float64).reshape(-1)
+        if pressure.shape[0] != atm.shape[0]:
+            raise ValueError("commanded_pressure and atm_state must have matching lengths")
+        return np.where(atm >= 0.5, 0.0, pressure).astype(np.float64, copy=False)
+
+    @staticmethod
+    def get_action_event_mask(
+        actions: np.ndarray,
+        action_labels: Sequence[str],
+        tolerance: float = 0.0,
+    ) -> np.ndarray:
+        """Return rows where the final written action payload changes or fires."""
+
+        num_rows = actions.shape[0]
+        if num_rows == 0 or actions.shape[1] == 0:
+            return np.zeros(num_rows, dtype=bool)
+
+        labels = list(action_labels)
+        if len(labels) != actions.shape[1]:
+            return np.any(np.abs(actions) > tolerance, axis=1)
+
+        action_events = np.zeros(num_rows, dtype=bool)
+        for idx, label in enumerate(labels):
+            values = np.asarray(actions[:, idx], dtype=np.float64)
+            if label in {"commanded_pressure_mbar", "pressure_atm_state"}:
+                changes = np.zeros(num_rows, dtype=bool)
+                if num_rows > 1:
+                    changes[1:] = np.abs(np.diff(values)) > tolerance
+                action_events |= changes
+            else:
+                action_events |= np.abs(values) > tolerance
+        return action_events
+
+    @classmethod
+    def get_observations_since_last_action_values(
+        cls,
+        actions: np.ndarray,
+        action_labels: Sequence[str],
+        tolerance: float = 0.0,
+    ) -> np.ndarray:
+        """Count rows since the last action event in the final written sequence."""
+
+        num_rows = actions.shape[0]
+        if num_rows == 0:
+            return np.zeros(0, dtype=np.float64)
+
+        action_events = cls.get_action_event_mask(actions, action_labels, tolerance=tolerance)
+
+        counts = np.zeros(num_rows, dtype=np.float64)
+        since_action = 0
+        seen_action = False
+        for idx, is_action in enumerate(action_events):
+            if is_action:
+                since_action = 0
+                seen_action = True
+            elif seen_action:
+                since_action += 1
+            counts[idx] = since_action
+        return counts
+
+    @classmethod
+    def get_time_since_last_action_values(
+        cls,
+        actions: np.ndarray,
+        action_labels: Sequence[str],
+        timestamps: np.ndarray,
+        tolerance: float = 0.0,
+    ) -> np.ndarray:
+        """Return elapsed seconds since the last action event in the final sequence."""
+
+        num_rows = actions.shape[0]
+        if num_rows == 0:
+            return np.zeros(0, dtype=np.float64)
+
+        times = np.asarray(timestamps, dtype=np.float64).reshape(-1)
+        if times.shape[0] != num_rows:
+            raise ValueError("timestamps and actions must have matching lengths")
+
+        action_events = cls.get_action_event_mask(actions, action_labels, tolerance=tolerance)
+        elapsed = np.zeros(num_rows, dtype=np.float64)
+        last_action_time: Optional[float] = None
+        for idx, is_action in enumerate(action_events):
+            if is_action:
+                last_action_time = float(times[idx])
+                elapsed[idx] = 0.0
+            elif last_action_time is not None:
+                elapsed[idx] = max(0.0, float(times[idx]) - last_action_time)
+        return elapsed
+
     def get_timestamps_for_all_successful_state_attempts(
         self,
         rig_recorder_data_folder: str,
@@ -1204,7 +1384,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             return attempt_graph_values, attempt_movement_values, False, False, None
 
         trimmed_for_gigaseal_start = False
-        if is_gigaseal_state:
+        if is_gigaseal_state and self.gigaseal_start_trim_enabled:
             if pressure_events is None:
                 raise RuntimeError(
                     "Gigaseal dataset trimming requires parsed day-log pressure events."
@@ -1332,6 +1512,16 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def get_attempt_resistance_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
         """Return resistance values for the current attempt."""
         return attempt_graph_values[:, 2].astype(np.float64)
+
+    @staticmethod
+    def get_log_resistance_values(resistance_values: np.ndarray) -> np.ndarray:
+        """Return natural log resistance, preserving invalid rows as NaN."""
+
+        values = np.asarray(resistance_values, dtype=np.float64).reshape(-1)
+        log_values = np.full(values.shape, np.nan, dtype=np.float64)
+        valid = np.isfinite(values) & (values > 0.0)
+        log_values[valid] = np.log(values[valid])
+        return log_values
 
     def _compute_resistance_slope(self, resistance_values: Optional[np.ndarray]) -> Optional[np.ndarray]:
         """Return a rolling average resistance slope aligned to each observation."""
@@ -1797,13 +1987,23 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 raise ValueError("attempt_graph_values is required when Pressure Action is enabled")
             if pressure_events is None:
                 raise ValueError("pressure_events are required when Pressure Action is enabled")
-            commanded_pressure, atm_state = self.get_attempt_pressure_action_values(
-                attempt_graph_values,
-                pressure_events,
-            )
-            selected_components.append(
-                np.column_stack([commanded_pressure, atm_state]).astype(np.float64, copy=False)
-            )
+            if selector.pressure_use_binary_actions:
+                raw_commanded_pressure, _ = self.get_attempt_pressure_action_values(
+                    attempt_graph_values,
+                    pressure_events,
+                    pressure_use_raw_values=True,
+                )
+                selected_components.append(
+                    self.get_binary_pressure_action_values(raw_commanded_pressure)
+                )
+            else:
+                commanded_pressure, atm_state = self.get_attempt_pressure_action_values(
+                    attempt_graph_values,
+                    pressure_events,
+                )
+                selected_components.append(
+                    np.column_stack([commanded_pressure, atm_state]).astype(np.float64, copy=False)
+                )
             action_labels.extend(selector.pressure_axis_labels())
 
         if selected_components:
@@ -1840,6 +2040,16 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         include_next_obs: bool = False,
         include_camera: bool = True,
         split_label: str = "train",
+        pressure_state_values: Optional[np.ndarray] = None,
+        effective_pressure_values: Optional[np.ndarray] = None,
+        log_resistance_values: Optional[np.ndarray] = None,
+        observations_since_last_action_values: Optional[np.ndarray] = None,
+        time_since_last_action_values: Optional[np.ndarray] = None,
+        next_pressure_state_values: Optional[np.ndarray] = None,
+        next_effective_pressure_values: Optional[np.ndarray] = None,
+        next_log_resistance_values: Optional[np.ndarray] = None,
+        next_observations_since_last_action_values: Optional[np.ndarray] = None,
+        next_time_since_last_action_values: Optional[np.ndarray] = None,
     ) -> str:
         """Persist a demo to disk and return the HDF5 key used for the group."""
         selector = self.observation_selector
@@ -1872,10 +2082,26 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             observations = demo.create_group("obs")
             if pressure_values is not None:
                 observations.create_dataset("pressure", data=_as_column(pressure_values))
+            if pressure_state_values is not None:
+                observations.create_dataset("pressure_atm_state", data=_as_column(pressure_state_values))
+            if effective_pressure_values is not None:
+                observations.create_dataset("effective_pressure", data=_as_column(effective_pressure_values))
             if resistance_values is not None:
                 observations.create_dataset("resistance", data=_as_column(resistance_values))
+            if log_resistance_values is not None:
+                observations.create_dataset("log_resistance", data=_as_column(log_resistance_values))
             if resistance_slope_values is not None:
                 observations.create_dataset("resistance_slope", data=_as_column(resistance_slope_values))
+            if observations_since_last_action_values is not None:
+                observations.create_dataset(
+                    "observations_since_last_action",
+                    data=_as_column(observations_since_last_action_values),
+                )
+            if time_since_last_action_values is not None:
+                observations.create_dataset(
+                    "time_since_last_action",
+                    data=_as_column(time_since_last_action_values),
+                )
             if current_values is not None:
                 observations.create_dataset("current", data=current_values)
             if voltage_values is not None:
@@ -1897,10 +2123,26 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 next_obs = demo.create_group("next_obs")
                 if next_pressure_values is not None:
                     next_obs.create_dataset("pressure", data=_as_column(next_pressure_values))
+                if next_pressure_state_values is not None:
+                    next_obs.create_dataset("pressure_atm_state", data=_as_column(next_pressure_state_values))
+                if next_effective_pressure_values is not None:
+                    next_obs.create_dataset("effective_pressure", data=_as_column(next_effective_pressure_values))
                 if next_resistance_values is not None:
                     next_obs.create_dataset("resistance", data=_as_column(next_resistance_values))
+                if next_log_resistance_values is not None:
+                    next_obs.create_dataset("log_resistance", data=_as_column(next_log_resistance_values))
                 if next_resistance_slope_values is not None:
                     next_obs.create_dataset("resistance_slope", data=_as_column(next_resistance_slope_values))
+                if next_observations_since_last_action_values is not None:
+                    next_obs.create_dataset(
+                        "observations_since_last_action",
+                        data=_as_column(next_observations_since_last_action_values),
+                    )
+                if next_time_since_last_action_values is not None:
+                    next_obs.create_dataset(
+                        "time_since_last_action",
+                        data=_as_column(next_time_since_last_action_values),
+                    )
                 if next_current_values is not None:
                     next_obs.create_dataset("current", data=next_current_values)
                 if next_voltage_values is not None:
@@ -1964,6 +2206,13 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 "include_stage": obs.include_stage,
                 "include_pipette": obs.include_pipette,
                 "include_camera": obs.include_camera,
+                "include_gigaseal_log_resistance": obs.include_gigaseal_log_resistance,
+                "include_gigaseal_pressure_state": obs.include_gigaseal_pressure_state,
+                "include_gigaseal_effective_pressure": obs.include_gigaseal_effective_pressure,
+                "include_gigaseal_observations_since_last_action": (
+                    obs.include_gigaseal_observations_since_last_action
+                ),
+                "include_gigaseal_time_since_last_action": obs.include_gigaseal_time_since_last_action,
                 "stage_axes": obs.stage_axis_labels(),
                 "pipette_axes": obs.pipette_axis_labels(),
             },
@@ -1973,6 +2222,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 "include_pipette": act.include_pipette,
                 "include_pressure": act.include_pressure,
                 "pressure_use_raw_values": act.pressure_use_raw_values,
+                "pressure_use_binary_actions": act.pressure_use_binary_actions,
                 "include_high_level": act.include_high_level,
                 "stage_axes": act.stage_axis_labels(),
                 "pipette_axes": act.pipette_axis_labels(),
@@ -2135,8 +2385,18 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             print("  no successful state attempts detected; skipping demo export")
             return
 
-        requires_pressure_events = self.action_selector.include_pressure or any(
+        has_gigaseal_state = any(
             "gigaseal" in _slugify_state_name(state_name) for state_name in state_attempts
+        )
+        obs_selector = self.observation_selector
+        requires_pressure_events = self.action_selector.include_pressure or (
+            has_gigaseal_state
+            and (
+                self.gigaseal_start_trim_enabled
+                or obs_selector.include_pressure
+                or obs_selector.include_gigaseal_pressure_state
+                or obs_selector.include_gigaseal_effective_pressure
+            )
         )
 
         if requires_pressure_events:
@@ -2149,6 +2409,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         for state_name, attempt_ranges in state_attempts.items():
             if not attempt_ranges:
                 continue
+            is_gigaseal_state = "gigaseal" in _slugify_state_name(state_name)
             print(f"  processing state '{state_name}' with {len(attempt_ranges)} attempts")
             with self._use_state_context(state_name):
                 for attempt_first_timestamp, attempt_last_timestamp in attempt_ranges:
@@ -2228,6 +2489,43 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         camera_frames,
                     ) = observations
 
+                    timestamp_values: Optional[np.ndarray] = attempt_graph_values[:, 0].astype(
+                        np.float64,
+                        copy=True,
+                    )
+                    log_resistance_values: Optional[np.ndarray] = None
+                    if is_gigaseal_state and obs_selector.include_gigaseal_log_resistance:
+                        source_resistance_values = resistance_values
+                        if source_resistance_values is None:
+                            source_resistance_values = self.get_attempt_resistance_values(attempt_graph_values)
+                        log_resistance_values = self.get_log_resistance_values(source_resistance_values)
+
+                    pressure_state_values: Optional[np.ndarray] = None
+                    effective_pressure_values: Optional[np.ndarray] = None
+                    if is_gigaseal_state and (
+                        obs_selector.include_pressure
+                        or obs_selector.include_gigaseal_pressure_state
+                        or obs_selector.include_gigaseal_effective_pressure
+                    ):
+                        if pressure_events is None:
+                            raise RuntimeError(
+                                "Gigaseal pressure observations require parsed day-log pressure events."
+                            )
+                        commanded_pressure_values, atm_state_values = self.get_attempt_pressure_action_values(
+                            attempt_graph_values,
+                            pressure_events,
+                            pressure_use_raw_values=True,
+                        )
+                        if obs_selector.include_pressure:
+                            pressure_values = commanded_pressure_values
+                        if obs_selector.include_gigaseal_pressure_state:
+                            pressure_state_values = atm_state_values
+                        if obs_selector.include_gigaseal_effective_pressure:
+                            effective_pressure_values = self.get_effective_pressure_observation_values(
+                                commanded_pressure_values,
+                                atm_state_values,
+                            )
+
                     actions = self.get_attempt_actions(
                         attempt_movement_values,
                         attempt_graph_values=attempt_graph_values,
@@ -2244,8 +2542,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     (
                         actions,
                         dones,
+                        timestamp_values,
                         pressure_values,
+                        pressure_state_values,
+                        effective_pressure_values,
                         resistance_values,
+                        log_resistance_values,
                         resistance_slope_values,
                         current_values,
                         voltage_values,
@@ -2257,8 +2559,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     ) = self.filter_attempt_timesteps(
                         actions,
                         dones,
+                        timestamp_values,
                         pressure_values,
+                        pressure_state_values,
+                        effective_pressure_values,
                         resistance_values,
+                        log_resistance_values,
                         resistance_slope_values,
                         current_values,
                         voltage_values,
@@ -2277,6 +2583,30 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         print("    skipped - no samples remain after filtering")
                         self.end_filter_context()
                         continue
+
+                    observations_since_last_action_values: Optional[np.ndarray] = None
+                    if (
+                        is_gigaseal_state
+                        and self.observation_selector.include_gigaseal_observations_since_last_action
+                    ):
+                        action_tolerance = self.inaction_tolerance if self.inaction_tolerance > 0.0 else 0.0
+                        observations_since_last_action_values = (
+                            self.get_observations_since_last_action_values(
+                                actions,
+                                self._last_action_labels,
+                                tolerance=action_tolerance,
+                            )
+                        )
+
+                    time_since_last_action_values: Optional[np.ndarray] = None
+                    if is_gigaseal_state and obs_selector.include_gigaseal_time_since_last_action:
+                        action_tolerance = self.inaction_tolerance if self.inaction_tolerance > 0.0 else 0.0
+                        time_since_last_action_values = self.get_time_since_last_action_values(
+                            actions,
+                            self._last_action_labels,
+                            timestamp_values,
+                            tolerance=action_tolerance,
+                        )
 
                     next_obs = self.get_attempt_next_observations(
                         pressure_values,
@@ -2300,6 +2630,32 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         next_pipette_positions,
                         next_camera_frames,
                     ) = next_obs
+
+                    next_pressure_state_values = (
+                        _shift_forward(pressure_state_values)
+                        if include_next_obs and pressure_state_values is not None
+                        else None
+                    )
+                    next_effective_pressure_values = (
+                        _shift_forward(effective_pressure_values)
+                        if include_next_obs and effective_pressure_values is not None
+                        else None
+                    )
+                    next_log_resistance_values = (
+                        _shift_forward(log_resistance_values)
+                        if include_next_obs and log_resistance_values is not None
+                        else None
+                    )
+                    next_observations_since_last_action_values = (
+                        _shift_forward(observations_since_last_action_values)
+                        if include_next_obs and observations_since_last_action_values is not None
+                        else None
+                    )
+                    next_time_since_last_action_values = (
+                        _shift_forward(time_since_last_action_values)
+                        if include_next_obs and time_since_last_action_values is not None
+                        else None
+                    )
 
                     if record_to_file:
                         demo_key = self.add_attempt_demo_to_dataset(
@@ -2325,6 +2681,18 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                             include_next_obs=include_next_obs,
                             include_camera=include_camera,
                             split_label=split_lbl,
+                            pressure_state_values=pressure_state_values,
+                            effective_pressure_values=effective_pressure_values,
+                            log_resistance_values=log_resistance_values,
+                            observations_since_last_action_values=observations_since_last_action_values,
+                            time_since_last_action_values=time_since_last_action_values,
+                            next_pressure_state_values=next_pressure_state_values,
+                            next_effective_pressure_values=next_effective_pressure_values,
+                            next_log_resistance_values=next_log_resistance_values,
+                            next_observations_since_last_action_values=(
+                                next_observations_since_last_action_values
+                            ),
+                            next_time_since_last_action_values=next_time_since_last_action_values,
                         )
                         self._split_keys[split_lbl].append(demo_key)
                         print(f"    added original {split_lbl} demo")

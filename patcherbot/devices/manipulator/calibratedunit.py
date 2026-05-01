@@ -986,7 +986,13 @@ class CalibratedStage(CalibratedUnit):
         # self.info(f"new stage px offset  : {self.reference_position()}")
 
 
-    def get_cell_position(self, cell, use_centroid=True):
+    def get_cell_position(
+        self,
+        cell,
+        use_centroid=True,
+        tracking_mode="fast",
+        track_max_fast_jump_px=80.0,
+    ):
         """
         Find the cell centroid in pixel space.
 
@@ -1008,12 +1014,14 @@ class CalibratedStage(CalibratedUnit):
         template_prompt = np.array([ref_w / 2.0, ref_h / 2.0], dtype=np.float32)
 
         self.info(f"Getting position of cell at approx. {expected_px} px")
-        centroid = cell_track_helper.find_centroid(
-            reference_image,
+        centroid = cell_track_helper.track_cell(
+            cell,
             image,
             use_centroid=use_centroid,
             prompt_point=template_prompt,
             expected_point=expected_px,
+            mode=tracking_mode,
+            max_fast_jump_px=track_max_fast_jump_px,
         )
         if centroid is None:
             return None, None

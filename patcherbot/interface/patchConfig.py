@@ -27,6 +27,8 @@ class PatchConfig(Config):
     max_clearing_speed = Number(-100,bounds=(-200,200),doc='Maximum speed for clearing Tissue during Neuron Hunting')
     use_centroid = Boolean(True, doc='Use centroid for pipette alignment during approach')
     track_cell = Boolean(False, doc='Track cell position during approach')
+    tracking_mode = Selector(default='fast', objects=['fast', 'cellbody', 'hybrid'], doc='Cell tracking strategy during approach')
+    track_max_fast_jump_px = Number(80, bounds=(1, 10000), doc='Maximum accepted fast-tracking jump in pixels')
     
     max_R_increase = NumberWithUnit(1e6, bounds=(0, 500e6), doc='Increase in resistance over time', unit='MΩ', magnitude=1e6)
     cell_R_increase = Number(0.300, bounds=(0, 1), doc='Cell detection resistance limit') # in MOhm
@@ -57,7 +59,7 @@ class PatchConfig(Config):
     lamp = Selector(default= '2', objects = ['1', '2', '3','4','5','6'], doc='default fluorescence cube slot')
     auto_capture_fluo = Boolean(False, doc='Capture fluorescence image on cell selection')
     categories = [
-        ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance','max_distance', 'cell_R_increase','max_locate_speed','max_descent_speed','max_clearing_speed','use_centroid','track_cell']),
+        ('Approach', ['min_R', 'max_R', 'pressure_near', 'cell_distance','slice_start_distance','max_distance', 'cell_R_increase','max_locate_speed','max_descent_speed','max_clearing_speed','use_centroid','track_cell','tracking_mode','track_max_fast_jump_px']),
         ('Sealing', ['pressure_sealing', 'gigaseal_R', 'gigaseal_min_delta_R', 'hold_switch', 'increase_slope_gate', 'constant_slope_gate', 'decrease_slope_gate', 'measurement_speed', 'resistance_slope_enabled', 'resistance_slope_window', 'Vramp_amplitude', 'seal_min_time', 'seal_deadline']),
         ('Break-in', ['zap', 'pressure_ramp_increment', 'pressure_ramp_max', 'pressure_ramp_duration','pulse_pressure_break_in','pulse_pressure_duration', 'max_cell_R','max_access_R','min_cell_C']),
         ('AutoPatching', ['cell_type_toggle','cell_type', 'mode','auto_clean_pipette']),

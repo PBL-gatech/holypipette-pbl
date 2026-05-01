@@ -86,6 +86,7 @@ class AutoPatcher(TaskController):
         # True  -> interpret model output as velocity (xy px/s, z um/s) and stream velocity commands.
         self.velocity_prediction = False
         self._track_cell_ai_disabled_logged = False
+        self._last_track_cell_status = None
         self._resistance_raw_buffer = None
         self._resistance_slope_cache = None
 
@@ -966,6 +967,11 @@ class AutoPatcher(TaskController):
             autoHunt = False
 
         self._track_cell_ai_disabled_logged = False
+        self._last_track_cell_status = None
+        if self.config.track_cell and bool(self.calibrated_stage.config.use_ai_features):
+            cell_track_helper = getattr(self.calibrated_stage, "cellTrackHelper", None)
+            if cell_track_helper is not None:
+                cell_track_helper.reset_tracking()
         training_mode = self.config.mode == "Training"
         enforce_max_hunt_distance = self.config.mode != "Training"
         if not enforce_max_hunt_distance:
@@ -1069,13 +1075,26 @@ class AutoPatcher(TaskController):
             position, disp = self.calibrated_stage.get_cell_position(
                 cell,
                 use_centroid=self.config.use_centroid,
+                tracking_mode=self.config.tracking_mode,
+                track_max_fast_jump_px=self.config.track_max_fast_jump_px,
             )
+            status = {}
+            cell_track_helper = getattr(self.calibrated_stage, "cellTrackHelper", None)
+            if cell_track_helper is not None:
+                status = getattr(cell_track_helper, "last_tracking_status", {}) or {}
+            method = status.get("method")
+            status_name = status.get("status")
             if position is not None and disp is not None:
+                status_label = f"{method}/{status_name}" if method else str(status_name)
+                self.info(f"cell tracking: {status_label}")
                 self.info(f"cell displacement: {disp} px")
                 self.info(f"cell position: {position} px")
+                self._last_track_cell_status = status_name
                 return position
             else:
-                self.info("lost track of cell")
+                if self._last_track_cell_status != status_name:
+                    self.info("lost track of cell")
+                    self._last_track_cell_status = status_name
                 return None
 
         if not self._track_cell_ai_disabled_logged:
