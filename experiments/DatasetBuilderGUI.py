@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import sys
 import traceback
@@ -39,11 +40,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+PRETRAIN_DEFAULT_HORIZONS = (50, 100, 200)
+PRETRAIN_DEFAULT_TAU = math.log(1.02)
+
 from experiments.SimpleDatasetBuilder import (  # noqa: E402
     ActionSelector,
     AxisToggle,
     FilterSettings,
     ObservationSelector,
+    PretrainTargetConfig,
     SimpleDatasetBuilder,
 )
 
@@ -58,6 +63,7 @@ class DatasetBuilderGUI(QWidget):
         self._update_dataset_name_preview()
         self._sync_cv_generation_controls()
         self._sync_gigaseal_cutoff_controls()
+        self._sync_pretrain_controls()
         self._sync_selector_constraints()
 
     def _build_ui(self) -> None:
@@ -132,6 +138,11 @@ class DatasetBuilderGUI(QWidget):
 
         self.random_seed = QSpinBox()
         self.random_seed.setRange(0, 999999999)
+        self.debug_single_trajectory = QCheckBox("Debug: one random trajectory as full dataset")
+        self.debug_single_trajectory.setToolTip(
+            "After building demos, keep one random trajectory and copy it to train and validation. "
+            "Uses Random Seed; Validation Ratio is ignored."
+        )
         self.freq_mask = QSpinBox()
         self.freq_mask.setRange(1, 1000)
         self.freq_mask.setValue(1)
@@ -165,6 +176,44 @@ class DatasetBuilderGUI(QWidget):
         self.gigaseal_cutoff_value.setDecimals(3)
         self.gigaseal_cutoff_value.setSingleStep(10.0)
         self.gigaseal_cutoff_value.setValue(1200.0)
+
+        self.enable_pretrain_trends = QCheckBox("Pretrain: resistance trend labels")
+        self.enable_pretrain_trends.setChecked(False)
+        self.enable_pretrain_trends.setToolTip(
+            "Write pretrain trend labels and matching masks from smoothed resistance."
+        )
+        self.pretrain_horizon_1 = QSpinBox()
+        self.pretrain_horizon_2 = QSpinBox()
+        self.pretrain_horizon_3 = QSpinBox()
+        self.pretrain_tau_1 = QDoubleSpinBox()
+        self.pretrain_tau_2 = QDoubleSpinBox()
+        self.pretrain_tau_3 = QDoubleSpinBox()
+        self.pretrain_target_rows = []
+        for horizon, control in zip(
+            PRETRAIN_DEFAULT_HORIZONS,
+            (self.pretrain_horizon_1, self.pretrain_horizon_2, self.pretrain_horizon_3),
+        ):
+            control.setRange(1, 100000)
+            control.setValue(horizon)
+            control.setEnabled(False)
+            control.setToolTip("Future horizon in timesteps for this pretrain trend label.")
+        for control in (self.pretrain_tau_1, self.pretrain_tau_2, self.pretrain_tau_3):
+            control.setRange(0.0, 10.0)
+            control.setDecimals(5)
+            control.setSingleStep(0.005)
+            control.setValue(PRETRAIN_DEFAULT_TAU)
+            control.setEnabled(False)
+            control.setToolTip("Relative log-resistance change threshold for trend labels.")
+        for horizon_control, tau_control in self._pretrain_target_controls():
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addWidget(QLabel("H:"))
+            row_layout.addWidget(horizon_control)
+            row_layout.addWidget(QLabel("Tau:"))
+            row_layout.addWidget(tau_control)
+            row_layout.addStretch(1)
+            self.pretrain_target_rows.append(row)
 
         self.obs_resistance_slope = QCheckBox("Resistance Slope")
         self.obs_resistance_slope.setChecked(False)
@@ -225,6 +274,7 @@ class DatasetBuilderGUI(QWidget):
         form.addRow("Effective Name:", self.dataset_name_preview)
         form.addRow("Validation Ratio:", self.val_ratio)
         form.addRow("Random Seed:", self.random_seed)
+        form.addRow(self.debug_single_trajectory)
         form.addRow("Frequency Mask:", self.freq_mask)
         form.addRow("Image Resize:", self.image_resize)
         form.addRow("Inaction Steps:", self.inaction)
@@ -233,6 +283,10 @@ class DatasetBuilderGUI(QWidget):
         form.addRow(self.gigaseal_start_trim_enabled)
         form.addRow(self.gigaseal_cutoff_enabled)
         form.addRow("Gigaseal Resistance Cutoff:", self.gigaseal_cutoff_value)
+        form.addRow(self.enable_pretrain_trends)
+        form.addRow("Pretrain Target 1:", self.pretrain_target_rows[0])
+        form.addRow("Pretrain Target 2:", self.pretrain_target_rows[1])
+        form.addRow("Pretrain Target 3:", self.pretrain_target_rows[2])
         form.addRow(self.load_next_obs)
         form.addRow(self.use_velocities)
         form.addRow(self.omit_stage_movement)
@@ -399,6 +453,7 @@ class DatasetBuilderGUI(QWidget):
         self.append_test_name.toggled.connect(self._update_dataset_name_preview)
         self.use_cv_defined_coords.toggled.connect(self._sync_cv_generation_controls)
         self.gigaseal_cutoff_enabled.toggled.connect(self._sync_gigaseal_cutoff_controls)
+        self.enable_pretrain_trends.toggled.connect(self._sync_pretrain_controls)
 
         self.obs_resistance.toggled.connect(self._sync_selector_constraints)
         self.obs_resistance_slope.toggled.connect(self._sync_selector_constraints)
@@ -429,6 +484,19 @@ class DatasetBuilderGUI(QWidget):
 
     def _sync_gigaseal_cutoff_controls(self) -> None:
         self.gigaseal_cutoff_value.setEnabled(self.gigaseal_cutoff_enabled.isChecked())
+
+    def _pretrain_target_controls(self):
+        return (
+            (self.pretrain_horizon_1, self.pretrain_tau_1),
+            (self.pretrain_horizon_2, self.pretrain_tau_2),
+            (self.pretrain_horizon_3, self.pretrain_tau_3),
+        )
+
+    def _sync_pretrain_controls(self) -> None:
+        enabled = self.enable_pretrain_trends.isChecked()
+        for horizon_control, tau_control in self._pretrain_target_controls():
+            horizon_control.setEnabled(enabled)
+            tau_control.setEnabled(enabled)
 
     def _with_blocked_signals(self, *widgets):
         class _Blocker:
@@ -682,6 +750,7 @@ class DatasetBuilderGUI(QWidget):
             self.append_test_name.setChecked(is_test_name)
         self._set_if(self.val_ratio, settings.get("val_ratio"))
         self._set_if(self.random_seed, settings.get("random_seed"))
+        self._set_if(self.debug_single_trajectory, settings.get("debug_single_trajectory"))
         self._set_if(self.freq_mask, settings.get("freq_mask", settings.get("frequency_mod")))
         self._set_if(self.image_resize, settings.get("image_resize"))
         self._set_if(self.inaction, settings.get("inaction"))
@@ -710,6 +779,8 @@ class DatasetBuilderGUI(QWidget):
             self._set_if(self.filter_prob, fcfg.get("image_filter_prob"))
             self._set_if(self.filter_train_only, fcfg.get("filter_train_only"))
             self._set_if(self.filter_same_demo, fcfg.get("filter_same_per_demo"))
+
+        self._load_pretrain_targets(settings.get("pretrain_targets"))
 
         ocfg = settings.get("observation_selector", selectors.get("observations", {}))
         acfg = settings.get("action_selector", selectors.get("actions", {}))
@@ -765,6 +836,7 @@ class DatasetBuilderGUI(QWidget):
         self._update_dataset_name_preview()
         self._sync_cv_generation_controls()
         self._sync_gigaseal_cutoff_controls()
+        self._sync_pretrain_controls()
         self._sync_selector_constraints()
         self._append(f"Loaded metadata: {p}")
 
@@ -799,6 +871,76 @@ class DatasetBuilderGUI(QWidget):
     def _selected_folders(self):
         return [self.folder_list.item(i).data(Qt.UserRole) for i in range(self.folder_list.count())]
 
+    def _load_pretrain_targets(self, targets) -> None:
+        if not isinstance(targets, list) or not targets:
+            self.enable_pretrain_trends.setChecked(False)
+            return
+
+        parsed_targets = []
+        for target in targets:
+            if not isinstance(target, dict):
+                continue
+            if target.get("kind") != "future_log_signal_trend" or target.get("source") != "resistance":
+                continue
+            try:
+                horizon = int(target.get("horizon"))
+                threshold = float(target.get("threshold"))
+            except (TypeError, ValueError):
+                continue
+            if horizon <= 0 or threshold <= 0.0:
+                continue
+            parsed_targets.append((horizon, threshold))
+
+        for (horizon_control, tau_control), default_horizon in zip(
+            self._pretrain_target_controls(),
+            PRETRAIN_DEFAULT_HORIZONS,
+        ):
+            horizon_control.setValue(default_horizon)
+            tau_control.setValue(PRETRAIN_DEFAULT_TAU)
+
+        for (horizon_control, tau_control), (horizon, threshold) in zip(
+            self._pretrain_target_controls(),
+            parsed_targets,
+        ):
+            horizon_control.setValue(horizon)
+            tau_control.setValue(threshold)
+        self.enable_pretrain_trends.setChecked(bool(parsed_targets))
+
+    def _collect_pretrain_targets(self) -> list[PretrainTargetConfig]:
+        if not self.enable_pretrain_trends.isChecked():
+            return []
+
+        targets = [
+            (int(horizon_control.value()), float(tau_control.value()))
+            for horizon_control, tau_control in self._pretrain_target_controls()
+        ]
+        duplicate_horizons = sorted(
+            {horizon for horizon, _ in targets if sum(1 for value, _ in targets if value == horizon) > 1}
+        )
+        if duplicate_horizons:
+            joined = ", ".join(str(horizon) for horizon in duplicate_horizons)
+            raise ValueError(f"Pretrain horizons must be unique: {joined}")
+
+        bad = [horizon for horizon, threshold in targets if threshold <= 0.0]
+        if bad:
+            joined = ", ".join(str(horizon) for horizon in bad)
+            raise ValueError(f"Pretrain tau must be > 0 for horizon(s): {joined}")
+
+        return [
+            PretrainTargetConfig(
+                name=f"trend_{horizon}",
+                horizon=horizon,
+                threshold=threshold,
+                label_key=f"pretrain/trend_{horizon}",
+                mask_key=f"pretrain/mask_{horizon}",
+                smoothing_window=5,
+                resistance_floor=1e-3,
+                ema_alpha=0.3,
+                mask_command_interventions=True,
+            )
+            for horizon, threshold in targets
+        ]
+
     def _collect_kwargs(self):
         name = self._effective_dataset_name(self.dataset_name.text())
         return dict(
@@ -806,6 +948,7 @@ class DatasetBuilderGUI(QWidget):
             val_ratio=float(self.val_ratio.value()),
             omit_stage_movement=self.omit_stage_movement.isChecked(),
             random_seed=int(self.random_seed.value()),
+            debug_single_trajectory=self.debug_single_trajectory.isChecked(),
             freq_mask=int(self.freq_mask.value()),
             load_next_obs=self.load_next_obs.isChecked(),
             use_velocities=self.use_velocities.isChecked(),
@@ -826,6 +969,7 @@ class DatasetBuilderGUI(QWidget):
             gigaseal_resistance_cutoff_enabled=self.gigaseal_cutoff_enabled.isChecked(),
             gigaseal_resistance_cutoff=float(self.gigaseal_cutoff_value.value()),
             resistance_slope_window=int(self.slope_window_spin.value()),
+            pretrain_targets=self._collect_pretrain_targets(),
             observation_selector=ObservationSelector(
                 include_pressure=self.obs_pressure.isChecked(),
                 include_resistance=self.obs_resistance.isChecked(),
@@ -893,9 +1037,19 @@ class DatasetBuilderGUI(QWidget):
             QMessageBox.warning(self, "Dataset name", "Dataset name is required.")
             return
 
-        kwargs = self._collect_kwargs()
+        try:
+            kwargs = self._collect_kwargs()
+        except Exception as exc:
+            self._append(str(exc))
+            QMessageBox.warning(self, "Builder settings", str(exc))
+            return
         self._append(f"Building dataset: {kwargs['dataset_name']}")
         self._append(f"Folders: {', '.join(folders)}")
+        if self.debug_single_trajectory.isChecked():
+            self._append(
+                "Debug single-trajectory mode: final HDF5 outputs will contain one compact demo "
+                "referenced by both train and valid masks."
+            )
 
         self.setEnabled(False)
         try:
