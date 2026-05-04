@@ -35,7 +35,7 @@ FILE_PATH = Path(
     r"\PatcherBot_dataset_v0_923_gigaseal.hdf5"
 )
 
-ROOTS_TO_PLOT = ("obs", "actions", "dones", "pretrain")
+ROOTS_TO_PLOT = ("obs", "actions", "dones")
 INCLUDE_NEXT_OBS = False
 
 MAX_DEMOS: int | None = None

@@ -57,15 +57,6 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from patcherbot.utils.resistance_smoothing import (
-    CAUSAL_LOG_MEDIAN_EMA_METHOD,
-    DEFAULT_EMA_ALPHA,
-    DEFAULT_MEDIAN_WINDOW,
-    DEFAULT_RESISTANCE_FLOOR,
-    causal_log_median_ema,
-)
-
-
 # ---------------------------------------------------------------------------
 # Configuration containers
 # ---------------------------------------------------------------------------
@@ -77,45 +68,6 @@ class FilterSettings:
     image_filter_prob: float = 0.65
     filter_train_only: bool = False
     filter_same_per_demo: bool = False
-
-
-@dataclass(slots=True)
-class PretrainTargetConfig:
-    name: str
-    kind: str = "future_log_signal_trend"
-    source: str = "resistance"
-    horizon: int = 1
-    threshold: float = 0.02
-    label_key: str = ""
-    mask_key: str = ""
-    num_classes: int = 3
-    smoothing_method: str = CAUSAL_LOG_MEDIAN_EMA_METHOD
-    smoothing_window: int = DEFAULT_MEDIAN_WINDOW
-    resistance_floor: float = DEFAULT_RESISTANCE_FLOOR
-    ema_alpha: float = DEFAULT_EMA_ALPHA
-    log_epsilon: float = 1e-8
-    mask_command_interventions: bool = True
-
-    def __post_init__(self) -> None:
-        self.name = str(self.name)
-        self.kind = str(self.kind)
-        self.source = str(self.source)
-        self.horizon = int(self.horizon)
-        self.threshold = float(self.threshold)
-        self.label_key = self._normalize_key(self.label_key or f"pretrain/{self.name}")
-        default_mask_key = f"pretrain/mask_{self.horizon}"
-        self.mask_key = self._normalize_key(self.mask_key or default_mask_key)
-        self.num_classes = int(self.num_classes)
-        self.smoothing_method = str(self.smoothing_method)
-        self.smoothing_window = int(self.smoothing_window)
-        self.resistance_floor = float(self.resistance_floor)
-        self.ema_alpha = float(self.ema_alpha)
-        self.log_epsilon = float(self.log_epsilon)
-        self.mask_command_interventions = bool(self.mask_command_interventions)
-
-    @staticmethod
-    def _normalize_key(key: str) -> str:
-        return str(key).strip().strip("/")
 
 
 @dataclass(slots=True)
@@ -143,7 +95,6 @@ class ObservationSelector:
     include_stage: bool = True
     include_pipette: bool = True
     include_camera: bool = True
-    include_gigaseal_log_resistance: bool = True
     include_gigaseal_pressure_state: bool = True
     include_gigaseal_effective_pressure: bool = True
     include_gigaseal_observations_since_last_action: bool = True
@@ -173,8 +124,6 @@ class ActionSelector:
     include_stage: bool = False
     include_pipette: bool = True
     include_pressure: bool = False
-    pressure_use_raw_values: bool = True
-    pressure_use_binary_actions: bool = False
     include_high_level: bool = False
     stage_axes: AxisToggle = field(default_factory=AxisToggle)
     pipette_axes: AxisToggle = field(default_factory=AxisToggle)
@@ -200,20 +149,7 @@ class ActionSelector:
         return [f"pipette_{axis}" for axis in self.pipette_axes.enabled_labels()]
 
     def pressure_axis_labels(self) -> List[str]:
-        if not self.include_pressure:
-            return []
-        if self.pressure_use_binary_actions:
-            return [
-                "pressure_step_negative_5",
-                "pressure_step_positive_5",
-                "pressure_reset",
-            ]
-        pressure_axis = (
-            "commanded_pressure_mbar"
-            if self.pressure_use_raw_values
-            else "delta_pressure_mbar"
-        )
-        return [pressure_axis, "pressure_atm_state"]
+        return ["commanded_pressure_mbar"] if self.include_pressure else []
 
 
 @dataclass(slots=True)
@@ -229,7 +165,7 @@ class DatasetBuilderSettings:
     prefer_cv_movement: bool = True # set to true to prefer cv_movement_recording.csv over movement_recording.csv
     filter: FilterSettings = field(default_factory=FilterSettings)
     image_resize: int = 85
-    pipette_final_pos_color_dot: bool = False # set to true if want to add a red dot to image at final pipette position (for pipette finder only)
+    pipette_final_pos_color_dot: bool = False # goal-conditioning option: mark final pipette position in camera frames
 
     observation_selector: ObservationSelector = field(default_factory=ObservationSelector)
     action_selector: ActionSelector = field(
@@ -249,20 +185,6 @@ class DatasetBuilderSettings:
     gigaseal_resistance_cutoff_enabled: bool = False # stop gigaseal trajectories once resistance reaches the cutoff
     gigaseal_resistance_cutoff: float = 1200.0
     resistance_slope_window: int = 20
-    pretrain_targets: List[PretrainTargetConfig] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        targets: List[PretrainTargetConfig] = []
-        for target in self.pretrain_targets:
-            if isinstance(target, PretrainTargetConfig):
-                targets.append(target)
-            elif isinstance(target, Mapping):
-                targets.append(PretrainTargetConfig(**dict(target)))
-            else:
-                raise TypeError(
-                    "pretrain_targets entries must be PretrainTargetConfig objects or dictionaries"
-                )
-        self.pretrain_targets = targets
 
 
 @dataclass(slots=True)
@@ -642,8 +564,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.freq_mask = max(1, int(settings.freq_mask))
         self.observation_selector = settings.observation_selector
         self.action_selector = settings.action_selector
-        self.pretrain_targets = list(settings.pretrain_targets)
-        self._validate_pretrain_target_configs()
         self._synchronize_selectors()
         self._last_action_labels: List[str] = []
         self._last_action_stage_cols: int = 0
@@ -806,16 +726,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         pressure_state_values: Optional[np.ndarray],
         effective_pressure_values: Optional[np.ndarray],
         resistance_values: Optional[np.ndarray],
-        log_resistance_values: Optional[np.ndarray],
         resistance_slope_values: Optional[np.ndarray],
         current_values: Optional[np.ndarray],
         voltage_values: Optional[np.ndarray],
         stage_positions: Optional[np.ndarray],
         pipette_positions: Optional[np.ndarray],
         camera_frames: Optional[np.ndarray],
-        pretrain_resistance_values: Optional[np.ndarray] = None,
-        pretrain_commanded_pressure_values: Optional[np.ndarray] = None,
-        pretrain_pressure_atm_state_values: Optional[np.ndarray] = None,
     ):
         """Filter invalid and inactive timesteps while keeping all payloads aligned."""
 
@@ -826,18 +742,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             pressure_state_values,
             effective_pressure_values,
             resistance_values,
-            log_resistance_values,
             resistance_slope_values,
             current_values,
             voltage_values,
             stage_positions,
             pipette_positions,
             camera_frames,
-        ]
-        alignment_payloads: List[Optional[np.ndarray]] = [
-            pretrain_resistance_values,
-            pretrain_commanded_pressure_values,
-            pretrain_pressure_atm_state_values,
         ]
 
         invalid_removed = 0
@@ -852,16 +762,11 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 invalid_removed = int(np.count_nonzero(~keep))
                 actions = actions[keep]
                 payloads = [None if array is None else array[keep] for array in payloads]
-                alignment_payloads = [
-                    None if array is None else array[keep] for array in alignment_payloads
-                ]
 
         before_inactive = actions.shape[0]
-        filtered = self.filter_inactive_actions(actions, *(payloads + alignment_payloads))
+        filtered = self.filter_inactive_actions(actions, *payloads)
         actions = filtered[0]
-        filtered_payloads = list(filtered[1:])
-        payloads = filtered_payloads[: len(payloads)]
-        alignment_payloads = filtered_payloads[len(payloads):]
+        payloads = list(filtered[1:])
         inactive_removed = before_inactive - actions.shape[0]
 
         dones = payloads[0]
@@ -880,7 +785,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             pressure_state_values,
             effective_pressure_values,
             resistance_values,
-            log_resistance_values,
             resistance_slope_values,
             current_values,
             voltage_values,
@@ -897,16 +801,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             pressure_state_values,
             effective_pressure_values,
             resistance_values,
-            log_resistance_values,
             resistance_slope_values,
             current_values,
             voltage_values,
             stage_positions,
             pipette_positions,
             camera_frames,
-            alignment_payloads[0],
-            alignment_payloads[1],
-            alignment_payloads[2],
             invalid_removed,
             inactive_removed,
         )
@@ -991,7 +891,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 selector.include_resistance,
                 selector.include_current,
                 selector.include_voltage,
-                bool(self.pretrain_targets),
             )
         )
         if graph_file.exists():
@@ -1221,9 +1120,8 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self,
         attempt_graph_values: np.ndarray,
         pressure_events: pd.DataFrame,
-        pressure_use_raw_values: Optional[bool] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Return pressure action targets for the interval after each observation."""
+        """Return target pressure setpoint and ATM action state after each observation."""
 
         current_pressure, current_atm_state = self.get_attempt_pressure_observation_values(
             attempt_graph_values,
@@ -1232,58 +1130,15 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         if current_pressure.size == 0:
             return current_pressure, current_atm_state
 
-        selector = self.action_selector
-        use_raw_pressure_values = (
-            selector.pressure_use_raw_values
-            if pressure_use_raw_values is None
-            else bool(pressure_use_raw_values)
-        )
-
         target_pressure = current_pressure.copy()
         target_atm_state = current_atm_state.copy()
         if target_pressure.shape[0] > 1:
             target_pressure[:-1] = current_pressure[1:]
             target_atm_state[:-1] = current_atm_state[1:]
-
-        if use_raw_pressure_values:
-            commanded_pressure = target_pressure
-        else:
-            commanded_pressure = target_pressure - current_pressure
-        return commanded_pressure, target_atm_state
-
-    @staticmethod
-    def get_binary_pressure_action_values(
-        raw_commanded_pressure: np.ndarray,
-        previous_pressure: Optional[np.ndarray] = None,
-    ) -> np.ndarray:
-        """Return pressure action columns for -5 step, +5 step, and reset."""
-
-        raw_pressure = np.asarray(raw_commanded_pressure, dtype=np.float64).reshape(-1)
-        binary_actions = np.zeros((raw_pressure.shape[0], 3), dtype=np.float64)
-        if raw_pressure.size == 0:
-            return binary_actions
-
-        if previous_pressure is None:
-            prior_pressure = np.empty_like(raw_pressure)
-            prior_pressure[0] = raw_pressure[0]
-            prior_pressure[1:] = raw_pressure[:-1]
-        else:
-            prior_pressure = np.asarray(previous_pressure, dtype=np.float64).reshape(-1)
-            if prior_pressure.shape[0] != raw_pressure.shape[0]:
-                raise ValueError("previous_pressure must match raw_commanded_pressure length")
-
-        delta_pressure = raw_pressure - prior_pressure
-
-        active = delta_pressure != 0.0
-        toward_zero = (np.abs(raw_pressure) < np.abs(prior_pressure)) & (
-            np.abs(prior_pressure) > 0.0
+        return (
+            target_pressure.astype(np.float64, copy=False),
+            target_atm_state.astype(np.float64, copy=False),
         )
-        reset = active & toward_zero & (np.abs(delta_pressure) > 5.0)
-
-        binary_actions[(delta_pressure < 0.0) & ~reset, 0] = 1.0
-        binary_actions[(delta_pressure > 0.0) & ~reset, 1] = 1.0
-        binary_actions[reset, 2] = 1.0
-        return binary_actions
 
     def get_attempt_pressure_state_observation_values(
         self,
@@ -1591,14 +1446,11 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def associate_attempt_movement_and_graph_values(
         attempt_graph_values: np.ndarray, movement_values: np.ndarray
     ) -> np.ndarray:
-        """Align each graph row with the closest movement sample in time."""
+        """Align each graph row with the latest movement sample known at that time."""
         g_ts = attempt_graph_values[:, 0]
         m_ts = movement_values[:, 0]
-        right = np.searchsorted(m_ts, g_ts)
-        left = np.clip(right - 1, 0, len(m_ts) - 1)
-        right = np.clip(right, 0, len(m_ts) - 1)
-        choose_right = np.abs(m_ts[right] - g_ts) < np.abs(m_ts[left] - g_ts)
-        indices = np.where(choose_right, right, left)
+        indices = np.searchsorted(m_ts, g_ts, side="right") - 1
+        indices = np.clip(indices, 0, len(m_ts) - 1)
         return movement_values[indices]
 
     # --- Attempt level feature extraction --------------------------------
@@ -1615,201 +1467,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def get_attempt_resistance_values(self, attempt_graph_values: np.ndarray) -> np.ndarray:
         """Return resistance values for the current attempt."""
         return attempt_graph_values[:, 2].astype(np.float64)
-
-    @staticmethod
-    def get_log_resistance_values(resistance_values: np.ndarray) -> np.ndarray:
-        """Return natural log resistance, preserving invalid rows as NaN."""
-
-        values = np.asarray(resistance_values, dtype=np.float64).reshape(-1)
-        log_values = np.full(values.shape, np.nan, dtype=np.float64)
-        valid = np.isfinite(values) & (values > 0.0)
-        log_values[valid] = np.log(values[valid])
-        return log_values
-
-    def _validate_pretrain_target_configs(self) -> None:
-        """Validate configured generic pretrain target writers."""
-
-        seen_keys: set[str] = set()
-        for target in self.pretrain_targets:
-            if target.kind != "future_log_signal_trend":
-                raise ValueError(f"Unsupported pretrain target kind: {target.kind}")
-            if target.source != "resistance":
-                raise ValueError(f"Unsupported pretrain target source: {target.source}")
-            if target.horizon <= 0:
-                raise ValueError(f"Pretrain target {target.name} must have horizon > 0")
-            if not np.isfinite(target.threshold) or target.threshold <= 0.0:
-                raise ValueError(f"Pretrain target {target.name} must have a finite threshold > 0")
-            if target.num_classes != 3:
-                raise ValueError(f"Pretrain target {target.name} must use num_classes=3")
-            if target.smoothing_method != CAUSAL_LOG_MEDIAN_EMA_METHOD:
-                raise ValueError(
-                    f"Unsupported smoothing method for {target.name}: {target.smoothing_method}"
-                )
-            if target.smoothing_window <= 0:
-                raise ValueError(
-                    f"Pretrain target {target.name} must use smoothing_window > 0"
-                )
-            if not np.isfinite(target.resistance_floor) or target.resistance_floor <= 0.0:
-                raise ValueError(f"Pretrain target {target.name} must have resistance_floor > 0")
-            if (
-                not np.isfinite(target.ema_alpha)
-                or target.ema_alpha <= 0.0
-                or target.ema_alpha > 1.0
-            ):
-                raise ValueError(f"Pretrain target {target.name} must have ema_alpha in (0, 1]")
-            for key in (target.label_key, target.mask_key):
-                if not key.startswith("pretrain/"):
-                    raise ValueError(
-                        f"Pretrain target {target.name} key must live under pretrain/: {key}"
-                    )
-                if key in seen_keys:
-                    raise ValueError(f"Duplicate pretrain dataset key configured: {key}")
-                seen_keys.add(key)
-            if target.label_key == target.mask_key:
-                raise ValueError(f"Pretrain target {target.name} label_key and mask_key match")
-
-    def _pretrain_requires_command_mask(self) -> bool:
-        return any(target.mask_command_interventions for target in self.pretrain_targets)
-
-    @staticmethod
-    def _command_intervention_free_mask(
-        commanded_pressure_values: Optional[np.ndarray],
-        pressure_atm_state_values: Optional[np.ndarray],
-        horizon: int,
-        length: int,
-    ) -> np.ndarray:
-        """Return rows whose future horizon has no pressure or ATM command change."""
-
-        if commanded_pressure_values is None or pressure_atm_state_values is None:
-            raise ValueError("Pressure and ATM command traces are required for pretrain command masking")
-
-        pressure = np.asarray(commanded_pressure_values, dtype=np.float64).reshape(-1)
-        atm_state = np.asarray(pressure_atm_state_values, dtype=np.float64).reshape(-1)
-        if pressure.shape[0] != length or atm_state.shape[0] != length:
-            raise ValueError("Command traces must match the pretrain source length")
-
-        clean = np.zeros(length, dtype=bool)
-        if length == 0 or horizon >= length:
-            return clean
-
-        changed = np.zeros(length, dtype=bool)
-        changed[1:] = (
-            ~np.isclose(pressure[1:], pressure[:-1], equal_nan=True)
-            | ~np.isclose(atm_state[1:], atm_state[:-1], equal_nan=True)
-        )
-        prefix = np.concatenate(([0], np.cumsum(changed.astype(np.int64))))
-        starts = np.arange(0, length - horizon)
-        change_counts = prefix[starts + horizon + 1] - prefix[starts + 1]
-        clean[starts] = change_counts == 0
-        return clean
-
-    def _generate_future_log_signal_trend(
-        self,
-        target: PretrainTargetConfig,
-        resistance_values: np.ndarray,
-        commanded_pressure_values: Optional[np.ndarray],
-        pressure_atm_state_values: Optional[np.ndarray],
-    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
-        """Generate class labels and masks for one future resistance trend target."""
-
-        raw = np.asarray(resistance_values, dtype=np.float64).reshape(-1)
-        horizon = int(target.horizon)
-        labels = np.ones(raw.shape[0], dtype=np.int64)
-        mask = np.zeros(raw.shape[0], dtype=np.float32)
-        smoothed_log_resistance = causal_log_median_ema(
-            raw,
-            window=target.smoothing_window,
-            alpha=target.ema_alpha,
-            resistance_floor=target.resistance_floor,
-        )
-
-        if raw.shape[0] > horizon:
-            starts = np.arange(0, raw.shape[0] - horizon)
-            ends = starts + horizon
-            endpoint_valid = (
-                np.isfinite(raw[starts])
-                & np.isfinite(raw[ends])
-                & np.isfinite(smoothed_log_resistance[starts])
-                & np.isfinite(smoothed_log_resistance[ends])
-            )
-            if target.mask_command_interventions:
-                endpoint_valid &= self._command_intervention_free_mask(
-                    commanded_pressure_values,
-                    pressure_atm_state_values,
-                    horizon,
-                    raw.shape[0],
-                )[starts]
-
-            valid_starts = starts[endpoint_valid]
-            if valid_starts.size:
-                valid_ends = valid_starts + horizon
-                delta = (
-                    smoothed_log_resistance[valid_ends]
-                    - smoothed_log_resistance[valid_starts]
-                )
-                labels[valid_starts] = np.where(
-                    delta > target.threshold,
-                    2,
-                    np.where(delta < -target.threshold, 0, 1),
-                )
-                mask[valid_starts] = 1.0
-
-        return labels.reshape(-1, 1), mask.reshape(-1, 1), {
-            "source_endpoint_invalid_count": 0,
-            "source_length": int(raw.shape[0]),
-            "smoothing_method": target.smoothing_method,
-            "smoothing_window": int(target.smoothing_window),
-            "resistance_floor": float(target.resistance_floor),
-            "ema_alpha": float(target.ema_alpha),
-            "threshold": float(target.threshold),
-            "horizon": int(target.horizon),
-            "mask_command_interventions": bool(target.mask_command_interventions),
-        }
-
-    def build_pretrain_datasets(
-        self,
-        resistance_values: Optional[np.ndarray],
-        commanded_pressure_values: Optional[np.ndarray] = None,
-        pressure_atm_state_values: Optional[np.ndarray] = None,
-    ) -> Tuple[Dict[str, np.ndarray], Dict[str, Dict[str, Any]]]:
-        """Return configured pretrain HDF5 datasets and per-dataset attributes."""
-
-        if not self.pretrain_targets:
-            return {}, {}
-        if resistance_values is None:
-            raise ValueError("Pretrain resistance targets require aligned resistance values")
-
-        datasets: Dict[str, np.ndarray] = {}
-        attrs: Dict[str, Dict[str, Any]] = {}
-        for target in self.pretrain_targets:
-            labels, mask, common_attrs = self._generate_future_log_signal_trend(
-                target,
-                resistance_values,
-                commanded_pressure_values,
-                pressure_atm_state_values,
-            )
-            datasets[target.label_key] = labels.astype(np.int64, copy=False)
-            datasets[target.mask_key] = mask.astype(np.float32, copy=False)
-            attrs[target.label_key] = {
-                **common_attrs,
-                "role": "label",
-                "name": target.name,
-                "kind": target.kind,
-                "source": target.source,
-                "num_classes": int(target.num_classes),
-                "class_0": "falling",
-                "class_1": "flat",
-                "class_2": "rising",
-            }
-            attrs[target.mask_key] = {
-                **common_attrs,
-                "role": "mask",
-                "name": target.name,
-                "kind": target.kind,
-                "source": target.source,
-                "label_key": target.label_key,
-            }
-        return datasets, attrs
 
     def _compute_resistance_slope(self, resistance_values: Optional[np.ndarray]) -> Optional[np.ndarray]:
         """Return a rolling average resistance slope aligned to each observation."""
@@ -1867,7 +1524,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     
     @staticmethod
     def add_image_color_dot(numpy_image: np.ndarray, color_dot: Optional[Tuple[int, int]]) -> np.ndarray:
-        """Add a red dot to ``numpy_image`` at the given coordinates."""
+        """Add a white dot to ``numpy_image`` at the given coordinates."""
         if color_dot is None or numpy_image.ndim < 2:
             return numpy_image
 
@@ -1888,8 +1545,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             dot_value = numpy_image.dtype.type(255)
         numpy_image[y0:y1, x0:x1] = dot_value
         return numpy_image
-
-
 
     @staticmethod
     def _camera_order_key(name: str) -> str:
@@ -2020,13 +1675,18 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 )
                 return None
 
-            min_idx = valid_indices[0]
-            min_diff = float("inf")
+            min_idx: Optional[int] = None
+            latest_timestamp = -float("inf")
             for idx, ts in zip(valid_indices, valid_timestamps):
-                diff = abs(target_timestamp - ts)
-                if diff < min_diff:
-                    min_diff = diff
+                if ts <= target_timestamp and ts > latest_timestamp:
+                    latest_timestamp = ts
                     min_idx = idx
+            if min_idx is None:
+                warnings.warn(
+                    f"No causal camera frame matched timestamp {target_timestamp} in {rig_recorder_data_folder}; skipping attempt.",
+                    RuntimeWarning,
+                )
+                return None
 
             pil_image = Image.open(base / camera_files[min_idx])
             pil_image = self.apply_albu_filter_to_pil(pil_image)
@@ -2037,7 +1697,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 pil_image = self.crop_image_center(pil_image)
             
             resized_image = np.array(pil_image.resize((self.image_resize, self.image_resize)))
-            
+
             if self.pipette_final_pos_color_dot:
                 resized_image = self.add_image_color_dot(resized_image, pipette_final_pos)
 
@@ -2221,6 +1881,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         attempt_graph_values: Optional[np.ndarray] = None,
         rig_recorder_data_folder: Optional[str] = None,
         pressure_events: Optional[pd.DataFrame] = None,
+        force_pressure_action: bool = False,
     ) -> np.ndarray:
         """Return low-level per-step deltas or per-observation velocities."""
         timestamps = attempt_movement_values[:, 0].astype(np.float64, copy=False)
@@ -2259,6 +1920,20 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         selected_components: List[np.ndarray] = []
         action_labels: List[str] = []
 
+        if force_pressure_action:
+            if attempt_graph_values is None:
+                raise ValueError("attempt_graph_values is required when Pressure Action is enabled")
+            if pressure_events is None:
+                raise ValueError("pressure_events are required when Pressure Action is enabled")
+            commanded_pressure, atm_state = self.get_attempt_pressure_action_values(
+                attempt_graph_values,
+                pressure_events,
+            )
+            selected_components.append(
+                np.column_stack([commanded_pressure, atm_state]).astype(np.float64, copy=False)
+            )
+            action_labels.extend(["commanded_pressure_mbar", "pressure_atm_state"])
+
         if stage_indices:
             selected_components.append(movement_actions[:, stage_indices])
             axis_labels = [f"stage_{AxisToggle.AXIS_NAMES[idx]}" for idx in stage_indices]
@@ -2270,35 +1945,18 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             axis_labels = [f"pipette_{AxisToggle.AXIS_NAMES[idx]}" for idx in pip_indices]
             action_labels.extend(axis_labels)
 
-        if selector.include_pressure:
+        if selector.include_pressure and not force_pressure_action:
             if attempt_graph_values is None:
                 raise ValueError("attempt_graph_values is required when Pressure Action is enabled")
             if pressure_events is None:
                 raise ValueError("pressure_events are required when Pressure Action is enabled")
-            if selector.pressure_use_binary_actions:
-                current_pressure, _ = self.get_attempt_pressure_observation_values(
-                    attempt_graph_values,
-                    pressure_events,
-                )
-                target_pressure, _ = self.get_attempt_pressure_action_values(
-                    attempt_graph_values,
-                    pressure_events,
-                    pressure_use_raw_values=True,
-                )
-                selected_components.append(
-                    self.get_binary_pressure_action_values(
-                        target_pressure,
-                        previous_pressure=current_pressure,
-                    )
-                )
-            else:
-                commanded_pressure, atm_state = self.get_attempt_pressure_action_values(
-                    attempt_graph_values,
-                    pressure_events,
-                )
-                selected_components.append(
-                    np.column_stack([commanded_pressure, atm_state]).astype(np.float64, copy=False)
-                )
+            pressure_action, _ = self.get_attempt_pressure_action_values(
+                attempt_graph_values,
+                pressure_events,
+            )
+            selected_components.append(
+                pressure_action.reshape(-1, 1).astype(np.float64, copy=False)
+            )
             action_labels.extend(selector.pressure_axis_labels())
 
         if selected_components:
@@ -2311,47 +1969,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         return actions
 
     # --- Dataset writing -------------------------------------------------
-    @staticmethod
-    def _write_dataset_at_path(
-        parent: h5py.Group,
-        key: str,
-        data: np.ndarray,
-        attrs: Optional[Mapping[str, Any]] = None,
-    ) -> h5py.Dataset:
-        """Create or replace one dataset under ``parent`` without touching siblings."""
-
-        parts = [part for part in str(key).strip("/").split("/") if part]
-        if not parts:
-            raise ValueError("Dataset key cannot be empty")
-
-        group = parent
-        for part in parts[:-1]:
-            group = group.require_group(part)
-        name = parts[-1]
-        if name in group:
-            del group[name]
-        dataset = group.create_dataset(name, data=data)
-        if attrs:
-            for attr_key, attr_value in attrs.items():
-                if isinstance(attr_value, str):
-                    dataset.attrs[attr_key] = attr_value
-                else:
-                    dataset.attrs[attr_key] = attr_value
-        return dataset
-
-    @classmethod
-    def _write_pretrain_datasets(
-        cls,
-        demo: h5py.Group,
-        datasets: Optional[Mapping[str, np.ndarray]],
-        dataset_attrs: Optional[Mapping[str, Mapping[str, Any]]] = None,
-    ) -> None:
-        if not datasets:
-            return
-        attrs_by_key = dataset_attrs or {}
-        for key, data in datasets.items():
-            cls._write_dataset_at_path(demo, key, data, attrs_by_key.get(key))
-
     def add_attempt_demo_to_dataset(
         self,
         num_samples: int,
@@ -2378,16 +1995,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         split_label: str = "train",
         pressure_state_values: Optional[np.ndarray] = None,
         effective_pressure_values: Optional[np.ndarray] = None,
-        log_resistance_values: Optional[np.ndarray] = None,
         observations_since_last_action_values: Optional[np.ndarray] = None,
         time_since_last_action_values: Optional[np.ndarray] = None,
         next_pressure_state_values: Optional[np.ndarray] = None,
         next_effective_pressure_values: Optional[np.ndarray] = None,
-        next_log_resistance_values: Optional[np.ndarray] = None,
         next_observations_since_last_action_values: Optional[np.ndarray] = None,
         next_time_since_last_action_values: Optional[np.ndarray] = None,
-        pretrain_datasets: Optional[Mapping[str, np.ndarray]] = None,
-        pretrain_dataset_attrs: Optional[Mapping[str, Mapping[str, Any]]] = None,
     ) -> str:
         """Persist a demo to disk and return the HDF5 key used for the group."""
         selector = self.observation_selector
@@ -2426,8 +2039,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 observations.create_dataset("effective_pressure", data=_as_column(effective_pressure_values))
             if resistance_values is not None:
                 observations.create_dataset("resistance", data=_as_column(resistance_values))
-            if log_resistance_values is not None:
-                observations.create_dataset("log_resistance", data=_as_column(log_resistance_values))
             if resistance_slope_values is not None:
                 observations.create_dataset("resistance_slope", data=_as_column(resistance_slope_values))
             if observations_since_last_action_values is not None:
@@ -2467,8 +2078,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     next_obs.create_dataset("effective_pressure", data=_as_column(next_effective_pressure_values))
                 if next_resistance_values is not None:
                     next_obs.create_dataset("resistance", data=_as_column(next_resistance_values))
-                if next_log_resistance_values is not None:
-                    next_obs.create_dataset("log_resistance", data=_as_column(next_log_resistance_values))
                 if next_resistance_slope_values is not None:
                     next_obs.create_dataset("resistance_slope", data=_as_column(next_resistance_slope_values))
                 if next_observations_since_last_action_values is not None:
@@ -2497,8 +2106,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         next_pip_ds.attrs["axes"] = np.asarray(pip_axes, dtype="S")
                 if effective_include_camera and next_camera_frames is not None:
                     next_obs.create_dataset("camera_image", data=next_camera_frames)
-
-            self._write_pretrain_datasets(demo, pretrain_datasets, pretrain_dataset_attrs)
 
             data_group.attrs["num_demos"] = demo_number + 1
             print(
@@ -2546,7 +2153,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 "include_stage": obs.include_stage,
                 "include_pipette": obs.include_pipette,
                 "include_camera": obs.include_camera,
-                "include_gigaseal_log_resistance": obs.include_gigaseal_log_resistance,
                 "include_gigaseal_pressure_state": obs.include_gigaseal_pressure_state,
                 "include_gigaseal_effective_pressure": obs.include_gigaseal_effective_pressure,
                 "include_gigaseal_observations_since_last_action": (
@@ -2561,190 +2167,17 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 "include_stage": act.include_stage,
                 "include_pipette": act.include_pipette,
                 "include_pressure": act.include_pressure,
-                "pressure_use_raw_values": act.pressure_use_raw_values,
-                "pressure_use_binary_actions": act.pressure_use_binary_actions,
                 "include_high_level": act.include_high_level,
                 "stage_axes": act.stage_axis_labels(),
                 "pipette_axes": act.pipette_axis_labels(),
             },
         }
 
-    @staticmethod
-    def _decode_hdf5_string(value: Any) -> str:
-        if isinstance(value, bytes):
-            return value.decode()
-        return str(value)
-
-    def inspect_pretrain_targets(
-        self,
-        *,
-        raise_errors: bool = False,
-        validate_filter_keys: bool = False,
-    ) -> Dict[str, Any]:
-        """Inspect configured pretrain targets and optionally raise on contract errors."""
-
-        report: Dict[str, Any] = {
-            "enabled": bool(self.pretrain_targets),
-            "demo_count": 0,
-            "targets": {},
-            "errors": [],
-        }
-        if not self.pretrain_targets:
-            return report
-        for target in self.pretrain_targets:
-            report["targets"][target.name] = {
-                "horizon": int(target.horizon),
-                "valid_labels": 0,
-                "class_histogram": {"0": 0, "1": 0, "2": 0},
-                "masked_fraction": 0.0,
-                "total_timesteps": 0,
-            }
-        if not self.dataset_path.exists():
-            return report
-
-        errors: List[str] = report["errors"]
-        with h5py.File(self.dataset_path, "r") as hf:
-            if "data" not in hf:
-                return report
-
-            data_group = hf["data"]
-            demo_names = list(data_group.keys())
-            report["demo_count"] = len(demo_names)
-
-            if validate_filter_keys and "mask" in hf:
-                existing = set(demo_names)
-                for split_name, split_ds in hf["mask"].items():
-                    for raw_key in split_ds[()]:
-                        demo_key = self._decode_hdf5_string(raw_key)
-                        if demo_key not in existing:
-                            errors.append(f"mask/{split_name} references missing demo {demo_key}")
-
-            for demo_name in demo_names:
-                demo = data_group[demo_name]
-                actions_len = int(demo["actions"].shape[0]) if "actions" in demo else -1
-                attr_samples = int(demo.attrs.get("num_samples", actions_len))
-                if actions_len != attr_samples:
-                    errors.append(
-                        f"{demo_name} actions length {actions_len} differs from num_samples {attr_samples}"
-                    )
-                T = attr_samples
-                source_values: Optional[np.ndarray] = None
-                if "obs" in demo and "resistance" in demo["obs"]:
-                    source_values = np.asarray(demo["obs/resistance"][()]).reshape(-1)
-
-                for target in self.pretrain_targets:
-                    target_report = report["targets"][target.name]
-                    target_report["total_timesteps"] += max(T, 0)
-                    for key in (target.label_key, target.mask_key):
-                        if key not in demo:
-                            errors.append(f"{demo_name} missing {key}")
-                    if target.label_key not in demo or target.mask_key not in demo:
-                        continue
-
-                    label_ds = demo[target.label_key]
-                    mask_ds = demo[target.mask_key]
-                    labels = np.asarray(label_ds[()])
-                    masks = np.asarray(mask_ds[()])
-                    if labels.shape != (T, 1):
-                        errors.append(f"{demo_name}/{target.label_key} shape {labels.shape} != {(T, 1)}")
-                    if masks.shape != (T, 1):
-                        errors.append(f"{demo_name}/{target.mask_key} shape {masks.shape} != {(T, 1)}")
-                    if not np.issubdtype(labels.dtype, np.integer):
-                        errors.append(f"{demo_name}/{target.label_key} dtype {labels.dtype} is not integer")
-                    label_flat = labels.reshape(-1)
-                    mask_flat = masks.reshape(-1)
-                    if label_flat.size and not np.isin(label_flat, [0, 1, 2]).all():
-                        errors.append(f"{demo_name}/{target.label_key} contains labels outside {{0,1,2}}")
-                    if mask_flat.size and not np.isin(mask_flat, [0, 1]).all():
-                        errors.append(f"{demo_name}/{target.mask_key} contains mask values outside {{0,1}}")
-
-                    tail = mask_flat[-min(target.horizon, mask_flat.shape[0]):] if mask_flat.size else mask_flat
-                    if tail.size and np.any(tail != 0):
-                        errors.append(f"{demo_name}/{target.mask_key} has nonzero tail mask")
-
-                    valid = mask_flat == 1
-                    valid_count = int(np.count_nonzero(valid))
-                    target_report["valid_labels"] += valid_count
-                    if valid_count:
-                        hist = np.bincount(label_flat[valid].astype(np.int64), minlength=3)
-                        for idx in range(3):
-                            target_report["class_histogram"][str(idx)] += int(hist[idx])
-
-                    if source_values is not None and valid_count:
-                        if source_values.shape[0] != T:
-                            errors.append(
-                                f"{demo_name}/obs/resistance length {source_values.shape[0]} differs from {T}"
-                            )
-                        else:
-                            valid_indices = np.flatnonzero(valid)
-                            in_range = valid_indices + target.horizon < source_values.shape[0]
-                            if not np.all(in_range):
-                                errors.append(f"{demo_name}/{target.mask_key} marks out-of-range labels valid")
-                            valid_indices = valid_indices[in_range]
-                            if valid_indices.size:
-                                end_indices = valid_indices + target.horizon
-                                endpoint_ok = (
-                                    np.isfinite(source_values[valid_indices])
-                                    & np.isfinite(source_values[end_indices])
-                                )
-                                if not np.all(endpoint_ok):
-                                    errors.append(
-                                        f"{demo_name}/{target.mask_key} has valid rows with invalid source endpoints"
-                                    )
-
-                    invalid_attr = int(mask_ds.attrs.get("source_endpoint_invalid_count", 0))
-                    if invalid_attr != 0:
-                        errors.append(
-                            f"{demo_name}/{target.mask_key} reports {invalid_attr} invalid source endpoints"
-                        )
-
-        for target_report in report["targets"].values():
-            total = int(target_report["total_timesteps"])
-            valid_count = int(target_report["valid_labels"])
-            target_report["masked_fraction"] = (
-                0.0 if total == 0 else float((total - valid_count) / total)
-            )
-
-        if errors and raise_errors:
-            joined = "\n".join(errors)
-            raise ValueError(f"Pretrain target validation failed:\n{joined}")
-        return report
-
-    def validate_pretrain_targets(self) -> Dict[str, Any]:
-        return self.inspect_pretrain_targets(raise_errors=True, validate_filter_keys=True)
-
-    @staticmethod
-    def _print_pretrain_report(report: Mapping[str, Any]) -> None:
-        if not report.get("enabled"):
-            return
-        print(f"pretrain report: {report.get('demo_count', 0)} demos")
-        targets = report.get("targets", {})
-        if isinstance(targets, Mapping):
-            for name, details in targets.items():
-                hist = details.get("class_histogram", {})
-                print(
-                    "  "
-                    f"{name}: valid={details.get('valid_labels', 0)} "
-                    f"hist={hist} "
-                    f"masked_fraction={details.get('masked_fraction', 0.0):.3f}"
-                )
-
-    @staticmethod
-    def _pretrain_target_metadata(target: PretrainTargetConfig) -> Dict[str, Any]:
-        metadata = asdict(target)
-        metadata.pop("log_epsilon", None)
-        return metadata
-
     # --- Dataset bookkeeping --------------------------------------------
     def _collect_metadata(self) -> dict:
         """Aggregate dataset metadata for JSON/CSV export."""
 
         settings_dict = asdict(self.settings)
-        if self.pretrain_targets:
-            settings_dict["pretrain_targets"] = [
-                self._pretrain_target_metadata(target)
-                for target in self.pretrain_targets
-            ]
         toggles = {
             "center_crop": self.center_crop,
             "image_resize": self.image_resize,
@@ -2786,17 +2219,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             "processed_folders": processed_folders,
             "selectors": self._selector_overview(),
         }
-        if self.pretrain_targets:
-            metadata["pretrain"] = {
-                "targets": [
-                    self._pretrain_target_metadata(target)
-                    for target in self.pretrain_targets
-                ],
-                "inspection": self.inspect_pretrain_targets(
-                    raise_errors=False,
-                    validate_filter_keys=False,
-                ),
-            }
 
         json_path = self.dataset_dir / self._metadata_filename
         created_at = None
@@ -2894,10 +2316,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
             self._split_keys = {"train": ["demo_0"], "valid": ["demo_0"]}
             self._write_metadata_files()
-            if self.pretrain_targets:
-                report = self.validate_pretrain_targets()
-                self._print_pretrain_report(report)
-                self._write_metadata_files()
             return selected_demo
 
         selected = _rewrite_current_dataset()
@@ -2926,23 +2344,14 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 )
             return
 
-        def _validate_current_pretrain() -> None:
-            if not self.pretrain_targets:
-                return
-            report = self.validate_pretrain_targets()
-            self._print_pretrain_report(report)
-            self._write_metadata_files()
-
         if self.val_ratio == 0:
             print(
                 "val_ratio is 0 - dataset contains only training demos; skipping mask creation."
             )
             self._write_metadata_files()
-            _validate_current_pretrain()
             for state in sorted(self._state_contexts):
                 with self._use_state_context(state):
                     self._write_metadata_files()
-                    _validate_current_pretrain()
             return
 
         def _write_current_masks() -> None:
@@ -2962,7 +2371,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 f"wrote split masks: {len(self._split_keys['train'])} train | {valid_count_local} valid"
             )
             self._write_metadata_files()
-            _validate_current_pretrain()
 
         _write_current_masks()
         for state in sorted(self._state_contexts):
@@ -3022,19 +2430,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             "gigaseal" in _slugify_state_name(state_name) for state_name in state_attempts
         )
         obs_selector = self.observation_selector
-        requires_gigaseal_command_observations = has_gigaseal_state and (
-            obs_selector.include_gigaseal_pressure_state
-            or obs_selector.include_gigaseal_effective_pressure
-        )
-        requires_pressure_events = self.action_selector.include_pressure or (
-            self._pretrain_requires_command_mask()
-        ) or (
-            has_gigaseal_state
-            and (
-                self.gigaseal_start_trim_enabled
-                or requires_gigaseal_command_observations
-            )
-        )
+        requires_pressure_events = self.action_selector.include_pressure or has_gigaseal_state
 
         if requires_pressure_events:
             pressure_events: Optional[pd.DataFrame] = self._load_pressure_log_events(rig_recorder_data_folder)
@@ -3130,19 +2526,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         np.float64,
                         copy=True,
                     )
-                    log_resistance_values: Optional[np.ndarray] = None
-                    if is_gigaseal_state and obs_selector.include_gigaseal_log_resistance:
-                        source_resistance_values = resistance_values
-                        if source_resistance_values is None:
-                            source_resistance_values = self.get_attempt_resistance_values(attempt_graph_values)
-                        log_resistance_values = self.get_log_resistance_values(source_resistance_values)
-
-                    pretrain_resistance_values: Optional[np.ndarray] = None
-                    if self.pretrain_targets:
-                        pretrain_resistance_values = resistance_values
-                        if pretrain_resistance_values is None:
-                            pretrain_resistance_values = self.get_attempt_resistance_values(attempt_graph_values)
-
                     commanded_pressure_values: Optional[np.ndarray] = None
                     atm_state_values: Optional[np.ndarray] = None
                     pressure_state_values: Optional[np.ndarray] = None
@@ -3151,14 +2534,10 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         obs_selector.include_gigaseal_pressure_state
                         or obs_selector.include_gigaseal_effective_pressure
                     )
-                    needs_command_trace = (
-                        self._pretrain_requires_command_mask()
-                        or needs_gigaseal_command_observations
-                    )
-                    if needs_command_trace:
+                    if needs_gigaseal_command_observations:
                         if pressure_events is None:
                             raise RuntimeError(
-                                "Pretrain labels or gigaseal pressure observations require parsed day-log pressure events."
+                                "Gigaseal pressure observations require parsed day-log pressure events."
                             )
                         commanded_pressure_values, atm_state_values = self.get_attempt_pressure_observation_values(
                             attempt_graph_values,
@@ -3180,6 +2559,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         attempt_graph_values=attempt_graph_values,
                         rig_recorder_data_folder=rig_recorder_data_folder,
                         pressure_events=pressure_events,
+                        force_pressure_action=is_gigaseal_state,
                     )
 
                     stage_moved = getattr(self, "_last_stage_motion_detected", False)
@@ -3196,16 +2576,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         pressure_state_values,
                         effective_pressure_values,
                         resistance_values,
-                        log_resistance_values,
                         resistance_slope_values,
                         current_values,
                         voltage_values,
                         stage_positions,
                         pipette_positions,
                         camera_frames,
-                        pretrain_resistance_values,
-                        filtered_pretrain_commanded_pressure_values,
-                        filtered_pretrain_atm_state_values,
                         invalid_removed,
                         inactive_removed,
                     ) = self.filter_attempt_timesteps(
@@ -3216,24 +2592,13 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         pressure_state_values,
                         effective_pressure_values,
                         resistance_values,
-                        log_resistance_values,
                         resistance_slope_values,
                         current_values,
                         voltage_values,
                         stage_positions,
                         pipette_positions,
                         camera_frames,
-                        pretrain_resistance_values=pretrain_resistance_values,
-                        pretrain_commanded_pressure_values=(
-                            commanded_pressure_values if self.pretrain_targets else None
-                        ),
-                        pretrain_pressure_atm_state_values=(
-                            atm_state_values if self.pretrain_targets else None
-                        ),
                     )
-                    if self.pretrain_targets:
-                        commanded_pressure_values = filtered_pretrain_commanded_pressure_values
-                        atm_state_values = filtered_pretrain_atm_state_values
                     if invalid_removed:
                         print(
                             "    removed "
@@ -3303,11 +2668,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         if include_next_obs and effective_pressure_values is not None
                         else None
                     )
-                    next_log_resistance_values = (
-                        _shift_forward(log_resistance_values)
-                        if include_next_obs and log_resistance_values is not None
-                        else None
-                    )
                     next_observations_since_last_action_values = (
                         _shift_forward(observations_since_last_action_values)
                         if include_next_obs and observations_since_last_action_values is not None
@@ -3318,15 +2678,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         if include_next_obs and time_since_last_action_values is not None
                         else None
                     )
-
-                    pretrain_datasets: Dict[str, np.ndarray] = {}
-                    pretrain_dataset_attrs: Dict[str, Dict[str, Any]] = {}
-                    if self.pretrain_targets:
-                        pretrain_datasets, pretrain_dataset_attrs = self.build_pretrain_datasets(
-                            pretrain_resistance_values,
-                            commanded_pressure_values,
-                            atm_state_values,
-                        )
 
                     if record_to_file:
                         demo_key = self.add_attempt_demo_to_dataset(
@@ -3354,18 +2705,14 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                             split_label=split_lbl,
                             pressure_state_values=pressure_state_values,
                             effective_pressure_values=effective_pressure_values,
-                            log_resistance_values=log_resistance_values,
                             observations_since_last_action_values=observations_since_last_action_values,
                             time_since_last_action_values=time_since_last_action_values,
                             next_pressure_state_values=next_pressure_state_values,
                             next_effective_pressure_values=next_effective_pressure_values,
-                            next_log_resistance_values=next_log_resistance_values,
                             next_observations_since_last_action_values=(
                                 next_observations_since_last_action_values
                             ),
                             next_time_since_last_action_values=next_time_since_last_action_values,
-                            pretrain_datasets=pretrain_datasets,
-                            pretrain_dataset_attrs=pretrain_dataset_attrs,
                         )
                         self._split_keys[split_lbl].append(demo_key)
                         print(f"    added original {split_lbl} demo")
@@ -3386,7 +2733,6 @@ __all__ = [
     "SimpleDatasetBuilder",
     "DatasetBuilderSettings",
     "FilterSettings",
-    "PretrainTargetConfig",
     "ObservationSelector",
     "ActionSelector",
     "AxisToggle",

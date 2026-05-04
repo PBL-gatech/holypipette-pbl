@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import shutil
 import sys
 import traceback
@@ -30,6 +29,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -40,15 +40,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-PRETRAIN_DEFAULT_HORIZONS = (50, 100, 200)
-PRETRAIN_DEFAULT_TAU = math.log(1.02)
-
 from experiments.SimpleDatasetBuilder import (  # noqa: E402
     ActionSelector,
     AxisToggle,
     FilterSettings,
     ObservationSelector,
-    PretrainTargetConfig,
     SimpleDatasetBuilder,
 )
 
@@ -63,7 +59,6 @@ class DatasetBuilderGUI(QWidget):
         self._update_dataset_name_preview()
         self._sync_cv_generation_controls()
         self._sync_gigaseal_cutoff_controls()
-        self._sync_pretrain_controls()
         self._sync_selector_constraints()
 
     def _build_ui(self) -> None:
@@ -108,10 +103,7 @@ class DatasetBuilderGUI(QWidget):
         folders_layout.addWidget(self.folder_list)
         root.addWidget(folders_group)
 
-        settings_row = QHBoxLayout()
-        settings_row.addWidget(self._build_settings_group(), 1)
-        settings_row.addWidget(self._build_selector_group(), 1)
-        root.addLayout(settings_row)
+        root.addWidget(self._build_settings_tabs())
 
         self.build_btn = QPushButton("Build Dataset")
         self.log = QTextEdit()
@@ -119,8 +111,19 @@ class DatasetBuilderGUI(QWidget):
         root.addWidget(self.build_btn)
         root.addWidget(self.log, 1)
 
+    def _form_section(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet("font-weight: 600; margin-top: 8px; color: #333;")
+        return label
+
+    def _build_settings_tabs(self) -> QTabWidget:
+        tabs = QTabWidget()
+        tabs.addTab(self._build_settings_group(), "Build")
+        tabs.addTab(self._build_selector_group(), "Signals")
+        return tabs
+
     def _build_settings_group(self) -> QGroupBox:
-        g = QGroupBox("Builder Settings")
+        g = QGroupBox("Dataset / Build Settings")
         form = QFormLayout(g)
 
         self.dataset_name = QLineEdit("PatcherBot_dataset_gui.hdf5")
@@ -177,44 +180,6 @@ class DatasetBuilderGUI(QWidget):
         self.gigaseal_cutoff_value.setSingleStep(10.0)
         self.gigaseal_cutoff_value.setValue(1200.0)
 
-        self.enable_pretrain_trends = QCheckBox("Pretrain: resistance trend labels")
-        self.enable_pretrain_trends.setChecked(False)
-        self.enable_pretrain_trends.setToolTip(
-            "Write pretrain trend labels and matching masks from smoothed resistance."
-        )
-        self.pretrain_horizon_1 = QSpinBox()
-        self.pretrain_horizon_2 = QSpinBox()
-        self.pretrain_horizon_3 = QSpinBox()
-        self.pretrain_tau_1 = QDoubleSpinBox()
-        self.pretrain_tau_2 = QDoubleSpinBox()
-        self.pretrain_tau_3 = QDoubleSpinBox()
-        self.pretrain_target_rows = []
-        for horizon, control in zip(
-            PRETRAIN_DEFAULT_HORIZONS,
-            (self.pretrain_horizon_1, self.pretrain_horizon_2, self.pretrain_horizon_3),
-        ):
-            control.setRange(1, 100000)
-            control.setValue(horizon)
-            control.setEnabled(False)
-            control.setToolTip("Future horizon in timesteps for this pretrain trend label.")
-        for control in (self.pretrain_tau_1, self.pretrain_tau_2, self.pretrain_tau_3):
-            control.setRange(0.0, 10.0)
-            control.setDecimals(5)
-            control.setSingleStep(0.005)
-            control.setValue(PRETRAIN_DEFAULT_TAU)
-            control.setEnabled(False)
-            control.setToolTip("Relative log-resistance change threshold for trend labels.")
-        for horizon_control, tau_control in self._pretrain_target_controls():
-            row = QWidget()
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.addWidget(QLabel("H:"))
-            row_layout.addWidget(horizon_control)
-            row_layout.addWidget(QLabel("Tau:"))
-            row_layout.addWidget(tau_control)
-            row_layout.addStretch(1)
-            self.pretrain_target_rows.append(row)
-
         self.obs_resistance_slope = QCheckBox("Resistance Slope")
         self.obs_resistance_slope.setChecked(False)
         self.obs_resistance_slope.setToolTip("Compute windowed numerical average slope of resistance per sample.")
@@ -232,6 +197,9 @@ class DatasetBuilderGUI(QWidget):
         self.omit_stage_movement = QCheckBox("Omit stage movement attempts")
         self.center_crop = QCheckBox("Center crop camera")
         self.pipette_dot = QCheckBox("Add final pipette dot")
+        self.pipette_dot.setToolTip(
+            "Goal-conditioning option: draw the final pipette position into camera frames."
+        )
         self.use_cv_defined_coords = QCheckBox(
             "Use CV-defined coordinates (generate cv_movement_recording.csv)"
         )
@@ -269,33 +237,42 @@ class DatasetBuilderGUI(QWidget):
         self.filter_train_only = QCheckBox("Filter train split only")
         self.filter_same_demo = QCheckBox("Same filter per demo")
 
+        form.addRow(self._form_section("Output / Split"))
         form.addRow("Dataset Name:", self.dataset_name)
         form.addRow(self.append_test_name)
         form.addRow("Effective Name:", self.dataset_name_preview)
         form.addRow("Validation Ratio:", self.val_ratio)
         form.addRow("Random Seed:", self.random_seed)
         form.addRow(self.debug_single_trajectory)
+
+        form.addRow(self._form_section("Sampling / Cleanup"))
         form.addRow("Frequency Mask:", self.freq_mask)
-        form.addRow("Image Resize:", self.image_resize)
         form.addRow("Inaction Steps:", self.inaction)
         form.addRow("Inaction Tolerance:", self.inaction_tolerance)
         form.addRow(self.skip_invalid_observations)
+
+        form.addRow(self._form_section("Gigaseal Trimming"))
         form.addRow(self.gigaseal_start_trim_enabled)
         form.addRow(self.gigaseal_cutoff_enabled)
         form.addRow("Gigaseal Resistance Cutoff:", self.gigaseal_cutoff_value)
-        form.addRow(self.enable_pretrain_trends)
-        form.addRow("Pretrain Target 1:", self.pretrain_target_rows[0])
-        form.addRow("Pretrain Target 2:", self.pretrain_target_rows[1])
-        form.addRow("Pretrain Target 3:", self.pretrain_target_rows[2])
+
+        form.addRow(self._form_section("Trajectory Representation"))
         form.addRow(self.load_next_obs)
         form.addRow(self.use_velocities)
         form.addRow(self.omit_stage_movement)
+
+        form.addRow(self._form_section("Camera / Goal Conditioning"))
+        form.addRow("Image Resize:", self.image_resize)
         form.addRow(self.center_crop)
         form.addRow(self.pipette_dot)
+
+        form.addRow(self._form_section("CV Coordinate Generation"))
         form.addRow(self.use_cv_defined_coords)
         form.addRow(self.cv_filter_images)
         form.addRow(self.cv_focus_with_detector_crop)
         form.addRow(self.cv_use_kalman_focus_fusion)
+
+        form.addRow(self._form_section("Random Image Filtering"))
         form.addRow(self.enable_filter)
         form.addRow("Filter Probability:", self.filter_prob)
         form.addRow(self.filter_train_only)
@@ -303,7 +280,7 @@ class DatasetBuilderGUI(QWidget):
         return g
 
     def _build_selector_group(self) -> QGroupBox:
-        g = QGroupBox("Selectors")
+        g = QGroupBox("Observation / Action Selection")
         root = QVBoxLayout(g)
 
         obs_box = QGroupBox("Observations")
@@ -321,11 +298,6 @@ class DatasetBuilderGUI(QWidget):
         self.obs_pipette.setChecked(True)
         self.obs_camera = QCheckBox("Camera Image")
         self.obs_camera.setChecked(True)
-        self.obs_gigaseal_log_resistance = QCheckBox("Gigaseal Log Resistance")
-        self.obs_gigaseal_log_resistance.setChecked(True)
-        self.obs_gigaseal_log_resistance.setToolTip(
-            "For gigaseal demos only, add obs/log_resistance as natural log resistance."
-        )
         self.obs_gigaseal_pressure_state = QCheckBox("Gigaseal Pressure State")
         self.obs_gigaseal_pressure_state.setChecked(True)
         self.obs_gigaseal_pressure_state.setToolTip(
@@ -368,13 +340,12 @@ class DatasetBuilderGUI(QWidget):
         obs_grid.addWidget(self.obs_stage, 1, 1)
         obs_grid.addWidget(self.obs_pipette, 1, 2)
         obs_grid.addWidget(self.obs_camera, 1, 3)
-        obs_grid.addWidget(self.obs_gigaseal_log_resistance, 2, 0, 1, 2)
-        obs_grid.addWidget(self.obs_gigaseal_pressure_state, 2, 2, 1, 2)
-        obs_grid.addWidget(self.obs_gigaseal_effective_pressure, 3, 0, 1, 2)
-        obs_grid.addWidget(self.obs_gigaseal_action_count, 3, 2, 1, 2)
-        obs_grid.addWidget(self.obs_gigaseal_time_since_action, 4, 0, 1, 2)
-        obs_grid.addWidget(QLabel("Slope Window:"), 4, 2)
-        obs_grid.addWidget(self.slope_window_spin, 4, 3)
+        obs_grid.addWidget(self.obs_gigaseal_pressure_state, 2, 0, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_effective_pressure, 2, 2, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_action_count, 3, 0, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_time_since_action, 3, 2, 1, 2)
+        obs_grid.addWidget(QLabel("Slope Window:"), 4, 0)
+        obs_grid.addWidget(self.slope_window_spin, 4, 1)
 
         obs_grid.addWidget(QLabel("Stage Axes:"), 5, 0)
         obs_grid.addWidget(self.obs_stage_x, 5, 1)
@@ -393,17 +364,8 @@ class DatasetBuilderGUI(QWidget):
         self.act_pipette = QCheckBox("Pipette Action")
         self.act_pipette.setChecked(True)
         self.act_pressure = QCheckBox("Pressure Action")
-        self.act_pressure_raw = QCheckBox("Use Raw Pressure Action Values")
-        self.act_pressure_raw.setChecked(True)
-        self.act_pressure_raw.setToolTip(
-            "If checked, store commanded pressure as carried raw mbar setpoints. "
-            "If unchecked, store only per-command pressure deltas from the previous setpoint. "
-            "ATM state is always one-hot."
-        )
-        self.act_pressure_binary = QCheckBox("Use Binary Pressure Actions")
-        self.act_pressure_binary.setToolTip(
-            "Replace pressure actions with event columns for -5 mbar, +5 mbar, and reset. "
-            "Reset means a pressure command moves toward zero by more than 5 mbar."
+        self.act_pressure.setToolTip(
+            "Uses raw commanded pressure. Gigaseal automatically adds target ATM state as pressure action dim 1."
         )
 
         self.act_stage_x = QCheckBox("Stage X")
@@ -422,8 +384,6 @@ class DatasetBuilderGUI(QWidget):
         act_grid.addWidget(self.act_stage, 0, 0)
         act_grid.addWidget(self.act_pipette, 0, 1)
         act_grid.addWidget(self.act_pressure, 0, 2)
-        act_grid.addWidget(self.act_pressure_raw, 0, 3)
-        act_grid.addWidget(self.act_pressure_binary, 0, 4)
 
         act_grid.addWidget(QLabel("Stage Axes:"), 1, 0)
         act_grid.addWidget(self.act_stage_x, 1, 1)
@@ -453,14 +413,12 @@ class DatasetBuilderGUI(QWidget):
         self.append_test_name.toggled.connect(self._update_dataset_name_preview)
         self.use_cv_defined_coords.toggled.connect(self._sync_cv_generation_controls)
         self.gigaseal_cutoff_enabled.toggled.connect(self._sync_gigaseal_cutoff_controls)
-        self.enable_pretrain_trends.toggled.connect(self._sync_pretrain_controls)
 
         self.obs_resistance.toggled.connect(self._sync_selector_constraints)
         self.obs_resistance_slope.toggled.connect(self._sync_selector_constraints)
         self.act_stage.toggled.connect(self._sync_selector_constraints)
         self.act_pipette.toggled.connect(self._sync_selector_constraints)
         self.act_pressure.toggled.connect(self._sync_selector_constraints)
-        self.act_pressure_binary.toggled.connect(self._sync_selector_constraints)
         self.obs_stage.toggled.connect(self._sync_selector_constraints)
         self.obs_pipette.toggled.connect(self._sync_selector_constraints)
         self.obs_stage_x.toggled.connect(self._sync_selector_constraints)
@@ -484,19 +442,6 @@ class DatasetBuilderGUI(QWidget):
 
     def _sync_gigaseal_cutoff_controls(self) -> None:
         self.gigaseal_cutoff_value.setEnabled(self.gigaseal_cutoff_enabled.isChecked())
-
-    def _pretrain_target_controls(self):
-        return (
-            (self.pretrain_horizon_1, self.pretrain_tau_1),
-            (self.pretrain_horizon_2, self.pretrain_tau_2),
-            (self.pretrain_horizon_3, self.pretrain_tau_3),
-        )
-
-    def _sync_pretrain_controls(self) -> None:
-        enabled = self.enable_pretrain_trends.isChecked()
-        for horizon_control, tau_control in self._pretrain_target_controls():
-            horizon_control.setEnabled(enabled)
-            tau_control.setEnabled(enabled)
 
     def _with_blocked_signals(self, *widgets):
         class _Blocker:
@@ -549,12 +494,6 @@ class DatasetBuilderGUI(QWidget):
             control.setEnabled(self.act_stage.isChecked())
         for control in (self.act_pip_x, self.act_pip_y, self.act_pip_z):
             control.setEnabled(self.act_pipette.isChecked())
-        pressure_enabled = self.act_pressure.isChecked()
-        self.act_pressure_binary.setEnabled(pressure_enabled)
-        self.act_pressure_raw.setEnabled(
-            pressure_enabled and not self.act_pressure_binary.isChecked()
-        )
-
     def _append(self, text: str) -> None:
         self.log.append(text)
 
@@ -780,8 +719,6 @@ class DatasetBuilderGUI(QWidget):
             self._set_if(self.filter_train_only, fcfg.get("filter_train_only"))
             self._set_if(self.filter_same_demo, fcfg.get("filter_same_per_demo"))
 
-        self._load_pretrain_targets(settings.get("pretrain_targets"))
-
         ocfg = settings.get("observation_selector", selectors.get("observations", {}))
         acfg = settings.get("action_selector", selectors.get("actions", {}))
         if isinstance(ocfg, dict):
@@ -793,10 +730,6 @@ class DatasetBuilderGUI(QWidget):
             self._set_if(self.obs_stage, ocfg.get("include_stage"))
             self._set_if(self.obs_pipette, ocfg.get("include_pipette"))
             self._set_if(self.obs_camera, ocfg.get("include_camera"))
-            self._set_if(
-                self.obs_gigaseal_log_resistance,
-                ocfg.get("include_gigaseal_log_resistance"),
-            )
             self._set_if(
                 self.obs_gigaseal_pressure_state,
                 ocfg.get("include_gigaseal_pressure_state"),
@@ -819,8 +752,6 @@ class DatasetBuilderGUI(QWidget):
             self._set_if(self.act_stage, acfg.get("include_stage"))
             self._set_if(self.act_pipette, acfg.get("include_pipette"))
             self._set_if(self.act_pressure, acfg.get("include_pressure"))
-            self._set_if(self.act_pressure_raw, acfg.get("pressure_use_raw_values"))
-            self._set_if(self.act_pressure_binary, acfg.get("pressure_use_binary_actions"))
             self._set_axis(self.act_stage_x, self.act_stage_y, self.act_stage_z, acfg.get("stage_axes"), "stage")
             self._set_axis(self.act_pip_x, self.act_pip_y, self.act_pip_z, acfg.get("pipette_axes"), "pipette")
 
@@ -836,7 +767,6 @@ class DatasetBuilderGUI(QWidget):
         self._update_dataset_name_preview()
         self._sync_cv_generation_controls()
         self._sync_gigaseal_cutoff_controls()
-        self._sync_pretrain_controls()
         self._sync_selector_constraints()
         self._append(f"Loaded metadata: {p}")
 
@@ -871,76 +801,6 @@ class DatasetBuilderGUI(QWidget):
     def _selected_folders(self):
         return [self.folder_list.item(i).data(Qt.UserRole) for i in range(self.folder_list.count())]
 
-    def _load_pretrain_targets(self, targets) -> None:
-        if not isinstance(targets, list) or not targets:
-            self.enable_pretrain_trends.setChecked(False)
-            return
-
-        parsed_targets = []
-        for target in targets:
-            if not isinstance(target, dict):
-                continue
-            if target.get("kind") != "future_log_signal_trend" or target.get("source") != "resistance":
-                continue
-            try:
-                horizon = int(target.get("horizon"))
-                threshold = float(target.get("threshold"))
-            except (TypeError, ValueError):
-                continue
-            if horizon <= 0 or threshold <= 0.0:
-                continue
-            parsed_targets.append((horizon, threshold))
-
-        for (horizon_control, tau_control), default_horizon in zip(
-            self._pretrain_target_controls(),
-            PRETRAIN_DEFAULT_HORIZONS,
-        ):
-            horizon_control.setValue(default_horizon)
-            tau_control.setValue(PRETRAIN_DEFAULT_TAU)
-
-        for (horizon_control, tau_control), (horizon, threshold) in zip(
-            self._pretrain_target_controls(),
-            parsed_targets,
-        ):
-            horizon_control.setValue(horizon)
-            tau_control.setValue(threshold)
-        self.enable_pretrain_trends.setChecked(bool(parsed_targets))
-
-    def _collect_pretrain_targets(self) -> list[PretrainTargetConfig]:
-        if not self.enable_pretrain_trends.isChecked():
-            return []
-
-        targets = [
-            (int(horizon_control.value()), float(tau_control.value()))
-            for horizon_control, tau_control in self._pretrain_target_controls()
-        ]
-        duplicate_horizons = sorted(
-            {horizon for horizon, _ in targets if sum(1 for value, _ in targets if value == horizon) > 1}
-        )
-        if duplicate_horizons:
-            joined = ", ".join(str(horizon) for horizon in duplicate_horizons)
-            raise ValueError(f"Pretrain horizons must be unique: {joined}")
-
-        bad = [horizon for horizon, threshold in targets if threshold <= 0.0]
-        if bad:
-            joined = ", ".join(str(horizon) for horizon in bad)
-            raise ValueError(f"Pretrain tau must be > 0 for horizon(s): {joined}")
-
-        return [
-            PretrainTargetConfig(
-                name=f"trend_{horizon}",
-                horizon=horizon,
-                threshold=threshold,
-                label_key=f"pretrain/trend_{horizon}",
-                mask_key=f"pretrain/mask_{horizon}",
-                smoothing_window=5,
-                resistance_floor=1e-3,
-                ema_alpha=0.3,
-                mask_command_interventions=True,
-            )
-            for horizon, threshold in targets
-        ]
-
     def _collect_kwargs(self):
         name = self._effective_dataset_name(self.dataset_name.text())
         return dict(
@@ -969,7 +829,6 @@ class DatasetBuilderGUI(QWidget):
             gigaseal_resistance_cutoff_enabled=self.gigaseal_cutoff_enabled.isChecked(),
             gigaseal_resistance_cutoff=float(self.gigaseal_cutoff_value.value()),
             resistance_slope_window=int(self.slope_window_spin.value()),
-            pretrain_targets=self._collect_pretrain_targets(),
             observation_selector=ObservationSelector(
                 include_pressure=self.obs_pressure.isChecked(),
                 include_resistance=self.obs_resistance.isChecked(),
@@ -979,7 +838,6 @@ class DatasetBuilderGUI(QWidget):
                 include_stage=self.obs_stage.isChecked(),
                 include_pipette=self.obs_pipette.isChecked(),
                 include_camera=self.obs_camera.isChecked(),
-                include_gigaseal_log_resistance=self.obs_gigaseal_log_resistance.isChecked(),
                 include_gigaseal_pressure_state=self.obs_gigaseal_pressure_state.isChecked(),
                 include_gigaseal_effective_pressure=self.obs_gigaseal_effective_pressure.isChecked(),
                 include_gigaseal_observations_since_last_action=self.obs_gigaseal_action_count.isChecked(),
@@ -991,8 +849,6 @@ class DatasetBuilderGUI(QWidget):
                 include_stage=self.act_stage.isChecked(),
                 include_pipette=self.act_pipette.isChecked(),
                 include_pressure=self.act_pressure.isChecked(),
-                pressure_use_raw_values=self.act_pressure_raw.isChecked(),
-                pressure_use_binary_actions=self.act_pressure_binary.isChecked(),
                 include_high_level=False,
                 stage_axes=AxisToggle(self.act_stage_x.isChecked(), self.act_stage_y.isChecked(), self.act_stage_z.isChecked()),
                 pipette_axes=AxisToggle(self.act_pip_x.isChecked(), self.act_pip_y.isChecked(), self.act_pip_z.isChecked()),
