@@ -31,8 +31,8 @@ from matplotlib import cm
 # ---------------------------------------------------------------------------
 FILE_PATH = Path(
     r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent"
-    r"\experiments\Datasets\PatcherBot_dataset_v0_923"
-    r"\PatcherBot_dataset_v0_923_gigaseal.hdf5"
+    r"\experiments\Datasets\PatcherBot_dataset_v0_966"
+    r"\PatcherBot_dataset_v0_966_hunt_cell.hdf5"
 )
 
 ROOTS_TO_PLOT = ("obs", "actions", "dones")
@@ -52,7 +52,7 @@ PLOT_DPI = 200
 PLOT_FORMAT = "png"
 COLORMAP_NAME = "twilight"
 
-# Set to a number if you want a guide line on resistance plots, e.g. 1000.0.
+# Set to a number if you want a guide line on matching plots.
 RESISTANCE_REFERENCE_LINE: float | None = None
 
 

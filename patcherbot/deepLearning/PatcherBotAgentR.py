@@ -26,15 +26,16 @@ class ModelImporter:
     Load a robomimic checkpoint and prepare an EnvPatcherOnline instance plus
     the policy, action dimension, frame stack, and observation keys.
     """
-
     def __init__(
         self,
         ckpt_path: Optional[Union[str, Path]] = None,
         *,
         success_epsilon: float = 0.10,
         frame_stack: Optional[int] = None,
+        model_type: Optional[str] = None,
     ) -> None:
         self.ckpt_path = ckpt_path
+        self.model_type = model_type
         self.success_epsilon = float(success_epsilon)
         self.frame_stack_override = frame_stack
 
@@ -50,6 +51,7 @@ class ModelImporter:
         self.pipette_key: Optional[str] = None
         self.stage_key: Optional[str] = None
         self.resistance_key: Optional[str] = None
+        self.required_obs_keys: Sequence[str] = []
         self.obs_shapes: Dict[str, Any] = {}
 
     # ---------------------- helpers ----------------------
@@ -123,6 +125,8 @@ class ModelImporter:
         meta = ckpt_dict.get("shape_metadata") if isinstance(ckpt_dict, Mapping) else None
         if not meta:
             return None
+        if "ac_dim" in meta:
+            return int(meta["ac_dim"])
         action_entry = meta.get("action") if isinstance(meta, Mapping) else None
         shape = None
         if isinstance(action_entry, Mapping):
@@ -144,8 +148,9 @@ class ModelImporter:
         return int(np.prod(dims))
 
     def _find_default_checkpoint(self) -> Path:
+        agent_name = (self.model_type or self.__class__.__name__).upper()
         env_keys = [
-            f"PATCHERBOT_ROBO_CKPT_{self.__class__.__name__.upper()}",
+            f"PATCHERBOT_ROBO_CKPT_{agent_name}",
             "PATCHERBOT_ROBO_CKPT",
         ]
         for key in env_keys:
@@ -197,11 +202,11 @@ class ModelImporter:
 
         obs_modalities = self._extract_obs_modalities(cfg)
         rgb_keys = obs_modalities.get("rgb", [])
-        image_key = rgb_keys[0] if rgb_keys else "camera_image"
         low_dim_keys = obs_modalities.get("low_dim", [])
-        pipette_key = next((k for k in low_dim_keys if "pipette" in k.lower()), "pipette_positions")
-        stage_key = next((k for k in low_dim_keys if "stage" in k.lower()), "stage_positions")
-        resistance_key = next((k for k in low_dim_keys if "resist" in k.lower()), "resistance")
+        image_key = rgb_keys[0] if rgb_keys else None
+        pipette_key = next((k for k in low_dim_keys if "pipette" in k.lower()), None)
+        stage_key = next((k for k in low_dim_keys if "stage" in k.lower()), None)
+        resistance_key = next((k for k in low_dim_keys if "resist" in k.lower()), None)
         self._ensure_key_in_modalities(obs_modalities, image_key, "rgb")
         self._ensure_key_in_modalities(obs_modalities, pipette_key, "low_dim")
         self._ensure_key_in_modalities(obs_modalities, stage_key, "low_dim")
@@ -250,6 +255,7 @@ class ModelImporter:
             stage_key=stage_key,
             resistance_key=resistance_key,
         )
+        self.required_obs_keys = list(self.obs_keys)
         self.action_dim = self._infer_action_dim(ckpt_dict)
         shape_meta = ckpt_dict.get("shape_metadata") if isinstance(ckpt_dict, Mapping) else None
         if isinstance(shape_meta, Mapping):
@@ -339,6 +345,9 @@ class ModelInferencer:
         self.image_resize = (int(self.image_resize[0]), int(self.image_resize[1]))
 
     def _get_required_obs_keys(self) -> Sequence[str]:
+        required = getattr(self.importer, "required_obs_keys", None)
+        if required:
+            return list(required)
         policy_impl = getattr(self.policy, "policy", None)
         cfg = getattr(policy_impl, "global_config", None)
         keys = getattr(cfg, "all_obs_keys", None)
@@ -471,6 +480,9 @@ class ModelInferencer:
 
     def get_goal(self) -> Any:
         return self.goal if self.goal_required else None
+
+    def get_required_obs_keys(self) -> Sequence[str]:
+        return tuple(self._get_required_obs_keys())
 
     def _compute_frame_params(self, frame_shape: Tuple[int, int]) -> Optional[Dict[str, float]]:
         if not frame_shape or len(frame_shape) < 2:
@@ -871,23 +883,27 @@ class DemoReplayAgent:
 
 class PipetteFinder(ModelInferencer):
     def __init__(self, model_path: Optional[Union[str, Path]] = r"patcherbot\deepLearning\patchModel\Agents\PipetteFinder", **kwargs) -> None:
+        kwargs.setdefault("model_type", "PipetteFinder")
         importer = ModelImporter(model_path, **kwargs)
         super().__init__(importer)
 
 
 class CellHunter(ModelInferencer):
     def __init__(self, model_path: Optional[Union[str, Path]] = r"patcherbot\deepLearning\patchModel\Agents\CellHunter", **kwargs) -> None:
+        kwargs.setdefault("model_type", "CellHunter")
         importer = ModelImporter(model_path, **kwargs)
         super().__init__(importer)
 
 
 class GigaSealer(ModelInferencer):
     def __init__(self, model_path: Optional[Union[str, Path]] = r"patcherbot\deepLearning\patchModel\Agents\GigaSealer", **kwargs) -> None:
+        kwargs.setdefault("model_type", "GigaSealer")
         importer = ModelImporter(model_path, **kwargs)
         super().__init__(importer)
 
 
 class Burglar(ModelInferencer):
     def __init__(self, model_path: Optional[Union[str, Path]] = r"patcherbot\deepLearning\patchModel\Agents\Burglar", **kwargs) -> None:
+        kwargs.setdefault("model_type", "Burglar")
         importer = ModelImporter(model_path, **kwargs)
         super().__init__(importer)

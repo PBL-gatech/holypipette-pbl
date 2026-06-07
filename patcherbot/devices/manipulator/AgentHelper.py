@@ -15,6 +15,9 @@ _AI_FEATURE_DISABLED_MESSAGE = (
     "Set calibration.use_ai_features to true."
 )
 
+_DEFAULT_REPLAY_OBS_KEYS = ("camera_image", "pipette_positions", "stage_positions", "resistance")
+_REPLAY_MODEL_TYPES = {"find_pipette_replay", "hunt_replay"}
+
 
 class AgentHelper:
 
@@ -115,12 +118,26 @@ class AgentHelper:
         """Return True when a demo action sequence has been cached."""
         return self._demo_actions is not None and self._demo_actions.size > 0
 
-    def load_demo_from_hdf5(self, data_path: Union[str, Path], *, demo_id: Optional[str] = None) -> Dict[str, Any]:
+    def load_demo_from_hdf5(self, data_path: Union[str, Path], *, demo_id: Optional[str] = None, model_type: Optional[str] = None) -> Dict[str, Any]:
         """Load demo data from disk and cache its action sequence for replay use."""
-        dataset = self._load_hdf5_sequence(Path(data_path), demo_id=demo_id)
+        dataset = self._load_hdf5_sequence(Path(data_path), demo_id=demo_id, model_type=model_type or getattr(self, "model_type", None))
         self._last_demo_dataset = dataset
         self.load_demo(dataset["actions"])
         return dataset
+
+    def _get_active_obs_keys(self, model_type: Optional[str] = None) -> Tuple[str, ...]:
+        """Return observation keys from the active model instead of hardcoded model presets."""
+        if self.agent is not None and type(self.agent).__name__ != "DemoReplayAgent":
+            getter = getattr(self.agent, "get_required_obs_keys", None)
+            keys = getter() if callable(getter) else getattr(self.agent, "obs_keys", None)
+            if keys:
+                return tuple(str(key) for key in keys)
+
+        model_key = str(model_type or getattr(self, "model_type", "")).lower()
+        if model_key in _REPLAY_MODEL_TYPES:
+            return _DEFAULT_REPLAY_OBS_KEYS
+
+        raise RuntimeError("Prepare the target model before loading HDF5 so its config can define observation keys.")
 
     def set_demo_source(
         self,
@@ -156,6 +173,7 @@ class AgentHelper:
         data_path: Path,
         *,
         demo_id: Optional[str] = None,
+        model_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Load a single demonstration sequence from an HDF5 file."""
         data_path = Path(data_path)
@@ -176,46 +194,46 @@ class AgentHelper:
             act_root = f"data/{demo_key}"
 
             obs_group = h5[f"{obs_root}"]
-            images = obs_group["camera_image"][:]
-            num_frames = images.shape[0]
-
-            if "resistance" in obs_group:
-                resistance = obs_group["resistance"][:]
-            else:
-                resistance = np.zeros((num_frames, 1), dtype=np.float32)
-
-            if "pipette_positions" in obs_group:
-                pipette_positions = obs_group["pipette_positions"][:]
-            else:
-                pipette_positions = np.zeros((num_frames, 3), dtype=np.float32)
-
-            if "stage_positions" in obs_group:
-                stage_positions = obs_group["stage_positions"][:]
-            else:
-                stage_positions = np.zeros((num_frames, 3), dtype=np.float32)
             actions = h5[f"{act_root}/actions"][:]
+            obs_keys = self._get_active_obs_keys(model_type)
+            missing_obs = [key for key in obs_keys if key not in obs_group]
+            if missing_obs:
+                raise ValueError(
+                    f"Demo '{demo_key}' in {data_path} is missing required observation keys: {missing_obs}"
+                )
 
-        stage_positions = np.asarray(stage_positions, dtype=np.float32)
-        if stage_positions.ndim != 2:
-            stage_positions = stage_positions.reshape(stage_positions.shape[0], -1)
-        if stage_positions.shape[1] == 2:
-            zeros = np.zeros((stage_positions.shape[0], 1), dtype=np.float32)
-            stage_positions = np.concatenate([stage_positions, zeros], axis=1)
-        elif stage_positions.shape[1] > 3:
-            stage_positions = stage_positions[:, :3]
+            def _read_obs_value(key: str) -> np.ndarray:
+                value = obs_group[key][:]
+                if "image" in key.lower():
+                    return np.asarray(value)
+                return np.asarray(value, dtype=np.float32)
+
+            obs_values = {key: _read_obs_value(key) for key in obs_keys}
+            num_frames = int(actions.shape[0])
+            image_key = next((key for key in obs_keys if "image" in key.lower()), None)
+            pipette_key = next((key for key in obs_keys if "pipette" in key.lower()), None)
+            stage_key = next((key for key in obs_keys if "stage" in key.lower()), None)
+            resistance_key = next((key for key in obs_keys if "resist" in key.lower()), None)
+
+            images = obs_values.get(image_key)
+            resistance = obs_values.get(resistance_key)
+            pipette_positions = obs_values.get(pipette_key)
+            stage_positions = obs_values.get(stage_key)
 
         return {
             "demo_id": demo_key,
-            "images": np.asarray(images),
-            "resistance": np.asarray(resistance, dtype=np.float32),
-            "pipette_positions": np.asarray(pipette_positions, dtype=np.float32),
-            "stage_positions": np.asarray(stage_positions, dtype=np.float32),
+            "images": None if images is None else np.asarray(images),
+            "resistance": None if resistance is None else np.asarray(resistance, dtype=np.float32),
+            "pipette_positions": None if pipette_positions is None else np.asarray(pipette_positions, dtype=np.float32),
+            "stage_positions": None if stage_positions is None else np.asarray(stage_positions, dtype=np.float32),
             "actions": np.asarray(actions, dtype=np.float32),
+            "obs": obs_values,
+            "obs_keys": obs_keys,
         }
 
     def run_inference(
         self,
-        observation: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        observation: Union[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], Dict[str, np.ndarray]],
         goal: Optional[np.ndarray] = None,
         *,
         is_demo: bool = False,
@@ -259,7 +277,7 @@ class AgentTester:
 
         diff = pred_flat[:, :min_dim] - gt_flat[:, :min_dim]
         return np.linalg.norm(diff, axis=1).astype(float).tolist()
-    
+
     def visualize(
         self,
         pred: Optional[np.ndarray] = None,
@@ -538,26 +556,27 @@ class AgentTester:
         demo_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run inference over a dataset and collect error/latency metrics."""
-        dataset = self.agent_helper.load_demo_from_hdf5(data_path, demo_id=demo_id)
-        self.last_dataset = dataset
         self.agent_helper.prepare_model(model_type, allow_goal_placeholders=True)
+        dataset = self.agent_helper.load_demo_from_hdf5(data_path, demo_id=demo_id, model_type=model_type)
+        self.last_dataset = dataset
 
         goal = None
         if self.agent_helper.requires_goal:
+            if dataset.get("pipette_positions") is None:
+                raise RuntimeError("Goal-required model dataset is missing pipette position observations.")
             goal = np.asarray(dataset["pipette_positions"][-1], dtype=np.float32)
 
         self.predictions.clear()
         self.latencies_ms.clear()
         self.errors.clear()
 
-        num_frames = dataset["images"].shape[0]
+        num_frames = dataset["actions"].shape[0]
+        obs_keys = tuple(dataset.get("obs_keys", dataset["obs"].keys()))
         for idx in range(num_frames):
-            observation = (
-                np.asarray(dataset["pipette_positions"][idx], dtype=np.float32),
-                np.asarray(dataset["stage_positions"][idx], dtype=np.float32),
-                np.asarray(dataset["images"][idx]),
-                np.asarray(dataset["resistance"][idx], dtype=np.float32),
-            )
+            observation = {
+                key: np.asarray(dataset["obs"][key][idx])
+                for key in obs_keys
+            }
 
             start = time.perf_counter()
             predicted_action = self.agent_helper.run_inference(

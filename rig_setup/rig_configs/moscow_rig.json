@@ -7,11 +7,21 @@
   "devices": {
     "stage_controller": {
       "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
-      "params": { "serial": { "port": "COM6", "baudrate": 9600 } }
+      "params": {
+        "serial": {
+          "port": "COM6",
+          "baudrate": 9600
+        }
+      }
     },
     "pipette_controller": {
       "class": "patcherbot.devices.manipulator.scientificaSerial.ScientificaSerialNoEncoder",
-      "params": { "serial": { "port": "COM3", "baudrate": 9600 } }
+      "params": {
+        "serial": {
+          "port": "COM3",
+          "baudrate": 9600
+        }
+      }
     },
     "camera": {
       "class": "patcherbot.devices.camera.pcocamera.PcoCamera",
@@ -42,19 +52,31 @@
     },
     "amplifier": {
       "class": "patcherbot.devices.amplifier.multiclamp.MultiClampChannel",
-      "params": { "channel": 1 }
+      "params": {
+        "channel": 1
+      }
     },
     "pressure": {
       "class": "patcherbot.devices.pressurecontroller.MoscowPressureController.MoscowPressureController",
       "params": {
         "channel": 4,
-        "controllerSerial": { "port": "COM5", "baudrate": 9600, "timeout": 0 },
-        "readerSerial": { "port": "COM9", "baudrate": 9600, "timeout": 0 }
+        "controllerSerial": {
+          "port": "COM5",
+          "baudrate": 9600,
+          "timeout": 0
+        },
+        "readerSerial": {
+          "port": "COM9",
+          "baudrate": 9600,
+          "timeout": 0
+        }
       }
     },
     "lamp": {
       "class": "patcherbot.devices.lamp.olympus.OlympusLamp",
-      "params": { "port": "COM21" }
+      "params": {
+        "port": "COM21"
+      }
     },
     "laser": {
       "class": "patcherbot.devices.laser.laser.FakeLaser",

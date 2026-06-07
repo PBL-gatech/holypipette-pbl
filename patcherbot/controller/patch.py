@@ -87,8 +87,6 @@ class AutoPatcher(TaskController):
         self.velocity_prediction = False
         self._track_cell_ai_disabled_logged = False
         self._last_track_cell_status = None
-        self._resistance_raw_buffer = None
-        self._resistance_slope_cache = None
 
     def _get_state_recorder(self) -> StateMachineLogger:
         if self._state_recorder is None:
@@ -1183,25 +1181,6 @@ class AutoPatcher(TaskController):
             self.daq.resistance, num_measurements, interval
         )
 
-    def _update_resistance_slope_cache(self, avg_resistance: float, sample_interval: float) -> None:
-        """Update the cached gigaseal resistance slope from the raw resistance buffer."""
-        if self._resistance_raw_buffer is None:
-            return
-
-        self._resistance_raw_buffer.append(float(avg_resistance))
-        if len(self._resistance_raw_buffer) < 5:
-            self._resistance_slope_cache = None
-            return
-
-        diffs = np.diff(np.asarray(self._resistance_raw_buffer, dtype=np.float64))
-        if diffs.size == 0:
-            self._resistance_slope_cache = None
-            return
-
-        max_window = min(50, max(5, int(self.config.resistance_slope_window)))
-        window_size = min(max_window, diffs.size)
-        self._resistance_slope_cache = float(np.mean(diffs[-window_size:])) / float(sample_interval)
-
     def capacitanceRamp(self, num_measurements=5, interval=0.200):
         return self._safe_average(
             self.daq.capacitance, num_measurements, interval
@@ -1215,9 +1194,15 @@ class AutoPatcher(TaskController):
         """
         autoPressure = (self.config.mode == 'Classic')
         agentPressure = (self.config.mode == 'Agent')
+        agent_resistance_input_width = 0
+        agent_resistance_history = collections.deque(maxlen=1)
         if agentPressure:
             self.info("Agent gigaseal mode detected; preparing gigaseal policy.")
             self.agenthelper.prepare_model("gigaseal")
+            agent_resistance_input_width = self._agent_resistance_input_width()
+            agent_resistance_history = collections.deque(
+                maxlen=max(1, agent_resistance_input_width)
+            )
         self.info(f"{self.config.mode}: Attempting to form gigaseal...")
         self.amplifier.auto_fast_compensation()
         self.sleep(1)
@@ -1227,16 +1212,11 @@ class AutoPatcher(TaskController):
 
         num_slope_samples = 5
         sample_interval = float(self.config.measurement_speed)
-        enabled = bool(self.config.resistance_slope_enabled)
-        self._resistance_raw_buffer = collections.deque(maxlen=50) if enabled else None
-        self._resistance_slope_cache = None
 
         avg_resistance = self.resistanceRamp(
             num_measurements=num_slope_samples,
             interval=sample_interval,
         )
-        if enabled:
-            self._update_resistance_slope_cache(avg_resistance, sample_interval)
         consecutive_success = 0
 
         self.pressure.set_ATM(atm=True)
@@ -1255,6 +1235,8 @@ class AutoPatcher(TaskController):
 
         holding_switched = False
         last_progress_time = time.time()
+        last_agent_action = None
+        observations_since_last_action = 0
 
         while not self.abort_requested:
             # Deadline check
@@ -1266,8 +1248,6 @@ class AutoPatcher(TaskController):
                 num_measurements=num_slope_samples,
                 interval=sample_interval,
             )
-            if enabled:
-                self._update_resistance_slope_cache(avg_resistance, sample_interval)
 
             delta_resistance = avg_resistance - prev_resistance
             rate_mohm_per_sec = delta_resistance / (num_slope_samples * sample_interval)
@@ -1278,97 +1258,61 @@ class AutoPatcher(TaskController):
             # ---------------------- auto-pressure logic ----------------------
             if agentPressure:
                 observation = self.observe(include_pressure_state=True)
-                observed_resistance = None
-                observed_pressure = None
-                observed_atm = bool(np.asarray(observation.get("pressure_atm_state"), dtype=float).reshape(-1)[0] >= 0.5)
-                if "resistance" in observation:
-                    try:
-                        observed_resistance = float(np.asarray(observation["resistance"], dtype=float).reshape(-1)[0])
-                        if not np.isfinite(observed_resistance):
-                            observed_resistance = None
-                    except (TypeError, ValueError, IndexError):
-                        observed_resistance = None
-                if "pressure" in observation:
-                    try:
-                        observed_pressure = float(np.asarray(observation["pressure"], dtype=float).reshape(-1)[0])
-                        if not np.isfinite(observed_pressure):
-                            observed_pressure = None
-                    except (TypeError, ValueError, IndexError):
-                        observed_pressure = None
+                self._attach_agent_resistance_input(
+                    observation,
+                    agent_resistance_history,
+                    agent_resistance_input_width,
+                )
+                observation["observations_since_last_action"] = np.asarray(
+                    [observations_since_last_action],
+                    dtype=np.float32,
+                )
                 self.info(
-                    "Gigaseal agent observation collected"
-                    + (
-                        f": resistance={observed_resistance:.3f} MΩ"
-                        if observed_resistance is not None
-                        else ""
-                    )
-                    + (
-                        f", pressure={observed_pressure:.3f} mbar"
-                        if observed_pressure is not None
-                        else ""
-                    )
-                    + f", atm={observed_atm}"
+                    "Gigaseal agent observation collected: "
+                    f"resistance={float(observation['resistance'][0]):.3f} MΩ, "
+                    f"actual_pressure={float(observation['pressure'][0]):.3f} mbar, "
+                    f"setpoint={float(observation['commanded_pressure_mbar'][0]):.3f} mbar, "
+                    f"atm={bool(observation['pressure_atm_state'][0])}, "
+                    f"observations_since_last_action={int(observation['observations_since_last_action'][0])}"
                 )
                 action = self.agenthelper.run_inference(observation=observation, is_demo=False)
                 self.info(f"Gigaseal agent raw action: {action}")
                 if action is None:
                     self.warning("Gigaseal agent did not return an action; skipping pressure update for this iteration.")
                 else:
-                    try:
-                        action_array = np.asarray(action, dtype=float).reshape(-1)
-                    except (TypeError, ValueError) as exc:
-                        self.warning(f"Gigaseal agent action could not be converted to a numeric array: {exc}")
-                        action_array = None
-
-                    if action_array is not None:
-                        if action_array.size < 2:
-                            self.warning(
-                                f"Gigaseal agent action must have at least 2 values; received shape {action_array.shape}."
-                            )
-                        elif not np.isfinite(action_array[:2]).all():
-                            self.warning(f"Gigaseal agent action contains invalid values: {action_array[:2]}")
-                        else:
-                            commanded_pressure_raw = float(action_array[0])
-                            commanded_pressure = float(
-                                np.clip(commanded_pressure_raw, float(self.config.pressure_ramp_max), -5.0)
-                            )
-                            if not np.isclose(commanded_pressure, commanded_pressure_raw):
-                                self.warning(
-                                    "Gigaseal agent pressure command %.3f mbar clamped to %.3f mbar "
-                                    "(safe range %.3f to %.3f mbar)."
-                                    % (
-                                        commanded_pressure_raw,
-                                        commanded_pressure,
-                                        float(self.config.pressure_ramp_max),
-                                        -5.0,
-                                    )
-                                )
-                            target_atm = bool(float(action_array[1]) >= 0.5)
-                            self.info(
-                                "Gigaseal agent decoded action: "
-                                f"commanded_pressure={commanded_pressure:.3f} mbar, atm={target_atm}"
-                            )
-                            current_pressure = None
-                            try:
-                                current_pressure = float(np.asarray(self.pressure.get_pressure(), dtype=float).reshape(-1)[0])
-                                if not np.isfinite(current_pressure):
-                                    current_pressure = None
-                            except (TypeError, ValueError, IndexError):
-                                current_pressure = None
-                            current_atm = bool(self.pressure.get_ATM())
-                            pressure_matches = current_pressure is not None and np.isclose(current_pressure, commanded_pressure)
-                            atm_matches = current_atm == target_atm
-
-                            if not target_atm:
-                                if not pressure_matches:
-                                    self.pressure.set_pressure(commanded_pressure)
-                                if not atm_matches:
-                                    self.pressure.set_ATM(atm=False)
+                    action_array = np.asarray(action).reshape(-1)
+                    if action_array.size < 1:
+                        self.warning(
+                            f"Gigaseal agent action must have at least 1 value; received shape {action_array.shape}."
+                        )
+                    else:
+                        first_action_value = float(action_array[0])
+                        if action_array.size == 1:
+                            target_atm = bool(first_action_value >= 0.0)
+                            if target_atm:
+                                commanded_pressure = float(self.pressure.get_pressure())
                             else:
-                                if not atm_matches:
-                                    self.pressure.set_ATM(atm=True)
-                                if not pressure_matches:
-                                    self.pressure.set_pressure(commanded_pressure)
+                                commanded_pressure = float(
+                                    np.clip(first_action_value, float(self.config.pressure_ramp_max), -5.0)
+                                )
+                        else:
+                            commanded_pressure = float(
+                                np.clip(first_action_value, float(self.config.pressure_ramp_max), -5.0)
+                            )
+                            target_atm = bool(float(action_array[1]) >= 0.5)
+                        self.info(
+                            "Gigaseal agent decoded action: "
+                            f"commanded_pressure={commanded_pressure:.3f} mbar, atm={target_atm}"
+                        )
+
+                        current_agent_action = (commanded_pressure, target_atm)
+                        if current_agent_action != last_agent_action:
+                            self.pressure.set_pressure(commanded_pressure)
+                            self.pressure.set_ATM(atm=target_atm)
+                            observations_since_last_action = 0
+                            last_agent_action = current_agent_action
+                        else:
+                            observations_since_last_action += 1
             elif autoPressure:
                 # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
                 increase_gate = self.config.increase_slope_gate
@@ -1401,8 +1345,6 @@ class AutoPatcher(TaskController):
                         num_measurements=num_slope_samples,
                         interval=sample_interval,
                     )
-                    if enabled:
-                        self._update_resistance_slope_cache(testresistance, sample_interval)
                     difference = testresistance - avg_resistance
                     self.info(f"Test resistance: {testresistance} MΩ; difference: {difference} MΩ")
                     if difference < 0:
@@ -1460,9 +1402,13 @@ class AutoPatcher(TaskController):
         self.daq.setCellMode(True)
         autoPressure = (self.config.mode == 'Classic')
         agentMode = (self.config.mode == 'Agent')
+        agent_resistance_input_width = 0
+        agent_resistance_history = deque(maxlen=1)
         if agentMode:
             self.info("Agent break-in mode detected; preparing break-in policy.")
             self.agenthelper.prepare_model("break_in")
+            agent_resistance_input_width = self._agent_resistance_input_width()
+            agent_resistance_history = deque(maxlen=max(1, agent_resistance_input_width))
         self.info(f"{self.config.mode}: Attempting Break in...")
         self.sleep(3)
         self.pressure.set_pressure(self.config.pulse_pressure_break_in)
@@ -1512,6 +1458,11 @@ class AutoPatcher(TaskController):
 
                 # Collect observation with pressure state for the agent
                 observation = self.observe(include_pressure_state=True)
+                self._attach_agent_resistance_input(
+                    observation,
+                    agent_resistance_history,
+                    agent_resistance_input_width,
+                )
                 action = self.agenthelper.run_inference(observation=observation, is_demo=False)
                 self.info(f"Break-in agent raw action: {action}")
 
@@ -1525,22 +1476,26 @@ class AutoPatcher(TaskController):
                         action_array = None
 
                     if action_array is not None:
-                        if action_array.size < 2:
+                        if action_array.size < 1:
                             self.warning(
-                                f"Break-in agent action must have at least 2 values; received shape {action_array.shape}."
+                                f"Break-in agent action must have at least 1 value; received shape {action_array.shape}."
                             )
-                        elif not np.isfinite(action_array[:2]).all():
-                            self.warning(f"Break-in agent action contains invalid values: {action_array[:2]}")
+                        elif not np.isfinite(action_array[0]):
+                            self.warning(f"Break-in agent ATM action is invalid: {action_array[0]}")
                         else:
-                            # Decode ATM command (2nd dimension)
-                            target_atm = bool(float(action_array[1]) >= 0.5)
+                            # Break-in action dims: ATM state, optional zap command.
+                            target_atm = bool(float(action_array[0]) >= 0.5)
                             current_atm = bool(self.pressure.get_ATM())
                             if current_atm != target_atm:
                                 self.pressure.set_ATM(atm=target_atm)
                                 self.info(f"Break-in agent set ATM: {target_atm}")
 
-                            # Decode zap command (1st dimension)
-                            should_zap = bool(float(action_array[0]) >= 0.5)
+                            should_zap = False
+                            if action_array.size >= 2:
+                                if np.isfinite(action_array[1]):
+                                    should_zap = bool(float(action_array[1]) >= 0.5)
+                                else:
+                                    self.warning(f"Break-in agent zap action is invalid: {action_array[1]}")
                             if should_zap and self.config.zap:
                                 self.info("zapping (Agent command)")
                                 self.amplifier.zap()
@@ -1548,7 +1503,7 @@ class AutoPatcher(TaskController):
 
                             self.info(
                                 "Break-in agent decoded action: "
-                                f"zap={should_zap}, atm={target_atm}"
+                                f"atm={target_atm}, zap={should_zap}"
                             )
 
                 self.sleep(wait_period * (1 + trials / 2))
@@ -2299,6 +2254,55 @@ class AutoPatcher(TaskController):
     def wavelength_up(self):
         self._step_laser_wavelength(1)
 
+    def _agent_resistance_input_width(self, default_width: int = 15) -> int:
+        """Return the active policy's resistance_input width, or 0 if unused."""
+        agent = getattr(self.agenthelper, "agent", None)
+        if agent is None:
+            return 0
+
+        required_keys = ()
+        getter = getattr(agent, "get_required_obs_keys", None)
+        if callable(getter):
+            try:
+                required_keys = tuple(str(key) for key in getter())
+            except Exception:
+                required_keys = ()
+        if not required_keys:
+            required_keys = tuple(str(key) for key in getattr(agent, "obs_keys", ()) or ())
+
+        importer = getattr(agent, "importer", None)
+        obs_shapes = getattr(importer, "obs_shapes", {}) or {}
+        if "resistance_input" not in required_keys and "resistance_input" not in obs_shapes:
+            return 0
+
+        shape = obs_shapes.get("resistance_input")
+        if shape is not None:
+            try:
+                shape_tuple = tuple(int(dim) for dim in shape)
+            except Exception:
+                shape_tuple = ()
+            if shape_tuple:
+                return max(1, int(shape_tuple[-1]))
+        return max(1, int(default_width))
+
+    def _attach_agent_resistance_input(self, observation, history, width: int) -> None:
+        """Attach prior resistance samples to a live agent observation."""
+        if width <= 0 or not isinstance(observation, dict):
+            return
+
+        resistance_input = np.zeros(int(width), dtype=np.float32)
+        prior_values = list(history)[-int(width):]
+        if prior_values:
+            resistance_input[-len(prior_values):] = np.asarray(prior_values, dtype=np.float32)
+        observation["resistance_input"] = resistance_input
+
+        try:
+            current_resistance = float(np.asarray(observation.get("resistance")).reshape(-1)[0])
+        except Exception:
+            return
+        if np.isfinite(current_resistance):
+            history.append(current_resistance)
+
     def observe(self, include_pressure_state: bool = False):
         import time
         t0 = time.perf_counter()
@@ -2325,29 +2329,17 @@ class AutoPatcher(TaskController):
         if not include_pressure_state:
             return [cvpi, st, img, res]
 
-        try:
-            pressure = float(np.asarray(self.pressure.get_pressure(), dtype=float).reshape(-1)[0])
-            if not np.isfinite(pressure):
-                raise ValueError("pressure is not finite")
-        except (TypeError, ValueError, IndexError):
-            self.warning(
-                "observe(include_pressure_state=True) could not read a valid pressure setpoint; "
-                "using 0.0 mbar."
-            )
-            pressure = 0.0
+        actual_pressure = self.pressure.get_last_acquisition()
+        commanded_pressure = self.pressure.get_pressure()
+        pressure_atm_state = float(bool(self.pressure.get_ATM()))
 
         observation = {
             "pipette_positions": cvpi,
             "stage_positions": st,
             "camera_image": img,
             "resistance": np.asarray([res], dtype=np.float32),
-            "pressure": np.asarray([pressure], dtype=np.float32),
-            "pressure_atm_state": np.asarray([float(bool(self.pressure.get_ATM()))], dtype=np.float32),
+            "pressure": np.asarray([actual_pressure], dtype=np.float32),
+            "commanded_pressure_mbar": np.asarray([commanded_pressure], dtype=np.float32),
+            "pressure_atm_state": np.asarray([pressure_atm_state], dtype=np.float32),
         }
-        if (
-            bool(self.config.resistance_slope_enabled)
-            and self._resistance_slope_cache is not None
-            and np.isfinite(self._resistance_slope_cache)
-        ):
-            observation["resistance_slope"] = np.asarray([self._resistance_slope_cache], dtype=np.float32)
         return observation
