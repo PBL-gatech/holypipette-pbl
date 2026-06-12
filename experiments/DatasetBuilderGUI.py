@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QTextEdit,
@@ -66,7 +67,13 @@ class DatasetBuilderGUI(QWidget):
         self._sync_selector_constraints()
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        content = QWidget()
+        root = QVBoxLayout(content)
+        self.scroll_area.setWidget(content)
+        outer.addWidget(self.scroll_area)
 
         meta_group = QGroupBox("Metadata")
         meta_row = QHBoxLayout(meta_group)
@@ -149,6 +156,10 @@ class DatasetBuilderGUI(QWidget):
         self.debug_single_trajectory.setToolTip(
             "After building demos, keep one random trajectory and copy it to train and validation. "
             "Uses Random Seed; Validation Ratio is ignored."
+        )
+        self.include_failed_demos = QCheckBox("Include failed demonstrations")
+        self.include_failed_demos.setToolTip(
+            "When checked, include failed state-recorder attempts while still excluding aborted attempts."
         )
         self.freq_mask = QSpinBox()
         self.freq_mask.setRange(1, 1000)
@@ -325,6 +336,7 @@ class DatasetBuilderGUI(QWidget):
         form.addRow("Validation Ratio:", self.val_ratio)
         form.addRow("Random Seed:", self.random_seed)
         form.addRow(self.debug_single_trajectory)
+        form.addRow(self.include_failed_demos)
 
         form.addRow(self._form_section("Sampling / Cleanup"))
         form.addRow("Frequency Mask:", self.freq_mask)
@@ -876,6 +888,7 @@ class DatasetBuilderGUI(QWidget):
         self._set_if(self.val_ratio, settings.get("val_ratio"))
         self._set_if(self.random_seed, settings.get("random_seed"))
         self._set_if(self.debug_single_trajectory, settings.get("debug_single_trajectory"))
+        self._set_if(self.include_failed_demos, settings.get("include_failed_demos"))
         self._set_if(self.freq_mask, settings.get("freq_mask", settings.get("frequency_mod")))
         self._set_if(self.image_resize, settings.get("image_resize"))
         self._set_if(self.inaction, settings.get("inaction"))
@@ -1051,6 +1064,7 @@ class DatasetBuilderGUI(QWidget):
             omit_stage_movement=self.omit_stage_movement.isChecked(),
             random_seed=int(self.random_seed.value()),
             debug_single_trajectory=self.debug_single_trajectory.isChecked(),
+            include_failed_demos=self.include_failed_demos.isChecked(),
             freq_mask=int(self.freq_mask.value()),
             load_next_obs=self.load_next_obs.isChecked(),
             use_velocities=self.use_velocities.isChecked(),

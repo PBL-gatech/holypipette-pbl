@@ -192,6 +192,7 @@ class DatasetBuilderSettings:
     omit_stage_movement: bool = False # set to true to only record demos when stage is stationary
     random_seed: int = 0
     debug_single_trajectory: bool = False # rewrite output to one random demo copied into train and valid
+    include_failed_demos: bool = False # include failed state-recorder attempts; aborted attempts stay excluded
     freq_mask: int = 1
     load_next_obs: bool = False # set to true for goal conditioning
     use_velocities: bool = False # set to true to convert action deltas into per-observation velocities
@@ -238,6 +239,19 @@ class _StateDatasetContext:
 
 
 @dataclass(slots=True)
+class _StateAttemptRecord:
+    started: float
+    finished: float
+    outcome_code: int = 0
+    system_mode_code: Optional[int] = None
+    attempt_json: Optional[str] = None
+
+    @property
+    def outcome_label(self) -> str:
+        return _STATE_OUTCOME_LABELS.get(self.outcome_code, f"outcome_{self.outcome_code}")
+
+
+@dataclass(slots=True)
 class _GigasealAugmentedPayload:
     actions: np.ndarray
     dones: np.ndarray
@@ -263,6 +277,14 @@ class _GigasealAugmentedPayload:
 
 _LOG_TIMEZONE = ZoneInfo("America/New_York")
 _PRESSURE_EVENT_DEDUP_TOLERANCE_SECONDS = 0.1
+_STATE_OUTCOME_SUCCESS = 0
+_STATE_OUTCOME_FAILURE = 1
+_STATE_OUTCOME_ABORTED = 2
+_STATE_OUTCOME_LABELS = {
+    _STATE_OUTCOME_SUCCESS: "success",
+    _STATE_OUTCOME_FAILURE: "failure",
+    _STATE_OUTCOME_ABORTED: "aborted",
+}
 _PRESSURE_RAW_RE = re.compile(
     r"^Setting pressure to (?P<value>[+-]?(?:\d+(?:\.\d+)?|\.\d+)) mbar \(raw: (?P<raw>[^)]+)\)$"
 )
@@ -644,6 +666,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.gigaseal_augmentation = settings.gigaseal_augmentation
         self.val_ratio = settings.val_ratio
         self.omit_stage_movement = settings.omit_stage_movement
+        self.include_failed_demos = settings.include_failed_demos
         self.rng = np.random.default_rng(settings.random_seed)
         self.load_next_obs = settings.load_next_obs
         self.use_velocities = settings.use_velocities
@@ -1555,18 +1578,23 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         keep[start_idx:first_event_idx] = True
         return keep
 
-    def get_timestamps_for_all_successful_state_attempts(
+    def _get_state_attempt_records(
         self,
         rig_recorder_data_folder: str,
         valid_start: float,
         valid_end: float,
-    ) -> Dict[str, List[Tuple[float, float]]]:
-        """Extract successful attempt windows for each state using JSON logs."""
+        *,
+        include_failed: bool = False,
+    ) -> Dict[str, List[_StateAttemptRecord]]:
+        """Extract selected state attempt windows using state-recorder JSON logs."""
 
-        state_attempts: Dict[str, List[Tuple[float, float]]] = {}
+        state_attempts: Dict[str, List[_StateAttemptRecord]] = {}
         state_root = Path("experiments/Data/state_recorder_data")
         day_token = rig_recorder_data_folder.split('-', 1)[0]
         tolerance = 0.5
+        allowed_outcomes = {_STATE_OUTCOME_SUCCESS}
+        if include_failed:
+            allowed_outcomes.add(_STATE_OUTCOME_FAILURE)
 
         if state_root.exists():
             for day_dir in sorted(state_root.glob(f"{day_token}*")):
@@ -1585,7 +1613,15 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         outcome = payload.get("outcome")
                         started = payload.get("started")
                         finished = payload.get("finished")
-                        if outcome != 0 or started is None or finished is None:
+                        if outcome is None or started is None or finished is None:
+                            continue
+                        try:
+                            outcome_code = int(outcome)
+                            started = float(started)
+                            finished = float(finished)
+                        except (TypeError, ValueError):
+                            continue
+                        if outcome_code not in allowed_outcomes:
                             continue
                         if finished <= started:
                             continue
@@ -1600,12 +1636,74 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                             state_name = stem
                         slug = _slugify_state_name(state_name)
 
-                        state_attempts.setdefault(slug, []).append((started, finished))
+                        system_mode = payload.get("system_mode")
+                        try:
+                            system_mode_code = int(system_mode) if system_mode is not None else None
+                        except (TypeError, ValueError):
+                            system_mode_code = None
+                        state_attempts.setdefault(slug, []).append(
+                            _StateAttemptRecord(
+                                started=started,
+                                finished=finished,
+                                outcome_code=outcome_code,
+                                system_mode_code=system_mode_code,
+                                attempt_json=json_path.as_posix(),
+                            )
+                        )
 
         for attempts in state_attempts.values():
-            attempts.sort(key=lambda window: window[0])
+            attempts.sort(key=lambda record: record.started)
 
         return state_attempts
+
+    def get_timestamps_for_all_successful_state_attempts(
+        self,
+        rig_recorder_data_folder: str,
+        valid_start: float,
+        valid_end: float,
+    ) -> Dict[str, List[Tuple[float, float]]]:
+        """Extract successful attempt windows for each state using JSON logs."""
+
+        state_attempts = self._get_state_attempt_records(
+            rig_recorder_data_folder,
+            valid_start,
+            valid_end,
+            include_failed=False,
+        )
+        return {
+            state_name: [(record.started, record.finished) for record in records]
+            for state_name, records in state_attempts.items()
+        }
+
+    def _get_state_attempt_records_for_export(
+        self,
+        rig_recorder_data_folder: str,
+        valid_start: float,
+        valid_end: float,
+    ) -> Dict[str, List[_StateAttemptRecord]]:
+        include_failed = bool(getattr(self, "include_failed_demos", False))
+        if not include_failed and "get_timestamps_for_all_successful_state_attempts" in self.__dict__:
+            legacy_attempts = self.get_timestamps_for_all_successful_state_attempts(
+                rig_recorder_data_folder,
+                valid_start,
+                valid_end,
+            )
+            return {
+                state_name: [
+                    _StateAttemptRecord(
+                        started=float(started),
+                        finished=float(finished),
+                    )
+                    for started, finished in attempt_ranges
+                ]
+                for state_name, attempt_ranges in legacy_attempts.items()
+            }
+        return self._get_state_attempt_records(
+            rig_recorder_data_folder,
+            valid_start,
+            valid_end,
+            include_failed=include_failed,
+        )
 
     # --- Graph / movement alignment -------------------------------------
     def truncate_graph_values(
@@ -3484,7 +3582,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     # --- High level orchestration ---------------------------------------
 
     def add_demo(self, rig_recorder_data_folder: str, record_to_file: bool = False) -> None:
-        """Parse a rig-recorder folder, extracting successful attempts into per-state datasets."""
+        """Parse a rig-recorder folder, extracting selected attempts into per-state datasets."""
         print(f"Adding demos from rig_recorder_data_folder: {rig_recorder_data_folder}")
 
         include_next_obs = self.load_next_obs
@@ -3500,12 +3598,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         graph_start = graph_values[0][0]
         graph_end = graph_values[-1][0]
 
-        state_attempts = self.get_timestamps_for_all_successful_state_attempts(
+        state_attempts = self._get_state_attempt_records_for_export(
             rig_recorder_data_folder, graph_start, graph_end
         )
 
         if not state_attempts:
-            print("  no successful state attempts detected; skipping demo export")
+            print("  no selected state attempts detected; skipping demo export")
             return
 
         has_gigaseal_state = any(_is_gigaseal_state_name(state_name) for state_name in state_attempts)
@@ -3543,7 +3641,10 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             uses_pressure_command_observations = _uses_pressure_command_observations(state_name)
             print(f"  processing state '{state_name}' with {len(attempt_ranges)} attempts")
             with self._use_state_context(state_name):
-                for attempt_first_timestamp, attempt_last_timestamp in attempt_ranges:
+                for attempt_record in attempt_ranges:
+                    attempt_first_timestamp = attempt_record.started
+                    attempt_last_timestamp = attempt_record.finished
+                    outcome_label = attempt_record.outcome_label
                     attempt_graph_values = self.truncate_graph_values(
                         graph_values, attempt_first_timestamp, attempt_last_timestamp
                     )
@@ -3568,7 +3669,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     )
                     if trim_skip_reason is not None:
                         warning_text = (
-                            f"Skipping successful '{state_name}' attempt in "
+                            f"Skipping {outcome_label} '{state_name}' attempt in "
                             f"{rig_recorder_data_folder} "
                             f"({attempt_first_timestamp:.3f} -> {attempt_last_timestamp:.3f}): "
                             f"{trim_skip_reason}."
@@ -3847,6 +3948,18 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     )
 
                     if record_to_file:
+                        demo_attrs = None
+                        if (
+                            attempt_record.attempt_json is not None
+                            or attempt_record.system_mode_code is not None
+                            or attempt_record.outcome_code != _STATE_OUTCOME_SUCCESS
+                        ):
+                            demo_attrs = {
+                                "state_outcome_code": int(attempt_record.outcome_code),
+                                "state_outcome_label": outcome_label,
+                                "state_system_mode_code": attempt_record.system_mode_code,
+                                "state_attempt_json": attempt_record.attempt_json,
+                            }
                         demo_key = self.add_attempt_demo_to_dataset(
                             num_samples=actions.shape[0],
                             actions=actions,
@@ -3882,9 +3995,10 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                                 next_observations_since_last_action_values
                             ),
                             next_time_since_last_action_values=next_time_since_last_action_values,
+                            demo_attrs=demo_attrs,
                         )
                         self._split_keys[split_lbl].append(demo_key)
-                        print(f"    added original {split_lbl} demo")
+                        print(f"    added original {outcome_label} {split_lbl} demo")
 
                         if is_gigaseal_state:
                             augmented_payloads = self._make_gigaseal_augmented_payloads(
@@ -3908,6 +4022,8 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                                 time_since_last_action_values,
                             )
                             for augmented_payload, augmented_attrs in augmented_payloads:
+                                if demo_attrs:
+                                    augmented_attrs = {**demo_attrs, **augmented_attrs}
                                 augmented_key = self._write_gigaseal_augmented_payload(
                                     augmented_payload,
                                     split_lbl,
