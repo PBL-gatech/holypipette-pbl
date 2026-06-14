@@ -159,7 +159,8 @@ class DatasetBuilderGUI(QWidget):
         )
         self.include_failed_demos = QCheckBox("Include failed demonstrations")
         self.include_failed_demos.setToolTip(
-            "When checked, include failed state-recorder attempts while still excluding aborted attempts."
+            "When checked, include failed state-recorder attempts while still excluding aborted attempts. "
+            "Output demos are tagged and filterable through success/failure HDF5 masks."
         )
         self.freq_mask = QSpinBox()
         self.freq_mask.setRange(1, 1000)
@@ -1202,6 +1203,7 @@ class DatasetBuilderGUI(QWidget):
                 QApplication.processEvents()
                 builder.add_demo(folder, record_to_file=True)
             builder.write_split_masks()
+            self._append("Outcome masks written: success/failure and split-specific filters.")
             self._append(f"Done. Dataset path: {builder.dataset_path}")
             QMessageBox.information(self, "Completed", f"Dataset built:\n{builder.dataset_path}")
         except Exception:

@@ -3192,6 +3192,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 for attr_name, attr_value in demo_attrs.items():
                     if attr_value is not None:
                         demo.attrs[attr_name] = attr_value
+            self._normalize_demo_outcome_attrs(demo)
 
             action_ds = demo.create_dataset("actions", data=actions)
             if self._last_action_labels:
@@ -3425,6 +3426,90 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         with open(json_path, "w", encoding="utf-8") as fh:
             json.dump(metadata, fh, indent=2, sort_keys=True)
 
+    @staticmethod
+    def _demo_sort_key(demo_key: str) -> Tuple[int, Any]:
+        """Sort demo_N keys numerically while tolerating unexpected names."""
+
+        prefix, _, suffix = demo_key.partition("_")
+        if prefix == "demo":
+            try:
+                return (0, int(suffix))
+            except ValueError:
+                pass
+        return (1, demo_key)
+
+    @staticmethod
+    def _normalize_demo_outcome_attrs(demo: h5py.Group) -> int:
+        """Ensure every demo has explicit success/failure attrs."""
+
+        raw_code = demo.attrs.get("state_outcome_code", _STATE_OUTCOME_SUCCESS)
+        try:
+            outcome_code = int(raw_code)
+        except (TypeError, ValueError):
+            outcome_code = _STATE_OUTCOME_SUCCESS
+
+        outcome_label = _STATE_OUTCOME_LABELS.get(
+            outcome_code,
+            f"outcome_{outcome_code}",
+        )
+        demo.attrs["state_outcome_code"] = outcome_code
+        demo.attrs["state_outcome_label"] = outcome_label
+        demo.attrs["state_is_success"] = int(outcome_code == _STATE_OUTCOME_SUCCESS)
+        demo.attrs["state_is_failure"] = int(outcome_code == _STATE_OUTCOME_FAILURE)
+        return outcome_code
+
+    def _write_mask_group(
+        self,
+        hf: h5py.File,
+        split_keys: Mapping[str, Sequence[str]],
+    ) -> Dict[str, List[str]]:
+        """Create split and outcome filter masks in robomimic format."""
+
+        if "mask" in hf:
+            del hf["mask"]
+
+        data_group = hf["data"]
+        demo_keys = sorted(
+            [
+                demo_key
+                for demo_key, demo_obj in data_group.items()
+                if isinstance(demo_obj, h5py.Group)
+            ],
+            key=self._demo_sort_key,
+        )
+
+        success_keys: List[str] = []
+        failure_keys: List[str] = []
+        for demo_key in demo_keys:
+            outcome_code = self._normalize_demo_outcome_attrs(data_group[demo_key])
+            if outcome_code == _STATE_OUTCOME_SUCCESS:
+                success_keys.append(demo_key)
+            elif outcome_code == _STATE_OUTCOME_FAILURE:
+                failure_keys.append(demo_key)
+
+        success_set = set(success_keys)
+        failure_set = set(failure_keys)
+        masks: Dict[str, List[str]] = {}
+        for split_name in ("train", "valid"):
+            if split_name not in split_keys:
+                continue
+            split_demo_keys = list(split_keys[split_name])
+            masks[split_name] = split_demo_keys
+            masks[f"{split_name}_success"] = [
+                demo_key for demo_key in split_demo_keys if demo_key in success_set
+            ]
+            masks[f"{split_name}_failure"] = [
+                demo_key for demo_key in split_demo_keys if demo_key in failure_set
+            ]
+
+        masks["success"] = success_keys
+        masks["failure"] = failure_keys
+
+        mask_grp = hf.create_group("mask")
+        for mask_name, keys in masks.items():
+            mask_grp.create_dataset(mask_name, data=np.asarray(keys, dtype="S"))
+        return masks
+
     def write_debug_single_trajectory_dataset(
         self,
         random_seed: Optional[int] = None,
@@ -3483,11 +3568,13 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                         dst_data.attrs["num_demos"] = 1
 
                         src_hf.copy(source_data[selected_demo], dst_data, name="demo_0")
-                        dst_data["demo_0"].attrs["split"] = "train"
-
-                        mask_group = dst_hf.create_group("mask")
-                        mask_group.create_dataset("train", data=np.asarray(["demo_0"], dtype="S"))
-                        mask_group.create_dataset("valid", data=np.asarray(["demo_0"], dtype="S"))
+                        demo = dst_data["demo_0"]
+                        demo.attrs["split"] = "train"
+                        self._normalize_demo_outcome_attrs(demo)
+                        self._write_mask_group(
+                            dst_hf,
+                            {"train": ["demo_0"], "valid": ["demo_0"]},
+                        )
 
                 os.replace(tmp_path, self.dataset_path)
             finally:
@@ -3521,17 +3608,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 print(
                     "debug single-trajectory dataset: "
                     f"{dataset_name} uses {selected_demo} for both train and valid"
-                )
-            return
-
-        if self.val_ratio == 0:
-            print(
-                "val_ratio is 0 - dataset contains only training demos; skipping mask creation."
             )
-            self._write_metadata_files()
-            for state in sorted(self._state_contexts):
-                with self._use_state_context(state):
-                    self._write_metadata_files()
             return
 
         def _write_current_masks() -> None:
@@ -3540,15 +3617,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             with h5py.File(self.dataset_path, "a") as hf:
                 if "data" not in hf:
                     return
-                if "mask" in hf:
-                    del hf["mask"]
-                mask_grp = hf.create_group("mask")
-                for name in ("train", "valid"):
-                    keys = np.asarray(self._split_keys[name], dtype="S")
-                    mask_grp.create_dataset(name, data=keys)
+                masks = self._write_mask_group(hf, self._split_keys)
             valid_count_local = len(self._split_keys.get("valid", []))
             print(
-                f"wrote split masks: {len(self._split_keys['train'])} train | {valid_count_local} valid"
+                f"wrote split masks: {len(self._split_keys['train'])} train | "
+                f"{valid_count_local} valid | {len(masks['success'])} success | "
+                f"{len(masks['failure'])} failure"
             )
             self._write_metadata_files()
 
@@ -3948,18 +4022,15 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                     )
 
                     if record_to_file:
-                        demo_attrs = None
-                        if (
-                            attempt_record.attempt_json is not None
-                            or attempt_record.system_mode_code is not None
-                            or attempt_record.outcome_code != _STATE_OUTCOME_SUCCESS
-                        ):
-                            demo_attrs = {
-                                "state_outcome_code": int(attempt_record.outcome_code),
-                                "state_outcome_label": outcome_label,
-                                "state_system_mode_code": attempt_record.system_mode_code,
-                                "state_attempt_json": attempt_record.attempt_json,
-                            }
+                        outcome_code = int(attempt_record.outcome_code)
+                        demo_attrs = {
+                            "state_outcome_code": outcome_code,
+                            "state_outcome_label": outcome_label,
+                            "state_is_success": int(outcome_code == _STATE_OUTCOME_SUCCESS),
+                            "state_is_failure": int(outcome_code == _STATE_OUTCOME_FAILURE),
+                            "state_system_mode_code": attempt_record.system_mode_code,
+                            "state_attempt_json": attempt_record.attempt_json,
+                        }
                         demo_key = self.add_attempt_demo_to_dataset(
                             num_samples=actions.shape[0],
                             actions=actions,
