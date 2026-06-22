@@ -164,7 +164,7 @@ class PipetteCalHelper():
             self.camera.show_circle(pos_pix)
             print("Recorded calibration point:", self.cal_points[-1])
         else:
-            print("No pipette detected in current frame.")
+            print("No pipette detected in current frame [here].")
 
     def calibrate(self):
         """

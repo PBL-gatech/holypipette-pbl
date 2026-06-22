@@ -55,10 +55,11 @@ class ProtocolGraph(QWidget):
             x_label (str): Label for the X-axis.
             x_unit (str): Unit for the X-axis.
             ephys_filename (str): Base filename for saving ephys data.
-            super().__init__()
-            self.recording_state_manager = recording_state_manager
-            self.graph_interface= graph_interface
-        """
+        """   
+        super().__init__()
+        self.recording_state_manager = recording_state_manager
+        self.graph_interface = graph_interface
+        
 
         # Set window title and layout
         self.setWindowTitle(window_title)

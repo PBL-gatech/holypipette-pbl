@@ -190,14 +190,14 @@ class FakeAmplifier(Amplifier):
         '''
         Switch to voltage clamp mode
         '''
-        self.mode = 'voltage clamp'
+        self._mode = 'voltage clamp'
         self.debug('Switching to voltage clamp mode')
 
     def current_clamp(self):
         '''
         Switch to current clamp mode
         '''
-        self.mode = 'current clamp'
+        self._mode = 'current clamp'
         self.debug('Switching to current clamp mode')
 
     def set_holding(self, value):
@@ -210,7 +210,7 @@ class FakeAmplifier(Amplifier):
             Holding voltage or current
         '''
         self._holding = value
-        if self.mode == 'voltage clamp':
+        if self._mode == 'voltage clamp':
             holding_what = 'potential'
             unit = 'mV'
         else:

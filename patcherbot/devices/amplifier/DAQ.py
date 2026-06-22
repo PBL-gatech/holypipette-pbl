@@ -11,6 +11,7 @@ import nidaqmx.constants
 import serial
 
 from patcherbot.controller.base import TaskController
+from patcherbot.devices.pressurecontroller.BasePressureController import PressureController
 
 __all__ = ['NiDAQ', 'ArduinoDAQ', 'FakeDAQ']
 
@@ -2759,18 +2760,21 @@ class FakeDAQ(DAQ):
     V_CLAMP_VOLT_PER_VOLT = 1.0
     V_CLAMP_VOLT_PER_AMP = 1.0
 
-    def __init__(self):
+    def __init__(self, pressureController: None | PressureController):
         """
         Initialize the FakeDAQ with default parameters and start acquisition.
 
         Sets a baseline resistance and begins a simulated acquisition loop.
         """
         super().__init__()
-        self.totalResistance = 6 * 10 ** 6  # baseline fake resistance
+        self.pressureController = pressureController
+        self.totalResistance = 1  # baseline fake resistance
+        self.targetResistance = 1e3
         self._last_wave_params = None
         self._last_command = None
         self.start_acquisition(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
                                 amplitude=0.5, recordingTime=0.025, interval=None)
+        self.active = False
 
     def resistance(self):
         """
@@ -2780,7 +2784,18 @@ class FakeDAQ(DAQ):
             float:
                 Simulated resistance in ohms.
         """
-        return self.totalResistance + np.random.normal(0, 0.1 * 10 ** 6)
+        # if self.gigaseal_active:
+        #     pressure = self.sim_pressure
+        #     self.totalResistance += (np.random.normal(0, 0.1e6) ** abs(pressure))
+        
+        # if self.totalResistance >= 0.999 * self.gigaseal_target:
+        #         self.totalResistance = self.gigaseal_target
+        #         self.gigaseal_active = False
+        self.tick(1)
+        return self.totalResistance + np.random.normal(0, 0.1)
+    
+    # def set_resistance(self, resistance):
+    #     self.totalResistance = resistance
 
     # ------------------------------------------------------------------
     # Hardware emulation helpers
@@ -2950,4 +2965,48 @@ class FakeDAQ(DAQ):
             "pulse_recording_time": float(pulse_recording_time),
         }
         return self.leak_subtraction_data
+    
+    # def start_gigaseal(self, pressure: PressureController):
+    #     self.gigaseal_active = True
+    #     self.sim_pressure = pressure
 
+    def getDataFromSquareWave(self, wave_freq, samplesPerSec, dutyCycle, amplitude, recordingTime):
+        resistance = self.resistance()
+
+        t = np.linspace(
+            0,
+            recordingTime,
+            int(samplesPerSec * recordingTime)
+        )
+
+        command = np.zeros_like(t)
+        response = np.zeros_like(t)
+
+        return (
+            (t, response),
+            (t, command),
+            resistance,      # totalR
+            self.targetResistance,   # memR
+            resistance,      # accR
+            20e-12           # memC
+        )
+    
+    def update_pressure(self, pressure):
+        self.pressureController.set_pressure(pressure)
+        
+    def tick(self, dt):
+        if self.active:
+            pressure = self.pressureController.get_pressure()
+            currResistance = self.totalResistance
+            growth = np.exp(0.1 * abs(pressure))
+            newResistance = currResistance + (
+                growth * (1 - currResistance / self.targetResistance) * dt
+                )
+            # print(f"P={self.pressure}, growth={growth}")
+            self.totalResistance = newResistance
+    
+    def start(self):
+        self.active = True
+    
+    def stop(self):
+        self.active = False

@@ -5,8 +5,8 @@
     "patch_file":  "fake_patch.yaml",
     "protocol_file":  "fake_protocol.yaml",
     "calibration":  {
-                        "pipette_detector_model":  null,
-                        "pipette_focuser_model":  null
+                        "pipette_detector_model":  "pipetteDetectorNet.pt",
+                        "pipette_focuser_model":  "WaynesBoroPipetteFocuserNet.onnx"
                     },
     "ai_features":  {
                         "enabled":  true
@@ -56,14 +56,16 @@
                                    "class":  "patcherbot.devices.camera.FakeCalCamera.FakeCalCamera",
                                    "params":  {
                                                   "image_z":  100,
-                                                  "targetFramerate":  40
+                                                  "targetFramerate":  40,
+                                                  "stageManip": "$ref:stage_controller",
+                                                  "pipetteManip": "$ref:pipette_controller",
+                                                  "background_image":"image.png"
                                               }
                                },
                     "pipette_camera":  {
                                            "class":  "patcherbot.devices.camera.camera.FakeCamera",
                                            "params":  {
-                                                          "image_z":  0,
-                                                          "paramecium":  false
+                                                       
                                                       }
                                        },
                     "cell_sorter_controller":  {
@@ -78,24 +80,27 @@
 
                                                                }
                                                 },
-                    "daq":  {
-                                "class":  "patcherbot.devices.amplifier.DAQ.FakeDAQ",
-                                "params":  {
-
-                                           }
-                            },
-                    "amplifier":  {
-                                      "class":  "patcherbot.devices.amplifier.amplifier.FakeAmplifier",
-                                      "params":  {
-
-                                                 }
-                                  },
                     "pressure":  {
                                      "class":  "patcherbot.devices.pressurecontroller.BasePressureController.FakePressureController",
                                      "params":  {
 
                                                 }
                                  },
+
+                    "daq":  {
+                                "class":  "patcherbot.devices.amplifier.DAQ.FakeDAQ",
+                                "params":  {
+                                            "pressureController": "$ref:pressure"
+                                           }
+                            },
+
+                    "amplifier":  {
+                                      "class":  "patcherbot.devices.amplifier.amplifier.FakeAmplifier",
+                                      "params":  {
+
+                                                 }
+                                  },
+
                     "lamp":  {
                                  "class":  "patcherbot.devices.lamp.lamp.FakeLamp",
                                  "params":  {
