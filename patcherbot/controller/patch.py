@@ -488,7 +488,7 @@ class AutoPatcher(TaskController):
 
         finally:
             self.amplifier.set_holding(membrane_hold)
-            self.amplifier.switch_holding(True)
+            self.amplifier.switch_holding(False)
             self.sleep(0.25)
             self.info(f'holding reset to {membrane_hold * 1e3:.1f} mV after voltage protocol')
             self.info('finished running voltage membrane test')

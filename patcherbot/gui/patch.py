@@ -9,7 +9,7 @@ import numpy as np
 import logging
 import time
 
-from PyQt5.QtWidgets import QFileDialog, QWidget,QMessageBox
+from PyQt5.QtWidgets import QFileDialog, QTabWidget, QWidget,QMessageBox
 
 from patcherbot.controller import TaskController
 from patcherbot.gui.manipulator import ManipulatorGui
@@ -64,6 +64,11 @@ class PatchGui(ManipulatorGui):
         self._cell_list_timer.setInterval(500)
         self._cell_list_timer.timeout.connect(self._refresh_cell_list_window)
 
+        # self.switch_manipulator_box = QtWidgets.QComboBox()
+        # self.switch_manipulator_box.addItems(self.pipette_interface.calibrated_units.keys())
+        # self.switch_manipulator_box.currentTextChanged.connect(self.pipette_interface.switch_manipulator)
+        # self.status_bar.insertPermanentWidget(1, self.switch_manipulator_box)
+
         self.patch_interface.moveToThread(pipette_interface.thread())
         self.interface_signals[self.patch_interface] = (self.patch_command_signal,
                                                         self.patch_reset_signal)
@@ -71,7 +76,23 @@ class PatchGui(ManipulatorGui):
         self.add_config_gui(self.patch_interface.protocol_config)
         logging.debug("Added config GUI.")
         classic_patching_tab = ClassicPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
-        self.add_tab(classic_patching_tab, 'Classic Auto Patching', index = 0)
+        classic = self.add_tab(classic_patching_tab, 'Classic Auto Patching', index = 0)
+
+        self.dark_mode = False
+        self.toggle_dark_mode_button = QtWidgets.QPushButton("Dark mode")
+        self.toggle_dark_mode_button.clicked.connect(self.toggle_dark_mode)
+        self.status_bar.addPermanentWidget(self.toggle_dark_mode_button)
+
+        self.status_bar_default_style = self.status_bar.styleSheet()
+        self.config_tab_default_style = self.config_tab.styleSheet()
+        # self.classic_patching_tab_default_style = self.config_tab.widget(0).styleSheet()
+
+        # for i in range(self.config_tab.count()):
+        #     curr_tab = (self.config_tab.tabText(i))
+        #     print(f"""
+        #           curr tab: {curr_tab}\n 
+        #           children:  {self.config_tab.widget(i).findChildren(QWidget)}
+        #           """)
 
     def register_commands(self):
         """
@@ -143,6 +164,45 @@ class PatchGui(ManipulatorGui):
         self.cell_list_window.update_cells(cells, stage_reference, full_refresh=full_refresh)
         self._cell_list_signature = signature
 
+    def toggle_dark_mode(self):
+        """
+        Toggle the dark mode for the GUI.
+        """
+        if not self.dark_mode:
+            self.dark_mode = True
+            self.setStyleSheet("background-color: black;")
+
+            for i in range(self.config_tab.count()):
+                curr_tab = self.config_tab.widget(i)
+                curr_tab.setStyleSheet("""
+                    QWidget {
+                        color: white;
+                    }
+                """)
+                tab_name = self.config_tab.tabText(i)
+                if tab_name == "Classic Auto Patching":
+                    for box in curr_tab.findChildren(CollapsibleGroupBox):
+                        box.setStyleSheet(box.dark_style_sheet)
+
+            self.status_bar.setStyleSheet("""
+                QWidget {
+                    background-color: white;
+                    }
+                """)
+        else:
+            self.dark_mode = False
+            self.setStyleSheet("background-color: white;")
+
+            for i in range(self.config_tab.count()):
+                curr_tab = self.config_tab.widget(i)
+                curr_tab.setStyleSheet(self.config_tab_default_style)
+                tab_name = self.config_tab.tabText(i)
+                if tab_name == "Classic Auto Patching":
+                    for box in curr_tab.findChildren(CollapsibleGroupBox):
+                        box.setStyleSheet(box.default_style_sheet)   
+
+            self.status_bar.setStyleSheet(self.status_bar_default_style)
+
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
     """A QGroupBox subclass with collapsible content area and custom styling."""
     def __init__(self, title="", parent=None):
@@ -157,7 +217,7 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
         self.setTitle("")  # Set the group box title to be blank to allow custom styling
 
         # Apply styles for rounded corners, grey borders, and consistent font
-        self.setStyleSheet("""
+        self.default_style_sheet = ("""
             QGroupBox {
                 border: 1px solid lightgray;  /* Light grey border */
                 border-radius: 8px;           /* Rounded corners with 8px radius */
@@ -178,7 +238,7 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
                 font-size: 14px;              /* Consistent font size for content area */
             }
             QPushButton {
-                background-color: #ffffff;     /* White background for buttons */
+                background-color: white;     /* white for buttons */
                 border: 1px solid lightgray;   /* Light grey border for buttons */
                 border-radius: 6px;            /* Slightly rounded corners for buttons */
                 padding: 3px;                  /* Padding for a better button look */
@@ -198,6 +258,54 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
                 outline: none;                  /* Remove blue edge or highlight on focus */
             }
         """)
+
+        # Apply styles for dark mode
+        self.dark_style_sheet = ("""
+            QGroupBox {
+                border: 1px white;  /* White border */
+                border-radius: 8px;           /* Rounded corners with 8px radius */
+                margin-top: 6px;             /* Adjust top margin for visual separation */
+                font-family: Arial, Helvetica, sans-serif;  /* Consistent font family */
+                font-size: 14px;              /* Consistent font size for the group box */
+                color: white
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top center;
+                padding: 0 3px;
+                font-weight: bold;            /* Bold for the group box title */
+                color: white
+            }
+            QWidget {
+                background-color: black;    /* Black background for the content area */
+                border-radius: 8px;
+                font-family: Arial, Helvetica, sans-serif;  /* Consistent font family */
+                font-size: 14px;              /* Consistent font size for content area */
+                color: white
+            }
+            QPushButton {
+                background-color: black;     /* black for buttons */
+                border: 1px solid white;   /* white border for buttons */
+                border-radius: 6px;            /* Slightly rounded corners for buttons */
+                padding: 3px;                  /* Padding for a better button look */
+                font-family: Arial, Helvetica, sans-serif;  /* Consistent font family */
+                font-size: 14px;               /* Adjusted font size for buttons */
+                outline: none;                 /* Remove default focus outline */
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: rgba(173, 216, 230, 0.5);  /* Light blue with 50% transparency on hover */
+                border: 1px solid #87CEEB;       /* Soft blue border on hover */
+            }
+            QPushButton:pressed {
+                background-color: #d1e7ff;     /* Light blue when pressed for a subtle effect */
+            }
+            QPushButton:focus {
+                border: 1px solid #87CEEB;      /* Consistent border color on focus (soft blue) */
+                outline: none;                  /* Remove blue edge or highlight on focus */
+            }
+        """)
+        self.setStyleSheet(self.default_style_sheet)
 
         # Create a toggle button (arrow) for expanding/collapsing
         self.toggle_button = QtWidgets.QToolButton()
@@ -250,6 +358,14 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
             if child.widget():
                 child.widget().setParent(None)
         self.content_layout.addLayout(layout)
+
+    def update_theme(self):
+        if not self.dark_mode:
+            self.dark_mode = True
+            self.setStyleSheet(self.dark_style_sheet)
+        else:
+            self.dark_mode = False
+            self.setStyleSheet(self.dark_style_sheet)
 
 class CellListWindow(QtWidgets.QDialog):
     """Dialog window displaying a list of selected cells with images and stage positions."""

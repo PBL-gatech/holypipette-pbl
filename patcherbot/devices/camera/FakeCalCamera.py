@@ -1,6 +1,6 @@
 from numpy import random
 
-from patcherbot.deepLearning.virtualCell import VirtualCell
+# from patcherbot.deepLearning.virtualCell import VirtualCell
 from patcherbot.devices.cellsorter.CellSorter import CellSorterManip
 from patcherbot.devices.manipulator import Manipulator, FakeManipulator
 from .camera import Camera
@@ -72,27 +72,27 @@ class FakeCalCamera(Camera):
         scaled_h, scaled_w = scaled_cell.shape[:2]
 
         self.frame = cv2.resize(self.frame, dsize=(self.width * 2, self.height * 2), interpolation=cv2.INTER_NEAREST)
-        for _ in range(num_cells):
-            x = random.randint(0, self.width)
-            y = random.randint(0, self.height)
+        # for _ in range(num_cells):
+        #     x = random.randint(0, self.width)
+        #     y = random.randint(0, self.height)
 
-            self.virtual_cells.append(
-                VirtualCell(
-                    random.uniform(100, 1000),
-                    x,
-                    y)
-            )
+        #     self.virtual_cells.append(
+        #         VirtualCell(
+        #             random.uniform(100, 1000),
+        #             x,
+        #             y)
+        #     )
         
-        for cell in self.virtual_cells:
-            roi = self.frame[
-                cell.y:cell.y + scaled_h,
-                cell.x:cell.x + scaled_w,
-            ]
+        # for cell in self.virtual_cells:
+        #     roi = self.frame[
+        #         cell.y:cell.y + scaled_h,
+        #         cell.x:cell.x + scaled_w,
+        #     ]
 
-            self.frame[
-                cell.y:cell.y + scaled_h,
-                cell.x:cell.x + scaled_w,
-            ] = np.maximum(roi, scaled_cell)
+        #     self.frame[
+        #         cell.y:cell.y + scaled_h,
+        #         cell.x:cell.x + scaled_w,
+        #     ] = np.maximum(roi, scaled_cell)
 
         self.last_img = None
         self.last_stage_pos = None
