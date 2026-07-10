@@ -119,13 +119,13 @@ class CellDetectorYOLO1(CellDetector):
 
     def __init__(self, model_path: Optional[str] = None,
                  device: Optional[str] = None,
-                 imgsz: int = 640,
+                 imgsz: int = 1024,
                  conf: float = 0.20) -> None:
         super().__init__()
         from ultralytics import YOLO
 
         cur_file = Path(__file__).parent.absolute()
-        default_model = cur_file / "cellModel" / "cellDetectorNet.pt"
+        default_model = cur_file / "cellModel" / "cellDetectorNet2.pt"
         self.model_path = Path(model_path) if model_path is not None else default_model
 
         self.yolo_model = YOLO(str(self.model_path))
