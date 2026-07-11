@@ -3,7 +3,7 @@ import csv
 from enum import Enum
 import numpy as np
 from patcherbot.devices.amplifier.amplifier import Amplifier
-from patcherbot.devices.amplifier.DAQ import DAQ
+from patcherbot.devices.amplifier.DAQ import DAQ, FakeDAQ
 from patcherbot.devices.manipulator.calibratedunit import CalibratedUnit, CalibratedStage
 from patcherbot.devices.manipulator.microscope import Microscope
 from patcherbot.devices.pressurecontroller import PressureController
@@ -76,6 +76,8 @@ class AutoPatcher(TaskController):
         self.protocol_config = protocol_config
         self.amplifier = amplifier
         self.daq = daq
+        if isinstance(self.daq, FakeDAQ):
+            self.daq.pressureController = pressure
         self.pressure = pressure
         self.calibrated_unit = calibrated_unit
         self.calibrated_stage = calibrated_stage
@@ -486,7 +488,7 @@ class AutoPatcher(TaskController):
 
         finally:
             self.amplifier.set_holding(membrane_hold)
-            self.amplifier.switch_holding(True)
+            self.amplifier.switch_holding(False)
             self.sleep(0.25)
             self.info(f'holding reset to {membrane_hold * 1e3:.1f} mV after voltage protocol')
             self.info('finished running voltage membrane test')
@@ -1204,6 +1206,9 @@ class AutoPatcher(TaskController):
         Raises:
             AutopatchError: If seal formation fails or deadline is exceeded.
         """
+        sim = isinstance(self.daq, FakeDAQ)
+        if sim:
+            self.daq.start()
         if self.config.mode == 'Classic':
             autoPressure = True
         else:
@@ -1231,6 +1236,8 @@ class AutoPatcher(TaskController):
         if autoPressure:
             currPressure = -5
             self.pressure.set_pressure(currPressure)
+            # if sim:
+            #     self.gigaseal_sim.update_pressure(self.pressure.get_pressure())
             self.pressure.set_ATM(atm=False)
             prevpressure = currPressure
             speed = 1
@@ -1259,6 +1266,7 @@ class AutoPatcher(TaskController):
                 last_progress_time = time.time()
 
             # ---------------------- auto-pressure logic ----------------------
+        
             if autoPressure:
                 # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
                 increase_gate = self.config.increase_slope_gate
@@ -1281,6 +1289,8 @@ class AutoPatcher(TaskController):
 
                 if currPressure != prevpressure:
                     self.pressure.set_pressure(currPressure)
+                    # if sim:
+                    #     self.gigaseal_sim.update_pressure(self.pressure.get_pressure())
                     prevpressure = currPressure
                     self.sleep(5 / speed)
 
@@ -1300,6 +1310,8 @@ class AutoPatcher(TaskController):
 
                     currPressure = -5
                     self.pressure.set_pressure(currPressure)
+                    # if hasattr(self, "gigaseal_sim"):
+                    #     self.gigaseal_sim.update_pressure(self.pressure.get_pressure())
                     self.pressure.set_ATM(atm=False)
             # ---------------------------------------------------------------
 
@@ -1320,10 +1332,14 @@ class AutoPatcher(TaskController):
                 self.success_requested = True
                 self.info("Seal successful!")
                 self.success_requested = True
+                if sim:
+                    self.daq.stop()
                 self.success_if_requested()
                 return
 
         # Abort request came in
+        if sim:
+            self.daq.stop()
         raise AutopatchError("Seal attempt failed: gigaseal criteria not met.")
    
     @record_state("break_in")
