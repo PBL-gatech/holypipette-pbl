@@ -48,9 +48,9 @@ DEVICE_SLOTS: List[str] = [
     "pipette_camera",
     "cell_sorter_controller",
     "cell_sorter_manipulator",
+    "pressure",
     "daq",
     "amplifier",
-    "pressure",
     "lamp",
     "laser",
 ]

@@ -18,7 +18,7 @@ from types import MethodType
 
 import param
 from PyQt5 import QtCore, QtWidgets, QtGui
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import (QDialog, QPushButton, QDialogButtonBox, QHBoxLayout, QVBoxLayout,
                              QLabel, QLineEdit, QStyle, QFileDialog, QSpinBox)
 import qtawesome as qta
@@ -731,6 +731,11 @@ class CameraGui(QtWidgets.QMainWindow):
         self.setexposure_edit.returnPressed.connect(self.apply_active_exposure)
 
         self.status_bar.addPermanentWidget(self.switch_view_button)
+
+        self.dark_mode = False
+        self.toggle_dark_mode_button = QtWidgets.QPushButton("Dark mode")
+        self.toggle_dark_mode_button.clicked.connect(self.toggle_dark_mode)
+        self.status_bar.addPermanentWidget(self.toggle_dark_mode_button)
  
         self.setexposure_edit.setPlaceholderText('Exposure time (ms)')
         self.status_bar.addPermanentWidget(self.setexposure_edit)
@@ -826,6 +831,10 @@ class CameraGui(QtWidgets.QMainWindow):
         handler.setLevel(logging.ERROR)
         logging.getLogger('patcherbot').addHandler(handler)
         self.log_signal.connect(self.error_status)
+
+        self.status_timer = QTimer(self)
+        self.status_timer.setSingleShot(True)
+        self.status_timer.timeout.connect(self.status_label.clear)
 
     def _update_switch_button_text(self):
         """Updates the label of the switch view button based on the current active camera."""
@@ -1230,7 +1239,11 @@ class CameraGui(QtWidgets.QMainWindow):
             message (str): Status message.
         """
         if not message:
-            self.status_bar.setStyleSheet('QStatusBar{color: black;}')
+            # TODO create custom stylesheets for error messages that depend on whether or not dark mode = true
+            if self.dark_mode:
+                self.status_label.setStyleSheet('QLabel{color: white;}')
+            else:
+                self.status_label.setStyleSheet('QLabel{color: black;}')
 
     @QtCore.pyqtSlot('QString')
     def error_status(self, message):
@@ -1240,8 +1253,8 @@ class CameraGui(QtWidgets.QMainWindow):
         Args:
             message (str): Error message.
         """
-        self.status_bar.setStyleSheet('QStatusBar{color: red;}')
-        self.status_bar.showMessage(message, 5000)
+        self.status_label.setText(f"<font color='red'>{message}</font>")
+        self.status_timer.start(5000)
 
     def initialize(self):
         """Initializes interfaces, connects signals, and registers commands."""
@@ -1301,7 +1314,7 @@ class CameraGui(QtWidgets.QMainWindow):
             task_name (str): Name of the task.
             interface (TaskController): Interface handling the task.
         """
-        self.status_bar.clearMessage()
+        self.status_label.clear()
         self.task_progress_text.setText(task_name + '...')
         self.task_progress.setVisible(True)
         self.task_abort_button.setEnabled(True)
@@ -1336,8 +1349,11 @@ class CameraGui(QtWidgets.QMainWindow):
         if self.running_task is None:
             # This might be a success message for a non-blocking command
             if isinstance(controller_or_message, str):
-                self.status_bar.setStyleSheet('QStatusBar{color: black;}')
-                self.status_bar.showMessage(controller_or_message, 1000)
+                if self.dark_mode:
+                    self.status_label.setText(f"<font color='white'>{controller_or_message}</font>")
+                else:
+                    self.status_label.setText(f"<font color='black'>{controller_or_message}</font>")
+                self.status_timer.start(1000)
             return  # Nothing else to do
 
         self.task_progress.setVisible(False)
@@ -1347,13 +1363,19 @@ class CameraGui(QtWidgets.QMainWindow):
         # 0: correct execution (no need to show a message)
         if exit_reason == 0:
             text = "Task '{}' finished successfully.".format(self.running_task)
-            self.status_bar.setStyleSheet('QStatusBar{color: black;}')
-            self.status_bar.showMessage(text, 5000)
+            if self.dark_mode:
+                self.status_label.setText(f"<font color='white'>{controller_or_message}</font>")
+            else:
+                self.status_label.setText(f"<font color='black'>{controller_or_message}</font>")
+            self.status_timer.start(5000)
         # 1: an error occurred (error will be displayed via `error_status`)
         elif exit_reason == 2:
             text = "Task '{}' aborted.".format(self.running_task)
-            self.status_bar.setStyleSheet('QStatusBar{color: black;}')
-            self.status_bar.showMessage(text, 5000)
+            if self.dark_mode:
+                self.status_label.setText(f"<font color='white'>{controller_or_message}</font>")
+            else:
+                self.status_label.setText(f"<font color='black'>{controller_or_message}</font>")
+            self.status_timer.start(5000)
 
         # If the task was aborted or failed, and the "controller" object has a
         # saved state (e.g. the position of the pipette), ask the user whether
@@ -1524,6 +1546,11 @@ class CameraGui(QtWidgets.QMainWindow):
             self.config_button.setChecked(False)
         self.splitter.setSizes(new_sizes)
 
+    def toggle_dark_mode(self):
+        """
+        Must be implemented by subclass.
+        """
+        pass
 
 class ElidedLabel(QtWidgets.QLabel):
     """

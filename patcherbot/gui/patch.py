@@ -10,6 +10,7 @@ import logging
 import time
 
 from PyQt5.QtWidgets import QFileDialog, QTabWidget, QWidget,QMessageBox
+import qtawesome as qta
 
 from patcherbot.controller import TaskController
 from patcherbot.gui.manipulator import ManipulatorGui
@@ -78,21 +79,10 @@ class PatchGui(ManipulatorGui):
         classic_patching_tab = ClassicPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
         classic = self.add_tab(classic_patching_tab, 'Classic Auto Patching', index = 0)
 
-        self.dark_mode = False
-        self.toggle_dark_mode_button = QtWidgets.QPushButton("Dark mode")
-        self.toggle_dark_mode_button.clicked.connect(self.toggle_dark_mode)
-        self.status_bar.addPermanentWidget(self.toggle_dark_mode_button)
-
         self.status_bar_default_style = self.status_bar.styleSheet()
         self.config_tab_default_style = self.config_tab.styleSheet()
-        # self.classic_patching_tab_default_style = self.config_tab.widget(0).styleSheet()
+        self.cell_list_window_default_style = self.cell_list_window.styleSheet()
 
-        # for i in range(self.config_tab.count()):
-        #     curr_tab = (self.config_tab.tabText(i))
-        #     print(f"""
-        #           curr tab: {curr_tab}\n 
-        #           children:  {self.config_tab.widget(i).findChildren(QWidget)}
-        #           """)
 
     def register_commands(self):
         """
@@ -183,12 +173,38 @@ class PatchGui(ManipulatorGui):
                 if tab_name == "Classic Auto Patching":
                     for box in curr_tab.findChildren(CollapsibleGroupBox):
                         box.setStyleSheet(box.dark_style_sheet)
+                if hasattr(curr_tab, "save_button"):
+                    curr_tab.save_button.setIcon(qta.icon('fa.download', color='white'))
+                    curr_tab.load_button.setIcon(qta.icon('fa.upload', color='white'))
 
             self.status_bar.setStyleSheet("""
-                QWidget {
-                    background-color: white;
-                    }
-                """)
+                                          QPushButton, QToolButton, QLineEdit, QCheckBox, QLabel {
+                                            color: white;
+                                          },
+                                          QProgressBar::chunk {
+                                            background-color: blue;
+                                          }
+                                          """)
+            self.help_window.setStyleSheet('color: white')
+            self.cell_list_window.setStyleSheet("""
+                                                QTableWidget {
+                                                    color: white;
+                                                }
+                                                QHeaderView::section::horizontal {
+                                                    background-color: black;
+                                                    color: white;
+                                                }
+                                                """)
+
+            self.task_abort_button.setIcon(qta.icon('fa.ban', color='white'))
+            self.task_success_button.setIcon(qta.icon('fa.check', color='white'))
+            self.help_button.setIcon(qta.icon('fa.question-circle', color='white'))
+            self.log_button.setIcon(qta.icon('fa.file', color='white'))
+            self.record_button.setIcon(qta.icon('fa.video-camera', color='white'))
+            self.snap_image_button.setIcon(qta.icon('fa.camera', color='white'))
+            self.config_button.setIcon(qta.icon('fa.cogs', color='white'))
+
+
         else:
             self.dark_mode = False
             self.setStyleSheet("background-color: white;")
@@ -199,9 +215,22 @@ class PatchGui(ManipulatorGui):
                 tab_name = self.config_tab.tabText(i)
                 if tab_name == "Classic Auto Patching":
                     for box in curr_tab.findChildren(CollapsibleGroupBox):
-                        box.setStyleSheet(box.default_style_sheet)   
+                        box.setStyleSheet(box.default_style_sheet)
+                if hasattr(curr_tab, "save_button"):
+                    curr_tab.save_button.setIcon(qta.icon('fa.download', color='black'))
+                    curr_tab.load_button.setIcon(qta.icon('fa.upload', color='black'))
+
+            self.help_window.setStyleSheet('color: black')
+            self.cell_list_window.setStyleSheet(self.cell_list_window_default_style)
 
             self.status_bar.setStyleSheet(self.status_bar_default_style)
+            self.task_abort_button.setIcon(qta.icon('fa.ban', color='black'))
+            self.task_success_button.setIcon(qta.icon('fa.check', color='black'))
+            self.help_button.setIcon(qta.icon('fa.question-circle', color='black'))
+            self.log_button.setIcon(qta.icon('fa.file', color='black'))
+            self.record_button.setIcon(qta.icon('fa.video-camera', color='black'))
+            self.snap_image_button.setIcon(qta.icon('fa.camera', color='black'))
+            self.config_button.setIcon(qta.icon('fa.cogs', color='black'))
 
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
     """A QGroupBox subclass with collapsible content area and custom styling."""

@@ -1,3 +1,6 @@
+from numpy import random
+
+# from patcherbot.deepLearning.virtualCell import VirtualCell
 from patcherbot.devices.cellsorter.CellSorter import CellSorterManip
 from patcherbot.devices.manipulator import Manipulator, FakeManipulator
 from .camera import Camera
@@ -13,7 +16,7 @@ class FakeCalCamera(Camera):
     Simulated calibration camera that generates synthetic microscope images
     using stage, pipette, and optional cell sorter manipulators.
     """
-    def __init__(self, stageManip=None, pipetteManip=None, image_z=0, targetFramerate=40, cellSorterManip=None):
+    def __init__(self, stageManip=None, pipetteManip=None, image_z=0, targetFramerate=40, cellSorterManip=None, background_image=None):
         """
         Initialize the fake calibration camera.
 
@@ -37,18 +40,23 @@ class FakeCalCamera(Camera):
         self.targetFramerate = targetFramerate
         self.cellSorterManip = cellSorterManip
         self.cellSorterHandler = FakeCellSorterHandler(self.stageManip, self.cellSorterManip, [400, 200, 0], self.pixels_per_micron)
+        self.background_image = background_image
 
         curFile = str(Path(__file__).parent.absolute())
 
         #setup frame image (numpy because of easy rolling)
-        self.frame = cv2.imread(curFile + "/FakeMicroscopeImgs/background.tif", cv2.IMREAD_GRAYSCALE)
+        if self.background_image is None:
+            self.frame = cv2.imread(curFile + "/FakeMicroscopeImgs/background.tif", cv2.IMREAD_GRAYSCALE)
+        else:
+            self.frame = cv2.imread(f"patcherbot\devices\camera\FakeMicroscopeImgs\{background_image}", cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\devices\camera\FakeMicroscopeImgs\213125_1733864762.600275.webp",cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\devices\camera\FakeMicroscopeImgs\8ae5dd1d-c8de-4e00-8ba8-bc724275ee2f.webp",cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\deepLearning\cellModel\example pictures\before.tiff", cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\devices\camera\FakeMicroscopeImgs\cellsegtest.png", cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\deepLearning\cellModel\sam2\notebooks\images\cars.jpg", cv2.IMREAD_GRAYSCALE)
-  
+
         self.frame = cv2.resize(self.frame, dsize=(self.width * 2, self.height * 2), interpolation=cv2.INTER_NEAREST)
+
 
         self.last_img = None
         self.last_stage_pos = None
