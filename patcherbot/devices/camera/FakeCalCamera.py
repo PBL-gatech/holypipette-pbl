@@ -1,6 +1,9 @@
 from numpy import random
 
 # from patcherbot.deepLearning.virtualCell import VirtualCell
+from numpy import random
+
+# from patcherbot.deepLearning.virtualCell import VirtualCell
 from patcherbot.devices.cellsorter.CellSorter import CellSorterManip
 from patcherbot.devices.manipulator import Manipulator, FakeManipulator
 from .camera import Camera
@@ -54,45 +57,9 @@ class FakeCalCamera(Camera):
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\deepLearning\cellModel\example pictures\before.tiff", cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\devices\camera\FakeMicroscopeImgs\cellsegtest.png", cv2.IMREAD_GRAYSCALE)
         # self.frame = cv2.imread(r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\patcherbot\deepLearning\cellModel\sam2\notebooks\images\cars.jpg", cv2.IMREAD_GRAYSCALE)
-        self.virtual_cells = []
-        num_cells = random.randint(5, 10)
-
-        cell_template = cv2.imread(
-            curFile + "/FakeMicroscopeImgs/cellsegtest.png",
-            cv2.IMREAD_GRAYSCALE
-        )
-
-        cell_scale = 0.6
-        scaled_cell = cv2.resize(
-            cell_template,
-            None,
-            fx=cell_scale,
-            fy=cell_scale
-        )
-        scaled_h, scaled_w = scaled_cell.shape[:2]
 
         self.frame = cv2.resize(self.frame, dsize=(self.width * 2, self.height * 2), interpolation=cv2.INTER_NEAREST)
-        # for _ in range(num_cells):
-        #     x = random.randint(0, self.width)
-        #     y = random.randint(0, self.height)
 
-        #     self.virtual_cells.append(
-        #         VirtualCell(
-        #             random.uniform(100, 1000),
-        #             x,
-        #             y)
-        #     )
-        
-        # for cell in self.virtual_cells:
-        #     roi = self.frame[
-        #         cell.y:cell.y + scaled_h,
-        #         cell.x:cell.x + scaled_w,
-        #     ]
-
-        #     self.frame[
-        #         cell.y:cell.y + scaled_h,
-        #         cell.x:cell.x + scaled_w,
-        #     ] = np.maximum(roi, scaled_cell)
 
         self.last_img = None
         self.last_stage_pos = None
