@@ -2,12 +2,13 @@
 from types import MethodType
 import time
 
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 import numpy as np
 
 
+from patcherbot.interface.pipettes import PipetteInterface
 from patcherbot.utils.RecordingStateManager import RecordingStateManager
 from patcherbot.controller import TaskController
 from patcherbot.gui import CameraGui
@@ -22,15 +23,15 @@ class ManipulatorGui(CameraGui):
     pipette_command_signal = QtCore.pyqtSignal(MethodType, object)
     pipette_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera, aux_camera, pipette_interface, with_tracking=False, recording_state_manager: RecordingStateManager = None):
+    def __init__(self, camera, aux_camera, pipette_interfaces: list[PipetteInterface], with_tracking=False, recording_state_manager: RecordingStateManager = None):
         """
         Initialize the manipulator GUI.
 
         Attributes:
             microscope_camera: The main microscope camera.
             pipette_camera: Auxiliary camera for pipette view.
-            interface: Manipulator interface for pipette.
-            control_thread: Thread in which the manipulator interface runs.
+            pipette_interfaces: Manipulator interfaces for pipettes.
+            control_thread: Thread in which the manipulator interfaces run.
             image_save_number (int): Counter for saved images.
             show_tip_on (bool): Whether the tip is currently being displayed.
             tip_x, tip_y: Coordinates of pipette tip.
@@ -40,17 +41,22 @@ class ManipulatorGui(CameraGui):
         self.setWindowTitle("Pipette GUI")
         self.microscope_camera = camera
         self.pipette_camera = aux_camera
-        self.interface = pipette_interface
+        if not isinstance(pipette_interfaces, list):
+            self.interfaces = [pipette_interfaces]
+        else:
+            self.interfaces = pipette_interfaces
         self.control_thread = QtCore.QThread()
         self.control_thread.setObjectName('PipetteControlThread')
-        self.interface.moveToThread(self.control_thread)
+        # for interface in self.interface:
+        #     interface.moveToThread(self.control_thread)
         self.control_thread.start()
-        self.interface_signals[self.interface] = (self.pipette_command_signal,
-                                                  self.pipette_reset_signal)
+        self.active_pipette = self.interfaces[0] if self.interfaces else None
+        # for interface in self.interface:
+        #     self.interface_signals[interface] = (self.pipette_command_signal,
+        #                                             self.pipette_reset_signal)
         self.display_edit_funcs.append(self.draw_scale_bar)
         self.display_edit_funcs.append(self.display_manipulator)
         self.display_edit_funcs.append(self.show_tip)
-        self.add_config_gui(self.interface.calibration_config)
 
         self.show_tip_on = False
         self.tip_x, self.tip_y = None, None
@@ -101,7 +107,7 @@ class ManipulatorGui(CameraGui):
         if autoscale and not text:
             raise ValueError('Automatic scaling of the bar without showing text '
                              'will not be very helpful...')
-        stage = self.interface.calibrated_stage
+        stage = self.active_pipette.calibrated_stage
         camera_pixel_per_um = getattr(self.camera, 'pixel_per_um', None)
         if stage.calibrated or camera_pixel_per_um:
             pen_width = 4
@@ -174,34 +180,34 @@ class ManipulatorGui(CameraGui):
 
             for modifier, distance in zip(modifiers, distances):
                 self.register_key_action(Qt.Key_Up, modifier,
-                                         self.interface.move_stage_vertical,
+                                         self.active_pipette.move_stage_vertical,
                                          argument=-distance, default_doc=False)
                 self.register_key_action(Qt.Key_Down, modifier,
-                                         self.interface.move_stage_vertical,
+                                         self.active_pipette.move_stage_vertical,
                                          argument=distance, default_doc=False)
                 self.register_key_action(Qt.Key_Left, modifier,
-                                         self.interface.move_stage_horizontal,
+                                         self.active_pipette.move_stage_horizontal,
                                          argument=-distance, default_doc=False)
                 self.register_key_action(Qt.Key_Right, modifier,
-                                         self.interface.move_stage_horizontal,
+                                         self.active_pipette.move_stage_horizontal,
                                          argument=distance, default_doc=False)
                 self.register_key_action(Qt.Key_W, modifier,
-                                         self.interface.move_pipette_y,
+                                         self.active_pipette.move_pipette_y,
                                          argument=distance, default_doc=False)
                 self.register_key_action(Qt.Key_S, modifier,
-                                         self.interface.move_pipette_y,
+                                         self.active_pipette.move_pipette_y,
                                          argument=-distance, default_doc=False)
                 self.register_key_action(Qt.Key_A, modifier,
-                                         self.interface.move_pipette_x,
+                                         self.active_pipette.move_pipette_x,
                                          argument=distance, default_doc=False)
                 self.register_key_action(Qt.Key_D, modifier,
-                                         self.interface.move_pipette_x,
+                                         self.active_pipette.move_pipette_x,
                                          argument=-distance, default_doc=False)
                 self.register_key_action(Qt.Key_Q, modifier,
-                                         self.interface.move_pipette_z,
+                                         self.active_pipette.move_pipette_z,
                                          argument=distance, default_doc=False)
                 self.register_key_action(Qt.Key_E, modifier,
-                                         self.interface.move_pipette_z,
+                                         self.active_pipette.move_pipette_z,
                                          argument=-distance, default_doc=False)
 
         # #save image command
@@ -214,35 +220,35 @@ class ManipulatorGui(CameraGui):
 
         # Calibration commands
         self.register_key_action(Qt.Key_C, Qt.ControlModifier,
-                                 self.interface.calibrate_stage)
+                                 self.active_pipette.calibrate_stage)
         self.register_key_action(Qt.Key_C, Qt.NoModifier,
-                                 self.interface.calibrate_manipulator)
+                                 self.active_pipette.calibrate_manipulator)
         self.register_key_action(Qt.Key_F, Qt.ControlModifier,
-                                 self.interface.focus_pipette)
+                                 self.active_pipette.focus_pipette)
 
         # Move pipette by clicking
         self.register_mouse_action(Qt.LeftButton, Qt.ShiftModifier,
-                                   self.interface.move_pipette)
+                                   self.active_pipette.move_pipette)
 
         # Move stage by clicking
         self.register_mouse_action(Qt.RightButton, Qt.NoModifier,
-                                   self.interface.move_stage)
+                                   self.active_pipette.move_stage)
 
         # Microscope control
         self.register_key_action(Qt.Key_PageUp, None,
-                                 self.interface.move_microscope,
+                                 self.active_pipette.move_microscope,
                                  argument=10, default_doc=False)
         self.register_key_action(Qt.Key_PageDown, None,
-                                 self.interface.move_microscope,
+                                 self.active_pipette.move_microscope,
                                  argument=-10, default_doc=False)
         key_string = (QtGui.QKeySequence(Qt.Key_PageUp).toString() + '/' +
                       QtGui.QKeySequence(Qt.Key_PageDown).toString())
         self.help_window.register_custom_action('Microscope', key_string,
                                                 'Move microscope up/down by 10µm')
         self.register_key_action(Qt.Key_F, None,
-                                 self.interface.set_floor)
+                                 self.active_pipette.set_floor)
         self.register_key_action(Qt.Key_G, None,
-                                 self.interface.go_to_floor)
+                                 self.active_pipette.go_to_floor)
 
         # Show configuration pane
         self.register_key_action(Qt.Key_P, None,
@@ -262,7 +268,7 @@ class ManipulatorGui(CameraGui):
             CalibrationError: If the manipulator unit is not calibrated.
         """
         try:
-            self.tip_x, self.tip_y, _ = self.interface.calibrated_unit.reference_position()
+            self.tip_x, self.tip_y, _ = self.active_pipette.calibrated_unit.reference_position()
             self.tip_t0 = time.time()
             self.show_tip_on = True
         except CalibrationError:  # not yet calibrated
@@ -279,11 +285,11 @@ class ManipulatorGui(CameraGui):
         if self.show_tip_on:
             if getattr(self, 'active_camera_role', 'main') != 'main':
                 return
-            interface = self.interface
+            active_pipette = self.active_pipette
             scale = 1.0 * self.camera.width / pixmap.size().width()
             pixel_per_um = getattr(self.camera, 'pixel_per_um', None)
             if pixel_per_um is None:
-                pixel_per_um = interface.calibrated_unit.stage.pixel_per_um()[0]
+                pixel_per_um = active_pipette.calibrated_unit.stage.pixel_per_um()[0]
             painter = QtGui.QPainter(pixmap)
             pen = QtGui.QPen(QtGui.QColor(0, 0, 200, 125))
             pen.setWidth(3)
@@ -329,9 +335,12 @@ class ManipulatorGui(CameraGui):
         pen.setWidth(1)
         painter.setPen(pen)
         c_x, c_y = pixmap.width() / 20, pixmap.height() / 20
-        t = int(time.time() - interface.timer_t0)
+        t = int(time.time() - interface(0).timer_t0)
         hours = t//3600
         minutes = (t-hours*3600)//60
         seconds = t-hours*3600-minutes*60
         painter.drawText(c_x, c_y, '{}'.format(datetime.time(hours,minutes,seconds)))
         painter.end()
+    
+
+

@@ -33,7 +33,7 @@ class AutoPatchInterface(TaskInterface):
             amplifier (Amplifier): Amplifier device.
             daq (DAQ): Data acquisition device.
             pressure (PressureController): Pressure controller.
-            pipette_interface (PipetteInterface): Pipette control interface.
+            pipette_interfaces (PipetteInterface): Pipette control interfaces.
             recording_state_manager (RecordingStateManager): Recording state manager.
             lamp (Lamp): Lamp device for illumination control.
             laser (Laser): Laser device for optogenetics.
@@ -57,6 +57,7 @@ class AutoPatchInterface(TaskInterface):
         self.lamp = lamp
         self.laser = laser
         self.ephys_logger = EPhysLogger(recording_state_manager=self.recording_state_manager, ephys_filename="CellMetadata")
+        self.autopatchers = []
         autopatcher = AutoPatcher(amplifier, daq, pressure, self.pipette_controller.calibrated_unit,
                                     self.pipette_controller.calibrated_unit.microscope,
                                     calibrated_stage=self.pipette_controller.calibrated_stage,

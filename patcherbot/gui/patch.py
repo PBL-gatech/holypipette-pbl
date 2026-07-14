@@ -35,24 +35,28 @@ class PatchGui(ManipulatorGui):
     patch_command_signal = QtCore.pyqtSignal(MethodType, object)
     patch_reset_signal = QtCore.pyqtSignal(TaskController)
 
-    def __init__(self, camera, aux_camera, pipette_interface: PipetteInterface, patch_interface: AutoPatchInterface, recording_state_manager: RecordingStateManager, with_tracking=False):
+    def __init__(self, camera, aux_camera, pipette_interfaces, patch_interfaces, recording_state_manager: RecordingStateManager, with_tracking=False):
         """
         Initialize the patch GUI.
 
         Args:
             camera: Primary camera object for live imaging.
             aux_camera: Auxiliary camera object.
-            pipette_interface (PipetteInterface): Interface for controlling pipette manipulations.
+            pipette_interfaces (PipetteInterface): Interface for controlling pipette manipulations.
             patch_interface (AutoPatchInterface): Interface for automated patching operations.
             recording_state_manager (RecordingStateManager): Manager for recording state and sessions.
             with_tracking (bool, optional): Whether to enable tracking features. Defaults to False.
         """
-        super(PatchGui, self).__init__(camera, aux_camera, pipette_interface, with_tracking=with_tracking, recording_state_manager=recording_state_manager)
+        super(PatchGui, self).__init__(camera, aux_camera, pipette_interfaces, with_tracking=with_tracking, recording_state_manager=recording_state_manager)
 
         self.setWindowTitle("Patch GUI")
 
-        self.patch_interface = patch_interface
-        self.pipette_interface = pipette_interface
+        if not isinstance (pipette_interfaces, list):
+            self.pipette_interfaces = [pipette_interfaces]
+            self.patch_interfaces = [patch_interfaces]
+        else:
+            self.pipette_interfaces = pipette_interfaces
+            self.patch_interfaces = patch_interfaces
         self.recording_state_manager = recording_state_manager
         self._cell_list_signature = None
         self.cell_list_window = CellListWindow(self)
@@ -65,22 +69,36 @@ class PatchGui(ManipulatorGui):
         self._cell_list_timer.setInterval(500)
         self._cell_list_timer.timeout.connect(self._refresh_cell_list_window)
 
-        # self.switch_manipulator_box = QtWidgets.QComboBox()
-        # self.switch_manipulator_box.addItems(self.pipette_interface.calibrated_units.keys())
-        # self.switch_manipulator_box.currentTextChanged.connect(self.pipette_interface.switch_manipulator)
-        # self.status_bar.insertPermanentWidget(1, self.switch_manipulator_box)
+        self.switch_manipulator_box = QtWidgets.QComboBox()
+        self.switch_manipulator_box.currentIndexChanged.connect(self.switch_active_pipette)
+        self.status_bar.insertPermanentWidget(0, self.switch_manipulator_box)
 
-        self.patch_interface.moveToThread(pipette_interface.thread())
-        self.interface_signals[self.patch_interface] = (self.patch_command_signal,
-                                                        self.patch_reset_signal)
-        self.add_config_gui(self.patch_interface.config)
-        self.add_config_gui(self.patch_interface.protocol_config)
-        logging.debug("Added config GUI.")
-        classic_patching_tab = ClassicPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
-        classic = self.add_tab(classic_patching_tab, 'Classic Auto Patching', index = 0)
+        for i in range(len(pipette_interfaces)):
+            widget = QtWidgets.QTabWidget()
+            self.config_tabs.append(widget)
+            curr_config_tab = self.config_tabs[i]
+
+            curr_patch_interface = self.patch_interfaces[i]
+            curr_pipette_interface = self.pipette_interfaces[i]
+
+            self.switch_manipulator_box.addItem(curr_pipette_interface.folder_path)
+            curr_patch_interface.moveToThread(curr_pipette_interface.thread())
+            self.interface_signals[curr_patch_interface] = (self.patch_command_signal,
+                                                            self.patch_reset_signal)
+            self.add_config_gui(curr_pipette_interface.calibration_config, curr_config_tab)
+            self.add_config_gui(curr_patch_interface.config, curr_config_tab)
+            self.add_config_gui(curr_patch_interface.protocol_config, curr_config_tab)
+            logging.debug("Added config GUI.")
+            classic_patching_tab = ClassicPatchButtons(curr_patch_interface, curr_pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
+            self.add_tab(classic_patching_tab, 'Classic Auto Patching', curr_config_tab, index = 0)
+        
+        self.current_tab_widget = self.config_tabs[0]
+        self.splitter.addWidget(self.current_tab_widget)
+
+        self.active_patch_interface = self.patch_interfaces[0]
 
         self.status_bar_default_style = self.status_bar.styleSheet()
-        self.config_tab_default_style = self.config_tab.styleSheet()
+        self.config_tab_default_style = self.config_tabs[0].styleSheet()
         self.cell_list_window_default_style = self.cell_list_window.styleSheet()
 
 
@@ -91,17 +109,17 @@ class PatchGui(ManipulatorGui):
         """
         super(PatchGui, self).register_commands()
         # self.register_mouse_action(Qt.LeftButton, Qt.ShiftModifier,
-        #                            self.patch_interface.patch_with_move)
+        #                            self.active_patch_interface.patch_with_move)
         self.register_mouse_action(Qt.LeftButton, Qt.NoModifier,
-                                   self.patch_interface.add_cell)
+                                   self.active_patch_interface.add_cell)
         self.register_key_action(Qt.Key_B, None,
-                                 self.patch_interface.break_in)
+                                 self.active_patch_interface.break_in)
         self.register_key_action(Qt.Key_F2, None,
-                                 self.patch_interface.store_cleaning_position)
+                                 self.active_patch_interface.store_cleaning_position)
         self.register_key_action(Qt.Key_F3, None,
-                                 self.patch_interface.store_rinsing_position)
+                                 self.active_patch_interface.store_rinsing_position)
         self.register_key_action(Qt.Key_F4, None,
-                                 self.patch_interface.clean_pipette)
+                                 self.active_patch_interface.clean_pipette)
 
     def toggle_cell_list_window(self, checked=None):
         """
@@ -144,9 +162,9 @@ class PatchGui(ManipulatorGui):
         """
         if not self.cell_list_window.isVisible():
             return
-        cells = list(self.patch_interface.cells_to_patch)
+        cells = list(self.active_patch_interface.cells_to_patch)
         try:
-            stage_reference = self.patch_interface.current_autopatcher.calibrated_stage.reference_position()
+            stage_reference = self.active_patch_interface.current_autopatcher.calibrated_stage.reference_position()
         except Exception:
             stage_reference = None
         signature = tuple(id(cell) for cell in cells)
@@ -162,20 +180,21 @@ class PatchGui(ManipulatorGui):
             self.dark_mode = True
             self.setStyleSheet("background-color: black;")
 
-            for i in range(self.config_tab.count()):
-                curr_tab = self.config_tab.widget(i)
-                curr_tab.setStyleSheet("""
-                    QWidget {
-                        color: white;
-                    }
-                """)
-                tab_name = self.config_tab.tabText(i)
-                if tab_name == "Classic Auto Patching":
-                    for box in curr_tab.findChildren(CollapsibleGroupBox):
-                        box.setStyleSheet(box.dark_style_sheet)
-                if hasattr(curr_tab, "save_button"):
-                    curr_tab.save_button.setIcon(qta.icon('fa.download', color='white'))
-                    curr_tab.load_button.setIcon(qta.icon('fa.upload', color='white'))
+            for config_tab in self.config_tabs:
+                for i in range(config_tab.count()):
+                    curr_tab = config_tab.widget(i)
+                    curr_tab.setStyleSheet("""
+                        QWidget {
+                            color: white;
+                        }
+                    """)
+                    tab_name = config_tab.tabText(i)
+                    if tab_name == "Classic Auto Patching":
+                        for box in curr_tab.findChildren(CollapsibleGroupBox):
+                            box.setStyleSheet(box.dark_style_sheet)
+                    if hasattr(curr_tab, "save_button"):
+                        curr_tab.save_button.setIcon(qta.icon('fa.download', color='white'))
+                        curr_tab.load_button.setIcon(qta.icon('fa.upload', color='white'))
 
             self.status_bar.setStyleSheet("""
                                           QPushButton, QToolButton, QLineEdit, QCheckBox, QLabel {
@@ -209,16 +228,17 @@ class PatchGui(ManipulatorGui):
             self.dark_mode = False
             self.setStyleSheet("background-color: white;")
 
-            for i in range(self.config_tab.count()):
-                curr_tab = self.config_tab.widget(i)
-                curr_tab.setStyleSheet(self.config_tab_default_style)
-                tab_name = self.config_tab.tabText(i)
-                if tab_name == "Classic Auto Patching":
-                    for box in curr_tab.findChildren(CollapsibleGroupBox):
-                        box.setStyleSheet(box.default_style_sheet)
-                if hasattr(curr_tab, "save_button"):
-                    curr_tab.save_button.setIcon(qta.icon('fa.download', color='black'))
-                    curr_tab.load_button.setIcon(qta.icon('fa.upload', color='black'))
+            for config_tab in self.config_tabs:
+                for i in range(config_tab.count()):
+                    curr_tab = config_tab.widget(i)
+                    curr_tab.setStyleSheet(self.config_tab_default_style)
+                    tab_name = config_tab.tabText(i)
+                    if tab_name == "Classic Auto Patching":
+                        for box in curr_tab.findChildren(CollapsibleGroupBox):
+                            box.setStyleSheet(box.default_style_sheet)
+                    if hasattr(curr_tab, "save_button"):
+                        curr_tab.save_button.setIcon(qta.icon('fa.download', color='black'))
+                        curr_tab.load_button.setIcon(qta.icon('fa.upload', color='black'))
 
             self.help_window.setStyleSheet('color: black')
             self.cell_list_window.setStyleSheet(self.cell_list_window_default_style)
@@ -231,6 +251,23 @@ class PatchGui(ManipulatorGui):
             self.record_button.setIcon(qta.icon('fa.video-camera', color='black'))
             self.snap_image_button.setIcon(qta.icon('fa.camera', color='black'))
             self.config_button.setIcon(qta.icon('fa.cogs', color='black'))
+
+    def switch_active_pipette(self, index):
+        """
+        Switch the currently active pipette
+
+        Args:
+            pipette (PipetteInterface): The pipette to switch to.
+        """
+        self.active_pipette = self.pipette_interfaces[index]
+        self.active_patch_interface = self.patch_interfaces[index]
+        old_widget_index = self.splitter.indexOf(self.current_tab_widget)
+
+        if old_widget_index != -1:
+            self.current_tab_widget.hide()
+            self.current_tab_widget = self.config_tabs[index]
+            self.splitter.insertWidget(old_widget_index, self.current_tab_widget)
+            self.current_tab_widget.show()
 
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
     """A QGroupBox subclass with collapsible content area and custom styling."""

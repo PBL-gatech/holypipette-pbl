@@ -817,11 +817,10 @@ class CameraGui(QtWidgets.QMainWindow):
         if self.aux_interface is not None:
             self.interface_signals[self.aux_interface] = (self.aux_camera_signal,
                                                           self.aux_camera_reset_signal)
-
+            
         self.splitter = QtWidgets.QSplitter()
         self.splitter.addWidget(self.video_stack)
-        self.config_tab = QtWidgets.QTabWidget()
-        self.splitter.addWidget(self.config_tab)
+        self.config_tabs = []
         self.setCentralWidget(self.splitter)
         self.splitter.setSizes([1, 0])
         self.splitter.splitterMoved.connect(self.splitter_size_changed)
@@ -1266,7 +1265,7 @@ class CameraGui(QtWidgets.QMainWindow):
         self._sync_interface_activity()
         self.register_commands()
         # Add a button for the configuration options if necessary
-        if self.config_tab.count() > 0:
+        if len(self.config_tabs) > 0:
             self.config_button = QtWidgets.QToolButton(
                 clicked=self.toggle_configuration_display)
             self.config_button.setIcon(qta.icon('fa.cogs'))
@@ -1495,7 +1494,7 @@ class CameraGui(QtWidgets.QMainWindow):
         else:
             self.config_button.setChecked(True)
 
-    def add_config_gui(self, config):
+    def add_config_gui(self, config, config_tab):
         """
         Adds a configuration GUI tab for the given config object.
 
@@ -1504,10 +1503,10 @@ class CameraGui(QtWidgets.QMainWindow):
         """
         logging.debug('Adding config GUI for {}'.format(config.name))
         config_gui = ConfigGui(config)
-        self.config_tab.addTab(config_gui, config.name)
+        config_tab.addTab(config_gui, config.name)
         logging.debug('Config GUI added')
 
-    def add_tab(self, tab, name, index=None):
+    def add_tab(self, tab, name, config_tab, index=None):
         """
         Adds a new tab to the configuration panel.
 
@@ -1517,9 +1516,9 @@ class CameraGui(QtWidgets.QMainWindow):
             index (int, optional): Position to insert the tab.
         """
         if index is None:
-            self.config_tab.addTab(tab, name)
+            config_tab.addTab(tab, name)
         else:
-            self.config_tab.insertTab(index, tab, name)
+            config_tab.insertTab(index, tab, name)
 
     @command(category='General',
              description='Show/hide the configuration pane')
@@ -1537,7 +1536,7 @@ class CameraGui(QtWidgets.QMainWindow):
         """Shows or hides the configuration panel by adjusting splitter sizes."""
         current_sizes = self.splitter.sizes()
         if current_sizes[1] == 0:
-            min_size = self.config_tab.sizeHint().width()
+            min_size = self.config_tabs[0].sizeHint().width()
             new_sizes = [current_sizes[0]-min_size, min_size]
             self.config_button.setChecked(True)
         else:
@@ -1545,12 +1544,6 @@ class CameraGui(QtWidgets.QMainWindow):
             self.setFocus()
             self.config_button.setChecked(False)
         self.splitter.setSizes(new_sizes)
-
-    def toggle_dark_mode(self):
-        """
-        Must be implemented by subclass.
-        """
-        pass
 
 class ElidedLabel(QtWidgets.QLabel):
     """
