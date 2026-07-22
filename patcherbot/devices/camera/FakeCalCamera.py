@@ -34,12 +34,19 @@ class FakeCalCamera(Camera):
         self.width : int = 1024
         self.height : int = 1024
         self.exposure_time : int = 30
-        self.stageManip : Manipulator = stageManip
-        self.pipetteManip : Manipulator = pipetteManip
-        self.image_z : float = image_z
         self.pixels_per_micron : float = 1.25  # pixels / micrometers
+        self.stageManip : Manipulator = stageManip
+        if isinstance(pipetteManip, dict):
+            self.pipetteManip = {}
+            self.pipette = {}
+            for i, (id, controller) in enumerate(pipetteManip.items()):
+                self.pipetteManip[id] = controller
+                self.pipette[id] = FakePipette(controller, self.pixels_per_micron)
+        else:
+            self.pipetteManip : Manipulator = pipetteManip
+            self.pipette = FakePipette(self.pipetteManip, self.pixels_per_micron)
+        self.image_z : float = image_z
         self.frameno : int = 0
-        self.pipette = FakePipette(self.pipetteManip, self.pixels_per_micron)
         self.targetFramerate = targetFramerate
         self.cellSorterManip = cellSorterManip
         self.cellSorterHandler = FakeCellSorterHandler(self.stageManip, self.cellSorterManip, [400, 200, 0], self.pixels_per_micron)
@@ -185,7 +192,14 @@ class FakeCalCamera(Camera):
         frame = Image.fromarray(frame)
 
         #add pipette to image
-        frame = self.pipette.add_pipette_to_img(frame, [stage_x, stage_y, stage_z])
+        if isinstance(self.pipette, dict):
+            for i, (id, pipette) in enumerate(self.pipette.items()):
+                if isinstance(frame, np.ndarray):
+                    frame = Image.fromarray(frame)
+                frame = pipette.add_pipette_to_img(frame, [stage_x, stage_y, stage_z])
+        else:
+            frame = self.pipette.add_pipette_to_img(frame, [stage_x, stage_y, stage_z])
+
 
         #add cellsorter to image
         # frame = self.cellSorterHandler.add_cellsorter_to_img(frame, [stage_x, stage_y, stage_z])

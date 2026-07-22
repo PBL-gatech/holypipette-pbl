@@ -585,18 +585,35 @@ class RigConfigManager:
         for slot in DEVICE_SLOTS:
             if slot not in devices_cfg:
                 raise RigConfigError(f"Missing device slot '{slot}' in configuration.")
-            base_instances[slot] = self._instantiate_slot(slot, devices_cfg[slot], base_instances)
+            curr_device = devices_cfg[slot]
+            
+            if isinstance(curr_device, list):
+                instance_dict = {}
+                for i, dev_cfg in enumerate(curr_device):
+                    key = f"{slot}_{i}" 
+                    instance = self._instantiate_slot(f"{slot}_{i}", dev_cfg, base_instances)
+                    instance_dict[key] = instance
+                base_instances[slot] = instance_dict
+            else:
+                base_instances[slot] = self._instantiate_slot(slot, curr_device, base_instances)
 
         # Auto-wire derived components
         from patcherbot.devices.manipulator.manipulatorunit import ManipulatorUnit
         from patcherbot.devices.manipulator.microscope import Microscope
 
         stage_controller = base_instances["stage_controller"]
-        pipette_controller = base_instances["pipette_controller"]
+        pipette_controllers = base_instances["pipette_controller"]
+
+        pipette_units = {}
+        if isinstance(pipette_controllers, dict):
+            for i, (id, controller) in enumerate(pipette_controllers.items()):
+                pipette_units[id] = ManipulatorUnit(controller, [1, 2, 3])
+        else:
+            pipette_units = pipette_controllers
 
         derived = {
             "stage": ManipulatorUnit(stage_controller, [1, 2]),
-            "pipette_unit": ManipulatorUnit(pipette_controller, [1, 2, 3]),
+            "pipette_unit": pipette_units,
             "microscope": Microscope(stage_controller, 3),
         }
         derived["microscope"].up_direction = 1.0
@@ -612,7 +629,10 @@ class RigConfigManager:
             if hasattr(camera, "stageManip"):
                 camera.stageManip = stage_controller
             if hasattr(camera, "pipetteManip"):
-                camera.pipetteManip = pipette_controller
+                if isinstance(pipette_controllers, dict):
+                    camera.pipetteManip = list(pipette_controllers.values())[0]
+                else:
+                    camera.pipetteManip = pipette_controllers
             if hasattr(camera, "cellSorterManip") and "cell_sorter_manipulator" in base_instances:
                 camera.cellSorterManip = base_instances["cell_sorter_manipulator"]
 

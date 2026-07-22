@@ -41,17 +41,19 @@ class ManipulatorGui(CameraGui):
         self.setWindowTitle("Pipette GUI")
         self.microscope_camera = camera
         self.pipette_camera = aux_camera
-        if not isinstance(pipette_interfaces, list):
-            self.interfaces = [pipette_interfaces]
+        if not isinstance(pipette_interfaces, dict):
+            self.interfaces = {pipette_interfaces}
         else:
             self.interfaces = pipette_interfaces
         self.control_thread = QtCore.QThread()
         self.control_thread.setObjectName('PipetteControlThread')
-        # for interface in self.interface:
-        #     interface.moveToThread(self.control_thread)
+        for i, (id, interface) in enumerate(self.interfaces.items()):
+            interface.moveToThread(self.control_thread)
+            self.interface_signals[interface] = (self.pipette_command_signal,
+                                                    self.pipette_reset_signal)
         self.control_thread.start()
-        self.active_pipette = self.interfaces[0] if self.interfaces else None
-        # for interface in self.interface:
+        self.active_pipette = list(self.interfaces.values())[0] if self.interfaces else None
+        # for interface in self.interfaces:
         #     self.interface_signals[interface] = (self.pipette_command_signal,
         #                                             self.pipette_reset_signal)
         self.display_edit_funcs.append(self.draw_scale_bar)

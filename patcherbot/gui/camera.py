@@ -820,7 +820,7 @@ class CameraGui(QtWidgets.QMainWindow):
             
         self.splitter = QtWidgets.QSplitter()
         self.splitter.addWidget(self.video_stack)
-        self.config_tabs = []
+        self.config_tabs = {}
         self.setCentralWidget(self.splitter)
         self.splitter.setSizes([1, 0])
         self.splitter.splitterMoved.connect(self.splitter_size_changed)
@@ -1536,7 +1536,7 @@ class CameraGui(QtWidgets.QMainWindow):
         """Shows or hides the configuration panel by adjusting splitter sizes."""
         current_sizes = self.splitter.sizes()
         if current_sizes[1] == 0:
-            min_size = self.config_tabs[0].sizeHint().width()
+            min_size = list(self.config_tabs.values())[0].sizeHint().width()
             new_sizes = [current_sizes[0]-min_size, min_size]
             self.config_button.setChecked(True)
         else:

@@ -51,9 +51,9 @@ class PatchGui(ManipulatorGui):
 
         self.setWindowTitle("Patch GUI")
 
-        if not isinstance (pipette_interfaces, list):
-            self.pipette_interfaces = [pipette_interfaces]
-            self.patch_interfaces = [patch_interfaces]
+        if not isinstance (pipette_interfaces, dict):
+            self.pipette_interfaces = {pipette_interfaces}
+            self.patch_interfaces = {patch_interfaces}
         else:
             self.pipette_interfaces = pipette_interfaces
             self.patch_interfaces = patch_interfaces
@@ -64,24 +64,22 @@ class PatchGui(ManipulatorGui):
         self.show_cells_button = QtWidgets.QPushButton("Show Cells")
         self.show_cells_button.setCheckable(True)
         self.show_cells_button.clicked.connect(self.toggle_cell_list_window)
-        self.status_bar.insertPermanentWidget(0, self.show_cells_button)
+        self.status_bar.insertPermanentWidget(1, self.show_cells_button)
         self._cell_list_timer = QtCore.QTimer(self)
         self._cell_list_timer.setInterval(500)
         self._cell_list_timer.timeout.connect(self._refresh_cell_list_window)
 
         self.switch_manipulator_box = QtWidgets.QComboBox()
-        self.switch_manipulator_box.currentIndexChanged.connect(self.switch_active_pipette)
-        self.status_bar.insertPermanentWidget(0, self.switch_manipulator_box)
+        self.status_bar.insertPermanentWidget(1, self.switch_manipulator_box)
 
-        for i in range(len(pipette_interfaces)):
+        for id, curr_pipette_interface in self.pipette_interfaces.items():
             widget = QtWidgets.QTabWidget()
-            self.config_tabs.append(widget)
-            curr_config_tab = self.config_tabs[i]
+            self.config_tabs[id] = widget
+            curr_config_tab = self.config_tabs[id]
 
-            curr_patch_interface = self.patch_interfaces[i]
-            curr_pipette_interface = self.pipette_interfaces[i]
+            curr_patch_interface = self.patch_interfaces[id]
 
-            self.switch_manipulator_box.addItem(curr_pipette_interface.folder_path)
+            self.switch_manipulator_box.addItem(f"{id}")
             curr_patch_interface.moveToThread(curr_pipette_interface.thread())
             self.interface_signals[curr_patch_interface] = (self.patch_command_signal,
                                                             self.patch_reset_signal)
@@ -91,16 +89,16 @@ class PatchGui(ManipulatorGui):
             logging.debug("Added config GUI.")
             classic_patching_tab = ClassicPatchButtons(curr_patch_interface, curr_pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
             self.add_tab(classic_patching_tab, 'Classic Auto Patching', curr_config_tab, index = 0)
-        
-        self.current_tab_widget = self.config_tabs[0]
-        self.splitter.addWidget(self.current_tab_widget)
 
-        self.active_patch_interface = self.patch_interfaces[0]
+        self.current_tab = list(self.config_tabs.values())[0]
+        self.splitter.addWidget(self.current_tab)
+        self.switch_manipulator_box.currentTextChanged.connect(self.switch_active_pipette)
+
+        self.active_patch_interface = list(self.patch_interfaces.values())[0]
 
         self.status_bar_default_style = self.status_bar.styleSheet()
-        self.config_tab_default_style = self.config_tabs[0].styleSheet()
+        self.config_tab_default_style = list(self.config_tabs.values())[0].styleSheet()
         self.cell_list_window_default_style = self.cell_list_window.styleSheet()
-
 
     def register_commands(self):
         """
@@ -180,7 +178,7 @@ class PatchGui(ManipulatorGui):
             self.dark_mode = True
             self.setStyleSheet("background-color: black;")
 
-            for config_tab in self.config_tabs:
+            for config_tab in list(self.config_tabs.values()):
                 for i in range(config_tab.count()):
                     curr_tab = config_tab.widget(i)
                     curr_tab.setStyleSheet("""
@@ -228,7 +226,7 @@ class PatchGui(ManipulatorGui):
             self.dark_mode = False
             self.setStyleSheet("background-color: white;")
 
-            for config_tab in self.config_tabs:
+            for config_tab in list(self.config_tabs.values()):
                 for i in range(config_tab.count()):
                     curr_tab = config_tab.widget(i)
                     curr_tab.setStyleSheet(self.config_tab_default_style)
@@ -252,22 +250,22 @@ class PatchGui(ManipulatorGui):
             self.snap_image_button.setIcon(qta.icon('fa.camera', color='black'))
             self.config_button.setIcon(qta.icon('fa.cogs', color='black'))
 
-    def switch_active_pipette(self, index):
+    def switch_active_pipette(self, id):
         """
         Switch the currently active pipette
 
         Args:
             pipette (PipetteInterface): The pipette to switch to.
         """
-        self.active_pipette = self.pipette_interfaces[index]
-        self.active_patch_interface = self.patch_interfaces[index]
-        old_widget_index = self.splitter.indexOf(self.current_tab_widget)
+        self.active_pipette = self.pipette_interfaces.get(id)
+        self.active_patch_interface = self.patch_interfaces.get(id)
+        old_widget_index = self.splitter.indexOf(self.current_tab)
 
         if old_widget_index != -1:
-            self.current_tab_widget.hide()
-            self.current_tab_widget = self.config_tabs[index]
-            self.splitter.insertWidget(old_widget_index, self.current_tab_widget)
-            self.current_tab_widget.show()
+            self.current_tab.hide()
+            self.current_tab = self.config_tabs.get(id)
+            self.splitter.insertWidget(old_widget_index, self.current_tab)
+            self.current_tab.show()
 
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
     """A QGroupBox subclass with collapsible content area and custom styling."""
