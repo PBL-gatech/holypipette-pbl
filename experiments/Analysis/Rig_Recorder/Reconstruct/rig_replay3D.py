@@ -4,11 +4,10 @@ import csv
 import bisect
 import json
 import logging
-import importlib.util
 from pathlib import Path
 from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton,
+    QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton, QComboBox,
     QFileDialog, QShortcut, QHBoxLayout, QFrame, QSlider, QMessageBox, QSizePolicy, QStackedWidget,
     QLineEdit, QGraphicsDropShadowEffect, QDialog, QProgressBar
 )
@@ -832,15 +831,11 @@ class InferenceEnableWorker(QtCore.QObject):
         enable_pipette_detector,
         enable_cell_detector,
         enable_pipette_focuser,
-        should_init_tracker,
-        tracker_image_path,
     ):
         super().__init__()
         self.enable_pipette_detector = bool(enable_pipette_detector)
         self.enable_cell_detector = bool(enable_cell_detector)
         self.enable_pipette_focuser = bool(enable_pipette_focuser)
-        self.should_init_tracker = bool(should_init_tracker)
-        self.tracker_image_path = tracker_image_path
 
     @QtCore.pyqtSlot()
     def run(self):
@@ -848,12 +843,9 @@ class InferenceEnableWorker(QtCore.QObject):
             "pipette_detector": None,
             "cell_detector": None,
             "pipette_focuser": None,
-            "cell_track_helper": None,
-            "cell_track_helper_dims": None,
             "pipette_detector_init_failed": False,
             "cell_detector_init_failed": False,
             "pipette_focuser_init_failed": False,
-            "cell_track_helper_init_failed": False,
             "warnings": [],
         }
         try:
@@ -871,12 +863,12 @@ class InferenceEnableWorker(QtCore.QObject):
             if self.enable_cell_detector:
                 self.progress.emit("Initializing cell detector...")
                 try:
-                    from patcherbot.deepLearning.CellDetector import CellDetectorYOLO1
-                    result["cell_detector"] = CellDetectorYOLO1()
+                    from patcherbot.deepLearning.CellDetector import CellDetector2
+                    result["cell_detector"] = CellDetector2(model_type="pidnet")
                 except Exception as exc:
                     result["cell_detector_init_failed"] = True
                     result["warnings"].append(
-                        f"CellDetectorYOLO1 init failed; disabling cell overlay: {exc}"
+                        f"CellDetector2 PIDNet init failed; disabling cell overlay: {exc}"
                     )
 
             if self.enable_pipette_focuser:
@@ -888,63 +880,6 @@ class InferenceEnableWorker(QtCore.QObject):
                     result["pipette_focuser_init_failed"] = True
                     result["warnings"].append(
                         f"PipetteFocuser init failed; disabling focus readout: {exc}"
-                    )
-
-            if self.should_init_tracker:
-                self.progress.emit("Initializing hunt-cell tracker...")
-                try:
-                    if importlib.util.find_spec("transformers") is None:
-                        raise ModuleNotFoundError(
-                            "CellTrackHelper dependency missing: transformers (required by PointMatcher/LightGlue backend)"
-                        )
-
-                    helper_path = (
-                        Path(__file__).resolve().parents[4]
-                        / "patcherbot"
-                        / "devices"
-                        / "manipulator"
-                        / "CellTrackHelper.py"
-                    )
-                    if not helper_path.is_file():
-                        raise FileNotFoundError(f"CellTrackHelper.py not found at expected path: {helper_path}")
-
-                    module_name = "_rig_replay_cell_track_helper"
-                    helper_module = sys.modules.get(module_name)
-                    if helper_module is None:
-                        spec = importlib.util.spec_from_file_location(module_name, str(helper_path))
-                        if spec is None or spec.loader is None:
-                            raise ImportError(f"Could not create import spec for {helper_path}")
-                        helper_module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(helper_module)
-                        sys.modules[module_name] = helper_module
-
-                    CellTrackHelper = getattr(helper_module, "CellTrackHelper", None)
-                    if CellTrackHelper is None:
-                        raise ImportError("CellTrackHelper class not found in CellTrackHelper.py")
-
-                    if cv2 is None:
-                        raise RuntimeError("OpenCV (cv2) is unavailable for tracker image sizing.")
-                    if not self.tracker_image_path:
-                        raise RuntimeError("No frame available to initialize hunt-cell tracker dimensions.")
-                    frame_bgr = cv2.imread(str(self.tracker_image_path), cv2.IMREAD_COLOR)
-                    if frame_bgr is None:
-                        raise RuntimeError(f"Unable to read frame for tracker init: {self.tracker_image_path}")
-                    h, w = frame_bgr.shape[:2]
-
-                    class _ReplayStage:
-                        pass
-
-                    class _ReplayCamera:
-                        def __init__(self, width, height):
-                            self.width = int(width)
-                            self.height = int(height)
-
-                    result["cell_track_helper"] = CellTrackHelper(_ReplayStage(), _ReplayCamera(w, h))
-                    result["cell_track_helper_dims"] = (int(w), int(h))
-                except Exception as exc:
-                    result["cell_track_helper_init_failed"] = True
-                    result["warnings"].append(
-                        f"CellTrackHelper init failed; disabling hunt_cell tracking overlay: {exc}"
                     )
 
             self.finished.emit(result)
@@ -1100,6 +1035,16 @@ class IntegratedTimeline(QMainWindow):
 
         info_frame_layout.addWidget(self.info, stretch=1)
 
+        self.chapter_label = QLabel("Chapter:")
+        info_frame_layout.addWidget(self.chapter_label)
+
+        self.chapter_selector = QComboBox()
+        self.chapter_selector.setMinimumWidth(240)
+        self.chapter_selector.setMaximumWidth(360)
+        self.chapter_selector.addItem("Entire Replay", (0, -1))
+        self.chapter_selector.currentIndexChanged.connect(self._on_chapter_changed)
+        info_frame_layout.addWidget(self.chapter_selector)
+
         self.state_indicator = QLineEdit("No state")
         self.state_indicator.setReadOnly(True)
         self.state_indicator.setFocusPolicy(Qt.NoFocus)
@@ -1173,8 +1118,6 @@ class IntegratedTimeline(QMainWindow):
         self.enable_pipette_detector = True
         self.enable_cell_detector = True
         self.enable_pipette_focuser = True
-        self.enable_hunt_cell_tracker = True
-        self.hunt_cell_state_name = "hunt_cell"
         self.overlay_point_radius = 6
         self.overlay_text_margin = 10
 
@@ -1182,15 +1125,10 @@ class IntegratedTimeline(QMainWindow):
         self._pipette_detector = None
         self._cell_detector = None
         self._pipette_focuser = None
-        self._cell_track_helper = None
-        self._cell_track_helper_dims = None
 
         self._pipette_detector_init_failed = False
         self._cell_detector_init_failed = False
         self._pipette_focuser_init_failed = False
-        self._cell_track_helper_init_failed = False
-
-        self._hunt_cell_template_image = None
         self._frame_overlay_results = None
         self._cv2_unavailable_warned = False
         self._inference_disabled_notice_printed = False
@@ -1207,6 +1145,8 @@ class IntegratedTimeline(QMainWindow):
 
         # Initialize variables
         self.current_index = 0
+        self._chapter_start_index = 0
+        self._chapter_end_index = -1
         self.directory = None
 
         # Deques for real-time graphing
@@ -1485,15 +1425,8 @@ class IntegratedTimeline(QMainWindow):
             self._reset_inference_state()
             self.refresh_view_order()
 
-            self.current_index = 0
-            self.slider.blockSignals(True)
-            try:
-                self._set_loading_popup_message("Preparing timeline controls...")
-                self.slider.setMinimum(0)
-                self.slider.setMaximum(len(self.data_manager.image_paths) - 1)
-                self.slider.setValue(self.current_index)
-            finally:
-                self.slider.blockSignals(False)
+            self._set_loading_popup_message("Preparing timeline chapters...")
+            self._populate_chapters()
 
             self._set_loading_popup_message("Rendering first frame...")
             self.update_view()
@@ -1510,26 +1443,11 @@ class IntegratedTimeline(QMainWindow):
         if self._inference_enable_thread is not None and self._inference_enable_thread.isRunning():
             return
 
-        should_init_tracker = False
-        tracker_image_path = None
-        if self.data_manager.timestamps and 0 <= self.current_index < len(self.data_manager.timestamps):
-            try:
-                current_timestamp = self.data_manager.timestamps[self.current_index]
-                active_state, _ = self.data_manager.get_active_state_for_timestamp(current_timestamp)
-                should_init_tracker = self.enable_hunt_cell_tracker and self._is_hunt_cell_state(active_state)
-                if should_init_tracker and 0 <= self.current_index < len(self.data_manager.image_paths):
-                    tracker_image_path = self.data_manager.image_paths[self.current_index]
-            except Exception:
-                should_init_tracker = False
-                tracker_image_path = None
-
         self._inference_enable_thread = QtCore.QThread(self)
         self._inference_enable_worker = InferenceEnableWorker(
             enable_pipette_detector=self.enable_pipette_detector,
             enable_cell_detector=self.enable_cell_detector,
             enable_pipette_focuser=self.enable_pipette_focuser,
-            should_init_tracker=should_init_tracker,
-            tracker_image_path=tracker_image_path,
         )
         self._inference_enable_worker.moveToThread(self._inference_enable_thread)
 
@@ -1556,14 +1474,9 @@ class IntegratedTimeline(QMainWindow):
             self._pipette_detector = result.get("pipette_detector")
             self._cell_detector = result.get("cell_detector")
             self._pipette_focuser = result.get("pipette_focuser")
-            self._cell_track_helper = result.get("cell_track_helper")
-            self._cell_track_helper_dims = result.get("cell_track_helper_dims")
-
             self._pipette_detector_init_failed = bool(result.get("pipette_detector_init_failed", False))
             self._cell_detector_init_failed = bool(result.get("cell_detector_init_failed", False))
             self._pipette_focuser_init_failed = bool(result.get("pipette_focuser_init_failed", False))
-            self._cell_track_helper_init_failed = bool(result.get("cell_track_helper_init_failed", False))
-
             for warning_text in result.get("warnings", []):
                 logger.warning(warning_text)
         except Exception as exc:
@@ -1633,11 +1546,7 @@ class IntegratedTimeline(QMainWindow):
         self.update_toggle_button_text()
 
     def _reset_inference_state(self):
-        self._hunt_cell_template_image = None
         self._frame_overlay_results = None
-        self._cell_track_helper = None
-        self._cell_track_helper_dims = None
-        self._cell_track_helper_init_failed = False
 
     def _ensure_pipette_detector(self):
         if self._pipette_detector is not None:
@@ -1659,11 +1568,11 @@ class IntegratedTimeline(QMainWindow):
         if self._cell_detector_init_failed:
             return None
         try:
-            from patcherbot.deepLearning.CellDetector import CellDetectorYOLO1
-            self._cell_detector = CellDetectorYOLO1()
+            from patcherbot.deepLearning.CellDetector import CellDetector2
+            self._cell_detector = CellDetector2(model_type="pidnet")
         except Exception as exc:
             self._cell_detector_init_failed = True
-            logger.warning("CellDetectorYOLO1 init failed; disabling cell overlay: %s", exc)
+            logger.warning("CellDetector2 PIDNet init failed; disabling cell overlay: %s", exc)
             self._cell_detector = None
         return self._cell_detector
 
@@ -1680,52 +1589,6 @@ class IntegratedTimeline(QMainWindow):
             logger.warning("PipetteFocuser init failed; disabling focus readout: %s", exc)
             self._pipette_focuser = None
         return self._pipette_focuser
-
-    def _ensure_cell_track_helper(self, width, height):
-        if self._cell_track_helper is not None and self._cell_track_helper_dims == (int(width), int(height)):
-            return self._cell_track_helper
-        if self._cell_track_helper_init_failed:
-            return None
-        try:
-            if importlib.util.find_spec("transformers") is None:
-                raise ModuleNotFoundError(
-                    "CellTrackHelper dependency missing: transformers (required by PointMatcher/LightGlue backend)"
-                )
-
-            helper_path = Path(__file__).resolve().parents[4] / "patcherbot" / "devices" / "manipulator" / "CellTrackHelper.py"
-            if not helper_path.is_file():
-                raise FileNotFoundError(f"CellTrackHelper.py not found at expected path: {helper_path}")
-
-            module_name = "_rig_replay_cell_track_helper"
-            helper_module = sys.modules.get(module_name)
-            if helper_module is None:
-                spec = importlib.util.spec_from_file_location(module_name, str(helper_path))
-                if spec is None or spec.loader is None:
-                    raise ImportError(f"Could not create import spec for {helper_path}")
-                helper_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(helper_module)
-                sys.modules[module_name] = helper_module
-
-            CellTrackHelper = getattr(helper_module, "CellTrackHelper", None)
-            if CellTrackHelper is None:
-                raise ImportError("CellTrackHelper class not found in CellTrackHelper.py")
-
-            class _ReplayStage:
-                pass
-
-            class _ReplayCamera:
-                def __init__(self, w, h):
-                    self.width = int(w)
-                    self.height = int(h)
-
-            self._cell_track_helper = CellTrackHelper(_ReplayStage(), _ReplayCamera(width, height))
-            self._cell_track_helper_dims = (int(width), int(height))
-        except Exception as exc:
-            self._cell_track_helper_init_failed = True
-            self._cell_track_helper = None
-            self._cell_track_helper_dims = None
-            logger.warning("CellTrackHelper init failed; disabling hunt_cell tracking overlay: %s", exc)
-        return self._cell_track_helper
 
     @staticmethod
     def _normalize_point(point, width, height):
@@ -1744,41 +1607,11 @@ class IntegratedTimeline(QMainWindow):
             return None
         return x_i, y_i
 
-    def _is_hunt_cell_state(self, active_state):
-        return isinstance(active_state, str) and active_state == self.hunt_cell_state_name
-
-    def _infer_hunt_cell_tracking_point(self, frame_bgr):
-        h, w = frame_bgr.shape[:2]
-        tracked_point = None
-
-        try:
-            if self._hunt_cell_template_image is None:
-                tracked_point = (w // 2, h // 2)
-            else:
-                helper = self._ensure_cell_track_helper(w, h)
-                if helper is not None:
-                    template_h, template_w = self._hunt_cell_template_image.shape[:2]
-                    template_prompt = (template_w / 2.0, template_h / 2.0)
-                    centroid = helper.find_centroid(
-                        self._hunt_cell_template_image,
-                        frame_bgr,
-                        use_centroid=True,
-                        prompt_point=template_prompt,
-                    )
-                    tracked_point = self._normalize_point(centroid, w, h)
-        except Exception as exc:
-            logger.warning("CellTrackHelper inference failed on replay frame: %s", exc)
-        finally:
-            self._hunt_cell_template_image = frame_bgr.copy()
-
-        return tracked_point
-
     def _run_frame_inference(self, image_path, active_state):
         self._frame_overlay_results = {
             "image_path": image_path,
             "pipette_point": None,
-            "cell_point": None,
-            "track_point": None,
+            "cell_points": [],
             "focus_value": None,
         }
 
@@ -1819,8 +1652,12 @@ class IntegratedTimeline(QMainWindow):
             detector = self._ensure_cell_detector()
             if detector is not None:
                 try:
-                    point = detector.detect_cell(frame_bgr)
-                    self._frame_overlay_results["cell_point"] = self._normalize_point(point, w, h)
+                    detections = detector.detect_cells(frame_bgr, max_outputs=20)
+                    self._frame_overlay_results["cell_points"] = [
+                        point
+                        for detection in detections
+                        if (point := self._normalize_point(detection, w, h)) is not None
+                    ]
                 except Exception as exc:
                     logger.warning("Cell detector inference failed on replay frame: %s", exc)
 
@@ -1833,9 +1670,6 @@ class IntegratedTimeline(QMainWindow):
                         self._frame_overlay_results["focus_value"] = focus_value
                 except Exception as exc:
                     logger.warning("Pipette focus inference failed on replay frame: %s", exc)
-
-        if self.enable_hunt_cell_tracker and self._is_hunt_cell_state(active_state):
-            self._frame_overlay_results["track_point"] = self._infer_hunt_cell_tracking_point(frame_bgr)
 
     def _draw_overlay_point(self, painter, point, color):
         if point is None:
@@ -1864,17 +1698,8 @@ class IntegratedTimeline(QMainWindow):
             self._frame_overlay_results.get("pipette_point"),
             QtGui.QColor(255, 0, 0),
         )
-        self._draw_overlay_point(
-            painter,
-            self._frame_overlay_results.get("cell_point"),
-            QtGui.QColor(0, 255, 0),
-        )
-        self._draw_overlay_point(
-            painter,
-            self._frame_overlay_results.get("track_point"),
-            QtGui.QColor(0, 0, 255),
-        )
-
+        for cell_point in self._frame_overlay_results.get("cell_points", []):
+            self._draw_overlay_point(painter, cell_point, QtGui.QColor(0, 255, 0))
         focus_value = self._frame_overlay_results.get("focus_value")
         if focus_value is not None:
             text_rect = pixmap.rect().adjusted(
@@ -1897,6 +1722,69 @@ class IntegratedTimeline(QMainWindow):
         painter.end()
         return pixmap
 
+    def _populate_chapters(self):
+        """Build selectable replay ranges from recorded state windows."""
+        frame_count = len(self.data_manager.timestamps)
+        full_end = frame_count - 1
+        self._chapter_start_index = 0
+        self._chapter_end_index = full_end
+        self.current_index = 0
+
+        self.chapter_selector.blockSignals(True)
+        self.slider.blockSignals(True)
+        try:
+            self.chapter_selector.clear()
+            self.chapter_selector.addItem("Entire Replay", (0, full_end))
+
+            occurrences = {}
+            for started, finished, state_name, outcome_code in self.data_manager.state_windows:
+                start_index = bisect.bisect_left(self.data_manager.timestamps, started)
+                end_index = bisect.bisect_right(self.data_manager.timestamps, finished) - 1
+                if start_index >= frame_count or end_index < start_index:
+                    continue
+
+                occurrences[state_name] = occurrences.get(state_name, 0) + 1
+                display_name = state_name.replace("_", " ").title()
+                label = f"{display_name} #{occurrences[state_name]}"
+                if outcome_code is not None:
+                    label += f" — outcome {outcome_code}"
+                self.chapter_selector.addItem(label, (start_index, min(end_index, full_end)))
+
+            self.chapter_selector.setCurrentIndex(0)
+            self.slider.setMinimum(0)
+            self.slider.setMaximum(max(0, full_end))
+            self.slider.setValue(0)
+        finally:
+            self.slider.blockSignals(False)
+            self.chapter_selector.blockSignals(False)
+
+    def _on_chapter_changed(self, chapter_index):
+        """Activate a chapter and constrain all replay navigation to its frames."""
+        if not self.data_manager.image_paths:
+            return
+        chapter_range = self.chapter_selector.itemData(chapter_index)
+        if not chapter_range or len(chapter_range) != 2:
+            return
+
+        start_index, end_index = (int(chapter_range[0]), int(chapter_range[1]))
+        if end_index < start_index:
+            return
+
+        self.timer.stop()
+        self.toggle_video_button.setText("Play")
+        self._chapter_start_index = start_index
+        self._chapter_end_index = end_index
+        self.current_index = start_index
+
+        self.slider.blockSignals(True)
+        try:
+            self.slider.setMinimum(start_index)
+            self.slider.setMaximum(end_index)
+            self.slider.setValue(start_index)
+        finally:
+            self.slider.blockSignals(False)
+        self.update_view()
+
     def open_directory(self):
         """Open a directory dialog to select data directory."""
         directory = QFileDialog.getExistingDirectory(self, "Open Directory", "")
@@ -1917,7 +1805,7 @@ class IntegratedTimeline(QMainWindow):
         if not self.check_data_loaded():
             return
 
-        if self.current_index > 0:
+        if self.current_index > self._chapter_start_index:
             self.current_index -= 1
             self.slider.setValue(self.current_index)
 
@@ -1926,7 +1814,7 @@ class IntegratedTimeline(QMainWindow):
         if not self.check_data_loaded():
             return
 
-        if self.current_index < len(self.data_manager.image_paths) - 1:
+        if self.current_index < self._chapter_end_index:
             self.current_index += 1
             self.slider.setValue(self.current_index)
 
@@ -1947,7 +1835,7 @@ class IntegratedTimeline(QMainWindow):
         if not self.check_data_loaded():
             return
 
-        if self.current_index < len(self.data_manager.image_paths) - 1:
+        if self.current_index < self._chapter_end_index:
             self.current_index += 1
             self.slider.setValue(self.current_index)
         else:

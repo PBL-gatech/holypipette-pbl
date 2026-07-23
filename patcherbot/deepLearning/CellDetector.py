@@ -239,14 +239,87 @@ class CellDetectorYOLO1(CellDetector):
             detections.append((x_pix, y_pix, float(conf_sel[idx])))
 
         return detections
+
+
+class CellDetector2(CellDetector):
+    """Factory-backed dense detector with the CellDetector centroid API."""
+
+    def __init__(
+        self,
+        model_type: str = "segformer",
+        model_path: Optional[str | Path] = None,
+        encoder_config_path: Optional[str | Path] = None,
+        device: Optional[str] = None,
+        conf: float = 0.20,
+    ) -> None:
+        super().__init__()
+        cur_file = Path(__file__).parent.absolute()
+        model_root = cur_file / "cellModel"
+        self.model_type = str(model_type).strip().lower()
+        default_models = {
+            "segformer": model_root / "segformer_best_map50.pt",
+            "pidnet": model_root / "pidnet_best_map50.pt",
+        }
+        if self.model_type not in default_models:
+            supported = ", ".join(default_models)
+            raise ValueError(
+                f"Unsupported model_type {model_type!r}; expected one of: {supported}"
+            )
+        self.model_path = (
+            Path(model_path)
+            if model_path is not None
+            else default_models[self.model_type]
+        )
+        self.encoder_config_path = (
+            Path(encoder_config_path)
+            if encoder_config_path is not None
+            else model_root / "config.json"
+            if self.model_type == "segformer"
+            else None
+        )
+        adapter_module = _import_module_from_path(
+            "cell_detector_model_factory", model_root / "CDModelFactory.py"
+        )
+        self.adapter = adapter_module.CDModelFactory.create(
+            model_type=self.model_type,
+            model_path=self.model_path,
+            encoder_config_path=self.encoder_config_path,
+            device=device,
+            conf=conf,
+        )
+        self.cell_class = 0
+        self.conf_threshold = float(conf)
+        self.device = str(self.adapter.device)
+
+    def detect_cell(self, img: np.ndarray) -> Optional[Tuple[int, int]]:
+        detections = self.detect_cells(img, max_outputs=1)
+        if not detections:
+            return None
+        x_pix, y_pix, _ = detections[0]
+        return x_pix, y_pix
+
+    def detect_cells(
+        self, img: np.ndarray, max_outputs: Optional[int] = None
+    ) -> List[Tuple[int, int, float]]:
+        """Return detections as (x, y, confidence), sorted by confidence."""
+        if img is None:
+            return []
+        try:
+            return self.adapter.predict(img, max_outputs=max_outputs)
+        except Exception as exc:
+            logger.warning("%s inference failed: %s", self.model_type, exc)
+            return []
     
 if __name__ == '__main__':
-    detector = CellDetectorYOLO1()
+    # detector = CellDetectorYOLO1()
+    # detector = CellDetector2(device="cuda:0")
+    detector = CellDetector2(model_type="pidnet", device="cuda:0")
     # path = r"C:\Users\sa-forest\GaTech Dropbox\Benjamin Magondu\YOLOretrainingdata\Cell CNN Training Data\20191016\3654098923.png"
     # path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\rig_recorder_data\2026_02_25-14_56\camera_frames\26197_1772050291.581619.webp"
     # path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2026_02_25-14_56\CellMetadata\cell_5.webp"
     # path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2025_10_29-18_56\CellMetadata\cell_9.webp"
-    path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2025_10_16-19_24\CellMetadata\cell_8.webp"
+    # path = r"C:\Users\sa-forest\Documents\GitHub\PatcherBot-Agent\experiments\Data\patch_clamp_data\2025_10_16-19_24\CellMetadata\cell_8.webp"
+    path = r"C:\Users\sa-forest\Downloads\image (3).png"
     img = cv2.imread(path)
 
     values = detector._test_detector(img,10)

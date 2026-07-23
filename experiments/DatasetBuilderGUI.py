@@ -13,6 +13,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QAbstractItemView,
+    QButtonGroup,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -28,6 +29,7 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSpinBox,
     QTabWidget,
@@ -169,6 +171,28 @@ class DatasetBuilderGUI(QWidget):
         self.image_resize = QSpinBox()
         self.image_resize.setRange(1, 4096)
         self.image_resize.setValue(85)
+
+        self.output_hdf5 = QRadioButton("HDF5 dataset")
+        self.output_images = QRadioButton("Image folder")
+        self.output_hdf5.setChecked(True)
+        self.output_mode_group = QButtonGroup(self)
+        self.output_mode_group.addButton(self.output_hdf5)
+        self.output_mode_group.addButton(self.output_images)
+        self.output_images.setToolTip(
+            "Create only an images folder containing sampled, unmodified camera files."
+        )
+        self.locate_cell_end_fraction = QDoubleSpinBox()
+        self.locate_cell_end_fraction.setRange(0.001, 1.0)
+        self.locate_cell_end_fraction.setDecimals(3)
+        self.locate_cell_end_fraction.setValue(0.1)
+        self.image_sample_fraction = QDoubleSpinBox()
+        self.image_sample_fraction.setRange(0.0, 1.0)
+        self.image_sample_fraction.setDecimals(3)
+        self.image_sample_fraction.setValue(0.1)
+        self.image_sample_fraction.setToolTip(
+            "Randomly copy this fraction without replacement: from the final locate-cell "
+            "window or from the complete hunt-cell attempt."
+        )
 
         self.inaction = QSpinBox()
         self.inaction.setRange(0, 100000)
@@ -378,6 +402,12 @@ class DatasetBuilderGUI(QWidget):
         form.addRow("Image Resize:", self.image_resize)
         form.addRow(self.center_crop)
         form.addRow(self.pipette_dot)
+
+        form.addRow(self._form_section("Output Type"))
+        form.addRow(self.output_hdf5)
+        form.addRow(self.output_images)
+        form.addRow("Locate End Fraction:", self.locate_cell_end_fraction)
+        form.addRow("Image Sampling Percentage:", self.image_sample_fraction)
 
         form.addRow(self._form_section("CV Coordinate Generation"))
         form.addRow(self.use_cv_defined_coords)
@@ -851,12 +881,13 @@ class DatasetBuilderGUI(QWidget):
         return (p / "movement_recording.csv").exists() or (p / "cv_movement_recording.csv").exists()
 
     def _add_folder(self, name: str, path: Path) -> bool:
+        normalized_path = str(path.resolve())
         existing = {self.folder_list.item(i).data(Qt.UserRole) for i in range(self.folder_list.count())}
-        if name in existing:
+        if normalized_path in existing:
             return False
         item = QListWidgetItem(name)
-        item.setData(Qt.UserRole, name)
-        item.setToolTip(str(path))
+        item.setData(Qt.UserRole, normalized_path)
+        item.setToolTip(normalized_path)
         self.folder_list.addItem(item)
         self._append(f"Added folder: {name}")
         return True
@@ -892,6 +923,21 @@ class DatasetBuilderGUI(QWidget):
         self._set_if(self.include_failed_demos, settings.get("include_failed_demos"))
         self._set_if(self.freq_mask, settings.get("freq_mask", settings.get("frequency_mod")))
         self._set_if(self.image_resize, settings.get("image_resize"))
+        output_mode = settings.get("output_mode")
+        if output_mode == "images" or (
+            output_mode is None and settings.get("export_full_images") is True
+        ):
+            self.output_images.setChecked(True)
+        elif output_mode == "hdf5":
+            self.output_hdf5.setChecked(True)
+        self._set_if(self.locate_cell_end_fraction, settings.get("locate_cell_end_fraction"))
+        self._set_if(
+            self.image_sample_fraction,
+            settings.get(
+                "image_sample_fraction",
+                settings.get("hunt_cell_sample_probability"),
+            ),
+        )
         self._set_if(self.inaction, settings.get("inaction"))
         self._set_if(self.inaction_tolerance, settings.get("inaction_tolerance"))
         self._set_if(self.skip_invalid_observations, settings.get("skip_invalid_observations"))
@@ -1090,6 +1136,9 @@ class DatasetBuilderGUI(QWidget):
                 observations_until_next_action_cap=int(self.gigaseal_aug_counter_cap.value()),
             ),
             image_resize=int(self.image_resize.value()),
+            output_mode="images" if self.output_images.isChecked() else "hdf5",
+            locate_cell_end_fraction=float(self.locate_cell_end_fraction.value()),
+            image_sample_fraction=float(self.image_sample_fraction.value()),
             pipette_final_pos_color_dot=self.pipette_dot.isChecked(),
             center_crop=self.center_crop.isChecked(),
             inaction=int(self.inaction.value()),
@@ -1197,15 +1246,54 @@ class DatasetBuilderGUI(QWidget):
             if self.use_cv_defined_coords.isChecked():
                 self._generate_cv_movement_files(folders)
 
+            image_output = kwargs["output_mode"] == "images"
             builder = SimpleDatasetBuilder(**kwargs)
+            processed_count = 0
+            skipped_folders: list[tuple[str, str]] = []
             for i, folder in enumerate(folders, 1):
                 self._append(f"[{i}/{len(folders)}] {folder}")
                 QApplication.processEvents()
-                builder.add_demo(folder, record_to_file=True)
-            builder.write_split_masks()
-            self._append("Outcome masks written: success/failure and split-specific filters.")
-            self._append(f"Done. Dataset path: {builder.dataset_path}")
-            QMessageBox.information(self, "Completed", f"Dataset built:\n{builder.dataset_path}")
+                try:
+                    builder.add_demo(folder, record_to_file=not image_output)
+                except FileNotFoundError as exc:
+                    reason = str(exc)
+                    if not reason.startswith(
+                        ("Missing movement recording", "Missing graph recording")
+                    ):
+                        raise
+                    skipped_folders.append((folder, reason))
+                    self._append(f"  skipped: {reason}")
+                    continue
+                processed_count += 1
+
+            if skipped_folders:
+                self._append(
+                    f"Skipped {len(skipped_folders)} folder(s) missing required recording files."
+                )
+            if processed_count == 0:
+                QMessageBox.warning(
+                    self,
+                    "No folders built",
+                    "All folders were skipped because required recording files were missing.",
+                )
+                return
+
+            summary = (
+                f"\n\nProcessed: {processed_count}\nSkipped: {len(skipped_folders)}"
+            )
+            if image_output:
+                output_path = builder.dataset_dir / "images"
+                self._append(f"Done. Image folder: {output_path}")
+                QMessageBox.information(
+                    self, "Completed", f"Image dataset built:\n{output_path}{summary}"
+                )
+            else:
+                builder.write_split_masks()
+                self._append("Outcome masks written: success/failure and split-specific filters.")
+                self._append(f"Done. Dataset path: {builder.dataset_path}")
+                QMessageBox.information(
+                    self, "Completed", f"Dataset built:\n{builder.dataset_path}{summary}"
+                )
         except Exception:
             err = traceback.format_exc()
             self._append(err)

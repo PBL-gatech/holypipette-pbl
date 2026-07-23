@@ -44,6 +44,7 @@ import io
 import json
 import os
 import re
+import shutil
 import warnings
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -56,6 +57,11 @@ import h5py
 import numpy as np
 import pandas as pd
 from PIL import Image
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DATA_ROOT = REPO_ROOT / "experiments" / "Data"
+RIG_RECORDER_DATA_ROOT = DATA_ROOT / "rig_recorder_data"
+MAX_CAUSAL_CAMERA_FRAME_AGE_SECONDS = 0.100
 
 # ---------------------------------------------------------------------------
 # Configuration containers
@@ -201,6 +207,9 @@ class DatasetBuilderSettings:
     gigaseal_augmentation: GigasealAugmentationSettings = field(default_factory=GigasealAugmentationSettings)
     image_resize: int = 85
     pipette_final_pos_color_dot: bool = False # goal-conditioning option: mark final pipette position in camera frames
+    output_mode: str = "hdf5" # either "hdf5" or "images"
+    locate_cell_end_fraction: float = 0.1 # eligible fraction at the end of each locate-cell attempt
+    image_sample_fraction: float = 0.1 # fraction sampled without replacement from each eligible pool
 
     observation_selector: ObservationSelector = field(default_factory=ObservationSelector)
     action_selector: ActionSelector = field(
@@ -692,13 +701,156 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             self.dataset_dir / self._metadata_filename
         )
         self._active_state_context: Optional[_StateDatasetContext] = None
+        self._full_image_source_counts: Dict[str, int] = {}
 
         if self.val_ratio == 0:
             self._split_keys = {"train": []}
         else:
             self._split_keys = {"train": [], "valid": []}
 
-        self._write_metadata_files()
+        if settings.output_mode not in {"hdf5", "images"}:
+            raise ValueError("output_mode must be either hdf5 or images")
+        if settings.output_mode == "hdf5":
+            self._write_metadata_files()
+
+    @staticmethod
+    def _resolve_rig_recorder_folder(rig_recorder_data_folder: str) -> Path:
+        """Resolve an explicit demo path or a legacy name under the repository data root."""
+        candidate = Path(rig_recorder_data_folder).expanduser()
+        if candidate.is_absolute():
+            return candidate
+        return RIG_RECORDER_DATA_ROOT / candidate
+
+    @staticmethod
+    def _rig_recorder_folder_name(rig_recorder_data_folder: str) -> str:
+        """Return the demo directory name for metadata, logs, and output filenames."""
+        return Path(rig_recorder_data_folder).name
+
+    @classmethod
+    def _resolve_state_recorder_root(cls, rig_recorder_data_folder: str) -> Path:
+        """Resolve state attempts beside an explicitly selected rig-data root."""
+        candidate = Path(rig_recorder_data_folder).expanduser()
+        if candidate.is_absolute():
+            rig_root = cls._resolve_rig_recorder_folder(rig_recorder_data_folder).parent
+            return rig_root.parent / "state_recorder_data"
+        return DATA_ROOT / "state_recorder_data"
+
+    @staticmethod
+    def _normalize_legacy_epoch_timestamp(timestamp: float) -> float:
+        """Convert legacy millisecond epoch timestamps to seconds."""
+        if abs(timestamp) >= 100_000_000_000:
+            return timestamp / 1000.0
+        return timestamp
+
+    @staticmethod
+    def _camera_file_timestamp(path: Path) -> Optional[float]:
+        """Return the timestamp suffix used by rig-recorder camera filenames."""
+        try:
+            return float(path.stem.rsplit("_", 1)[1])
+        except (IndexError, ValueError):
+            return None
+
+    def _export_sampled_full_images(
+        self,
+        rig_recorder_data_folder: str,
+        state_attempts: Mapping[str, Sequence[_StateAttemptRecord]],
+    ) -> None:
+        """Copy deterministic samples from locate-cell and hunt-cell attempts."""
+        if self.settings.output_mode != "images":
+            return
+
+        folder_name = self._rig_recorder_folder_name(rig_recorder_data_folder)
+        camera_dir = self._resolve_rig_recorder_folder(rig_recorder_data_folder) / "camera_frames"
+        if not camera_dir.is_dir():
+            warnings.warn(f"Camera folder not found for full-image export: {camera_dir}")
+            return
+
+        timestamped_files = []
+        for path in camera_dir.iterdir():
+            if path.is_file():
+                timestamp = self._camera_file_timestamp(path)
+                if timestamp is not None:
+                    timestamped_files.append((timestamp, path))
+        timestamped_files.sort(key=lambda item: item[0])
+
+        image_dir = self.dataset_dir / "images"
+        image_dir.mkdir(parents=True, exist_ok=True)
+        copied = 0
+        for state_name, attempts in state_attempts.items():
+            state_slug = _slugify_state_name(state_name)
+            is_locate = "locate_cell" in state_slug
+            is_hunt = "hunt_cell" in state_slug
+            if not (is_locate or is_hunt):
+                continue
+            for attempt_index, attempt in enumerate(attempts):
+                candidates = [
+                    (timestamp, path)
+                    for timestamp, path in timestamped_files
+                    if attempt.started <= timestamp <= attempt.finished
+                ]
+                if not candidates:
+                    continue
+                sample_rng = np.random.default_rng(
+                    _stable_int_seed(
+                        self.settings.random_seed,
+                        folder_name,
+                        state_slug,
+                        attempt.started,
+                        attempt.finished,
+                        "full_images",
+                    )
+                )
+                if is_locate:
+                    fraction = min(1.0, max(0.0, self.settings.locate_cell_end_fraction))
+                    eligible_count = min(
+                        len(candidates),
+                        max(1, round(len(candidates) * fraction)),
+                    ) if fraction > 0.0 else 0
+                    eligible = candidates[-eligible_count:] if eligible_count else []
+                else:
+                    eligible = candidates
+
+                sample_fraction = min(1.0, max(0.0, self.settings.image_sample_fraction))
+                sample_count = min(
+                    len(eligible),
+                    max(1, round(len(eligible) * sample_fraction)),
+                ) if eligible and sample_fraction > 0.0 else 0
+                if sample_count:
+                    selected_indices = sample_rng.choice(
+                        len(eligible),
+                        size=sample_count,
+                        replace=False,
+                    )
+                    selected = [eligible[int(index)] for index in selected_indices]
+                else:
+                    selected = []
+
+                for timestamp, source_path in selected:
+                    destination_name = (
+                        f"{folder_name}_{state_slug}_{attempt_index:03d}_"
+                        f"{timestamp:.6f}{source_path.suffix.lower()}"
+                    )
+                    shutil.copy2(source_path, image_dir / destination_name)
+                    copied += 1
+
+        if copied:
+            self._full_image_source_counts[folder_name] = (
+                self._full_image_source_counts.get(folder_name, 0) + copied
+            )
+        total = sum(self._full_image_source_counts.values())
+        summary = pd.DataFrame(
+            [
+                {
+                    "source": source,
+                    "image_count": count,
+                    "percentage": (100.0 * count / total) if total else 0.0,
+                }
+                for source, count in sorted(self._full_image_source_counts.items())
+            ],
+            columns=["source", "image_count", "percentage"],
+        )
+        summary.to_csv(image_dir / "image_sources.csv", index=False)
+        print(f"  copied {copied} sampled full-resolution image(s) to {image_dir}")
 
     def _event_window_radius_limit(self) -> Optional[int]:
         radii: List[int] = []
@@ -1025,7 +1177,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self, rig_recorder_data_folder: str
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Load graph and movement tables for a given experiment folder."""
-        base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder
+        base = self._resolve_rig_recorder_folder(rig_recorder_data_folder)
         movement_path = None
         movement_candidates = (
             ("cv_movement_recording.csv", "movement_recording.csv")
@@ -1038,7 +1190,10 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 movement_path = candidate
                 break
         if movement_path is None:
-            raise FileNotFoundError(f"Missing movement recording for {rig_recorder_data_folder}.")
+            expected = ", ".join(movement_candidates)
+            raise FileNotFoundError(
+                f"Missing movement recording in {base}. Expected one of: {expected}."
+            )
         self._using_cv_movement_file = movement_path.name.lower().startswith("cv")
         movement_values = pd.read_csv(movement_path, delimiter=";").to_numpy()
         graph_file = base / "graph_recording.csv"
@@ -1055,7 +1210,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             graph_values = pd.read_csv(graph_file, delimiter=";").to_numpy()
         else:
             if graph_required:
-                raise FileNotFoundError(f"Missing graph recording for {rig_recorder_data_folder}.")
+                raise FileNotFoundError(f"Missing graph recording: {graph_file}.")
             timestamps = movement_values[:, 0].astype(np.float64, copy=True)
             # Fall back to timestamps only when graph-dependent features are disabled.
             graph_values = timestamps.reshape(-1, 1)
@@ -1217,12 +1372,12 @@ class SimpleDatasetBuilder(RandomFilterMixin):
     def _load_pressure_log_events(self, rig_recorder_data_folder: str) -> pd.DataFrame:
         """Load and cache pressure controller events for the recording day."""
 
-        day_token = rig_recorder_data_folder.split("-", 1)[0]
+        day_token = self._rig_recorder_folder_name(rig_recorder_data_folder).split("-", 1)[0]
         cached = self._pressure_event_cache.get(day_token)
         if cached is not None:
             return cached
 
-        log_file = Path("experiments/Data/log_data") / f"logs_{day_token}.csv"
+        log_file = DATA_ROOT / "log_data" / f"logs_{day_token}.csv"
         if not log_file.exists():
             raise FileNotFoundError(
                 f"Day-log pressure events are required, but {log_file} was not found."
@@ -1589,8 +1744,8 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         """Extract selected state attempt windows using state-recorder JSON logs."""
 
         state_attempts: Dict[str, List[_StateAttemptRecord]] = {}
-        state_root = Path("experiments/Data/state_recorder_data")
-        day_token = rig_recorder_data_folder.split('-', 1)[0]
+        state_root = self._resolve_state_recorder_root(rig_recorder_data_folder)
+        day_token = self._rig_recorder_folder_name(rig_recorder_data_folder).split('-', 1)[0]
         tolerance = 0.5
         allowed_outcomes = {_STATE_OUTCOME_SUCCESS}
         if include_failed:
@@ -1617,8 +1772,8 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                             continue
                         try:
                             outcome_code = int(outcome)
-                            started = float(started)
-                            finished = float(finished)
+                            started = self._normalize_legacy_epoch_timestamp(float(started))
+                            finished = self._normalize_legacy_epoch_timestamp(float(finished))
                         except (TypeError, ValueError):
                             continue
                         if outcome_code not in allowed_outcomes:
@@ -2241,11 +2396,28 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         suffix = name[dot_index:] if dot_index != -1 else ''
         return f"{name[:underscore_index + 1]}{segment}{suffix}"
 
+    @staticmethod
+    def _latest_causal_camera_frame_index(
+        camera_timestamps: np.ndarray,
+        target_timestamp: float,
+        max_age_seconds: float = MAX_CAUSAL_CAMERA_FRAME_AGE_SECONDS,
+    ) -> Optional[int]:
+        """Return the newest non-future camera frame within the causal window."""
+        if camera_timestamps.size == 0:
+            return None
+        index = int(np.searchsorted(camera_timestamps, target_timestamp, side="right")) - 1
+        if index < 0:
+            return None
+        frame_age = float(target_timestamp) - float(camera_timestamps[index])
+        if frame_age > max_age_seconds:
+            return None
+        return index
+
     def _get_camera_frame_shape(self, rig_recorder_data_folder: str) -> Optional[Tuple[int, int]]:
         cache = self._camera_frame_shape_cache
         if rig_recorder_data_folder in cache:
             return cache[rig_recorder_data_folder]
-        camera_dir = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder / "camera_frames"
+        camera_dir = self._resolve_rig_recorder_folder(rig_recorder_data_folder) / "camera_frames"
         if not camera_dir.exists():
             return None
         for frame_file in sorted(camera_dir.iterdir(), key=lambda p: self._camera_order_key(p.name)):
@@ -2327,53 +2499,36 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         pipette_final_pos: Optional[tuple[int, int]] = None
     ) -> np.ndarray:
         """Load rig camera frames aligned to ``attempt_graph_values`` timestamps."""
-        base = Path("experiments/Data/rig_recorder_data") / rig_recorder_data_folder / "camera_frames"
-        camera_files = sorted(os.listdir(base), key=self._camera_order_key)
+        base = self._resolve_rig_recorder_folder(rig_recorder_data_folder) / "camera_frames"
+        timestamped_camera_files: List[Tuple[float, str]] = []
+        for camera_file in os.listdir(base):
+            camera_timestamp = self._camera_file_timestamp(base / camera_file)
+            if camera_timestamp is not None:
+                timestamped_camera_files.append((camera_timestamp, camera_file))
+        timestamped_camera_files.sort(key=lambda item: item[0])
+        camera_timestamps = np.asarray(
+            [item[0] for item in timestamped_camera_files],
+            dtype=np.float64,
+        )
         frames_list: List[np.ndarray] = []
-        last_index = 0
 
-        for i, graph_row in enumerate(attempt_graph_values):
-            target_timestamp = graph_row[0]
-            if i == len(attempt_graph_values) - 1:
-                timestamp_range = abs(target_timestamp - attempt_graph_values[i - 1][0])
-            else:
-                timestamp_range = abs(target_timestamp - attempt_graph_values[i + 1][0])
-
-            valid_indices: List[int] = []
-            valid_timestamps: List[float] = []
-            for j in range(last_index, len(camera_files)):
-                camera_file = camera_files[j]
-                underscore_index = camera_file.find("_")
-                last_period_index = camera_file.rfind(".")
-                camera_timestamp = float(camera_file[underscore_index + 1 : last_period_index])
-                if abs(target_timestamp - camera_timestamp) < timestamp_range:
-                    valid_indices.append(j)
-                    valid_timestamps.append(camera_timestamp)
-                else:
-                    if valid_indices:
-                        break
-
-            if not valid_indices:
-                warnings.warn(
-                    f"No camera frame matched timestamp {target_timestamp} in {rig_recorder_data_folder}; skipping attempt.",
-                    RuntimeWarning,
-                )
-                return None
-
-            min_idx: Optional[int] = None
-            latest_timestamp = -float("inf")
-            for idx, ts in zip(valid_indices, valid_timestamps):
-                if ts <= target_timestamp and ts > latest_timestamp:
-                    latest_timestamp = ts
-                    min_idx = idx
+        for graph_row in attempt_graph_values:
+            target_timestamp = float(graph_row[0])
+            min_idx = self._latest_causal_camera_frame_index(
+                camera_timestamps,
+                target_timestamp,
+            )
             if min_idx is None:
                 warnings.warn(
-                    f"No causal camera frame matched timestamp {target_timestamp} in {rig_recorder_data_folder}; skipping attempt.",
+                    "No causal camera frame within "
+                    f"{MAX_CAUSAL_CAMERA_FRAME_AGE_SECONDS * 1000:.0f} ms matched "
+                    f"timestamp {target_timestamp} in {rig_recorder_data_folder}; "
+                    "skipping attempt.",
                     RuntimeWarning,
                 )
                 return None
 
-            pil_image = Image.open(base / camera_files[min_idx])
+            pil_image = Image.open(base / timestamped_camera_files[min_idx][1])
             pil_image = self.apply_albu_filter_to_pil(pil_image)
             
             if rotation_angle is not None:
@@ -2387,7 +2542,6 @@ class SimpleDatasetBuilder(RandomFilterMixin):
                 resized_image = self.add_image_color_dot(resized_image, pipette_final_pos)
 
             frames_list.append(resized_image)
-            last_index = max(0, min_idx - 1)
 
         return np.array(frames_list)
 
@@ -3678,6 +3832,10 @@ class SimpleDatasetBuilder(RandomFilterMixin):
 
         if not state_attempts:
             print("  no selected state attempts detected; skipping demo export")
+            return
+
+        if self.settings.output_mode == "images":
+            self._export_sampled_full_images(rig_recorder_data_folder, state_attempts)
             return
 
         has_gigaseal_state = any(_is_gigaseal_state_name(state_name) for state_name in state_attempts)
