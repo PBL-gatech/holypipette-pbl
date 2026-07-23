@@ -52,8 +52,8 @@ class PatchGui(ManipulatorGui):
         self.setWindowTitle("Patch GUI")
 
         if not isinstance (pipette_interfaces, dict):
-            self.pipette_interfaces = {pipette_interfaces}
-            self.patch_interfaces = {patch_interfaces}
+            self.pipette_interfaces = {"pipette": pipette_interfaces}
+            self.patch_interfaces = {list(self.pipette_interfaces.keys())[0]: patch_interfaces}
         else:
             self.pipette_interfaces = pipette_interfaces
             self.patch_interfaces = patch_interfaces

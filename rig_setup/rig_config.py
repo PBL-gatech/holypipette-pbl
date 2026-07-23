@@ -609,7 +609,7 @@ class RigConfigManager:
             for i, (id, controller) in enumerate(pipette_controllers.items()):
                 pipette_units[id] = ManipulatorUnit(controller, [1, 2, 3])
         else:
-            pipette_units = pipette_controllers
+            pipette_units = ManipulatorUnit(pipette_controllers, [1, 2, 3])
 
         derived = {
             "stage": ManipulatorUnit(stage_controller, [1, 2]),
