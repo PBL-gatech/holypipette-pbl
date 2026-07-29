@@ -32,26 +32,24 @@
                                                                   ]
                                                         }
                                          },
-                    "pipette_controller":  {
+                    "pipette_controller":  [
+                                            {
                                                "class":  "patcherbot.devices.manipulator.fakemanipulator.FakeManipulator",
                                                "params":  {
-                                                              "min":  [
-                                                                          0,
-                                                                          0,
-                                                                          0
-                                                                      ],
-                                                              "max":  [
-                                                                          4000,
-                                                                          20000,
-                                                                          20000
-                                                                      ],
-                                                              "x":  [
-                                                                        200,
-                                                                        300,
-                                                                        400
-                                                                    ]
-                                                          }
+                                                    "min":  [0, 0, 0],
+                                                    "max":  [4000, 20000, 20000],
+                                                    "x":  [200, 300, 400]
+                                                }
                                            },
+                                           {
+                                                "class": "patcherbot.devices.manipulator.fakemanipulator.FakeManipulator",
+                                                "params": {
+                                                    "min": [0, 0, 0],
+                                                    "max": [4000, 20000, 20000],
+                                                    "x": [500, 600, 700]
+                                                }
+                                            }
+                                        ],
                     "camera":  {
                                    "class":  "patcherbot.devices.camera.FakeCalCamera.FakeCalCamera",
                                    "params":  {
