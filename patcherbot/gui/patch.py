@@ -106,7 +106,6 @@ class PatchGui(ManipulatorGui):
         self._unique_patch_signals = {}
 
         for id, curr_pipette_interface in self.pipette_interfaces.items():
-        for id, curr_pipette_interface in self.pipette_interfaces.items():
             widget = QtWidgets.QTabWidget()
             self.config_tabs[id] = widget
             curr_config_tab = self.config_tabs[id]
@@ -353,7 +352,6 @@ class PatchGui(ManipulatorGui):
             self.snap_image_button.setIcon(qta.icon('fa.camera', color='black'))
             self.config_button.setIcon(qta.icon('fa.cogs', color='black'))
 
-    def switch_active_pipette(self, id):
     def switch_active_pipette(self, id):
         """
         Switch the currently active pipette

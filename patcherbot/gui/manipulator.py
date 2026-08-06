@@ -31,7 +31,6 @@ class ManipulatorGui(CameraGui):
     pipette_reset_signal = QtCore.pyqtSignal(TaskController)
 
     def __init__(self, camera, aux_camera, pipette_interfaces, with_tracking=False, recording_state_manager: RecordingStateManager = None):
-    def __init__(self, camera, aux_camera, pipette_interfaces, with_tracking=False, recording_state_manager: RecordingStateManager = None):
         """
         Initialize the manipulator GUI.
 
@@ -72,7 +71,7 @@ class ManipulatorGui(CameraGui):
                 self._unique_pipette_signals[id] = signals
                 self.interface_signals[interface] = (signals.command, signals.reset)
 
-        self.active_pipette = list(self.interfaces.values())[0] if self.interfaces else None
+        self.active_pipette = list(self.interfaces.values())[0] if isinstance(self.interfaces, dict) else self.interfaces
 
         self.display_edit_funcs.append(self.draw_scale_bar)
         self.display_edit_funcs.append(self.display_manipulator)

@@ -286,9 +286,20 @@ class RigBuilderDialog(QDialog):
             config: Configuration dictionary.
         """
         devices = config.get("devices", {})
-        for slot, spec in devices.items():
+        for key, spec in devices.items():
+            specs = spec if isinstance(spec, list) else [spec]
+            for i, spec in enumerate(specs):
+                if len(specs) > 1:
+                    base_name = key.rstrip('s')
+                    slot = f"{base_name}_{i+1}"
+                else:
+                    slot = key
             if slot not in self.slot_rows:
-                continue
+                if key in self.slot_rows:
+                    slot = key
+                else:
+                    continue
+                
             target_class = spec.get("class")
             combo: QComboBox = self.slot_rows[slot]["combo"]
             # find matching index
