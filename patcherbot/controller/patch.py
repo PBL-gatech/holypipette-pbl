@@ -107,6 +107,12 @@ class AutoPatcher(TaskController):
         self.ninput = None
         self.done = False
 
+        self._last_status_msg = None
+        self._last_error_msg = None
+        self._last_warning_msg = None
+        self.last_log_time = 0
+        
+
     def _microscope_z_um(self) -> float:
         """
         Get the current microscope Z position.
@@ -2150,5 +2156,25 @@ class AutoPatcher(TaskController):
         
         # Return a list instead of trying to create heterogeneous numpy array
         return [cvpi, st, img, res]
-        
 
+    def info(self, msg, *args, **kwargs):
+        """Intercept info logs to update the GUI status."""
+        self._last_status_msg = str(msg)
+        self._last_error_msg = None
+        self.last_log_time = time.time()
+
+        super().info(msg, *args, **kwargs)
+        
+    def error(self, msg, *args, **kwargs):
+        """Intercept error logs to update the GUI status."""
+        self._last_error_msg = str(msg)
+        self.last_log_time = time.time()
+        
+        super().error(msg, *args, **kwargs)
+
+    def warning(self, msg, *args, **kwargs):
+        """Intercept warning logs to update the GUI status."""
+        self._last_warning_msg = str(msg)
+        self.last_log_time = time.time()
+
+        super().warning(msg, *args, **kwargs)

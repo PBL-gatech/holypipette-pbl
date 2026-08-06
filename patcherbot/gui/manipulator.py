@@ -17,6 +17,13 @@ from patcherbot.devices.manipulator.calibratedunit import CalibrationError
 import datetime
 import cv2
 
+class PipetteSignals(QtCore.QObject):
+    """
+    A dedicated container to hold unique signals for a single pipette.
+    This prevents multiple tabs from broadcasting on the same channel.
+    """
+    command = QtCore.pyqtSignal(MethodType, object) 
+    reset = QtCore.pyqtSignal(TaskController)
 
 class ManipulatorGui(CameraGui):
     """GUI for controlling a manipulator and its associated cameras."""
@@ -38,28 +45,34 @@ class ManipulatorGui(CameraGui):
             tip_t0: Timestamp when tip display started.
         """
         super(ManipulatorGui, self).__init__(camera, aux_camera=aux_camera, with_tracking=with_tracking, recording_state_manager=recording_state_manager)
+        self.control_threads = {} # Keep track of multiple threads
+        self._unique_pipette_signals = {}
+        
         self.setWindowTitle("Pipette GUI")
         self.microscope_camera = camera
         self.pipette_camera = aux_camera
         self.interfaces = pipette_interfaces
-        self.control_thread = QtCore.QThread()
-        self.control_thread.setObjectName('PipetteControlThread')
         if not isinstance(self.interfaces, dict):
-                self.interfaces.moveToThread(self.control_thread)
-                self.interface_signals[self.interfaces] = (self.pipette_command_signal,
-                                                        self.pipette_reset_signal)
-                self.active_pipette = self.interfaces
-        else:
-            for i, (id, interface) in enumerate(self.interfaces.items()):
-                interface.moveToThread(self.control_thread)
-                self.interface_signals[interface] = (self.pipette_command_signal,
-                                                    self.pipette_reset_signal)
-                self.active_pipette = list(self.interfaces.values())[0] if self.interfaces else None
+            self.control_threads["pipette"] = QtCore.QThread()
+            self.interfaces.moveToThread(self.control_threads["pipette"])
+            self.control_threads["pipette"].start()
 
-        self.control_thread.start()
-        # for interface in self.interfaces:
-        #     self.interface_signals[interface] = (self.pipette_command_signal,
-        #                                             self.pipette_reset_signal)
+            self.interface_signals[self.interfaces] = (self.pipette_command_signal,
+                                                        self.pipette_reset_signal)
+            self.active_pipette = self.interfaces
+        else:
+            for id, interface in self.interfaces.items():
+                thread = QtCore.QThread()
+                self.control_threads[id] = thread
+                interface.moveToThread(thread)
+                thread.start()
+
+                signals = PipetteSignals()
+                self._unique_pipette_signals[id] = signals
+                self.interface_signals[interface] = (signals.command, signals.reset)
+
+        self.active_pipette = list(self.interfaces.values())[0] if self.interfaces else None
+
         self.display_edit_funcs.append(self.draw_scale_bar)
         self.display_edit_funcs.append(self.display_manipulator)
         self.display_edit_funcs.append(self.show_tip)
@@ -335,7 +348,7 @@ class ManipulatorGui(CameraGui):
         Args:
             pixmap (QPixmap): Image to draw the timer on.
         """
-        interface = self.interface
+        interface = self.active_pipette
         painter = QtGui.QPainter(pixmap)
         pen = QtGui.QPen(QtGui.QColor(200, 0, 0, 125))
         pen.setWidth(1)
@@ -348,5 +361,24 @@ class ManipulatorGui(CameraGui):
         painter.drawText(c_x, c_y, '{}'.format(datetime.time(hours,minutes,seconds)))
         painter.end()
     
-
-
+# def make_dynamic_command(gui_instance, method_name):
+#     """
+#     Creates a proxy function that dynamically calls the active pipette's method,
+#     but preserves the @command metadata required by the help menu generator.
+#     """
+#     def proxy_command(*args, **kwargs):
+#         # Dynamically grab the method from whichever pipette is currently active
+#         method = getattr(gui_instance.active_pipette, method_name)
+#         return method(*args, **kwargs)
+        
+#     # Copy the decorator metadata from the first pipette to satisfy the GUI
+#     sample_method = getattr(gui_instance.active_pipette, method_name)
+#     if hasattr(sample_method, 'category'):
+#         proxy_command.category = sample_method.category
+#     if hasattr(sample_method, 'description'):
+#         proxy_command.description = sample_method.description
+#     if hasattr(sample_method, 'auto_description'):
+#         proxy_command.auto_description = sample_method.auto_description
+#     if hasattr(sample_method, 'is_blocking'):
+#         proxy_command.is_blocking = sample_method.is_blocking
+#     return proxy_command

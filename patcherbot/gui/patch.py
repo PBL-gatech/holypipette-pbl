@@ -25,6 +25,16 @@ import json
 import pickle
 import os
 
+import qdarktheme
+
+class PatchSignals(QtCore.QObject):
+    """
+    A dedicated container to hold unique signals for a single pipette.
+    This prevents multiple tabs from broadcasting on the same channel.
+    """
+    command = QtCore.pyqtSignal(MethodType, object) 
+    reset = QtCore.pyqtSignal(TaskController)
+
 class PatchGui(ManipulatorGui):
     """
     GUI class for controlling the automated patch-clamp system. Inherits from ManipulatorGui.
@@ -32,8 +42,6 @@ class PatchGui(ManipulatorGui):
     Provides cell selection display, integration with pipette and patching interfaces, 
     and configurable controls for manual and automated patching tasks.
     """
-    patch_command_signal = QtCore.pyqtSignal(MethodType, object)
-    patch_reset_signal = QtCore.pyqtSignal(TaskController)
 
     def __init__(self, camera, aux_camera, pipette_interfaces, patch_interfaces, recording_state_manager: RecordingStateManager, with_tracking=False):
         """
@@ -50,6 +58,7 @@ class PatchGui(ManipulatorGui):
         super(PatchGui, self).__init__(camera, aux_camera, pipette_interfaces, with_tracking=with_tracking, recording_state_manager=recording_state_manager)
 
         self.setWindowTitle("Patch GUI")
+        self.resize(1200, 1000)
 
         if not isinstance (pipette_interfaces, dict):
             self.pipette_interfaces = {"pipette": pipette_interfaces}
@@ -64,13 +73,34 @@ class PatchGui(ManipulatorGui):
         self.show_cells_button = QtWidgets.QPushButton("Show Cells")
         self.show_cells_button.setCheckable(True)
         self.show_cells_button.clicked.connect(self.toggle_cell_list_window)
-        self.status_bar.insertPermanentWidget(1, self.show_cells_button)
+        # self.status_bar.insertPermanentWidget(1, self.show_cells_button)
         self._cell_list_timer = QtCore.QTimer(self)
         self._cell_list_timer.setInterval(500)
         self._cell_list_timer.timeout.connect(self._refresh_cell_list_window)
 
+        self.patch_toolbar = QtWidgets.QToolBar("Patch Controls")
+        self.addToolBar(Qt.TopToolBarArea, self.patch_toolbar)
+        self.patch_toolbar.addWidget(self.show_cells_button)
+
+        self.pipette_status_window = PipetteStatusWindow(self.patch_interfaces)
+        self.show_pipette_status_button = QtWidgets.QPushButton("Pipette Status")
+        self.pipette_status_window.closed.connect(self._pipette_status_window_closed)
+        self.show_pipette_status_button.setCheckable(True)
+        self.show_pipette_status_button.clicked.connect(self.toggle_pipette_status_window)
+        # self.status_bar.insertPermanentWidget(1, self.show_pipette_status_button)
+        self.pipette_status_timer = QtCore.QTimer(self)
+        self.pipette_status_timer.setInterval(100)
+        self.pipette_status_timer.timeout.connect(self.pipette_status_window.update_status)
+        self.patch_toolbar.addWidget(self.show_pipette_status_button)
+
         self.switch_manipulator_box = QtWidgets.QComboBox()
-        self.status_bar.insertPermanentWidget(1, self.switch_manipulator_box)
+        self.patch_toolbar.addSeparator()
+        self.patch_toolbar.addWidget(QtWidgets.QLabel("Active Pipette: "))
+        self.patch_toolbar.addWidget(self.switch_manipulator_box)
+        # self.status_bar.insertPermanentWidget(1, self.switch_manipulator_box)
+
+        self.classic_tabs = []
+        self._unique_patch_signals = {}
 
         for id, curr_pipette_interface in self.pipette_interfaces.items():
             widget = QtWidgets.QTabWidget()
@@ -80,25 +110,41 @@ class PatchGui(ManipulatorGui):
             curr_patch_interface = self.patch_interfaces[id]
 
             self.switch_manipulator_box.addItem(f"{id}")
-            curr_patch_interface.moveToThread(curr_pipette_interface.thread())
-            self.interface_signals[curr_patch_interface] = (self.patch_command_signal,
-                                                            self.patch_reset_signal)
+            curr_patch_interface.moveToThread(self.control_threads[id])
+
+            signals = PatchSignals()
+            self._unique_patch_signals[id] = signals
+            self.interface_signals[curr_patch_interface] = (signals.command, signals.reset)
+
             self.add_config_gui(curr_pipette_interface.calibration_config, curr_config_tab)
             self.add_config_gui(curr_patch_interface.config, curr_config_tab)
             self.add_config_gui(curr_patch_interface.protocol_config, curr_config_tab)
             logging.debug("Added config GUI.")
             classic_patching_tab = ClassicPatchButtons(curr_patch_interface, curr_pipette_interface, self.start_task, self.interface_signals, self.recording_state_manager)
+            self.classic_tabs.append(classic_patching_tab)
             self.add_tab(classic_patching_tab, 'Classic Auto Patching', curr_config_tab, index = 0)
-
+        
         self.current_tab = list(self.config_tabs.values())[0]
-        self.splitter.addWidget(self.current_tab)
+
+        self.config_scroll_area = QtWidgets.QScrollArea() # Made it 'self.' just in case you need to access it later
+        self.config_scroll_area.setWidgetResizable(True)
+        self.config_scroll_area.setWidget(self.current_tab)
+        self.config_scroll_area.setMinimumWidth(100) 
+        
+        self.splitter.addWidget(self.config_scroll_area)
+        self.splitter.setSizes([2000, 500])
+        self.splitter.setStretchFactor(0, 1) 
+        self.splitter.setStretchFactor(1, 0)
+
         self.switch_manipulator_box.currentTextChanged.connect(self.switch_active_pipette)
 
-        self.active_patch_interface = list(self.patch_interfaces.values())[0]
+        self.active_patch_interface = list(self.patch_interfaces.values())[0] if isinstance(patch_interfaces, dict) else patch_interfaces
 
-        self.status_bar_default_style = self.status_bar.styleSheet()
+        self.main_toolbar_default_style = self.main_toolbar.styleSheet()
+        self.patch_toolbar_default_style = self.patch_toolbar.styleSheet()
         self.config_tab_default_style = list(self.config_tabs.values())[0].styleSheet()
         self.cell_list_window_default_style = self.cell_list_window.styleSheet()
+        self.pipette_status_window_default_style = self.pipette_status_window.styleSheet()
 
     def register_commands(self):
         """
@@ -170,48 +216,86 @@ class PatchGui(ManipulatorGui):
         self.cell_list_window.update_cells(cells, stage_reference, full_refresh=full_refresh)
         self._cell_list_signature = signature
 
+    def toggle_pipette_status_window(self, checked=None):
+        """
+        Toggle the visibility of the PipetteStatusWindow.
+    
+        Args:
+            checked (bool, optional): If True, shows the window; if False, hides it. 
+                If None, uses the current button state.
+        """
+        if checked is None:
+            checked = self.show_pipette_status_button.isChecked()
+        if checked:
+            self.show_pipette_status_button.setText("Close")
+            self.pipette_status_window.show()
+            self.pipette_status_window.raise_()
+            self.pipette_status_window.activateWindow()
+            self.pipette_status_timer.start()
+        else:
+            self.pipette_status_window.close()
+
+    def _pipette_status_window_closed(self):
+            """
+            Slot called when the PipetteStatusWindow is closed. Stops the update timer and
+            resets the toggle button.
+            """
+            self.pipette_status_timer.stop()
+            if self.show_pipette_status_button.isChecked():
+                self.show_pipette_status_button.blockSignals(True)
+                self.show_pipette_status_button.setChecked(False)
+                self.show_pipette_status_button.blockSignals(False)
+            self.show_pipette_status_button.setText("Pipette Status")
+
     def toggle_dark_mode(self):
         """
         Toggle the dark mode for the GUI.
         """
         if not self.dark_mode:
             self.dark_mode = True
-            self.setStyleSheet("background-color: black;")
-
-            for config_tab in list(self.config_tabs.values()):
-                for i in range(config_tab.count()):
-                    curr_tab = config_tab.widget(i)
-                    curr_tab.setStyleSheet("""
-                        QWidget {
-                            color: white;
+            qdarktheme.setup_theme(
+                theme="dark",
+                custom_colors={"[dark]": {
+                            "primary": "#F5F5F5",
+                            "background": "#000000",
+                            "background>panel": "#0D0D0D",
+                            "border": "#222222"
                         }
-                    """)
-                    tab_name = config_tab.tabText(i)
-                    if tab_name == "Classic Auto Patching":
-                        for box in curr_tab.findChildren(CollapsibleGroupBox):
-                            box.setStyleSheet(box.dark_style_sheet)
-                    if hasattr(curr_tab, "save_button"):
-                        curr_tab.save_button.setIcon(qta.icon('fa.download', color='white'))
-                        curr_tab.load_button.setIcon(qta.icon('fa.upload', color='white'))
+                    }
+                )
+            for config_tab in list(self.config_tabs.values()):
+                    for i in range(config_tab.count()):
+                        curr_tab = config_tab.widget(i)
 
-            self.status_bar.setStyleSheet("""
-                                          QPushButton, QToolButton, QLineEdit, QCheckBox, QLabel {
-                                            color: white;
-                                          },
-                                          QProgressBar::chunk {
-                                            background-color: blue;
-                                          }
-                                          """)
-            self.help_window.setStyleSheet('color: white')
-            self.cell_list_window.setStyleSheet("""
-                                                QTableWidget {
-                                                    color: white;
-                                                }
-                                                QHeaderView::section::horizontal {
-                                                    background-color: black;
-                                                    color: white;
-                                                }
-                                                """)
+                        for box in curr_tab.findChildren(CollapsibleGroupBox):
+                            if hasattr(box, 'dark_style_sheet'):
+                                box.setStyleSheet(box.dark_style_sheet)
+                        if hasattr(curr_tab, "save_button"):
+                            curr_tab.save_button.setIcon(qta.icon('fa.download', color='white'))
+                            curr_tab.load_button.setIcon(qta.icon('fa.upload', color='white'))
+
+            toolbar_text_color = """
+                QToolButton, QPushButton, QLabel, QCheckBox, QComboBox { 
+                    color: white; 
+                }
+            """
+
+            self.task_progress.setStyleSheet("""
+                QProgressBar {
+                    background-color: #121212;
+                    border: 1px solid #444444; 
+                    border-radius: 3px;
+                    text-align: center;
+                    color: white;       
+                }
+                QProgressBar::chunk {
+                    background-color: #0078D7;
+                    border-radius: 2px;
+                }
+            """)
+
+            self.main_toolbar.setStyleSheet(toolbar_text_color)
+            self.patch_toolbar.setStyleSheet(toolbar_text_color)
 
             self.task_abort_button.setIcon(qta.icon('fa.ban', color='white'))
             self.task_success_button.setIcon(qta.icon('fa.check', color='white'))
@@ -220,28 +304,40 @@ class PatchGui(ManipulatorGui):
             self.record_button.setIcon(qta.icon('fa.video-camera', color='white'))
             self.snap_image_button.setIcon(qta.icon('fa.camera', color='white'))
             self.config_button.setIcon(qta.icon('fa.cogs', color='white'))
-
-
+            
         else:
             self.dark_mode = False
-            self.setStyleSheet("background-color: white;")
-
+            qdarktheme.setup_theme(
+                theme="light",
+                custom_colors={"[light]": {
+                            "primary": "#000000",
+                            "background": "#FFFFFF",
+                            "background>panel": "#FFFFFF",
+                            "border": "#282626"
+                        }
+                    }
+                )
             for config_tab in list(self.config_tabs.values()):
-                for i in range(config_tab.count()):
-                    curr_tab = config_tab.widget(i)
-                    curr_tab.setStyleSheet(self.config_tab_default_style)
-                    tab_name = config_tab.tabText(i)
-                    if tab_name == "Classic Auto Patching":
-                        for box in curr_tab.findChildren(CollapsibleGroupBox):
-                            box.setStyleSheet(box.default_style_sheet)
-                    if hasattr(curr_tab, "save_button"):
-                        curr_tab.save_button.setIcon(qta.icon('fa.download', color='black'))
-                        curr_tab.load_button.setIcon(qta.icon('fa.upload', color='black'))
+                                for i in range(config_tab.count()):
+                                    curr_tab = config_tab.widget(i)
+            
+                                    for box in curr_tab.findChildren(CollapsibleGroupBox):
+                                        if hasattr(box, 'default_style_sheet'):
+                                            box.setStyleSheet(box.default_style_sheet)
+                                    if hasattr(curr_tab, "save_button"):
+                                        curr_tab.save_button.setIcon(qta.icon('fa.download', color='black'))
+                                        curr_tab.load_button.setIcon(qta.icon('fa.upload', color='black'))
 
-            self.help_window.setStyleSheet('color: black')
-            self.cell_list_window.setStyleSheet(self.cell_list_window_default_style)
+            toolbar_text_color = """
+                QToolButton, QPushButton, QLabel, QCheckBox, QComboBox { 
+                    color: black; 
+                }
+            """
+            self.main_toolbar.setStyleSheet(toolbar_text_color)
+            self.patch_toolbar.setStyleSheet(toolbar_text_color)
 
-            self.status_bar.setStyleSheet(self.status_bar_default_style)
+            self.task_progress.setStyleSheet("")
+
             self.task_abort_button.setIcon(qta.icon('fa.ban', color='black'))
             self.task_success_button.setIcon(qta.icon('fa.check', color='black'))
             self.help_button.setIcon(qta.icon('fa.question-circle', color='black'))
@@ -257,15 +353,35 @@ class PatchGui(ManipulatorGui):
         Args:
             pipette (PipetteInterface): The pipette to switch to.
         """
-        self.active_pipette = self.pipette_interfaces.get(id)
-        self.active_patch_interface = self.patch_interfaces.get(id)
-        old_widget_index = self.splitter.indexOf(self.current_tab)
+        self.active_pipette = self.pipette_interfaces[id]
+        self.active_patch_interface = self.patch_interfaces[id]
 
-        if old_widget_index != -1:
-            self.current_tab.hide()
-            self.current_tab = self.config_tabs.get(id)
-            self.splitter.insertWidget(old_widget_index, self.current_tab)
-            self.current_tab.show()
+        self.key_actions.clear()
+        self.mouse_actions.clear()
+        self.register_commands()
+
+        old_tab = self.config_scroll_area.takeWidget()
+        if old_tab is not None:
+            old_tab.hide()
+
+        self.current_tab = self.config_tabs[id]
+        self.config_scroll_area.setWidget(self.current_tab)
+        self.current_tab.show()
+
+    def complete_task(self):
+        """Overrides parent method to target the active patch interface."""
+        if self.active_patch_interface is None:
+            return
+        self.task_success_button.setEnabled(False)
+        self.active_patch_interface.complete_task()
+
+    def abort_task(self):
+        """Overrides parent method to target the active patch interface."""
+        if self.active_patch_interface is None:
+            return
+        self.task_abort_button.setEnabled(False)
+        self.task_success_button.setEnabled(False)
+        self.active_patch_interface.abort_task()
 
 class CollapsibleGroupBox(QtWidgets.QGroupBox):
     """A QGroupBox subclass with collapsible content area and custom styling."""
@@ -430,6 +546,106 @@ class CollapsibleGroupBox(QtWidgets.QGroupBox):
         else:
             self.dark_mode = False
             self.setStyleSheet(self.dark_style_sheet)
+
+
+class PipetteStatusWindow(QtWidgets.QWidget):
+    """A collapsible widget that displays the status of all connected pipettes."""
+    closed = QtCore.pyqtSignal()
+    
+    def __init__(self, interfaces, parent=None):
+        super().__init__(parent=parent)
+        self.interfaces = interfaces
+        
+        self.setWindowFlags(Qt.Window)
+        self.setWindowTitle("Pipette Status")
+        self.resize(800, 400)
+
+        self.layout = QtWidgets.QVBoxLayout(self)
+        
+        
+        # 2. The Status Table (Hidden by default)
+        self.table = QtWidgets.QTableWidget(len(self.interfaces), 4)
+        self.table.setHorizontalHeaderLabels(["Pipette", "Status", "Action", "Last Updated"])
+        self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
+        
+        # Populate initial rows
+        for row, (p_id, interface) in enumerate(self.interfaces.items()):
+            self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(p_id)))
+            self.table.setItem(row, 1, QtWidgets.QTableWidgetItem("Initializing..."))
+            self.table.setItem(row, 3, QtWidgets.QTableWidgetItem(str(time.time())))
+            
+            # Action buttons
+            btn_widget = QtWidgets.QWidget()
+            btn_layout = QtWidgets.QHBoxLayout(btn_widget)
+            btn_layout.setContentsMargins(0, 0, 0, 0)
+            
+            abort_btn = QtWidgets.QPushButton("Abort")
+            abort_btn.clicked.connect(interface.abort_task)
+            btn_layout.addWidget(abort_btn)
+
+            success_btn = QtWidgets.QPushButton("Complete")
+            success_btn.clicked.connect(interface.complete_task)
+            btn_layout.addWidget(success_btn)
+            self.table.setCellWidget(row, 2, btn_widget)
+
+        self.layout.addWidget(self.table)
+
+        self.row_map = {} # ADD THIS
+        for row, (p_id, interface) in enumerate(self.interfaces.items()):
+            self.row_map[p_id] = row
+        
+        # self.poll_timer = QtCore.QTimer(self)
+        # self.poll_timer.timeout.connect(self.update_status)
+        # self.poll_timer.start(500)
+        
+        # # Start open and polling
+        # self.poll_timer.start(500)
+        # self.update_status()
+
+    def closeEvent(self, event):
+            """
+            Overridden close event to emit the 'closed' signal.
+    
+            Args:
+                event (QCloseEvent): Close event.
+            """
+            self.closed.emit()
+            super().closeEvent(event)
+
+    def update_status(self):
+        """Polls the global interfaces and updates the table."""
+        for p_id, interface in self.interfaces.items():
+            if p_id not in self.row_map:
+                continue
+            row = self.row_map[p_id]
+
+            status_msg = getattr(interface, 'last_status_msg', "Awaiting command")
+            error_msg = getattr(interface, 'last_error_msg', None)
+            warning_msg = getattr(interface, 'last_warning_msg', None)
+            timestamp = getattr(interface, 'latest_log_time', None)
+            
+            if error_msg:
+                display_text = f"ERROR: {error_msg}"
+            elif status_msg:
+                display_text = str(status_msg)
+            elif warning_msg:
+                display_text = f"WARNING: {warning_msg}"
+            else:
+                display_text = "Awaiting command"
+            
+            item = self.table.item(row, 1)
+            if item:
+                if error_msg:
+                    item.setForeground(QtGui.QBrush(QtCore.Qt.red))
+                elif warning_msg:
+                    item.setForeground(QtGui.QBrush(QtCore.Qt.darkYellow))
+                else:
+                    item.setData(QtCore.Qt.ForegroundRole, None)
+                item.setText(display_text)
+
+            time_item = self.table.item(row, 3)
+            if time_item and timestamp:
+                time_item.setText(str(timestamp))
 
 class CellListWindow(QtWidgets.QDialog):
     """Dialog window displaying a list of selected cells with images and stage positions."""
@@ -1021,8 +1237,7 @@ class ButtonTabWidget(QtWidgets.QWidget):
         Returns:
             QPushButton or None: The button object if found, else None.
         """
-        return self.section_button_map.get(section, {}).get(name)
-
+        return self.section_button_map.get(section, {}).get(name)        
 
 class FileSelector(QWidget):
     """A widget that provides a file selection dialog and emits the selected file path."""
@@ -1440,4 +1655,31 @@ class ClassicPatchButtons(ButtonTabWidget):
             else:
                 label.setText(f'{label.text().split(":")[0]}: {zPos:.2f}')
 
+    def add_global_status_dropdown(self, status_widget):
+            """
+            Injects the global pipette status widget into the layout.
+            Added at the very top of the layout for easy visibility.
+            """
+            self.layout().insertWidget(0, status_widget)
 
+# def make_dynamic_command(gui_instance, method_name):
+#     """
+#     Creates a proxy function that dynamically calls the active pipette's method,
+#     but preserves the @command metadata required by the help menu generator.
+#     """
+#     def proxy_command(*args, **kwargs):
+#         # Dynamically grab the method from whichever pipette is currently active
+#         method = getattr(gui_instance.active_patch_interface, method_name)
+#         return method(*args, **kwargs)
+        
+#     # Copy the decorator metadata from the first pipette to satisfy the GUI
+#     sample_method = getattr(gui_instance.active_patch_interface, method_name)
+#     if hasattr(sample_method, 'category'):
+#         proxy_command.category = sample_method.category
+#     if hasattr(sample_method, 'description'):
+#         proxy_command.description = sample_method.description
+#     if hasattr(sample_method, 'auto_description'):
+#         proxy_command.auto_description = sample_method.auto_description
+#     if hasattr(sample_method, 'is_blocking'):
+#         proxy_command.auto_description = sample_method.is_blocking
+#     return proxy_command

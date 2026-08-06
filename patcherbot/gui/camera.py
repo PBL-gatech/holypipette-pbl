@@ -660,7 +660,17 @@ class CameraGui(QtWidgets.QMainWindow):
         self.active_interface = self.main_interface if self.active_camera_role == 'main' else self.aux_interface
         self.camera_interface = self.active_interface
 
+        self.main_toolbar = QtWidgets.QToolBar("Main Controls")
+        self.addToolBar(Qt.TopToolBarArea, self.main_toolbar)
+
+        
+
         self.status_bar = QtWidgets.QStatusBar()
+        self.setStatusBar(self.status_bar)
+
+        self.status_label = QtWidgets.QLabel()
+        self.status_bar.addPermanentWidget(self.status_label)
+
         self.task_abort_button = QtWidgets.QToolButton(clicked=self.abort_task)
         self.task_abort_button.setIcon(qta.icon('fa.ban'))
         self.task_abort_button.setVisible(False)
@@ -681,8 +691,6 @@ class CameraGui(QtWidgets.QMainWindow):
         self.task_success_button.setEnabled(False)
         self.task_success_button.setVisible(False)
         self.status_bar.addWidget(self.task_success_button)
-        self.status_label = QtWidgets.QLabel()
-        self.status_bar.addPermanentWidget(self.status_label)
 
         self.help_button = QtWidgets.QToolButton(clicked=self.toggle_help)
         self.help_button.setIcon(qta.icon('fa.question-circle'))
@@ -738,17 +746,10 @@ class CameraGui(QtWidgets.QMainWindow):
         self.status_bar.addPermanentWidget(self.toggle_dark_mode_button)
  
         self.setexposure_edit.setPlaceholderText('Exposure time (ms)')
-        self.status_bar.addPermanentWidget(self.setexposure_edit)
-        self.status_bar.addPermanentWidget(self.help_button)
-        # self.status_bar.addPermanentWidget(self.log_button)
-        # self.status_bar.addPermanentWidget(self.record_button)
-        self.status_bar.addPermanentWidget(self.snap_image_button)
-        self.status_bar.addPermanentWidget(self.autoexposure_button)
-        self.status_bar.addPermanentWidget(self.unnormalize_button)
-        self.status_bar.addPermanentWidget(self.autonormalize_checkbox)
 
         self.status_bar.setSizeGripEnabled(False)
         self.setStatusBar(self.status_bar)
+
         self.status_bar.messageChanged.connect(self.status_message_updated)
         self.status_messages = collections.OrderedDict()
         self.key_actions = {}
@@ -766,6 +767,20 @@ class CameraGui(QtWidgets.QMainWindow):
         self.running_task_interface = None
         self.config_button = None  # see initialize
         self.setWindowTitle("Camera GUI")
+
+        self.status_bar.addWidget(self.task_abort_button)
+        self.status_bar.addWidget(self.task_progress, 1)
+        self.status_bar.addWidget(self.task_success_button)
+        self.main_toolbar.addWidget(self.switch_view_button)
+        self.main_toolbar.addWidget(self.toggle_dark_mode_button)
+        self.main_toolbar.addWidget(self.setexposure_edit)
+        self.main_toolbar.addSeparator() # Adds a nice vertical line
+        self.main_toolbar.addWidget(self.snap_image_button)
+        self.main_toolbar.addWidget(self.autoexposure_button)
+        self.main_toolbar.addWidget(self.unnormalize_button)
+        self.main_toolbar.addWidget(self.autonormalize_checkbox)
+        self.main_toolbar.addSeparator()
+        self.main_toolbar.addWidget(self.help_button)
 
         self.display_edit_funcs = []
         if display_edit is None:
@@ -807,6 +822,8 @@ class CameraGui(QtWidgets.QMainWindow):
         self.active_video = self.main_video if self.active_camera_role == 'main' else self.aux_video
         if self.active_video is not None:
             self.video_stack.setCurrentWidget(self.active_video)
+        self.video_stack.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.video_stack.setMinimumSize(200, 150)
 
         self.recording_settings = {}
         self.setFocus()  # Need this to handle arrow keys, etc.
@@ -824,6 +841,10 @@ class CameraGui(QtWidgets.QMainWindow):
         self.setCentralWidget(self.splitter)
         self.splitter.setSizes([1, 0])
         self.splitter.splitterMoved.connect(self.splitter_size_changed)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setMinimumSize(200, 300)
+
+        self.config_scroll_area = None
 
         # Display error messages directly in the status bar
         handler = LogNotifyHandler(self.log_signal)
@@ -1534,16 +1555,17 @@ class CameraGui(QtWidgets.QMainWindow):
 
     def toggle_configuration_display(self):
         """Shows or hides the configuration panel by adjusting splitter sizes."""
-        current_sizes = self.splitter.sizes()
-        if current_sizes[1] == 0:
-            min_size = list(self.config_tabs.values())[0].sizeHint().width()
-            new_sizes = [current_sizes[0]-min_size, min_size]
-            self.config_button.setChecked(True)
-        else:
-            new_sizes = [current_sizes[0]+current_sizes[1], 0]
+        if self.config_scroll_area.isVisible():
+            self.config_scroll_area.hide()
             self.setFocus()
             self.config_button.setChecked(False)
-        self.splitter.setSizes(new_sizes)
+        else:
+            self.config_scroll_area.show()
+            self.config_button.setChecked(True)      
+            current_sizes = self.splitter.sizes()      
+            target_width = max(self.current_tab.sizeHint().width(), 250)
+            new_sizes = [current_sizes[0] - target_width, target_width]   
+            self.splitter.setSizes(new_sizes)
 
 class ElidedLabel(QtWidgets.QLabel):
     """

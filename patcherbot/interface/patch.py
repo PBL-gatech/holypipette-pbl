@@ -242,10 +242,10 @@ class AutoPatchInterface(TaskInterface):
         position[1] += self.autopatcher.calibrated_unit.camera.height / 2
         # add the z position of the microscope
         z_pos = self._microscope_z_um()
-        self.info(f'z position of the microscope: {z_pos}')
+        print(f'z position of the microscope: {z_pos}')
         print(f'adding cell... {self.is_selecting_cells}')
         if self.is_selecting_cells:
-            print('Adding cell at', position, 'to list of cells to patch in pixels')
+            self.info(f'Adding cell at {position} to list of cells to patch in pixels')
             stage_pos_pixels = self.autopatcher.calibrated_stage.reference_position()
             stage_pos_pixels[0:2] -= position
             # display stage position
