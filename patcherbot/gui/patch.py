@@ -63,6 +63,9 @@ class PatchGui(ManipulatorGui):
         if not isinstance (pipette_interfaces, dict):
             self.pipette_interfaces = {"pipette": pipette_interfaces}
             self.patch_interfaces = {list(self.pipette_interfaces.keys())[0]: patch_interfaces}
+        if not isinstance (pipette_interfaces, dict):
+            self.pipette_interfaces = {"pipette": pipette_interfaces}
+            self.patch_interfaces = {list(self.pipette_interfaces.keys())[0]: patch_interfaces}
         else:
             self.pipette_interfaces = pipette_interfaces
             self.patch_interfaces = patch_interfaces
@@ -103,10 +106,14 @@ class PatchGui(ManipulatorGui):
         self._unique_patch_signals = {}
 
         for id, curr_pipette_interface in self.pipette_interfaces.items():
+        for id, curr_pipette_interface in self.pipette_interfaces.items():
             widget = QtWidgets.QTabWidget()
             self.config_tabs[id] = widget
             curr_config_tab = self.config_tabs[id]
+            self.config_tabs[id] = widget
+            curr_config_tab = self.config_tabs[id]
 
+            curr_patch_interface = self.patch_interfaces[id]
             curr_patch_interface = self.patch_interfaces[id]
 
             self.switch_manipulator_box.addItem(f"{id}")
@@ -346,6 +353,7 @@ class PatchGui(ManipulatorGui):
             self.snap_image_button.setIcon(qta.icon('fa.camera', color='black'))
             self.config_button.setIcon(qta.icon('fa.cogs', color='black'))
 
+    def switch_active_pipette(self, id):
     def switch_active_pipette(self, id):
         """
         Switch the currently active pipette

@@ -31,6 +31,7 @@ class ManipulatorGui(CameraGui):
     pipette_reset_signal = QtCore.pyqtSignal(TaskController)
 
     def __init__(self, camera, aux_camera, pipette_interfaces, with_tracking=False, recording_state_manager: RecordingStateManager = None):
+    def __init__(self, camera, aux_camera, pipette_interfaces, with_tracking=False, recording_state_manager: RecordingStateManager = None):
         """
         Initialize the manipulator GUI.
 
