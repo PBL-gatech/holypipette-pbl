@@ -51,11 +51,17 @@ def main():
     selector = RigSelectorDialog(manager)
     if selector.exec_() != selector.Accepted:
         return
+
     config_path = selector.selected_path or manager.default_config_path()
+    active_pipette_count = selector.selected_pipette_count
 
     try:
         config_data = manager.load_config(config_path)
-        rig_devices = manager.build_devices(config_data)
+
+        rig_devices = manager.build_devices(
+            config_data,
+            active_pipette_count=active_pipette_count,
+        )
     except RigConfigError as exc:
         QMessageBox.critical(None, "Rig configuration error", str(exc))
         return

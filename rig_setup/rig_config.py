@@ -512,6 +512,7 @@ class RigConfigManager:
                 {
                     "name": "Fake Rig",
                     "schema_version": SCHEMA_VERSION,
+                    "pipette_count": 1,
                     "calibration_file": "fake_cal.yaml",
                     "patch_file": "fake_patch.yaml",
                     "protocol_file": "fake_protocol.yaml",
@@ -567,7 +568,7 @@ class RigConfigManager:
 
         return config
 
-    def build_devices_from_file(self, path: Path) -> Dict[str, Any]:
+    def build_devices_from_file(self, path: Path, active_pipette_count: int | None = None) -> Dict[str, Any]:
         """
         Load config and instantiate devices.
 
@@ -578,9 +579,9 @@ class RigConfigManager:
             Dict[str, Any]: Instantiated devices.
         """
         config = self.load_config(path)
-        return self.build_devices(config)
+        return self.build_devices(config, active_pipette_count=active_pipette_count)
 
-    def build_devices(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def build_devices(self, config: Dict[str, Any], active_pipette_count: int | None = None) -> Dict[str, Any]:
         """
         Instantiate all devices from configuration.
 
@@ -590,6 +591,18 @@ class RigConfigManager:
         Returns:
             Dict[str, Any]: All instantiated devices.
         """
+        max_pipette_count = int(
+            config.get("pipette_count", 1)
+        )
+
+        if active_pipette_count is None:
+            active_pipette_count = max_pipette_count
+
+        if not 1 <= active_pipette_count <= max_pipette_count:
+            raise RigConfigError(
+                f"Requested {active_pipette_count} pipettes, "
+                f"but this rig supports {max_pipette_count}."
+            )
         devices_cfg = config.get("devices", {})
         self._apply_pressure_calibration(config, devices_cfg)
         base_instances: Dict[str, Any] = {}
@@ -603,9 +616,9 @@ class RigConfigManager:
                     raise RigConfigError(f"Shared device slot '{slot}' cannot contain multiple devices.")
                 if not curr_device:
                     raise RigConfigError(f"Device slot '{slot}' contains an empty device list.")
-
+                devices_to_initialize = curr_device[:active_pipette_count]
                 instance_dict: Dict[str, Any] = {}
-                for i, dev_cfg in enumerate(curr_device):
+                for i, dev_cfg in enumerate(devices_to_initialize):
 
                     if not isinstance(dev_cfg, dict):
                         raise RigConfigError(
@@ -857,9 +870,34 @@ class RigConfigManager:
         devices = config.get("devices")
         if not isinstance(devices, dict):
             raise RigConfigError("Configuration must contain a 'devices' mapping.")
+        try:
+            pipette_count = max(
+                1,
+                int(config.get("pipette_count", 1)),
+            )
+        except (TypeError, ValueError):
+            raise RigConfigError(
+                "Invalid pipette_count in rig configuration."
+            )
         for slot in DEVICE_SLOTS:
             if slot not in devices:
-                raise RigConfigError(f"Configuration missing required slot '{slot}'.")
+                raise RigConfigError(
+                    f"Configuration missing required slot '{slot}'."
+                )
+            if slot in PIPETTE_DEVICE_SLOTS:
+                spec = devices[slot]
+                if pipette_count > 1:
+                    if not isinstance(spec, list):
+                        raise RigConfigError(
+                            f"'{slot}' must contain {pipette_count} "
+                            "device configurations."
+                        )
+
+                    if len(spec) != pipette_count:
+                        raise RigConfigError(
+                            f"'{slot}' contains {len(spec)} devices, "
+                            f"but this rig declares {pipette_count} pipettes."
+                        )
 
     def make_config_path(self, name: str) -> Path:
         """
@@ -892,6 +930,7 @@ class RigConfigManager:
         return {
             "name": "New Rig",
             "schema_version": SCHEMA_VERSION,
+            "pipette_count": 1,
             "calibration_file": None,
             "patch_file": None,
             "protocol_file": None,

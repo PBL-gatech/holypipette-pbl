@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QWidget,
+    QSpinBox,
+    QScrollArea,
 )
 
 from .rig_config import (
@@ -189,50 +191,50 @@ class RigBuilderDialog(QDialog):
             slot: [] for slot in PIPETTE_DEVICE_SLOTS
         }
         self.initial_config = initial_config
-        self.pipette_count = self._infer_pipette_count(initial_config)
+        self.pipette_count = self._get_pipette_count(initial_config)
         self._build_ui()
         if self.initial_config:
             self._load_config(self.initial_config)
 
-    def _infer_pipette_count(self, config: Dict[str, Any] | None) -> int:
-            """
-            Determine the number of pipettes represented by a rig configuration.
-    
-            Explicit pipette_count metadata is used when available, but existing
-            multi-device lists are also inspected for backwards compatibility.
-            """
-            if not config:
-                return 1
-    
-            explicit_count = config.get("pipette_count", 1)
-    
-            try:
-                explicit_count = max(1, int(explicit_count))
-            except (TypeError, ValueError):
-                explicit_count = 1
-    
-            devices = config.get("devices", {})
-    
-            if not isinstance(devices, dict):
-                return explicit_count
-    
-            inferred_count = 1
-    
-            for slot in PIPETTE_DEVICE_SLOTS:
-                spec = devices.get(slot)
-    
-                if isinstance(spec, list):
-                    inferred_count = max(
-                        inferred_count,
-                        len(spec),
-                    )
-    
-            return max(explicit_count, inferred_count)
+    def _get_pipette_count(self, config: Dict[str, Any] | None) -> int:
+        """
+        Gets maximum number of pipettes available on rig.
+
+        Args:
+            config (Dict[str, Any]): Rig config.
+        
+        Returns:
+            Number of pipettes available on given rig.
+        """
+        if not config:
+            return 1
+
+        try:
+            return max(
+                1,
+                int(config.get("pipette_count", 1)),
+            )
+        except (TypeError, ValueError):
+            return 1
 
     def _build_ui(self) -> None:
         """Construct the dialog user interface."""
         layout = QVBoxLayout()
         self.setLayout(layout)
+
+        # ------------------------------------------------------------
+        # Scrollable content
+        # ------------------------------------------------------------
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+
+        scroll_area.setWidget(scroll_widget)
+
+        layout.addWidget(scroll_area)
 
         # ------------------------------------------------------------
         # Rig name
@@ -248,34 +250,29 @@ class RigBuilderDialog(QDialog):
         )
 
         name_row.addWidget(self.name_edit)
-        layout.addLayout(name_row)
+        scroll_layout.addLayout(name_row)
 
         # ------------------------------------------------------------
         # Pipette count
         # ------------------------------------------------------------
 
         pipette_count_row = QHBoxLayout()
-        pipette_count_row.addWidget(QLabel("Number of pipettes:"))
-
-        self.pipette_count_combo = QComboBox()
-
-        # MultiClamp hardware currently supports two channels.
-        self.pipette_count_combo.addItem("1", 1)
-        self.pipette_count_combo.addItem("2", 2)
-
-        index = self.pipette_count_combo.findData(
-            self.pipette_count
-        )
-
-        if index >= 0:
-            self.pipette_count_combo.setCurrentIndex(index)
 
         pipette_count_row.addWidget(
-            self.pipette_count_combo
+            QLabel("Rig pipette capacity:")
         )
+
+        self.pipette_count_label = QLabel(
+            str(self.pipette_count)
+        )
+
+        pipette_count_row.addWidget(
+            self.pipette_count_label
+        )
+
         pipette_count_row.addStretch()
 
-        layout.addLayout(pipette_count_row)
+        scroll_layout.addLayout(pipette_count_row)
 
         # ------------------------------------------------------------
         # Shared devices
@@ -291,7 +288,7 @@ class RigBuilderDialog(QDialog):
                 instance_index=0,
             )
 
-        layout.addWidget(shared_group)
+        scroll_layout.addWidget(shared_group)
 
         # ------------------------------------------------------------
         # Pipette-specific devices
@@ -302,16 +299,13 @@ class RigBuilderDialog(QDialog):
             self.pipette_container
         )
 
-        layout.addWidget(self.pipette_container)
+        scroll_layout.addWidget(self.pipette_container)
 
         self._rebuild_pipette_sections(
             preserve_existing=False
         )
-
-        self.pipette_count_combo.currentIndexChanged.connect(
-            self._on_pipette_count_changed
-        )
-
+  
+        scroll_layout.addStretch()
         # ------------------------------------------------------------
         # Save / cancel
         # ------------------------------------------------------------
@@ -486,13 +480,20 @@ class RigBuilderDialog(QDialog):
 
                 specs = []
 
-                for widgets in self.slot_rows[slot]:
+                for pipette_index in range(
+                    self.pipette_count
+                ):
+
+                    widgets = self.slot_rows[slot][
+                        pipette_index
+                    ]
 
                     opt = widgets["combo"].currentData()
 
                     if not opt or "class" not in opt:
                         raise RigConfigError(
-                            f"No class selected for slot '{slot}'."
+                            f"No class selected for '{slot}' "
+                            f"on Pipette {pipette_index + 1}."
                         )
 
                     specs.append(
@@ -504,11 +505,8 @@ class RigBuilderDialog(QDialog):
                         }
                     )
 
-                # Preserve old single-pipette JSON format.
                 if self.pipette_count == 1:
                     devices[slot] = specs[0]
-
-                # Multi-pipette rigs use lists.
                 else:
                     devices[slot] = specs
 
@@ -611,19 +609,11 @@ class RigBuilderDialog(QDialog):
                     device_spec,
                 )
 
-    def _on_pipette_count_changed(self) -> None:
-        """Rebuild pipette-specific device rows."""
-        self._rebuild_pipette_sections(
-            preserve_existing=True
-        )
-
     def _rebuild_pipette_sections(self, preserve_existing: bool = True) -> None:
         """
-        Rebuild pipette-specific controls based on the selected
-        pipette count.
+        Rebuild pipette-specific controls using the rig's configured
+        maximum pipette count.
         """
-        # Save all currently visible pipette configurations into
-        # the persistent cache before destroying the widgets.
         if preserve_existing:
             self._cache_pipette_rows()
 
@@ -632,13 +622,7 @@ class RigBuilderDialog(QDialog):
         for slot in PIPETTE_DEVICE_SLOTS:
             self.slot_rows[slot] = []
 
-        pipette_count = int(
-            self.pipette_count_combo.currentData()
-        )
-
-        self.pipette_count = pipette_count
-
-        for pipette_index in range(pipette_count):
+        for pipette_index in range(self.pipette_count):
 
             group = QGroupBox(
                 f"Pipette {pipette_index + 1}"
@@ -776,6 +760,7 @@ class RigSelectorDialog(QDialog):
         self.resize(500, 200)
         self.selected_path: Path | None = None
         self.manager.ensure_default_config()
+        self.selected_pipette_count: int = 1
         self._build_ui()
         self._reload_configs()
 
@@ -788,6 +773,20 @@ class RigSelectorDialog(QDialog):
         self.config_combo = QComboBox()
         self.config_combo.currentIndexChanged.connect(self._update_path_display)
         layout.addWidget(self.config_combo)
+
+        pipette_row = QHBoxLayout()
+
+        pipette_row.addWidget(
+            QLabel("Pipettes to use:")
+        )
+
+        self.pipette_count_combo = QComboBox()
+
+        pipette_row.addWidget(
+            self.pipette_count_combo
+        )
+
+        layout.addLayout(pipette_row)
 
         btn_row = QHBoxLayout()
         browse_btn = QPushButton("Browse...")
@@ -832,12 +831,37 @@ class RigSelectorDialog(QDialog):
         self._update_path_display()
 
     def _update_path_display(self) -> None:
-        """
-        Update displayed path information for the selected configuration.
-        
-        Note: This method is currently unimplemented.
-        """
-        pass
+        path = self.config_combo.currentData()
+
+        if not isinstance(path, Path):
+            return
+
+        try:
+            config = self.manager.load_config(
+                path,
+                load_overlays=False,
+            )
+        except Exception:
+            return
+
+        try:
+            max_pipettes = max(
+                1,
+                int(config.get("pipette_count", 1)),
+            )
+        except (TypeError, ValueError):
+            max_pipettes = 1
+
+        self.pipette_count_combo.clear()
+
+        for count in range(
+            1,
+            max_pipettes + 1,
+        ):
+            self.pipette_count_combo.addItem(
+                str(count),
+                count,
+            )
 
     def _browse_for_config(self) -> None:
         """Open file dialog to manually select a configuration file."""
@@ -857,7 +881,7 @@ class RigSelectorDialog(QDialog):
 
     def _edit_config(self) -> None:
         """Open the selected configuration for editing."""
-        path = self.selected_path or self.config_combo.currentData()
+        path = self.config_combo.currentData()
         if not isinstance(path, Path):
             QMessageBox.warning(self, "No configuration", "Select a config to edit.")
             return
@@ -886,5 +910,15 @@ class RigSelectorDialog(QDialog):
         if not self.selected_path:
             QMessageBox.warning(self, "No configuration", "Please select or create a rig configuration.")
             return
+        selected_count = (
+            self.pipette_count_combo.currentData()
+        )
+
+        if selected_count is None:
+            selected_count = 1
+
+        self.selected_pipette_count = int(
+            selected_count
+        )
         self.accept()
 
