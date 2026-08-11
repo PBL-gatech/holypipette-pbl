@@ -727,9 +727,53 @@ class RigConfigManager:
         if isinstance(value, str):
             if value.startswith("$ref:"):
                 ref = value.split(":", 1)[1]
+
+                # ============================================================
+                # NEW: Handle indexed references such as "$ref:pressure[0]"
+                # ============================================================
+                match = re.fullmatch(
+                    r"([A-Za-z_][A-Za-z0-9_]*)\[(\d+)\]",
+                    ref
+                )
+
+                if match:
+                    slot, index = match.groups()
+                    index = int(index)
+
+                    # Make sure the slot exists
+                    if slot not in instances:
+                        raise RigConfigError(
+                            f"Reference '{slot}' not available yet."
+                        )
+
+                    # Multi-device slots are stored as dictionaries
+                    device_group = instances[slot]
+
+                    if not isinstance(device_group, dict):
+                        raise RigConfigError(
+                            f"Reference '{slot}[{index}]' is not a multi-device slot."
+                        )
+
+                    devices = list(device_group.values())
+
+                    if index >= len(devices):
+                        raise RigConfigError(
+                            f"Reference '{slot}[{index}]' does not exist. "
+                            f"Available devices: {len(devices)}"
+                        )
+
+                    return devices[index]
+
+                # ============================================================
+                # EXISTING: Handle normal references such as "$ref:pressure"
+                # ============================================================
                 if ref not in instances:
-                    raise RigConfigError(f"Reference '{ref}' not available yet.")
+                    raise RigConfigError(
+                        f"Reference '{ref}' not available yet."
+                    )
+
                 return instances[ref]
+
             return value
         if isinstance(value, list):
             # Auto-convert flat numeric lists to numpy arrays (keeps JSON simple).

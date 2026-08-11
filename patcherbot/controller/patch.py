@@ -1116,6 +1116,8 @@ class AutoPatcher(TaskController):
         for attempt in range(max_windows):
             readings = []
             for _ in range(num_measurements):
+                if self.abort_requested:
+                    raise AutopatchError("Seal attempt aborted.")
                 val = read_fn()
                 # Guard against NaN/None without raising TypeError on None
                 if val is None or (isinstance(val, (float, np.floating)) and np.isnan(val)):
@@ -1254,98 +1256,100 @@ class AutoPatcher(TaskController):
         holding_switched = False
         last_progress_time = time.time()
 
-        while not self.abort_requested:
-            # Deadline check
-            if time.time() - last_progress_time >= self.config.seal_deadline:
-                raise AutopatchError(f"Seal attempt failed: resistance did not improve by at least {self.config.gigaseal_min_delta_R} MegaOhms by the {self.config.seal_deadline} second deadline.")
+        try:
+            while not self.abort_requested:
+                # Deadline check
+                if time.time() - last_progress_time >= self.config.seal_deadline:
+                    raise AutopatchError(f"Seal attempt failed: resistance did not improve by at least {self.config.gigaseal_min_delta_R} MegaOhms by the {self.config.seal_deadline} second deadline.")
 
-            prev_resistance = avg_resistance
-            avg_resistance = self.resistanceRamp(
-                num_measurements=num_slope_samples,
-                interval=sample_interval,
-            )
+                prev_resistance = avg_resistance
+                avg_resistance = self.resistanceRamp(
+                    num_measurements=num_slope_samples,
+                    interval=sample_interval,
+                )
 
-            delta_resistance = avg_resistance - prev_resistance
-            rate_mohm_per_sec = delta_resistance / (num_slope_samples * sample_interval)
+                delta_resistance = avg_resistance - prev_resistance
+                rate_mohm_per_sec = delta_resistance / (num_slope_samples * sample_interval)
 
-            if delta_resistance >= self.config.gigaseal_min_delta_R:
-                last_progress_time = time.time()
+                if delta_resistance >= self.config.gigaseal_min_delta_R:
+                    last_progress_time = time.time()
 
-            # ---------------------- auto-pressure logic ----------------------
-        
-            if autoPressure:
-                # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
-                increase_gate = self.config.increase_slope_gate
-                constant_gate = self.config.constant_slope_gate
-                decrease_gate = self.config.decrease_slope_gate
+                # ---------------------- auto-pressure logic ----------------------
+            
+                if autoPressure:
+                    # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
+                    increase_gate = self.config.increase_slope_gate
+                    constant_gate = self.config.constant_slope_gate
+                    decrease_gate = self.config.decrease_slope_gate
 
-                increase_thresh = self.config.gigaseal_R / increase_gate
-                constant_thresh = self.config.gigaseal_R / constant_gate
-                decrease_thresh = self.config.gigaseal_R / decrease_gate
+                    increase_thresh = self.config.gigaseal_R / increase_gate
+                    constant_thresh = self.config.gigaseal_R / constant_gate
+                    decrease_thresh = self.config.gigaseal_R / decrease_gate
 
-                if rate_mohm_per_sec < increase_thresh:
-                    currPressure -= 5; speed = 3; max_pressure = self.config.pressure_ramp_max
-                elif rate_mohm_per_sec <= constant_thresh:
-                    speed = 1  # maintain
-                elif rate_mohm_per_sec <= decrease_thresh:
-                    max_pressure = self.config.pressure_ramp_max; currPressure += 5; speed = 3
+                    if rate_mohm_per_sec < increase_thresh:
+                        currPressure -= 5; speed = 3; max_pressure = self.config.pressure_ramp_max
+                    elif rate_mohm_per_sec <= constant_thresh:
+                        speed = 1  # maintain
+                    elif rate_mohm_per_sec <= decrease_thresh:
+                        max_pressure = self.config.pressure_ramp_max; currPressure += 5; speed = 3
 
-                currPressure = min(currPressure, -5.0)
-                currPressure = max(currPressure, self.config.pressure_ramp_max)
+                    currPressure = min(currPressure, -5.0)
+                    currPressure = max(currPressure, self.config.pressure_ramp_max)
 
-                if currPressure != prevpressure:
-                    self.pressure.set_pressure(currPressure)
-                    # if sim:
-                    #     self.gigaseal_sim.update_pressure(self.pressure.get_pressure())
-                    prevpressure = currPressure
-                    self.sleep(5 / speed)
+                    if currPressure != prevpressure:
+                        self.pressure.set_pressure(currPressure)
+                        # if sim:
+                        #     self.gigaseal_sim.update_pressure(self.pressure.get_pressure())
+                        prevpressure = currPressure
+                        self.sleep(5 / speed)
 
-                if currPressure <= max_pressure:
-                    self.pressure.set_ATM(True)
-                    self.sleep(5)
-                    testresistance = self.resistanceRamp(
-                        num_measurements=num_slope_samples,
-                        interval=sample_interval,
-                    )
-                    difference = testresistance - avg_resistance
-                    self.info(f"Test resistance: {testresistance} MΩ; difference: {difference} MΩ")
-                    if difference < 0:
-                        bad_cell_count += 1
-                        if bad_cell_count > 5:
-                            raise AutopatchError("Bad cell detected")
+                    if currPressure <= max_pressure:
+                        self.pressure.set_ATM(True)
+                        self.sleep(5)
+                        testresistance = self.resistanceRamp(
+                            num_measurements=num_slope_samples,
+                            interval=sample_interval,
+                        )
+                        difference = testresistance - avg_resistance
+                        self.info(f"Test resistance: {testresistance} MΩ; difference: {difference} MΩ")
+                        if difference < 0:
+                            bad_cell_count += 1
+                            if bad_cell_count > 5:
+                                raise AutopatchError("Bad cell detected")
 
-                    currPressure = -5
-                    self.pressure.set_pressure(currPressure)
-                    # if hasattr(self, "gigaseal_sim"):
-                    #     self.gigaseal_sim.update_pressure(self.pressure.get_pressure())
-                    self.pressure.set_ATM(atm=False)
-            # ---------------------------------------------------------------
+                        currPressure = -5
+                        self.pressure.set_pressure(currPressure)
+                        # if hasattr(self, "gigaseal_sim"):
+                        #     self.gigaseal_sim.update_pressure(self.pressure.get_pressure())
+                        self.pressure.set_ATM(atm=False)
+                # ---------------------------------------------------------------
 
-            # Holding potential switch
-            if avg_resistance >= self.config.gigaseal_R / self.config.hold_switch and not holding_switched:
-                self.amplifier.set_holding(self.protocol_config.vclamp_hold)
-                self.amplifier.switch_holding(True)
-                holding_switched = True
+                # Holding potential switch
+                if avg_resistance >= self.config.gigaseal_R / self.config.hold_switch and not holding_switched:
+                    self.amplifier.set_holding(self.protocol_config.vclamp_hold)
+                    self.amplifier.switch_holding(True)
+                    holding_switched = True
 
-            # Success check with consecutive-hit filter
-            if avg_resistance >= self.config.gigaseal_R:
-                consecutive_success += 1
-            else:
-                consecutive_success = 0
+                # Success check with consecutive-hit filter
+                if avg_resistance >= self.config.gigaseal_R:
+                    consecutive_success += 1
+                else:
+                    consecutive_success = 0
 
-            if consecutive_success >= 3:
-                self.pressure.set_ATM(atm=True)
-                self.success_requested = True
-                self.info("Seal successful!")
-                self.success_requested = True
-                if sim:
-                    self.daq.stop()
-                self.success_if_requested()
-                return
+                if consecutive_success >= 3:
+                    self.pressure.set_ATM(atm=True)
+                    self.success_requested = True
+                    self.info("Seal successful!")
+                    self.success_requested = True
+                    if sim:
+                        self.daq.stop()
+                    self.success_if_requested()
+                    return
 
         # Abort request came in
-        if sim:
-            self.daq.stop()
+        finally:
+            if sim:
+                self.daq.stop()
         raise AutopatchError("Seal attempt failed: gigaseal criteria not met.")
    
     @record_state("break_in")

@@ -60,7 +60,8 @@
                                                   "background_image":"image.png"
                                               }
                                },
-                    "pipette_camera":  {
+                    "pipette_camera":
+                                        {
                                            "class":  "patcherbot.devices.camera.camera.FakeCamera",
                                            "params":  {
                                                        
@@ -78,27 +79,48 @@
 
                                                                }
                                                 },
-                    "pressure":  {
+                    "pressure":  [
+                                {
                                      "class":  "patcherbot.devices.pressurecontroller.BasePressureController.FakePressureController",
                                      "params":  {
 
                                                 }
                                  },
+                                 {
+                                    "class":  "patcherbot.devices.pressurecontroller.BasePressureController.FakePressureController",
+                                     "params":  {
 
-                    "daq":  {
+                                                }
+                                 }
+                                ],
+                    "daq":  [
+                        {
                                 "class":  "patcherbot.devices.amplifier.DAQ.FakeDAQ",
                                 "params":  {
-                                            "pressureController": "$ref:pressure"
+                                            "pressureController": "$ref:pressure[0]"
                                            }
                             },
-
-                    "amplifier":  {
+                            {
+                                "class":  "patcherbot.devices.amplifier.DAQ.FakeDAQ",
+                                "params":  {
+                                            "pressureController": "$ref:pressure[1]"
+                                           }
+                            }
+                        ],
+                    "amplifier":  [
+                        {
                                       "class":  "patcherbot.devices.amplifier.amplifier.FakeAmplifier",
                                       "params":  {
 
                                                  }
                                   },
+                                {
+                                      "class":  "patcherbot.devices.amplifier.amplifier.FakeAmplifier",
+                                      "params":  {
 
+                                                 }
+                                  }
+                                ],
                     "lamp":  {
                                  "class":  "patcherbot.devices.lamp.lamp.FakeLamp",
                                  "params":  {

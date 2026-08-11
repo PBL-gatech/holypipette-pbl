@@ -2775,6 +2775,7 @@ class FakeDAQ(DAQ):
         self.start_acquisition(wave_freq=40, samplesPerSec=100000, dutyCycle=0.5,
                                 amplitude=0.5, recordingTime=0.025, interval=None)
         self.active = False
+        self._simulation_thread = None
 
     def resistance(self):
         """
@@ -2791,7 +2792,6 @@ class FakeDAQ(DAQ):
         # if self.totalResistance >= 0.999 * self.gigaseal_target:
         #         self.totalResistance = self.gigaseal_target
         #         self.gigaseal_active = False
-        self.tick(1)
         return self.totalResistance + np.random.normal(0, 0.1)
     
     # def set_resistance(self, resistance):
@@ -2995,18 +2995,29 @@ class FakeDAQ(DAQ):
         self.pressureController.set_pressure(pressure)
         
     def tick(self, dt):
-        if self.active:
-            pressure = self.pressureController.get_pressure()
-            currResistance = self.totalResistance
-            growth = np.exp(0.1 * abs(pressure))
-            newResistance = currResistance + (
-                growth * (1 - currResistance / self.targetResistance) * dt
-                )
-            # print(f"P={self.pressure}, growth={growth}")
-            self.totalResistance = newResistance
+        # if self.active:
+        pressure = self.pressureController.get_pressure()
+        currResistance = self.totalResistance
+        growth = np.exp(0.1 * abs(pressure))
+        newResistance = currResistance + (
+            growth * (1 - currResistance / self.targetResistance) * dt
+            )
+        # print(f"P={self.pressure}, growth={growth}")
+        self.totalResistance = newResistance
+        # else:
+        #     return
+
+    def _simulation_loop(self):
+        dt = 1
+        while self.active:
+            self.tick(dt)
+            time.sleep(0.1)
     
     def start(self):
         self.active = True
+        self._simulation_thread = threading.Thread(target=self._simulation_loop, daemon=True)
+        self._simulation_thread.start()
     
     def stop(self):
         self.active = False
+        self._simulation_thread = None

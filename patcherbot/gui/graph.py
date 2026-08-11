@@ -715,30 +715,23 @@ class NoiseGraph(QWidget):
         if freqs is not None and fft_magnitude is not None:
             self.fftPlot.plot(freqs, fft_magnitude, pen="k")
 
-# class EPhysGUI(QMainWindow):
-#     def __init__(self, ephys_interfaces, pipette_controllers):
-#         super().__init__()
-#         self.setWindowTitle("Electrophysiology")
-#         self.ephys_interfaces = {}
-#         self.pipette_controller = pipette_controllers
-#         self.tabs = QTabWidget()
-#         if isinstance(self.pipette_controllers, dict):
-#             for id, controller in pipette_controllers.items():
-#                 self.ephys_interfaces[id] = ephys_interfaces[]
-    
-    def add_tab(self, tab, name, config_tab, index=None):
-        """
-        Adds a new tab to the configuration panel.
-
-        Args:
-            tab (QWidget): Tab widget to add.
-            name (str): Tab label.
-            index (int, optional): Position to insert the tab.
-        """
-        if index is None:
-            config_tab.addTab(tab, name)
+class EPhysGUI(QWidget):
+    def __init__(self, ephys_interfaces, recording_state_manager):
+        super().__init__()
+        self.setWindowTitle("Electrophysiology")
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+        self.ephys_interfaces = ephys_interfaces
+        self.tabs = QTabWidget()
+        if isinstance(ephys_interfaces, dict):
+            for id, interface in ephys_interfaces.items():
+                ephys_graph = EPhysGraph(interface, recording_state_manager)
+                self.tabs.addTab(ephys_graph, f"{id}")
         else:
-            config_tab.insertTab(index, tab, name)
+            self.tabs.addTab(self.ephys_interfaces, "Pipette")
+        self.layout.addWidget(self.tabs)
+        self.show()
+        self.raise_()
 
 class EPhysGraph(QWidget):
     """
@@ -945,8 +938,8 @@ class EPhysGraph(QWidget):
         self.noiseGraph = NoiseGraph(self.graph_interface)
         self.noiseGraph.noise_state_changed.connect(self.updateNoiseButton)
 
-        self.show()
-        self.raise_()
+        # self.show()
+        # self.raise_()
 
     def update_plot(self):
         """

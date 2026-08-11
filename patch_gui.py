@@ -18,7 +18,7 @@ from patcherbot.utils.RecordingStateManager import RecordingStateManager
 from patcherbot.interface import AutoPatchInterface
 from patcherbot.interface.pipettes import PipetteInterface
 from patcherbot.interface.graph import GraphInterface
-from patcherbot.gui.graph import EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, LeakSubtractionGraph, HoldingProtocolGraph, OptogeneticStimProtocolGraph, OptogeneticWavelengthProtocolGraph
+from patcherbot.gui.graph import EPhysGUI, EPhysGraph, CurrentProtocolGraph, VoltageProtocolGraph, LeakSubtractionGraph, HoldingProtocolGraph, OptogeneticStimProtocolGraph, OptogeneticWavelengthProtocolGraph
 from patcherbot.gui.patch import PatchGui
 from rig_setup.rig_config import RigConfigError, RigConfigManager
 from rig_setup.rig_selector import RigSelectorDialog
@@ -87,22 +87,36 @@ def main():
     patch_data = config_data.get("patch") if isinstance(config_data, dict) else None
     protocol_data = config_data.get("protocol") if isinstance(config_data, dict) else None
 
-    patch_controllers = {}
-    pipette_controllers = {}
 
     if isinstance(unit, dict):
-        for id in unit.keys():
+        patch_controllers = {}
+        pipette_controllers = {}
+        graph_interface = {}
+        for i, id in enumerate(unit.keys()):
+
+            curr_amplifier = list(amplifier.values())[i]
+            curr_daq = list(daq.values())[i]
+            curr_pressure = list(pressure.values())[i]
 
             pipette_controllers[id] = PipetteInterface(
-            stage, microscope, camera, unit.get(id), cellSorterManip, cellSorterController,
-            calibration_data=calibration_data,
+                stage, microscope, camera, unit[id], cellSorterManip, cellSorterController,
+                calibration_data=calibration_data,
             )
 
             patch_controllers[id] = AutoPatchInterface(
-                amplifier, daq, pressure, pipette_controllers[id], recording_state_manager, lamp, laser,
+                curr_amplifier, curr_daq, curr_pressure, pipette_controllers[id], recording_state_manager, lamp, laser,
                 config_data=patch_data,
                 protocol_data=protocol_data,
             )
+
+            graph_interface[id] = GraphInterface(curr_amplifier, curr_daq, curr_pressure, recording_state_manager, laser)
+
+            currentProtocolGraph = CurrentProtocolGraph(graph_interface[id], recording_state_manager)
+            voltageProtocolGraph = VoltageProtocolGraph(graph_interface[id], recording_state_manager)
+            leakSubtractionGraph = LeakSubtractionGraph(graph_interface[id], recording_state_manager)
+            holdingProtocolGraph = HoldingProtocolGraph(graph_interface[id], recording_state_manager)
+            optogeneticStimProtocolGraph = OptogeneticStimProtocolGraph(graph_interface[id], recording_state_manager)
+            optogeneticWavelengthProtocolGraph = OptogeneticWavelengthProtocolGraph(graph_interface[id], recording_state_manager)
     else:
         pipette_controllers = PipetteInterface(
             stage, microscope, camera, unit, cellSorterManip, cellSorterController,
@@ -114,19 +128,21 @@ def main():
                 config_data=patch_data,
                 protocol_data=protocol_data,
             )
+        
+        graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager, laser)
 
-    graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager, laser)
+        currentProtocolGraph = CurrentProtocolGraph(graph_interface, recording_state_manager)
+        voltageProtocolGraph = VoltageProtocolGraph(graph_interface, recording_state_manager)
+        leakSubtractionGraph = LeakSubtractionGraph(graph_interface, recording_state_manager)
+        holdingProtocolGraph = HoldingProtocolGraph(graph_interface, recording_state_manager)
+        optogeneticStimProtocolGraph = OptogeneticStimProtocolGraph(graph_interface, recording_state_manager)
+        optogeneticWavelengthProtocolGraph = OptogeneticWavelengthProtocolGraph(graph_interface, recording_state_manager)
+
+
     gui = PatchGui(camera, pipette_camera, pipette_controllers, patch_controllers, recording_state_manager)
-    graphs = EPhysGraph(graph_interface, recording_state_manager)
+    graphs = EPhysGUI(graph_interface, recording_state_manager)
     # graphs.location_on_the_screen()
     graphs.show()
-
-    currentProtocolGraph = CurrentProtocolGraph(graph_interface, recording_state_manager)
-    voltageProtocolGraph = VoltageProtocolGraph(graph_interface, recording_state_manager)
-    leakSubtractionGraph = LeakSubtractionGraph(graph_interface, recording_state_manager)
-    holdingProtocolGraph = HoldingProtocolGraph(graph_interface, recording_state_manager)
-    optogeneticStimProtocolGraph = OptogeneticStimProtocolGraph(graph_interface, recording_state_manager)
-    optogeneticWavelengthProtocolGraph = OptogeneticWavelengthProtocolGraph(graph_interface, recording_state_manager)
 
 
     gui.initialize()

@@ -85,7 +85,8 @@ class PatchGui(ManipulatorGui):
         self.addToolBar(Qt.TopToolBarArea, self.patch_toolbar)
         self.patch_toolbar.addWidget(self.show_cells_button)
 
-        self.pipette_status_window = PipetteStatusWindow(self.patch_interfaces)
+        self.pipette_status_window = PipetteStatusWindow(self.patch_interfaces, self)
+        self.pipette_status_window.setWindowFlag(Qt.Tool)
         self.show_pipette_status_button = QtWidgets.QPushButton("Pipette Status")
         self.pipette_status_window.closed.connect(self._pipette_status_window_closed)
         self.show_pipette_status_button.setCheckable(True)
@@ -578,7 +579,9 @@ class PipetteStatusWindow(QtWidgets.QWidget):
         for row, (p_id, interface) in enumerate(self.interfaces.items()):
             self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(p_id)))
             self.table.setItem(row, 1, QtWidgets.QTableWidgetItem("Initializing..."))
-            self.table.setItem(row, 3, QtWidgets.QTableWidgetItem(str(time.time())))
+            raw_timestamp = time.time()
+            display_timestamp = datetime.fromtimestamp(raw_timestamp).strftime("%H:%M:%S")
+            self.table.setItem(row, 3, QtWidgets.QTableWidgetItem(display_timestamp))
             
             # Action buttons
             btn_widget = QtWidgets.QWidget()
@@ -628,7 +631,7 @@ class PipetteStatusWindow(QtWidgets.QWidget):
             status_msg = getattr(interface, 'last_status_msg', "Awaiting command")
             error_msg = getattr(interface, 'last_error_msg', None)
             warning_msg = getattr(interface, 'last_warning_msg', None)
-            timestamp = getattr(interface, 'latest_log_time', None)
+            raw_timestamp = getattr(interface, 'latest_log_time', None)
             
             if error_msg:
                 display_text = f"ERROR: {error_msg}"
@@ -650,8 +653,9 @@ class PipetteStatusWindow(QtWidgets.QWidget):
                 item.setText(display_text)
 
             time_item = self.table.item(row, 3)
-            if time_item and timestamp:
-                time_item.setText(str(timestamp))
+            if time_item and raw_timestamp:
+                display_timestamp = datetime.fromtimestamp(raw_timestamp).strftime("%H:%M:%S")
+                time_item.setText(display_timestamp)
 
 class CellListWindow(QtWidgets.QDialog):
     """Dialog window displaying a list of selected cells with images and stage positions."""
