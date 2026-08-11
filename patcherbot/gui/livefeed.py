@@ -21,7 +21,7 @@ class LiveFeedQt(QtWidgets.QLabel):
     A QLabel-based widget that displays live camera feed, optionally logs frames,
     and allows custom image and display editing functions.
     """
-    def __init__(self, camera: Camera, recording_state_manager: RecordingStateManager, image_edit=None, display_edit=None, mouse_handler=None, parent=None, log_processed_frames=False, frame_folder_name: str = "camera_frames"):
+    def __init__(self, camera, recording_state_manager: RecordingStateManager, image_edit=None, display_edit=None, mouse_handler=None, parent=None, log_processed_frames=False, frame_folder_name: str = "camera_frames"):
         """
         Args:
             camera (Camera): The camera object providing frames.
@@ -48,8 +48,35 @@ class LiveFeedQt(QtWidgets.QLabel):
         self.display_edit = display_edit
 
         self.mouse_handler = mouse_handler
-        self.camera = camera
-        self.width, self.height = self.camera.width, self.camera.height
+        self.mouse_handler = mouse_handler
+
+# ------------------------------------------------------------
+# Camera handling
+# ------------------------------------------------------------
+
+        if isinstance(camera, dict):
+            if not camera:
+                raise ValueError(
+                    "LiveFeedQt received an empty camera dictionary."
+                )
+
+            self.cameras = camera
+            self.active_camera_index = 0
+
+            self.camera = list(
+                self.cameras.values()
+            )[self.active_camera_index]
+
+        else:
+            # Backwards-compatible single-camera behavior.
+            self.cameras = None
+            self.active_camera_index = 0
+            self.camera = camera
+
+        self.width, self.height = (
+            self.camera.width,
+            self.camera.height,
+        )
 
         self.setMinimumSize(640, 480)
         self.setAlignment(Qt.AlignCenter)
@@ -112,15 +139,75 @@ class LiveFeedQt(QtWidgets.QLabel):
         """
         self.log_processed_frames = bool(value)
 
-    def set_camera_metadata(self, camera: Camera) -> None:
+    def set_active_camera(self, index: int) -> None:
+        """
+        Switch the live feed to another configured pipette camera.
+
+        Args:
+            index: Zero-based pipette/camera index.
+        """
+        new_camera = self._get_camera_by_index(index)
+
+        self.active_camera_index = index
+        self.camera = new_camera
+
+        self.width = self.camera.width
+        self.height = self.camera.height
+
+        self._last_frameno = None
+        self._last_edited_frame = None
+
+    def set_camera_metadata(self, camera) -> None:
         """
         Update the widget with a new camera object and its metadata.
 
         Args:
             camera (Camera): New camera object to use.
         """
-        self.camera = camera
-        self.width, self.height = self.camera.width, self.camera.height
+        if isinstance(camera, dict):
+            if not camera:
+                raise ValueError(
+                    "LiveFeedQt received an empty camera dictionary."
+                )
+
+            self.cameras = camera
+            self.active_camera_index = 0
+
+            self.camera = list(
+                self.cameras.values()
+            )[0]
+
+        else:
+            self.cameras = None
+            self.active_camera_index = 0
+            self.camera = camera
+
+        self.width = self.camera.width
+        self.height = self.camera.height
+
+        self._last_frameno = None
+        self._last_edited_frame = None
+
+    def _get_camera_by_index(self, index: int):
+        """
+        Return a configured pipette camera by zero-based index.
+        """
+        if self.cameras is None:
+            if index == 0:
+                return self.camera
+
+            raise IndexError(
+                "Single-camera rig only has camera index 0."
+            )
+
+        key = f"pipette_camera_{index}"
+
+        if key not in self.cameras:
+            raise IndexError(
+                f"Camera '{key}' is not configured."
+            )
+
+        return self.cameras[key]
 
     @QtCore.pyqtSlot()
     def update_image(self):

@@ -41,18 +41,26 @@ PROTOCOL_CONFIG_DIR = Path(__file__).parent / "protocol_configs"
 DEFAULT_CONFIG_NAME = "fake_rig.json"
 
 # Core device slots only; derived pieces (stage, pipette_unit, microscope) are built automatically.
-DEVICE_SLOTS: List[str] = [
+SHARED_DEVICE_SLOTS: List[str] = [
     "stage_controller",
-    "pipette_controller",
     "camera",
-    "pipette_camera",
     "cell_sorter_controller",
     "cell_sorter_manipulator",
+    "lamp",
+    "laser",
+]
+
+PIPETTE_DEVICE_SLOTS: List[str] = [
+    "pipette_controller",
+    "pipette_camera",
     "pressure",
     "daq",
     "amplifier",
-    "lamp",
-    "laser",
+]
+
+DEVICE_SLOTS: List[str] = [
+    *PIPETTE_DEVICE_SLOTS,
+    *SHARED_DEVICE_SLOTS,
 ]
 
 
@@ -535,7 +543,7 @@ class RigConfigManager:
         with path.open("w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
-    def load_config(self, path: Path) -> Dict[str, Any]:
+    def load_config(self, path: Path, load_overlays: bool = True) -> Dict[str, Any]:
         """
         Load and validate a configuration file.
 
@@ -553,7 +561,10 @@ class RigConfigManager:
         with path.open("r", encoding="utf-8") as f:
             config = json.load(f)
         self._validate_config(config)
-        self._load_overlay_configs(config)
+
+        if load_overlays:
+            self._load_overlay_configs(config)
+
         return config
 
     def build_devices_from_file(self, path: Path) -> Dict[str, Any]:
@@ -588,14 +599,44 @@ class RigConfigManager:
             curr_device = devices_cfg[slot]
             
             if isinstance(curr_device, list):
-                instance_dict = {}
+                if slot not in PIPETTE_DEVICE_SLOTS:
+                    raise RigConfigError(f"Shared device slot '{slot}' cannot contain multiple devices.")
+                if not curr_device:
+                    raise RigConfigError(f"Device slot '{slot}' contains an empty device list.")
+
+                instance_dict: Dict[str, Any] = {}
                 for i, dev_cfg in enumerate(curr_device):
-                    key = f"{slot}_{i}" 
-                    instance = self._instantiate_slot(f"{slot}_{i}", dev_cfg, base_instances)
-                    instance_dict[key] = instance
+
+                    if not isinstance(dev_cfg, dict):
+                        raise RigConfigError(
+                            f"Invalid configuration for '{slot}[{i}]'. "
+                            "Expected a device mapping."
+                        )
+
+                    instance_key = f"{slot}_{i}"
+
+                    instance = self._instantiate_slot(
+                        instance_key,
+                        dev_cfg,
+                        base_instances,
+                    )
+
+                    instance_dict[instance_key] = instance
+
                 base_instances[slot] = instance_dict
+
+            # Single-instance device slot.
+            elif isinstance(curr_device, dict):
+                base_instances[slot] = self._instantiate_slot(
+                    slot,
+                    curr_device,
+                    base_instances,
+                )
             else:
-                base_instances[slot] = self._instantiate_slot(slot, curr_device, base_instances)
+                raise RigConfigError(
+                f"Invalid configuration for device slot '{slot}'. "
+                "Expected a device mapping or list of device mappings."
+            )
 
         # Auto-wire derived components
         from patcherbot.devices.manipulator.manipulatorunit import ManipulatorUnit
@@ -606,8 +647,8 @@ class RigConfigManager:
 
         pipette_units = {}
         if isinstance(pipette_controllers, dict):
-            for i, (id, controller) in enumerate(pipette_controllers.items()):
-                pipette_units[id] = ManipulatorUnit(controller, [1, 2, 3])
+            for key, controller in pipette_controllers.items():
+                pipette_units[key] = ManipulatorUnit(controller, [1, 2, 3])
         else:
             pipette_units = ManipulatorUnit(pipette_controllers, [1, 2, 3])
 
@@ -940,32 +981,74 @@ class RigConfigManager:
             "enabled": bool(getattr(calibration, "use_ai_features", True))
         }
 
-    def _apply_pressure_calibration(self, config: Dict[str, Any], devices_cfg: Dict[str, Any]) -> None:
+    def _apply_pressure_calibration(
+        self,
+        config: Dict[str, Any],
+        devices_cfg: Dict[str, Any],
+    ) -> None:
         """
-        Load calibration, patch, and protocol overlays into config.
-
-        Args:
-            config (Dict[str, Any]): Configuration dictionary.
+        Apply pressure calibration parameters to all configured
+        pressure controllers.
         """
         calibration = config.get("calibration")
+
         if not isinstance(calibration, dict):
             return
+
         pressure_cfg = devices_cfg.get("pressure")
-        if not isinstance(pressure_cfg, dict):
-            return
+
+        # Multi-pipette rig
+        if isinstance(pressure_cfg, list):
+            for i, cfg in enumerate(pressure_cfg):
+                if not isinstance(cfg, dict):
+                    raise RigConfigError(
+                        f"Invalid pressure configuration at index {i}."
+                    )
+
+                self._apply_pressure_calibration_to_device(
+                    calibration,
+                    cfg,
+                )
+
+        # Single-pipette rig
+        elif isinstance(pressure_cfg, dict):
+            self._apply_pressure_calibration_to_device(
+                calibration,
+                pressure_cfg,
+            )
+
+    def _apply_pressure_calibration_to_device(
+        self,
+        calibration: Dict[str, Any],
+        pressure_cfg: Dict[str, Any],
+    ) -> None:
+        """
+        Apply calibration values to one pressure controller config.
+        """
         params = pressure_cfg.get("params") or {}
+
         if not isinstance(params, dict):
             params = {}
-        class_path = pressure_cfg.get("class") or pressure_cfg.get("class_path") or ""
+
+        class_path = (
+            pressure_cfg.get("class")
+            or pressure_cfg.get("class_path")
+            or ""
+        )
 
         updates: Dict[str, Any] = {}
+
         if calibration.get("native_zero") is not None:
             updates["native_zero"] = calibration["native_zero"]
+
         if calibration.get("native_per_mbar") is not None:
             updates["native_per_mbar"] = calibration["native_per_mbar"]
+
         if "IBBPressureController" not in str(class_path):
+
             if calibration.get("reader_offset") is not None:
                 updates["sensor_offset"] = calibration["reader_offset"]
+
             if calibration.get("reader_scale") is not None:
                 updates["sensor_scale"] = calibration["reader_scale"]
 

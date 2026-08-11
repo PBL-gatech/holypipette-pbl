@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Union
+from copy import deepcopy
 
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -15,9 +16,17 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QFormLayout,
+    QGroupBox,
+    QWidget,
 )
 
-from .rig_config import DEVICE_SLOTS, RigConfigError, RigConfigManager
+from .rig_config import (
+    DEVICE_SLOTS,
+    SHARED_DEVICE_SLOTS,
+    PIPETTE_DEVICE_SLOTS,
+    RigConfigError,
+    RigConfigManager,
+)
 
 
 def _get_nested(params: Dict[str, Any], dotted: str, default=None):
@@ -97,7 +106,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"{slot} settings")
         self.fields = fields
-        self.params = params.copy()
+        self.params = deepcopy(params)
         self.inputs: Dict[str, QLineEdit] = {}
         layout = QVBoxLayout()
         form = QFormLayout()
@@ -138,7 +147,7 @@ class SettingsDialog(QDialog):
         Returns:
             Dictionary of updated parameters.
         """
-        params = self.params.copy()
+        params = deepcopy(self.params)
         for key, widget in self.inputs.items():
             text = widget.text().strip()
             field = next((f for f in self.fields if f["key"] == key), {})
@@ -173,106 +182,375 @@ class RigBuilderDialog(QDialog):
         self.saved_path: Path | None = None
         self.edit_path = save_path
         self.options = manager.get_device_options()
-        self.slot_rows: Dict[str, Dict[str, Any]] = {}
+        self.slot_rows: Dict[str, List[Dict[str, Any]]] = {
+            slot: [] for slot in DEVICE_SLOTS
+        }
+        self.pipette_row_cache: Dict[str, List[Dict[str, Any]]] = {
+            slot: [] for slot in PIPETTE_DEVICE_SLOTS
+        }
         self.initial_config = initial_config
+        self.pipette_count = self._infer_pipette_count(initial_config)
         self._build_ui()
         if self.initial_config:
             self._load_config(self.initial_config)
+
+    def _infer_pipette_count(self, config: Dict[str, Any] | None) -> int:
+            """
+            Determine the number of pipettes represented by a rig configuration.
+    
+            Explicit pipette_count metadata is used when available, but existing
+            multi-device lists are also inspected for backwards compatibility.
+            """
+            if not config:
+                return 1
+    
+            explicit_count = config.get("pipette_count", 1)
+    
+            try:
+                explicit_count = max(1, int(explicit_count))
+            except (TypeError, ValueError):
+                explicit_count = 1
+    
+            devices = config.get("devices", {})
+    
+            if not isinstance(devices, dict):
+                return explicit_count
+    
+            inferred_count = 1
+    
+            for slot in PIPETTE_DEVICE_SLOTS:
+                spec = devices.get(slot)
+    
+                if isinstance(spec, list):
+                    inferred_count = max(
+                        inferred_count,
+                        len(spec),
+                    )
+    
+            return max(explicit_count, inferred_count)
 
     def _build_ui(self) -> None:
         """Construct the dialog user interface."""
         layout = QVBoxLayout()
         self.setLayout(layout)
 
+        # ------------------------------------------------------------
+        # Rig name
+        # ------------------------------------------------------------
+
         name_row = QHBoxLayout()
         name_row.addWidget(QLabel("Rig name:"))
-        self.name_edit = QLineEdit(self.initial_config.get("name", "Custom Rig") if self.initial_config else "Custom Rig")
+
+        self.name_edit = QLineEdit(
+            self.initial_config.get("name", "Custom Rig")
+            if self.initial_config
+            else "Custom Rig"
+        )
+
         name_row.addWidget(self.name_edit)
         layout.addLayout(name_row)
 
-        for slot in DEVICE_SLOTS:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(slot))
-            combo = QComboBox()
-            for opt in self.options.get(slot, []):
-                combo.addItem(opt.get("label", opt.get("class", "unknown")), opt)
-            combo.currentIndexChanged.connect(lambda _, s=slot, c=combo: self._apply_option_defaults(s, c))
-            settings_btn = QPushButton("Settings")
-            settings_btn.clicked.connect(lambda _, s=slot: self._open_settings(s))
-            row.addWidget(combo, stretch=3)
-            row.addWidget(settings_btn, stretch=1)
-            layout.addLayout(row)
-            self.slot_rows[slot] = {"combo": combo, "params": {}}
-            self._apply_option_defaults(slot, combo)
+        # ------------------------------------------------------------
+        # Pipette count
+        # ------------------------------------------------------------
+
+        pipette_count_row = QHBoxLayout()
+        pipette_count_row.addWidget(QLabel("Number of pipettes:"))
+
+        self.pipette_count_combo = QComboBox()
+
+        # MultiClamp hardware currently supports two channels.
+        self.pipette_count_combo.addItem("1", 1)
+        self.pipette_count_combo.addItem("2", 2)
+
+        index = self.pipette_count_combo.findData(
+            self.pipette_count
+        )
+
+        if index >= 0:
+            self.pipette_count_combo.setCurrentIndex(index)
+
+        pipette_count_row.addWidget(
+            self.pipette_count_combo
+        )
+        pipette_count_row.addStretch()
+
+        layout.addLayout(pipette_count_row)
+
+        # ------------------------------------------------------------
+        # Shared devices
+        # ------------------------------------------------------------
+
+        shared_group = QGroupBox("Shared Devices")
+        shared_layout = QVBoxLayout(shared_group)
+
+        for slot in SHARED_DEVICE_SLOTS:
+            self._add_device_row(
+                shared_layout,
+                slot,
+                instance_index=0,
+            )
+
+        layout.addWidget(shared_group)
+
+        # ------------------------------------------------------------
+        # Pipette-specific devices
+        # ------------------------------------------------------------
+
+        self.pipette_container = QWidget()
+        self.pipette_layout = QVBoxLayout(
+            self.pipette_container
+        )
+
+        layout.addWidget(self.pipette_container)
+
+        self._rebuild_pipette_sections(
+            preserve_existing=False
+        )
+
+        self.pipette_count_combo.currentIndexChanged.connect(
+            self._on_pipette_count_changed
+        )
+
+        # ------------------------------------------------------------
+        # Save / cancel
+        # ------------------------------------------------------------
 
         btns = QHBoxLayout()
+
         save_btn = QPushButton("Save")
         cancel_btn = QPushButton("Cancel")
+
         save_btn.clicked.connect(self._on_save)
         cancel_btn.clicked.connect(self.reject)
+
         btns.addStretch()
         btns.addWidget(save_btn)
         btns.addWidget(cancel_btn)
+
         layout.addLayout(btns)
 
-    def _apply_option_defaults(self, slot: str, combo: QComboBox) -> None:
+    def _add_device_row(self, parent_layout: QVBoxLayout, slot: str, instance_index: int) -> None:
+        """
+        Add one configurable device row to the UI.
+        """
+        row = QHBoxLayout()
+
+        label = QLabel(
+            slot.replace("_", " ").title()
+        )
+
+        combo = QComboBox()
+
+        for opt in self.options.get(slot, []):
+            combo.addItem(
+                opt.get(
+                    "label",
+                    opt.get("class", "unknown"),
+                ),
+                opt,
+            )
+
+        settings_btn = QPushButton("Settings")
+
+        row.addWidget(label)
+        row.addWidget(combo, stretch=3)
+        row.addWidget(settings_btn, stretch=1)
+
+        parent_layout.addLayout(row)
+
+        widgets = {
+            "combo": combo,
+            "params": {},
+        }
+
+        self.slot_rows[slot].append(widgets)
+
+        combo.currentIndexChanged.connect(
+            lambda _,
+            s=slot,
+            i=instance_index,
+            c=combo:
+            self._apply_option_defaults(s, i, c)
+        )
+
+        settings_btn.clicked.connect(
+            lambda _,
+            s=slot,
+            i=instance_index:
+            self._open_settings(s, i)
+        )
+
+        self._apply_option_defaults(
+            slot,
+            instance_index,
+            combo,
+        )
+
+    def _apply_option_defaults(self, slot: str, instance_index: int, combo: QComboBox) -> None:
         """
         Apply default parameters for a selected device option.
-
-        Args:
-            slot: Device slot name.
-            combo: ComboBox containing device options.
         """
         opt = combo.currentData()
+
         if not isinstance(opt, dict):
             return
+
         params = opt.get("params", {})
-        self.slot_rows[slot]["params"] = params.copy()
 
-    def _open_settings(self, slot: str) -> None:
-        """
-        Open the settings dialog for a specific device slot.
+        self.slot_rows[slot][instance_index]["params"] = (
+            deepcopy(params)
+        )
 
-        Args:
-            slot: Device slot name.
+    def _open_settings(self, slot: str, instance_index: int) -> None:
         """
-        widgets = self.slot_rows[slot]
+        Open the settings dialog for a device instance.
+        """
+        widgets = self.slot_rows[slot][instance_index]
+
         opt = widgets["combo"].currentData()
+
         if not isinstance(opt, dict):
-            QMessageBox.warning(self, "No device", "Select a device first.")
+            QMessageBox.warning(
+                self,
+                "No device",
+                "Select a device first.",
+            )
             return
+
         fields = opt.get("fields", [])
-        dlg = SettingsDialog(slot, fields, widgets["params"], self)
+
+        if slot in PIPETTE_DEVICE_SLOTS:
+            title = (
+                f"Pipette {instance_index + 1} - "
+                f"{slot.replace('_', ' ').title()}"
+            )
+        else:
+            title = slot.replace("_", " ").title()
+
+        dlg = SettingsDialog(
+            title,
+            fields,
+            widgets["params"],
+            self,
+        )
+
         if dlg.exec_() == QDialog.Accepted:
-            new_params = dlg.get_params()
-            widgets["params"] = new_params
+            widgets["params"] = dlg.get_params()
 
     def _on_save(self) -> None:
         """
-        Open the settings dialog for a specific device slot.
-
-        Args:
-            slot: Device slot name.
+        Save the current rig configuration.
         """
-        name = self.name_edit.text().strip() or "Custom Rig"
+        name = (
+            self.name_edit.text().strip()
+            or "Custom Rig"
+        )
+
         devices: Dict[str, Any] = {}
 
         try:
-            for slot, widgets in self.slot_rows.items():
+
+            # --------------------------------------------------------
+            # Shared devices
+            # --------------------------------------------------------
+
+            for slot in SHARED_DEVICE_SLOTS:
+
+                if not self.slot_rows[slot]:
+                    raise RigConfigError(
+                        f"No device configured for '{slot}'."
+                    )
+
+                widgets = self.slot_rows[slot][0]
+
                 opt = widgets["combo"].currentData()
+
                 if not opt or "class" not in opt:
-                    raise RigConfigError(f"No class selected for slot '{slot}'.")
-                devices[slot] = {"class": opt["class"], "params": widgets["params"]}
+                    raise RigConfigError(
+                        f"No class selected for slot '{slot}'."
+                    )
+
+                devices[slot] = {
+                    "class": opt["class"],
+                    "params": deepcopy(
+                        widgets["params"]
+                    ),
+                }
+
+            # --------------------------------------------------------
+            # Pipette-specific devices
+            # --------------------------------------------------------
+
+            for slot in PIPETTE_DEVICE_SLOTS:
+
+                specs = []
+
+                for widgets in self.slot_rows[slot]:
+
+                    opt = widgets["combo"].currentData()
+
+                    if not opt or "class" not in opt:
+                        raise RigConfigError(
+                            f"No class selected for slot '{slot}'."
+                        )
+
+                    specs.append(
+                        {
+                            "class": opt["class"],
+                            "params": deepcopy(
+                                widgets["params"]
+                            ),
+                        }
+                    )
+
+                # Preserve old single-pipette JSON format.
+                if self.pipette_count == 1:
+                    devices[slot] = specs[0]
+
+                # Multi-pipette rigs use lists.
+                else:
+                    devices[slot] = specs
+
         except (RigConfigError, json.JSONDecodeError) as exc:
-            QMessageBox.critical(self, "Invalid configuration", str(exc))
+
+            QMessageBox.critical(
+                self,
+                "Invalid configuration",
+                str(exc),
+            )
+
             return
 
-        config = {"name": name, "schema_version": 2, "devices": devices}
-        path = self.edit_path or self.manager.make_config_path(name)
+        if self.initial_config:
+            config = deepcopy(self.initial_config)
+        else:
+            config = self.manager.build_empty_template()
+
+        config["name"] = name
+        config["schema_version"] = 2
+        config["pipette_count"] = self.pipette_count
+        config["devices"] = devices
+
+        path = (
+            self.edit_path
+            or self.manager.make_config_path(name)
+        )
+
         try:
-            self.manager.save_config(path, config)
-        except Exception as exc:  # pragma: no cover
-            QMessageBox.critical(self, "Save failed", str(exc))
+            self.manager.save_config(
+                path,
+                config,
+            )
+
+        except Exception as exc:
+
+            QMessageBox.critical(
+                self,
+                "Save failed",
+                str(exc),
+            )
+
             return
 
         self.saved_path = path
@@ -281,39 +559,205 @@ class RigBuilderDialog(QDialog):
     def _load_config(self, config: Dict[str, Any]) -> None:
         """
         Load an existing configuration into the UI.
-
-        Args:
-            config: Configuration dictionary.
         """
         devices = config.get("devices", {})
-        for key, spec in devices.items():
-            specs = spec if isinstance(spec, list) else [spec]
-            for i, spec in enumerate(specs):
-                if len(specs) > 1:
-                    base_name = key.rstrip('s')
-                    slot = f"{base_name}_{i+1}"
-                else:
-                    slot = key
-            if slot not in self.slot_rows:
-                if key in self.slot_rows:
-                    slot = key
-                else:
-                    continue
-                
-            target_class = spec.get("class")
-            combo: QComboBox = self.slot_rows[slot]["combo"]
-            # find matching index
-            match_idx = -1
-            for i in range(combo.count()):
-                data = combo.itemData(i)
-                if isinstance(data, dict) and data.get("class") == target_class:
-                    match_idx = i
-                    break
-            if match_idx >= 0:
-                combo.setCurrentIndex(match_idx)
-            params = spec.get("params", {})
-            self.slot_rows[slot]["params"] = params
 
+        if not isinstance(devices, dict):
+            return
+
+        # ------------------------------------------------------------
+        # Shared devices
+        # ------------------------------------------------------------
+
+        for slot in SHARED_DEVICE_SLOTS:
+            spec = devices.get(slot)
+
+            if isinstance(spec, dict):
+                self._set_row_spec(
+                    slot,
+                    0,
+                    spec,
+                )
+
+        # ------------------------------------------------------------
+        # Pipette-specific devices
+        # ------------------------------------------------------------
+
+        for slot in PIPETTE_DEVICE_SLOTS:
+
+            spec = devices.get(slot)
+
+            if isinstance(spec, list):
+                specs = spec
+
+            elif isinstance(spec, dict):
+                specs = [spec]
+
+            else:
+                continue
+
+            # Store the complete configs, including parameters that may
+            # not have visible SettingsDialog fields.
+            self.pipette_row_cache[slot] = deepcopy(specs)
+
+            for index, device_spec in enumerate(specs):
+
+                if index >= len(self.slot_rows[slot]):
+                    break
+
+                self._set_row_spec(
+                    slot,
+                    index,
+                    device_spec,
+                )
+
+    def _on_pipette_count_changed(self) -> None:
+        """Rebuild pipette-specific device rows."""
+        self._rebuild_pipette_sections(
+            preserve_existing=True
+        )
+
+    def _rebuild_pipette_sections(self, preserve_existing: bool = True) -> None:
+        """
+        Rebuild pipette-specific controls based on the selected
+        pipette count.
+        """
+        # Save all currently visible pipette configurations into
+        # the persistent cache before destroying the widgets.
+        if preserve_existing:
+            self._cache_pipette_rows()
+
+        self._clear_layout(self.pipette_layout)
+
+        for slot in PIPETTE_DEVICE_SLOTS:
+            self.slot_rows[slot] = []
+
+        pipette_count = int(
+            self.pipette_count_combo.currentData()
+        )
+
+        self.pipette_count = pipette_count
+
+        for pipette_index in range(pipette_count):
+
+            group = QGroupBox(
+                f"Pipette {pipette_index + 1}"
+            )
+
+            group_layout = QVBoxLayout(group)
+
+            for slot in PIPETTE_DEVICE_SLOTS:
+                self._add_device_row(
+                    group_layout,
+                    slot,
+                    instance_index=pipette_index,
+                )
+
+            self.pipette_layout.addWidget(group)
+
+        if preserve_existing:
+            self._restore_pipette_rows()
+
+    def _clear_layout(self, layout) -> None:
+        """Recursively remove widgets and child layouts."""
+        while layout.count():
+            item = layout.takeAt(0)
+
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
+                continue
+
+            child_layout = item.layout()
+
+            if child_layout is not None:
+                self._clear_layout(child_layout)
+
+    def _cache_pipette_rows(self) -> None:
+        """
+        Capture current pipette-specific selections and parameters.
+        """
+        for slot in PIPETTE_DEVICE_SLOTS:
+
+            rows = self.slot_rows.get(slot, [])
+
+            for index, widgets in enumerate(rows):
+
+                opt = widgets["combo"].currentData()
+
+                spec = {
+                    "class": (
+                        opt.get("class")
+                        if isinstance(opt, dict)
+                        else None
+                    ),
+                    "params": deepcopy(
+                        widgets["params"]
+                    ),
+                }
+
+                # Replace an existing cached pipette.
+                if index < len(self.pipette_row_cache[slot]):
+                    self.pipette_row_cache[slot][index] = spec
+
+                # Or add a newly created pipette.
+                else:
+                    self.pipette_row_cache[slot].append(spec)
+
+    def _restore_pipette_rows(self) -> None:
+        """
+        Restore cached pipette configurations into currently visible rows.
+        """
+        for slot in PIPETTE_DEVICE_SLOTS:
+
+            cached_specs = self.pipette_row_cache.get(
+                slot,
+                []
+            )
+
+            for index, spec in enumerate(cached_specs):
+
+                if index >= len(self.slot_rows[slot]):
+                    break
+
+                self._set_row_spec(
+                    slot,
+                    index,
+                    spec,
+                )
+
+    def _set_row_spec(self, slot: str, instance_index: int, spec: Dict[str, Any]) -> None:
+        """
+        Apply a saved device specification to one editor row.
+        """
+        if instance_index >= len(self.slot_rows[slot]):
+            return
+
+        widgets = self.slot_rows[slot][instance_index]
+
+        combo: QComboBox = widgets["combo"]
+
+        target_class = spec.get("class")
+
+        match_idx = -1
+
+        for i in range(combo.count()):
+            data = combo.itemData(i)
+
+            if (
+                isinstance(data, dict)
+                and data.get("class") == target_class
+            ):
+                match_idx = i
+                break
+
+        if match_idx >= 0:
+            combo.setCurrentIndex(match_idx)
+
+        widgets["params"] = deepcopy(
+            spec.get("params", {})
+        )
 
 class RigSelectorDialog(QDialog):
     """Dialog to select or create a rig configuration before launching the GUI."""
@@ -418,7 +862,10 @@ class RigSelectorDialog(QDialog):
             QMessageBox.warning(self, "No configuration", "Select a config to edit.")
             return
         try:
-            config = self.manager.load_config(path)
+            config = self.manager.load_config(
+            path,
+            load_overlays=False,
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Load failed", str(exc))
             return
@@ -440,3 +887,4 @@ class RigSelectorDialog(QDialog):
             QMessageBox.warning(self, "No configuration", "Please select or create a rig configuration.")
             return
         self.accept()
+
