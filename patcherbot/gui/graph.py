@@ -728,7 +728,8 @@ class EPhysGUI(QWidget):
                 ephys_graph = EPhysGraph(interface, recording_state_manager)
                 self.tabs.addTab(ephys_graph, f"{id}")
         else:
-            self.tabs.addTab(self.ephys_interfaces, "Pipette")
+            ephys_graph = EPhysGraph(ephys_interfaces, recording_state_manager)
+            self.tabs.addTab(ephys_graph, "Pipette")
         self.layout.addWidget(self.tabs)
         self.show()
         self.raise_()
