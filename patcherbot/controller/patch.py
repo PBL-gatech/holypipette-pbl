@@ -1217,46 +1217,46 @@ class AutoPatcher(TaskController):
         sim = isinstance(self.daq, FakeDAQ)
         if sim:
             self.daq.start()
-        if self.config.mode == 'Classic':
-            autoPressure = True
-        else:
-            autoPressure = False
-        self.info(f"{self.config.mode}: Attempting to form gigaseal...")
-        self.amplifier.auto_fast_compensation()
-        self.sleep(1)
-        self.daq.setCellMode(True)
-        self.sleep(0.1)
-        self.info("Collecting baseline resistance...")
-
-        num_slope_samples = 5
-        sample_interval = self.config.measurement_speed
-
-        avg_resistance = self.resistanceRamp(
-            num_measurements=num_slope_samples,
-            interval=sample_interval,
-        )
-        consecutive_success = 0
-
-        self.pressure.set_ATM(atm=True)
-
-        self.sleep(3)
-
-        if autoPressure:
-            currPressure = -5
-            self.pressure.set_pressure(currPressure)
-            # if sim:
-            #     self.gigaseal_sim.update_pressure(self.pressure.get_pressure())
-            self.pressure.set_ATM(atm=False)
-            prevpressure = currPressure
-            speed = 1
-            bad_cell_count = 0
-            # this is already negative, e.g. -30 mbar
-            max_pressure = self.config.pressure_ramp_max
-
-        holding_switched = False
-        last_progress_time = time.time()
-
         try:
+            if self.config.mode == 'Classic':
+                autoPressure = True
+            else:
+                autoPressure = False
+            self.info(f"{self.config.mode}: Attempting to form gigaseal...")
+            self.amplifier.auto_fast_compensation()
+            self.sleep(1)
+            self.daq.setCellMode(True)
+            self.sleep(0.1)
+            self.info("Collecting baseline resistance...")
+
+            num_slope_samples = 5
+            sample_interval = self.config.measurement_speed
+
+            avg_resistance = self.resistanceRamp(
+                num_measurements=num_slope_samples,
+                interval=sample_interval,
+            )
+            consecutive_success = 0
+
+            self.pressure.set_ATM(atm=True)
+
+            self.sleep(3)
+
+            if autoPressure:
+                currPressure = -5
+                self.pressure.set_pressure(currPressure)
+                # if sim:
+                #     self.gigaseal_sim.update_pressure(self.pressure.get_pressure())
+                self.pressure.set_ATM(atm=False)
+                prevpressure = currPressure
+                speed = 1
+                bad_cell_count = 0
+                # this is already negative, e.g. -30 mbar
+                max_pressure = self.config.pressure_ramp_max
+
+            holding_switched = False
+            last_progress_time = time.time()
+
             while not self.abort_requested:
                 # Deadline check
                 if time.time() - last_progress_time >= self.config.seal_deadline:
@@ -1341,8 +1341,6 @@ class AutoPatcher(TaskController):
                     self.success_requested = True
                     self.info("Seal successful!")
                     self.success_requested = True
-                    if sim:
-                        self.daq.stop()
                     self.success_if_requested()
                     return
 

@@ -3008,7 +3008,7 @@ class FakeDAQ(DAQ):
         #     return
 
     def _simulation_loop(self):
-        dt = 1
+        dt = 5
         while self.active:
             self.tick(dt)
             time.sleep(0.1)
@@ -3020,4 +3020,12 @@ class FakeDAQ(DAQ):
     
     def stop(self):
         self.active = False
+
+        if (
+            self._simulation_thread is not None
+            and self._simulation_thread.is_alive()
+            and self._simulation_thread is not threading.current_thread()
+        ):
+            self._simulation_thread.join(timeout=1.0)
+
         self._simulation_thread = None
