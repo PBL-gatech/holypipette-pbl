@@ -203,6 +203,7 @@ class DatasetBuilderSettings:
     load_next_obs: bool = False # set to true for goal conditioning
     use_velocities: bool = False # set to true to convert action deltas into per-observation velocities
     prefer_cv_movement: bool = True # set to true to prefer cv_movement_recording.csv over movement_recording.csv
+    use_synthetic_position_anchor: bool = False # zero-reference stage/pipette observations to their first positions
     filter: FilterSettings = field(default_factory=FilterSettings)
     gigaseal_augmentation: GigasealAugmentationSettings = field(default_factory=GigasealAugmentationSettings)
     image_resize: int = 85
@@ -680,6 +681,7 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         self.load_next_obs = settings.load_next_obs
         self.use_velocities = settings.use_velocities
         self.prefer_cv_movement = settings.prefer_cv_movement
+        self.use_synthetic_position_anchor = settings.use_synthetic_position_anchor
         self.freq_mask = max(1, int(settings.freq_mask))
         self.observation_selector = settings.observation_selector
         self.action_selector = settings.action_selector
@@ -2349,6 +2351,19 @@ class SimpleDatasetBuilder(RandomFilterMixin):
         """Return pipette XYZ positions."""
         return attempt_movement_values[:, 4:].astype(np.float64)
 
+    def _apply_synthetic_position_anchor(
+        self,
+        stage_positions: np.ndarray,
+        pipette_positions: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Optionally express position observations relative to their first rows."""
+        if not self.use_synthetic_position_anchor:
+            return stage_positions, pipette_positions
+        return (
+            stage_positions - stage_positions[0],
+            pipette_positions - pipette_positions[0],
+        )
+
     # --- Camera helpers --------------------------------------------------
     @staticmethod
     def crop_image_center(pil_image: Image.Image) -> Image.Image:
@@ -2594,6 +2609,11 @@ class SimpleDatasetBuilder(RandomFilterMixin):
             rig_recorder_data_folder=rig_recorder_data_folder,
         )
         self._last_pipette_scale = pipette_scale
+
+        stage_positions_full, pipette_positions_full = self._apply_synthetic_position_anchor(
+            stage_positions_full,
+            pipette_positions_full,
+        )
 
         stage_positions: Optional[np.ndarray]
         if selector.include_stage:

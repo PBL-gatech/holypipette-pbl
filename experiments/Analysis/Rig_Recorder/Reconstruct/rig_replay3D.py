@@ -50,6 +50,31 @@ def _bootstrap_repo_import_path():
 
 _bootstrap_repo_import_path()
 
+CELL_DETECTOR_PIDNET = "pidnet"
+CELL_DETECTOR_YOLO = "yolo"
+
+
+def _create_cell_detector(model_name):
+    """Create the selected cell detector without changing the PIDNet path."""
+    normalized_name = str(model_name).strip().lower()
+    if normalized_name == CELL_DETECTOR_PIDNET:
+        from patcherbot.deepLearning.CellDetector import CellDetector2
+        return CellDetector2(model_type="pidnet")
+    if normalized_name == CELL_DETECTOR_YOLO:
+        from patcherbot.deepLearning.CellDetector import CellDetectorYOLO1
+        return CellDetectorYOLO1()
+    raise ValueError(f"Unsupported cell detector model: {model_name!r}")
+
+
+def _cell_detector_display_name(model_name):
+    normalized_name = str(model_name).strip().lower()
+    if normalized_name == CELL_DETECTOR_PIDNET:
+        return "CellDetector2 PIDNet"
+    if normalized_name == CELL_DETECTOR_YOLO:
+        return "CellDetectorYOLO1"
+    return str(model_name)
+
+
 # ------------------- 3D Mesh Creation Functions -------------------
 
 def create_cylinder_mesh(radius=0.5, height=5.0, sectors=32):
@@ -831,11 +856,13 @@ class InferenceEnableWorker(QtCore.QObject):
         enable_pipette_detector,
         enable_cell_detector,
         enable_pipette_focuser,
+        cell_detector_model=CELL_DETECTOR_PIDNET,
     ):
         super().__init__()
         self.enable_pipette_detector = bool(enable_pipette_detector)
         self.enable_cell_detector = bool(enable_cell_detector)
         self.enable_pipette_focuser = bool(enable_pipette_focuser)
+        self.cell_detector_model = str(cell_detector_model).strip().lower()
 
     @QtCore.pyqtSlot()
     def run(self):
@@ -861,14 +888,14 @@ class InferenceEnableWorker(QtCore.QObject):
                     )
 
             if self.enable_cell_detector:
-                self.progress.emit("Initializing cell detector...")
+                detector_name = _cell_detector_display_name(self.cell_detector_model)
+                self.progress.emit(f"Initializing {detector_name}...")
                 try:
-                    from patcherbot.deepLearning.CellDetector import CellDetector2
-                    result["cell_detector"] = CellDetector2(model_type="pidnet")
+                    result["cell_detector"] = _create_cell_detector(self.cell_detector_model)
                 except Exception as exc:
                     result["cell_detector_init_failed"] = True
                     result["warnings"].append(
-                        f"CellDetector2 PIDNet init failed; disabling cell overlay: {exc}"
+                        f"{detector_name} init failed; disabling cell overlay: {exc}"
                     )
 
             if self.enable_pipette_focuser:
@@ -1098,6 +1125,22 @@ class IntegratedTimeline(QMainWindow):
         self.toggle_inference_button.clicked.connect(self.toggle_replay_inference)
         self.buttons_layout.addWidget(self.toggle_inference_button)
 
+        self.cell_detector_model_label = QLabel("Cell model:")
+        self.cell_detector_model_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.buttons_layout.addWidget(self.cell_detector_model_label)
+
+        self.cell_detector_model_selector = QComboBox()
+        self.cell_detector_model_selector.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.cell_detector_model_selector.addItem("PIDNet", CELL_DETECTOR_PIDNET)
+        self.cell_detector_model_selector.addItem("YOLO", CELL_DETECTOR_YOLO)
+        self.cell_detector_model_selector.setToolTip(
+            "Choose the cell detector used when replay inference is enabled."
+        )
+        self.cell_detector_model_selector.currentIndexChanged.connect(
+            self._on_cell_detector_model_changed
+        )
+        self.buttons_layout.addWidget(self.cell_detector_model_selector)
+
         # Add a spacer to push buttons to the left
         self.buttons_layout.addStretch()
 
@@ -1118,6 +1161,7 @@ class IntegratedTimeline(QMainWindow):
         self.enable_pipette_detector = True
         self.enable_cell_detector = True
         self.enable_pipette_focuser = True
+        self.cell_detector_model = self.cell_detector_model_selector.currentData()
         self.overlay_point_radius = 6
         self.overlay_text_margin = 10
 
@@ -1448,6 +1492,7 @@ class IntegratedTimeline(QMainWindow):
             enable_pipette_detector=self.enable_pipette_detector,
             enable_cell_detector=self.enable_cell_detector,
             enable_pipette_focuser=self.enable_pipette_focuser,
+            cell_detector_model=self.cell_detector_model,
         )
         self._inference_enable_worker.moveToThread(self._inference_enable_thread)
 
@@ -1492,6 +1537,7 @@ class IntegratedTimeline(QMainWindow):
         self.toggle_inference_button.setChecked(False)
         self.update_inference_toggle_button_text()
         self.toggle_inference_button.setEnabled(True)
+        self.cell_detector_model_selector.setEnabled(True)
         self._close_loading_popup()
         QMessageBox.critical(self, "Inference Error", message)
 
@@ -1506,6 +1552,7 @@ class IntegratedTimeline(QMainWindow):
             self.enable_replay_inference = False
             self.toggle_inference_button.setChecked(False)
             self.update_inference_toggle_button_text()
+            self.cell_detector_model_selector.setEnabled(True)
             QMessageBox.critical(self, "Inference Error", f"Failed to enable inference: {exc}")
         finally:
             self.toggle_inference_button.setEnabled(True)
@@ -1514,6 +1561,7 @@ class IntegratedTimeline(QMainWindow):
     def toggle_replay_inference(self, checked):
         self.enable_replay_inference = bool(checked)
         self.update_inference_toggle_button_text()
+        self.cell_detector_model_selector.setEnabled(not self.enable_replay_inference)
 
         if self.enable_replay_inference:
             self._inference_disabled_notice_printed = False
@@ -1527,6 +1575,15 @@ class IntegratedTimeline(QMainWindow):
         self._frame_overlay_results = None
         if self.data_manager.image_paths and 0 <= self.current_index < len(self.data_manager.image_paths):
             self.display_image(self.data_manager.image_paths[self.current_index])
+
+    def _on_cell_detector_model_changed(self):
+        selected_model = self.cell_detector_model_selector.currentData()
+        if selected_model is None:
+            return
+        self.cell_detector_model = str(selected_model).strip().lower()
+        self._cell_detector = None
+        self._cell_detector_init_failed = False
+        self._reset_inference_state()
 
     def refresh_view_order(self):
         self.view_order = ['graphs', 'three_d']
@@ -1567,12 +1624,12 @@ class IntegratedTimeline(QMainWindow):
             return self._cell_detector
         if self._cell_detector_init_failed:
             return None
+        detector_name = _cell_detector_display_name(self.cell_detector_model)
         try:
-            from patcherbot.deepLearning.CellDetector import CellDetector2
-            self._cell_detector = CellDetector2(model_type="pidnet")
+            self._cell_detector = _create_cell_detector(self.cell_detector_model)
         except Exception as exc:
             self._cell_detector_init_failed = True
-            logger.warning("CellDetector2 PIDNet init failed; disabling cell overlay: %s", exc)
+            logger.warning("%s init failed; disabling cell overlay: %s", detector_name, exc)
             self._cell_detector = None
         return self._cell_detector
 

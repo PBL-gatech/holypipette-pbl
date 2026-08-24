@@ -9,7 +9,7 @@ import traceback
 from pathlib import Path
 from typing import Iterable
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QObject, QThread, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -28,11 +28,12 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QScrollArea,
     QSpinBox,
-    QTabWidget,
+    QStackedWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -51,6 +52,45 @@ from experiments.SimpleDatasetBuilder import (  # noqa: E402
     ObservationSelector,
     SimpleDatasetBuilder,
 )
+from experiments.HDF5AnchorConverter import (  # noqa: E402
+    AnchorConversionError,
+    convert_hdf5,
+    derive_metadata_path,
+    derive_output_path,
+    inspect_hdf5,
+    load_calibration,
+    load_anchor_sidecar,
+)
+from experiments.HDF5AnchorEditor import HDF5AnchorDialog  # noqa: E402
+
+
+class AnchorConversionWorker(QObject):
+    """Run a potentially large HDF5 conversion outside the GUI thread."""
+
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, source: str, calibration: str, anchors) -> None:
+        super().__init__()
+        self.source = source
+        self.calibration = calibration
+        self.anchors = anchors
+        self.cancel_requested = False
+
+    def run(self) -> None:
+        try:
+            output = convert_hdf5(
+                self.source,
+                self.calibration,
+                self.anchors,
+                progress=lambda current, total, label: self.progress.emit(current, total, label),
+                cancelled=lambda: self.cancel_requested,
+            )
+        except Exception:
+            self.failed.emit(traceback.format_exc())
+            return
+        self.finished.emit(str(output))
 
 
 class DatasetBuilderGUI(QWidget):
@@ -69,13 +109,33 @@ class DatasetBuilderGUI(QWidget):
         self._sync_selector_constraints()
 
     def _build_ui(self) -> None:
-        outer = QVBoxLayout(self)
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        content = QWidget()
-        root = QVBoxLayout(content)
-        self.scroll_area.setWidget(content)
-        outer.addWidget(self.scroll_area)
+        outer = QHBoxLayout(self)
+        self.page_list = QListWidget()
+        self.page_list.setFixedWidth(205)
+        self.page_stack = QStackedWidget()
+        outer.addWidget(self.page_list)
+        outer.addWidget(self.page_stack, 1)
+
+        # The existing builders still create and configure every legacy widget.
+        # Their widgets are then reparented into smaller workflow pages below.
+        settings_template = self._build_settings_group()
+        selector_group = self._build_selector_group()
+
+        workflow_page = QWidget()
+        workflow_layout = QVBoxLayout(workflow_page)
+        workflow_layout.addWidget(self._page_heading("Choose a Workflow"))
+        workflow_box = QGroupBox("Workflow")
+        workflow_form = QVBoxLayout(workflow_box)
+        self.workflow_build = QRadioButton("Build Dataset")
+        self.workflow_anchor = QRadioButton("Anchor Existing HDF5")
+        self.workflow_build.setChecked(True)
+        self.workflow_group = QButtonGroup(self)
+        self.workflow_group.addButton(self.workflow_build)
+        self.workflow_group.addButton(self.workflow_anchor)
+        workflow_form.addWidget(self.workflow_build)
+        workflow_form.addWidget(self.workflow_anchor)
+        workflow_layout.addWidget(workflow_box)
+        workflow_layout.addStretch(1)
 
         meta_group = QGroupBox("Metadata")
         meta_row = QHBoxLayout(meta_group)
@@ -85,7 +145,6 @@ class DatasetBuilderGUI(QWidget):
         meta_row.addWidget(QLabel("File:"))
         meta_row.addWidget(self.metadata_path, 1)
         meta_row.addWidget(self.load_metadata_btn)
-        root.addWidget(meta_group)
 
         folders_group = QGroupBox("Rig Recorder Folders")
         folders_layout = QVBoxLayout(folders_group)
@@ -114,26 +173,219 @@ class DatasetBuilderGUI(QWidget):
         self.folder_list = QListWidget()
         self.folder_list.setSelectionMode(QListWidget.ExtendedSelection)
         folders_layout.addWidget(self.folder_list)
-        root.addWidget(folders_group)
+        data_page = self._scroll_page("Data Sources", [meta_group, folders_group])
 
-        root.addWidget(self._build_settings_tabs())
+        output_page = self._form_page(
+            "Output",
+            [
+                ("section", "Output / Split"),
+                ("Dataset Name:", self.dataset_name),
+                (None, self.append_test_name),
+                ("Effective Name:", self.dataset_name_preview),
+                ("Validation Ratio:", self.val_ratio),
+                ("Random Seed:", self.random_seed),
+                (None, self.debug_single_trajectory),
+                (None, self.include_failed_demos),
+                ("section", "Output Type"),
+                (None, self.output_hdf5),
+                (None, self.output_images),
+                ("Locate End Fraction:", self.locate_cell_end_fraction),
+                ("Image Sampling Percentage:", self.image_sample_fraction),
+            ],
+        )
+        images_page = self._form_page(
+            "Images",
+            [
+                ("section", "Camera / Goal Conditioning"),
+                ("Image Resize:", self.image_resize),
+                (None, self.center_crop),
+                (None, self.pipette_dot),
+                ("section", "CV Coordinate Generation"),
+                (None, self.use_cv_defined_coords),
+                (None, self.cv_filter_images),
+                (None, self.cv_focus_with_detector_crop),
+                (None, self.cv_use_kalman_focus_fusion),
+            ],
+        )
+        sampling_page = self._form_page(
+            "Sampling & Events",
+            [
+                ("section", "Sampling / Cleanup"),
+                ("Frequency Mask:", self.freq_mask),
+                ("Inaction Steps:", self.inaction),
+                ("Inaction Tolerance:", self.inaction_tolerance),
+                (None, self.skip_invalid_observations),
+                ("section", "Trajectory Representation"),
+                (None, self.load_next_obs),
+                (None, self.use_velocities),
+                (None, self.omit_stage_movement),
+                ("section", "Gigaseal Trimming"),
+                (None, self.gigaseal_start_trim_enabled),
+                (None, self.gigaseal_event_window_enabled),
+                ("Gigaseal Event Radius:", self.gigaseal_event_window_radius),
+                (None, self.gigaseal_cutoff_enabled),
+                ("Gigaseal Resistance Cutoff:", self.gigaseal_cutoff_value),
+                ("section", "Break-in Trimming"),
+                (None, self.break_in_event_window_enabled),
+                ("Break-in Event Radius:", self.break_in_event_window_radius),
+                ("section", "Gigaseal Augmentation"),
+                (None, self.gigaseal_aug_enabled),
+                ("Copies per Demo:", self.gigaseal_aug_copies),
+                (None, self.gigaseal_aug_validation),
+                ("Pressure Noise Std:", self.gigaseal_aug_pressure_noise),
+                ("Pressure Offset Std:", self.gigaseal_aug_pressure_offset),
+                ("Resistance Log Noise Std:", self.gigaseal_aug_resistance_log_noise),
+                ("Sensor Stutter Probability:", self.gigaseal_aug_stutter_probability),
+                ("Sensor Stutter Max Frames:", self.gigaseal_aug_stutter_max),
+                ("Prefix Hold Probability:", self.gigaseal_aug_prefix_probability),
+                ("Prefix Hold Max Frames:", self.gigaseal_aug_prefix_max),
+                ("Timing Action Cap (0 off):", self.gigaseal_aug_counter_cap),
+                ("section", "Random Image Filtering"),
+                (None, self.enable_filter),
+                ("Filter Probability:", self.filter_prob),
+                (None, self.filter_train_only),
+                (None, self.filter_same_demo),
+            ],
+        )
+        signals_page = self._scroll_page("Signals", [selector_group])
 
         self.build_btn = QPushButton("Build Dataset")
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        root.addWidget(self.build_btn)
-        root.addWidget(self.log, 1)
+        self.build_review = QTextEdit()
+        self.build_review.setReadOnly(True)
+        build_review_page = QWidget()
+        build_review_layout = QVBoxLayout(build_review_page)
+        build_review_layout.addWidget(self._page_heading("Review & Build"))
+        build_review_layout.addWidget(QLabel("Effective settings:"))
+        build_review_layout.addWidget(self.build_review, 1)
+        build_review_layout.addWidget(self.build_btn)
+        build_review_layout.addWidget(QLabel("Build log:"))
+        build_review_layout.addWidget(self.log, 2)
+
+        hdf5_input_page = self._build_hdf5_input_page()
+        anchor_config_page = self._build_anchor_config_page()
+        anchor_review_page = self._build_anchor_review_page()
+
+        settings_template.setParent(self)
+        settings_template.hide()
+        self._pages = {
+            "Workflow": workflow_page,
+            "Data Sources": data_page,
+            "Output": output_page,
+            "Images": images_page,
+            "Sampling & Events": sampling_page,
+            "Signals": signals_page,
+            "Review & Build": build_review_page,
+            "HDF5 Input": hdf5_input_page,
+            "Calibration & Anchors": anchor_config_page,
+            "Review & Convert": anchor_review_page,
+        }
+        for page in self._pages.values():
+            self.page_stack.addWidget(page)
+        self._refresh_page_navigation()
+        self._apply_toggle_help()
+
+    def _page_heading(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet("font-size: 18px; font-weight: 700; margin-bottom: 8px;")
+        return label
+
+    def _scroll_page(self, title: str, widgets: list[QWidget]) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.addWidget(self._page_heading(title))
+        for widget in widgets:
+            layout.addWidget(widget)
+        layout.addStretch(1)
+        scroll.setWidget(content)
+        return scroll
+
+    def _form_page(self, title: str, rows: list[tuple]) -> QScrollArea:
+        group = QGroupBox(title)
+        form = QFormLayout(group)
+        for label, widget in rows:
+            if label == "section":
+                form.addRow(self._form_section(str(widget)))
+            elif label is None:
+                form.addRow(widget)
+            else:
+                form.addRow(label, widget)
+        return self._scroll_page(title, [group])
+
+    def _build_hdf5_input_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(self._page_heading("HDF5 Input"))
+        source_group = QGroupBox("Existing Dataset")
+        source_form = QFormLayout(source_group)
+        source_row = QHBoxLayout()
+        self.anchor_source_path = QLineEdit()
+        self.anchor_source_path.setReadOnly(True)
+        self.browse_anchor_source_btn = QPushButton("Load HDF5...")
+        source_row.addWidget(self.anchor_source_path, 1)
+        source_row.addWidget(self.browse_anchor_source_btn)
+        source_form.addRow("Source:", source_row)
+        self.anchor_output_path = QLineEdit()
+        self.anchor_output_path.setReadOnly(True)
+        source_form.addRow("Output:", self.anchor_output_path)
+        layout.addWidget(source_group)
+        self.anchor_inspection = QTextEdit()
+        self.anchor_inspection.setReadOnly(True)
+        layout.addWidget(self.anchor_inspection, 1)
+        return page
+
+    def _build_anchor_config_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(self._page_heading("Calibration & Anchors"))
+        calibration_group = QGroupBox("Calibration")
+        calibration_form = QFormLayout(calibration_group)
+        calibration_row = QHBoxLayout()
+        self.anchor_calibration_path = QLineEdit()
+        self.anchor_calibration_path.setReadOnly(True)
+        self.browse_anchor_calibration_btn = QPushButton("Load Calibration...")
+        calibration_row.addWidget(self.anchor_calibration_path, 1)
+        calibration_row.addWidget(self.browse_anchor_calibration_btn)
+        calibration_form.addRow("File:", calibration_row)
+        layout.addWidget(calibration_group)
+        self.edit_anchors_btn = QPushButton("Set / Edit Demonstration Anchors...")
+        self.anchor_status = QLabel("Load an HDF5 file to begin.")
+        self.anchor_status.setWordWrap(True)
+        layout.addWidget(self.edit_anchors_btn)
+        layout.addWidget(self.anchor_status)
+        layout.addStretch(1)
+        return page
+
+    def _build_anchor_review_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(self._page_heading("Review & Convert"))
+        self.anchor_review = QTextEdit()
+        self.anchor_review.setReadOnly(True)
+        self.anchor_progress = QProgressBar()
+        self.anchor_progress.setRange(0, 1)
+        self.anchor_progress.setValue(0)
+        button_row = QHBoxLayout()
+        self.convert_anchor_btn = QPushButton("Create Anchored HDF5")
+        self.cancel_anchor_btn = QPushButton("Cancel")
+        self.cancel_anchor_btn.setEnabled(False)
+        button_row.addWidget(self.convert_anchor_btn)
+        button_row.addWidget(self.cancel_anchor_btn)
+        self.anchor_log = QTextEdit()
+        self.anchor_log.setReadOnly(True)
+        layout.addWidget(self.anchor_review, 1)
+        layout.addWidget(self.anchor_progress)
+        layout.addLayout(button_row)
+        layout.addWidget(self.anchor_log, 1)
+        return page
 
     def _form_section(self, text: str) -> QLabel:
         label = QLabel(text)
         label.setStyleSheet("font-weight: 600; margin-top: 8px; color: #333;")
         return label
-
-    def _build_settings_tabs(self) -> QTabWidget:
-        tabs = QTabWidget()
-        tabs.addTab(self._build_settings_group(), "Build")
-        tabs.addTab(self._build_selector_group(), "Signals")
-        return tabs
 
     def _build_settings_group(self) -> QGroupBox:
         g = QGroupBox("Dataset / Build Settings")
@@ -439,6 +691,10 @@ class DatasetBuilderGUI(QWidget):
         self.obs_stage.setChecked(True)
         self.obs_pipette = QCheckBox("Pipette Position")
         self.obs_pipette.setChecked(True)
+        self.use_synthetic_position_anchor = QCheckBox("Synthetic Zero Position Anchor")
+        self.use_synthetic_position_anchor.setToolTip(
+            "Subtract each demonstration's first stage and pipette positions from all subsequent coordinates."
+        )
         self.obs_camera = QCheckBox("Camera Image")
         self.obs_camera.setChecked(True)
         self.obs_gigaseal_pressure_state = QCheckBox("Gigaseal/Break-in Pressure State")
@@ -483,24 +739,25 @@ class DatasetBuilderGUI(QWidget):
         obs_grid.addWidget(self.obs_stage, 1, 1)
         obs_grid.addWidget(self.obs_pipette, 1, 2)
         obs_grid.addWidget(self.obs_camera, 1, 3)
-        obs_grid.addWidget(self.obs_gigaseal_pressure_state, 2, 0, 1, 2)
-        obs_grid.addWidget(self.obs_gigaseal_effective_pressure, 2, 2, 1, 2)
-        obs_grid.addWidget(self.obs_gigaseal_time_since_action, 3, 0, 1, 2)
-        obs_grid.addWidget(self.obs_gigaseal_resistance_input, 4, 0, 1, 2)
-        obs_grid.addWidget(QLabel("Resistance Window:"), 4, 2)
-        obs_grid.addWidget(self.resistance_input_window_spin, 4, 3)
-        obs_grid.addWidget(QLabel("Slope Window:"), 5, 0)
-        obs_grid.addWidget(self.slope_window_spin, 5, 1)
+        obs_grid.addWidget(self.use_synthetic_position_anchor, 2, 0, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_pressure_state, 3, 0, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_effective_pressure, 3, 2, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_time_since_action, 4, 0, 1, 2)
+        obs_grid.addWidget(self.obs_gigaseal_resistance_input, 5, 0, 1, 2)
+        obs_grid.addWidget(QLabel("Resistance Window:"), 5, 2)
+        obs_grid.addWidget(self.resistance_input_window_spin, 5, 3)
+        obs_grid.addWidget(QLabel("Slope Window:"), 6, 0)
+        obs_grid.addWidget(self.slope_window_spin, 6, 1)
 
-        obs_grid.addWidget(QLabel("Stage Axes:"), 6, 0)
-        obs_grid.addWidget(self.obs_stage_x, 6, 1)
-        obs_grid.addWidget(self.obs_stage_y, 6, 2)
-        obs_grid.addWidget(self.obs_stage_z, 6, 3)
+        obs_grid.addWidget(QLabel("Stage Axes:"), 7, 0)
+        obs_grid.addWidget(self.obs_stage_x, 7, 1)
+        obs_grid.addWidget(self.obs_stage_y, 7, 2)
+        obs_grid.addWidget(self.obs_stage_z, 7, 3)
 
-        obs_grid.addWidget(QLabel("Pipette Axes:"), 7, 0)
-        obs_grid.addWidget(self.obs_pip_x, 7, 1)
-        obs_grid.addWidget(self.obs_pip_y, 7, 2)
-        obs_grid.addWidget(self.obs_pip_z, 7, 3)
+        obs_grid.addWidget(QLabel("Pipette Axes:"), 8, 0)
+        obs_grid.addWidget(self.obs_pip_x, 8, 1)
+        obs_grid.addWidget(self.obs_pip_y, 8, 2)
+        obs_grid.addWidget(self.obs_pip_z, 8, 3)
 
         act_box = QGroupBox("Actions")
         act_grid = QGridLayout(act_box)
@@ -569,6 +826,376 @@ class DatasetBuilderGUI(QWidget):
         root.addWidget(act_box)
         return g
 
+    def _refresh_page_navigation(self) -> None:
+        item = self.page_list.currentItem()
+        current = item.data(Qt.UserRole) if item is not None else None
+        if self.workflow_anchor.isChecked():
+            names = ["Workflow", "HDF5 Input", "Calibration & Anchors", "Review & Convert"]
+        else:
+            names = ["Workflow", "Data Sources", "Output", "Images", "Sampling & Events", "Signals", "Review & Build"]
+        self.page_list.blockSignals(True)
+        self.page_list.clear()
+        for name in names:
+            page_item = QListWidgetItem(name)
+            page_item.setData(Qt.UserRole, name)
+            self.page_list.addItem(page_item)
+        selected = names.index(current) if current in names else 0
+        self.page_list.setCurrentRow(selected)
+        self.page_list.blockSignals(False)
+        self._show_page(selected)
+
+    def _show_page(self, row: int) -> None:
+        item = self.page_list.item(row)
+        if item is None:
+            return
+        name = item.data(Qt.UserRole)
+        self.page_stack.setCurrentWidget(self._pages[name])
+        if name == "Review & Build":
+            self._update_build_review()
+        elif name == "Review & Convert":
+            self._update_anchor_review()
+
+    def _select_page(self, name: str) -> None:
+        for row in range(self.page_list.count()):
+            if self.page_list.item(row).data(Qt.UserRole) == name:
+                self.page_list.setCurrentRow(row)
+                return
+
+    def _update_build_review(self) -> None:
+        folders = [str(value) for value in self._selected_folders() if isinstance(value, str)]
+        lines = [
+            f"Dataset: {self._effective_dataset_name(self.dataset_name.text())}",
+            f"Output: {'Image folder' if self.output_images.isChecked() else 'HDF5'}",
+            f"Folders: {len(folders)}",
+        ]
+        lines.extend(f"  • {folder}" for folder in folders)
+        lines.extend([
+            f"Validation ratio: {self.val_ratio.value():g}",
+            f"Image size: {self.image_resize.value()} × {self.image_resize.value()}",
+            f"CV coordinates: {'enabled' if self.use_cv_defined_coords.isChecked() else 'disabled'}",
+        ])
+        self.build_review.setPlainText("\n".join(lines))
+
+    def _apply_toggle_help(self) -> None:
+        definitions = {
+            "workflow_build": "Build a new dataset from selected raw rig-recorder folders. All existing sampling and signal settings apply.",
+            "workflow_anchor": "Load a completed HDF5, label retained pipette-tip frames, and create a separate _anchored HDF5.",
+            "output_hdf5": "Write demonstrations, observations, actions, masks, and metadata to HDF5 files.",
+            "gigaseal_aug_validation": "Also create augmented copies in the validation split; normally augmentation is training-only.",
+            "load_next_obs": "Write next_obs datasets by shifting each selected observation one row forward for goal-conditioned training.",
+            "omit_stage_movement": "Exclude attempts containing nonzero stage movement from the built dataset.",
+            "center_crop": "Center-crop each camera frame to half its width and height before resizing it for the dataset.",
+            "enable_filter": "Apply the configured random image augmentation pipeline while loading dataset camera frames.",
+            "filter_train_only": "Apply random image filters only to training demonstrations and leave validation images unchanged.",
+            "filter_same_demo": "Replay one sampled image filter consistently across every frame in a demonstration.",
+            "obs_pressure": "Include measured pressure as an observation value.",
+            "obs_resistance": "Include measured seal resistance as an observation value.",
+            "obs_current": "Include the recorded current waveform as an observation.",
+            "obs_voltage": "Include the recorded voltage waveform as an observation.",
+            "obs_stage": "Include the selected stage position axes as observations.",
+            "obs_pipette": "Include the selected pipette position axes as observations.",
+            "use_synthetic_position_anchor": "Subtract each demonstration's first stage and pipette positions from every coordinate row so each trajectory starts at zero.",
+            "obs_camera": "Include resized camera images in each demonstration's observations.",
+            "act_stage": "Include movement deltas or velocities for the selected stage axes in actions.",
+            "act_pipette": "Include movement deltas or velocities for the selected pipette axes in actions.",
+        }
+        named_widgets = {id(value): name for name, value in vars(self).items() if isinstance(value, (QCheckBox, QRadioButton))}
+        toggles = self.findChildren(QCheckBox) + self.findChildren(QRadioButton)
+        for widget in toggles:
+            name = named_widgets.get(id(widget), "")
+            behavior = widget.toolTip().strip() or definitions.get(name, "")
+            if not behavior and ("stage_" in name or "pip_" in name):
+                kind = "observation" if name.startswith("obs_") else "action"
+                behavior = f"Include {widget.text()} in the {kind}."
+            if not behavior:
+                behavior = f"Enable or disable the {widget.text()} dataset setting."
+
+            if name.startswith("obs_"):
+                affected = "The named observation dataset in every generated demonstration."
+            elif name.startswith("act_") or name == "use_velocities":
+                affected = "The actions dataset in every generated demonstration."
+            elif name.startswith("workflow_"):
+                affected = "The available Dataset Builder pages and active workflow only."
+            elif name.startswith("output_"):
+                affected = "The generated dataset artifact and its companion metadata."
+            elif name.startswith("cv_") or name == "use_cv_defined_coords":
+                affected = "Generated CV movement coordinates and, where stated, source camera images."
+            elif name.startswith("filter_") or name == "enable_filter":
+                affected = "Camera observations selected for random image augmentation."
+            elif name.startswith("gigaseal_aug"):
+                affected = "Synthetic gigaseal demonstrations and their selected signals."
+            else:
+                affected = "Raw-build sampling, trimming, image, split, or naming behavior as described."
+
+            if "pressure" in name:
+                units = "Pressure values are mbar; boolean state or command columns are dimensionless."
+            elif "resistance" in name:
+                units = "Resistance values use the source dataset's resistance units."
+            elif "stage_" in name or "pip_" in name or name in {"obs_stage", "obs_pipette", "act_stage", "act_pipette"}:
+                units = "Raw builds keep source units; anchored X/Y is pixels and anchored Z remains µm."
+            elif name in {"obs_camera", "center_crop", "pipette_dot"} or name.startswith("cv_") or name.startswith("filter_") or name == "enable_filter":
+                units = "Image geometry is measured in stored-image pixels; image samples are otherwise unitless."
+            else:
+                units = "This toggle is dimensionless; numeric companion controls retain their displayed units."
+
+            dependency = "No additional toggle dependency."
+            if name.startswith("obs_stage_"):
+                dependency = "Requires Stage Position observation to be enabled."
+            elif name.startswith("obs_pip_"):
+                dependency = "Requires Pipette Position observation to be enabled."
+            elif name.startswith("act_stage_"):
+                dependency = "Requires Stage Movement action to be enabled."
+            elif name.startswith("act_pip_"):
+                dependency = "Requires Pipette Movement action to be enabled."
+            elif name.startswith("cv_"):
+                dependency = "Requires CV-defined coordinates to be enabled."
+            elif name.startswith("filter_"):
+                dependency = "Requires random image filtering to be enabled."
+            elif name.startswith("gigaseal_aug_") and name != "gigaseal_aug_enabled":
+                dependency = "Requires gigaseal augmentation to be enabled."
+            elif name == "gigaseal_cutoff_enabled":
+                dependency = "Enables the gigaseal resistance-cutoff value control."
+            elif name == "gigaseal_event_window_enabled":
+                dependency = "Enables the gigaseal event-window radius control."
+            elif name == "break_in_event_window_enabled":
+                dependency = "Enables the break-in event-window radius control."
+            elif name == "debug_single_trajectory":
+                dependency = "Uses Random Seed and ignores Validation Ratio after selecting one demonstration."
+            elif name == "use_synthetic_position_anchor":
+                dependency = "Applies only to enabled Stage Position and Pipette Position observations."
+
+            exclusion = "Can be combined with other compatible settings."
+            if name in {"workflow_build", "workflow_anchor"}:
+                exclusion = "Mutually exclusive with the other workflow choice."
+            elif name in {"output_hdf5", "output_images"}:
+                exclusion = "Mutually exclusive with the other output type."
+            elif name in {"act_gigaseal_combined_pressure", "act_gigaseal_binary_pressure"}:
+                exclusion = "Mutually exclusive with the other gigaseal pressure representation."
+
+            definition = (
+                f"Behavior: {behavior}\n"
+                f"Affected data: {affected}\n"
+                f"Units: {units}\n"
+                f"Dependencies: {dependency}\n"
+                f"Mutual exclusions: {exclusion}"
+            )
+            widget.setToolTip(definition)
+            widget.setAccessibleDescription(definition)
+            widget.setStatusTip(definition)
+
+    def browse_anchor_source(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Load Existing HDF5", str(REPO_ROOT / "experiments" / "Datasets"), "HDF5 Files (*.hdf5 *.h5)")
+        if path:
+            self.anchor_source_path.setText(str(Path(path).resolve()))
+            self._inspect_anchor_source()
+
+    def _inspect_anchor_source(self) -> None:
+        source = self.anchor_source_path.text().strip()
+        if not source:
+            self.anchor_inspection.clear()
+            self.anchor_output_path.clear()
+            return
+        inspection = inspect_hdf5(source)
+        try:
+            self.anchor_output_path.setText(str(derive_output_path(source)))
+        except AnchorConversionError:
+            self.anchor_output_path.clear()
+        lines = [
+            f"Demonstrations: {len(inspection.demo_keys)}",
+            f"Splits: {dict(inspection.split_counts)}",
+            f"Observation keys: {', '.join(inspection.observation_keys) or 'none'}",
+            f"Camera shape: {inspection.camera_shape}",
+            f"Pipette axes: {inspection.pipette_axes}",
+            f"Stage axes: {inspection.stage_axes}",
+            f"Action axes: {inspection.action_axes}",
+            f"Action representation: {inspection.action_representation or 'unknown'}",
+            f"Next observations: {'yes' if inspection.has_next_obs else 'no'}",
+            f"Already anchored: {'yes' if inspection.anchored else 'no'}",
+        ]
+        if inspection.errors:
+            lines.append("\nValidation errors:")
+            lines.extend(f"  • {error}" for error in inspection.errors)
+        else:
+            lines.append("\nSource schema is ready for anchor selection.")
+        self.anchor_inspection.setPlainText("\n".join(lines))
+        self._refresh_anchor_status()
+
+    def browse_anchor_calibration(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Load Calibration", str(REPO_ROOT / "experiments" / "Data" / "Calibration_data"), "Calibration Files (*.json *.pickle *.pkl);;All Files (*)")
+        if path:
+            self.anchor_calibration_path.setText(str(Path(path).resolve()))
+            self._refresh_anchor_status()
+
+    def edit_hdf5_anchors(self) -> None:
+        source = self.anchor_source_path.text().strip()
+        if not source:
+            self._select_page("HDF5 Input")
+            QMessageBox.warning(self, "HDF5 input", "Load a valid HDF5 file first.")
+            return
+        try:
+            HDF5AnchorDialog(source, self).exec_()
+        except Exception as exc:
+            QMessageBox.critical(self, "Anchor editor", str(exc))
+        self._refresh_anchor_status()
+
+    def _refresh_anchor_status(self) -> None:
+        source = self.anchor_source_path.text().strip()
+        if not source:
+            self.anchor_status.setText("Load an HDF5 file to begin.")
+            return
+        inspection = inspect_hdf5(source)
+        try:
+            anchors = load_anchor_sidecar(source)
+            anchor_error = ""
+        except (AnchorConversionError, OSError) as exc:
+            anchors, anchor_error = {}, str(exc)
+        complete = sum(1 for key in inspection.demo_keys if key in anchors)
+        status = f"Anchors: {complete}/{len(inspection.demo_keys)} complete."
+        if anchor_error:
+            status += f" Sidecar error: {anchor_error}"
+        if inspection.errors:
+            status += " Source validation must be resolved."
+        if not self.anchor_calibration_path.text().strip():
+            status += " Select a calibration file."
+        self.anchor_status.setText(status)
+        self._update_anchor_review()
+
+    def _update_anchor_review(self) -> None:
+        source = self.anchor_source_path.text().strip()
+        calibration = self.anchor_calibration_path.text().strip()
+        if not source:
+            self.anchor_review.setPlainText("Load an HDF5 file on the HDF5 Input page.")
+            return
+        inspection = inspect_hdf5(source)
+        try:
+            anchors, anchor_error = load_anchor_sidecar(source), None
+        except (AnchorConversionError, OSError) as exc:
+            anchors, anchor_error = {}, str(exc)
+        missing = [key for key in inspection.demo_keys if key not in anchors]
+        complete = sum(1 for key in inspection.demo_keys if key in anchors)
+        lines = [f"Source: {source}", f"Output: {self.anchor_output_path.text().strip()}", f"Calibration: {calibration or 'not selected'}", f"Anchors: {complete}/{len(inspection.demo_keys)}"]
+        if missing:
+            lines.append(f"Missing: {', '.join(missing[:12])}{' ...' if len(missing) > 12 else ''}")
+        if anchor_error:
+            lines.append(f"Sidecar error: {anchor_error}")
+        if inspection.errors:
+            lines.append("Validation errors:")
+            lines.extend(f"  • {error}" for error in inspection.errors)
+        self.anchor_review.setPlainText("\n".join(lines))
+
+    def start_anchor_conversion(self) -> None:
+        source = self.anchor_source_path.text().strip()
+        calibration = self.anchor_calibration_path.text().strip()
+        if not source:
+            self._select_page("HDF5 Input")
+            QMessageBox.warning(self, "HDF5 input", "Load an HDF5 file first.")
+            return
+        inspection = inspect_hdf5(source)
+        if inspection.errors:
+            self._select_page("HDF5 Input")
+            QMessageBox.warning(self, "Invalid HDF5", "\n".join(inspection.errors))
+            return
+        if not calibration:
+            self._select_page("Calibration & Anchors")
+            QMessageBox.warning(self, "Calibration", "Select a calibration file.")
+            return
+        try:
+            output_path = derive_output_path(source)
+            metadata_path = derive_metadata_path(source)
+            load_calibration(calibration)
+        except AnchorConversionError as exc:
+            self._select_page("Calibration & Anchors")
+            QMessageBox.warning(self, "Calibration", str(exc))
+            return
+        existing_targets = [path for path in (output_path, metadata_path) if path.exists()]
+        if existing_targets:
+            self._select_page("HDF5 Input")
+            QMessageBox.warning(
+                self,
+                "Anchored output exists",
+                "Conversion will not overwrite an existing target:\n"
+                + "\n".join(str(path) for path in existing_targets),
+            )
+            return
+        try:
+            anchors = load_anchor_sidecar(source)
+        except (AnchorConversionError, OSError) as exc:
+            self._select_page("Calibration & Anchors")
+            QMessageBox.warning(self, "Anchors", str(exc))
+            return
+        missing = [key for key in inspection.demo_keys if key not in anchors]
+        if missing:
+            self._select_page("Calibration & Anchors")
+            QMessageBox.warning(self, "Anchors", f"Missing anchors for {len(missing)} demonstrations.")
+            return
+        self._set_conversion_busy(True)
+        self.anchor_log.append("Starting safe HDF5 copy and anchor conversion...")
+        self._anchor_thread = QThread(self)
+        self._anchor_worker = AnchorConversionWorker(source, calibration, anchors)
+        self._anchor_worker.moveToThread(self._anchor_thread)
+        self._anchor_thread.started.connect(self._anchor_worker.run)
+        self._anchor_worker.progress.connect(self._on_anchor_progress)
+        self._anchor_worker.finished.connect(self._on_anchor_finished)
+        self._anchor_worker.failed.connect(self._on_anchor_failed)
+        self._anchor_worker.finished.connect(self._anchor_thread.quit)
+        self._anchor_worker.failed.connect(self._anchor_thread.quit)
+        self._anchor_thread.finished.connect(self._anchor_worker.deleteLater)
+        self._anchor_thread.finished.connect(self._anchor_thread.deleteLater)
+        self._anchor_thread.start()
+
+    def cancel_anchor_conversion(self) -> None:
+        worker = getattr(self, "_anchor_worker", None)
+        if worker is not None:
+            worker.cancel_requested = True
+            self.cancel_anchor_btn.setEnabled(False)
+            self.anchor_log.append("Cancellation requested; the current safe step will finish first.")
+
+    def _set_conversion_busy(self, busy: bool) -> None:
+        self.page_list.setEnabled(not busy)
+        self.workflow_build.setEnabled(not busy)
+        self.workflow_anchor.setEnabled(not busy)
+        self.convert_anchor_btn.setEnabled(not busy)
+        self.cancel_anchor_btn.setEnabled(busy)
+
+    def _on_anchor_progress(self, current: int, total: int, label: str) -> None:
+        self.anchor_progress.setRange(0, max(1, total))
+        self.anchor_progress.setValue(current)
+        self.anchor_progress.setFormat(f"{label} — {current}/{total}")
+
+    def _on_anchor_finished(self, output: str) -> None:
+        self._set_conversion_busy(False)
+        self.anchor_log.append(f"Anchored dataset created: {output}")
+        QMessageBox.information(self, "Anchoring complete", f"Created:\n{output}")
+
+    def _on_anchor_failed(self, details: str) -> None:
+        self._set_conversion_busy(False)
+        self.anchor_log.append(details)
+        message = details.strip().splitlines()[-1] if details.strip() else "Unknown conversion error"
+        display_message = message.split(": ", 1)[-1]
+        lower_message = display_message.lower()
+        if "cancelled" in lower_message:
+            QMessageBox.information(self, "Anchoring cancelled", "No anchored output was published.")
+            return
+        if any(token in lower_message for token in ("calibration", ".m", "matrix", "anchor")):
+            self._select_page("Calibration & Anchors")
+        elif any(token in lower_message for token in ("axis", "obs/", "actions", "hdf5")):
+            self._select_page("HDF5 Input")
+        QMessageBox.critical(self, "Anchoring failed", display_message)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        thread = getattr(self, "_anchor_thread", None)
+        if thread is not None and thread.isRunning():
+            self.cancel_anchor_conversion()
+            QMessageBox.warning(
+                self,
+                "Conversion running",
+                "Cancellation was requested. Wait for the current safe step to finish "
+                "before closing the Dataset Builder.",
+            )
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def _connect(self) -> None:
         self.load_metadata_btn.clicked.connect(self.load_metadata)
         self.browse_root_btn.clicked.connect(self.browse_root)
@@ -578,6 +1205,14 @@ class DatasetBuilderGUI(QWidget):
         self.remove_folder_btn.clicked.connect(self.remove_selected)
         self.clear_folders_btn.clicked.connect(self.folder_list.clear)
         self.build_btn.clicked.connect(self.build_dataset)
+        self.page_list.currentRowChanged.connect(self._show_page)
+        self.workflow_build.toggled.connect(self._refresh_page_navigation)
+        self.workflow_anchor.toggled.connect(self._refresh_page_navigation)
+        self.browse_anchor_source_btn.clicked.connect(self.browse_anchor_source)
+        self.browse_anchor_calibration_btn.clicked.connect(self.browse_anchor_calibration)
+        self.edit_anchors_btn.clicked.connect(self.edit_hdf5_anchors)
+        self.convert_anchor_btn.clicked.connect(self.start_anchor_conversion)
+        self.cancel_anchor_btn.clicked.connect(self.cancel_anchor_conversion)
 
         self.dataset_name.textChanged.connect(self._update_dataset_name_preview)
         self.append_test_name.toggled.connect(self._update_dataset_name_preview)
@@ -1027,6 +1662,10 @@ class DatasetBuilderGUI(QWidget):
             )
             self._set_axis(self.obs_stage_x, self.obs_stage_y, self.obs_stage_z, ocfg.get("stage_axes"), "stage")
             self._set_axis(self.obs_pip_x, self.obs_pip_y, self.obs_pip_z, ocfg.get("pipette_axes"), "pipette")
+        self._set_if(
+            self.use_synthetic_position_anchor,
+            settings.get("use_synthetic_position_anchor"),
+        )
         if isinstance(acfg, dict):
             self._set_if(self.act_stage, acfg.get("include_stage"))
             self._set_if(self.act_pipette, acfg.get("include_pipette"))
@@ -1116,6 +1755,7 @@ class DatasetBuilderGUI(QWidget):
             load_next_obs=self.load_next_obs.isChecked(),
             use_velocities=self.use_velocities.isChecked(),
             prefer_cv_movement=self.use_cv_defined_coords.isChecked(),
+            use_synthetic_position_anchor=self.use_synthetic_position_anchor.isChecked(),
             filter=FilterSettings(
                 enable_random_filter=self.enable_filter.isChecked(),
                 image_filter_prob=float(self.filter_prob.value()),
@@ -1221,9 +1861,11 @@ class DatasetBuilderGUI(QWidget):
     def build_dataset(self) -> None:
         folders = [f for f in self._selected_folders() if isinstance(f, str)]
         if not folders:
+            self._select_page("Data Sources")
             QMessageBox.warning(self, "No folders", "Import at least one folder.")
             return
         if not self.dataset_name.text().strip():
+            self._select_page("Output")
             QMessageBox.warning(self, "Dataset name", "Dataset name is required.")
             return
 
@@ -1231,6 +1873,7 @@ class DatasetBuilderGUI(QWidget):
             kwargs = self._collect_kwargs()
         except Exception as exc:
             self._append(str(exc))
+            self._select_page("Sampling & Events")
             QMessageBox.warning(self, "Builder settings", str(exc))
             return
         self._append(f"Building dataset: {kwargs['dataset_name']}")
