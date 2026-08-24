@@ -31,6 +31,7 @@ class StateMachineLogger:
     AGENT = 2
     TRAINING = 3
     NOMODE = 4
+    ADAPTIVE = 5
 
 
     # ---------- class-level session storage ---------- #
@@ -78,7 +79,8 @@ class StateMachineLogger:
         state        : str
             Name of the state being entered.
         system_mode  : int | None
-            One of the CLASSIC / MANUAL / AGENT / TRAINING / NOMODE codes.
+            One of the CLASSIC / MANUAL / AGENT / TRAINING / ADAPTIVE /
+            NOMODE codes.
             If None, NOMODE is stored.
         """
         if system_mode is None:
@@ -164,6 +166,7 @@ def record_state(state_name: str):
                 "Manual":  StateMachineLogger.MANUAL,
                 "Agent":   StateMachineLogger.AGENT,
                 "Training": StateMachineLogger.TRAINING,
+                'Adaptive': StateMachineLogger.ADAPTIVE,
             }
             mode_code = mode_map.get(mode_str, StateMachineLogger.NOMODE)
 

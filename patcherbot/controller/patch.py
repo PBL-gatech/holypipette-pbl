@@ -146,6 +146,8 @@ class AutoPatcher(TaskController):
         # Only load the agent policy when running in Agent mode.
         if self.config.mode == 'Agent':
             self.agenthelper.prepare_model("find_pipette", allow_goal_placeholders=True)
+        elif self.config.mode == 'Adaptive':
+            self.info('Adaptive mode detected; skipping agent model load for find_pipette')
         else:
             self.info("Classic/Manual/Training mode detected; skipping agent model load for find_pipette")
         max_sleep_time = 0.005  # seconds (slowest polling)
@@ -266,10 +268,59 @@ class AutoPatcher(TaskController):
             curr_point = tuple(float(coord) for coord in curr_array)
             curr_point_np = np.asarray(curr_point, dtype=float)
             camera = self.calibrated_stage.camera
+            adaptive_mode = self.config.mode == 'Adaptive'
             should_act = self.config.mode == 'Agent'
             z_weight = 1.0
             tol_um = 2.0
             px_per_um = self.calibrated_unit.pixel_per_um()
+
+            if adaptive_mode:
+                xgerr_px = goal_error_target[0] - curr_point_np[0]
+                ygerr_px = goal_error_target[1] - curr_point_np[1]
+                zerr_um = -curr_point_np[2]  # drive defocus to 0
+
+                dx_um = xgerr_px / px_per_um[0] if px_per_um and px_per_um[0] else np.nan
+                dy_um = ygerr_px / px_per_um[1] if px_per_um and px_per_um[1] else np.nan
+                gerr_um = float(np.sqrt((dx_um ** 2 + dy_um ** 2 + z_weight * (zerr_um ** 2)) / (2 + z_weight)))
+                self.info(f' Goal error (um):{gerr_um}')
+
+                if goal_needed and camera is not None:
+                    camera.show_circle(
+                        point=goal_display_tuple,
+                        color=(255, 255, 255),
+                        show_center=False,
+                    )
+
+                if gerr_um <= tol_um:
+                    self.info('Pipette found')
+                    self.calibrated_unit.stop()
+                    if self.config.mode == 'Training':
+                        self.info('Training mode: goal condition reached. Click Success or Abort to finish.')
+                        while True:
+                            self.sleep(0.1)
+                    self.success_requested = True
+                    self.success_if_requested()
+
+                action = None
+                target_point = None
+                err = None
+                act_start = time.perf_counter()
+                xy_um = self.calibrated_unit.pixels_to_um_relative([xgerr_px, ygerr_px, 0])
+                # target_um = self.calibrated_unit.position() + np.array([xy_um[0], xy_um[1], zerr_um])
+                # self.calibrated_unit.absolute_move(target_um.tolist())
+                # self.calibrated_unit.wait_until_still()
+                move_um = np.array([xy_um[0], xy_um[1], zerr_um], dtype=float)
+                move_distance_um = float(np.linalg.norm(move_um))
+                if move_distance_um > 0:
+                    if use_non_agent_relative_move:
+                        self.calibrated_unit.relative_move_group(move_um.tolist())
+                        self.calibrated_unit.wait_until_still()
+                    else:
+                        velocity = self.calibrated_unit.velocity_position_control(move_um, command_speed_um_s)
+                        velocity_command_local = -np.asarray(velocity, dtype=float)
+                        self.calibrated_unit.absolute_move_group_velocity(velocity_command_local.tolist())
+                self.sleep(_adaptive_sleep_time(gerr_um, tol_um))
+                continue
 
             if not should_act:
                 xgerr_px = goal_error_target[0] - curr_point_np[0]
@@ -955,6 +1006,12 @@ class AutoPatcher(TaskController):
             self.calibrated_unit.absolute_move_group_velocity(speed)
             self.info(f"moving pipette at: {speed} um/s")
             autoHunt=True
+        elif self.config.mode == 'Adaptive':
+            speed = [0, 0, self.config.max_descent_speed]
+
+            self.calibrated_unit.absolute_move_group_velocity(speed)
+            self.info(f'moving pipette at: {speed} um/s')
+            autoHunt=True
         elif self.config.mode == 'Agent':
             #prepare model
             # cell_pos, cell_img,goal_pos = cell
@@ -1193,6 +1250,7 @@ class AutoPatcher(TaskController):
         false positives from transient spikes.
         """
         autoPressure = (self.config.mode == 'Classic')
+        adaptivePressure = (self.config.mode == 'Adaptive')
         agentPressure = (self.config.mode == 'Agent')
         agent_resistance_input_width = 0
         agent_resistance_history = collections.deque(maxlen=1)
@@ -1224,6 +1282,15 @@ class AutoPatcher(TaskController):
         self.sleep(3)
 
         if autoPressure:
+            currPressure = -5
+            self.pressure.set_pressure(currPressure)
+            self.pressure.set_ATM(atm=False)
+            prevpressure = currPressure
+            speed = 1
+            bad_cell_count = 0
+            # this is already negative, e.g. -30 mbar
+            max_pressure = self.config.pressure_ramp_max
+        elif adaptivePressure:
             currPressure = -5
             self.pressure.set_pressure(currPressure)
             self.pressure.set_ATM(atm=False)
@@ -1355,6 +1422,48 @@ class AutoPatcher(TaskController):
                     currPressure = -5
                     self.pressure.set_pressure(currPressure)
                     self.pressure.set_ATM(atm=False)
+            elif adaptivePressure:
+                # adjust currPressure by ±5 based on rate_mohm_per_sec, speed, etc.
+                increase_gate = self.config.increase_slope_gate
+                constant_gate = self.config.constant_slope_gate
+                decrease_gate = self.config.decrease_slope_gate
+
+                increase_thresh = self.config.gigaseal_R / increase_gate
+                constant_thresh = self.config.gigaseal_R / constant_gate
+                decrease_thresh = self.config.gigaseal_R / decrease_gate
+
+                if rate_mohm_per_sec < increase_thresh:
+                    currPressure -= 5; speed = 3; max_pressure = self.config.pressure_ramp_max
+                elif rate_mohm_per_sec <= constant_thresh:
+                    speed = 1  # maintain
+                elif rate_mohm_per_sec <= decrease_thresh:
+                    max_pressure = self.config.pressure_ramp_max; currPressure += 5; speed = 3
+
+                currPressure = min(currPressure, -5.0)
+                currPressure = max(currPressure, self.config.pressure_ramp_max)
+
+                if currPressure != prevpressure:
+                    self.pressure.set_pressure(currPressure)
+                    prevpressure = currPressure
+                    self.sleep(5 / speed)
+
+                if currPressure <= max_pressure:
+                    self.pressure.set_ATM(True)
+                    self.sleep(5)
+                    testresistance = self.resistanceRamp(
+                        num_measurements=num_slope_samples,
+                        interval=sample_interval,
+                    )
+                    difference = testresistance - avg_resistance
+                    self.info(f'Test resistance: {testresistance} MΩ; difference: {difference} MΩ')
+                    if difference < 0:
+                        bad_cell_count += 1
+                        if bad_cell_count > 5:
+                            raise AutopatchError('Bad cell detected')
+
+                    currPressure = -5
+                    self.pressure.set_pressure(currPressure)
+                    self.pressure.set_ATM(atm=False)
             # ---------------------------------------------------------------
 
             # Holding potential switch
@@ -1401,6 +1510,7 @@ class AutoPatcher(TaskController):
         # ---------- initial setup (unchanged) ----------
         self.daq.setCellMode(True)
         autoPressure = (self.config.mode == 'Classic')
+        adaptivePressure = (self.config.mode == 'Adaptive')
         agentMode = (self.config.mode == 'Agent')
         agent_resistance_input_width = 0
         agent_resistance_history = deque(maxlen=1)
@@ -1529,6 +1639,27 @@ class AutoPatcher(TaskController):
 
                 self.sleep(1)
 
+            elif adaptivePressure:
+                # ---------- Adaptive mode: cloned heuristic pressure pulsing + periodic zap ----------
+                trials += 1
+                self.debug(f'Trial: {trials}')
+
+                speedosc = trials % 5
+                if speedosc == 0:
+                    speed = 2*self.config.pulse_pressure_duration
+                self.pressure.set_ATM(atm=False)
+                self.sleep(1 / speed)
+                self.pressure.set_ATM(atm=True)
+                self.sleep(wait_period*(1 + trials/2))
+
+                osc = trials % 3
+                if self.config.zap and osc == 0:
+                    self.info('zapping')
+                    self.amplifier.zap(); self.sleep(0.5)
+                    self.amplifier.zap(); self.sleep(0.5)
+
+                self.sleep(1)
+
             # slow ramps (only if previous access-R was "bad")
             measuredResistance  = self.resistanceRamp()
             measuredCapacitance = self.capacitanceRamp()
@@ -1542,6 +1673,16 @@ class AutoPatcher(TaskController):
                 if trials > 15:
                     self.info("Break-in failed")
                     raise AutopatchError("Break-in failed")
+
+            elif adaptivePressure:
+                self.info(
+                    f'Trial {trials}: Running Avg Membrane Resistance: '
+                    f'{measuredResistance}; Membrane Capacitance: '
+                    f'{measuredCapacitance}, Access Resistance: {r_ax}')
+
+                if trials > 15:
+                    self.info('Break-in failed')
+                    raise AutopatchError('Break-in failed')
 
         # ---------- success ----------
         self.pressure.set_pressure(0)
