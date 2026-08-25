@@ -414,6 +414,7 @@ class CameraGui(QtWidgets.QMainWindow):
     camera_reset_signal = QtCore.pyqtSignal(TaskController)
     aux_camera_signal = QtCore.pyqtSignal(MethodType, object)
     aux_camera_reset_signal = QtCore.pyqtSignal(TaskController)
+    snapshot_captured = QtCore.pyqtSignal(object)
 
 
     def __init__(self, camera, aux_camera=None, recording_state_manager=None,
@@ -636,7 +637,13 @@ class CameraGui(QtWidgets.QMainWindow):
     def snap_active_camera_image(self):
         if self.active_interface is None:
             return
-        self.active_interface.snap_image()
+        snapshot = self.active_interface.snap_image()
+        if snapshot is None:
+            return
+        snapshot = dict(snapshot)
+        snapshot["camera_role"] = self.active_camera_role
+        self.snapshot_captured.emit(snapshot)
+        return snapshot
 
     def handle_autonormalize_change(self, state):
         if self.active_interface is None:
@@ -1161,11 +1168,12 @@ class CameraGui(QtWidgets.QMainWindow):
         else:
             self.config_button.setChecked(True)
 
-    def add_config_gui(self, config):
+    def add_config_gui(self, config, gui_class=None):
         logging.debug('Adding config GUI for {}'.format(config.name))
-        config_gui = ConfigGui(config)
+        config_gui = ConfigGui(config) if gui_class is None else gui_class(config)
         self.config_tab.addTab(config_gui, config.name)
         logging.debug('Config GUI added')
+        return config_gui
 
     def add_tab(self, tab, name, index=None):
         if index is None:

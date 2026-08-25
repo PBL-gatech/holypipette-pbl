@@ -13,6 +13,7 @@ from patcherbot.interface.pipettes import PipetteInterface
 from patcherbot.devices.amplifier.DAQ import NiDAQ
 from patcherbot.devices.lamp import Lamp
 from .patchConfig import PatchConfig
+from .experimentBookConfig import ExperimentBookConfig
 from .protocolConfig import ProtocolConfig
 from PyQt5 import QtCore
 import time
@@ -44,6 +45,7 @@ class AutoPatchInterface(TaskInterface):
         if protocol_data:
             cleaned = {k: v for k, v in protocol_data.items() if v is not None}
             self.protocol_config.from_dict(cleaned)
+        self.experiment_book_config = ExperimentBookConfig(name='Experiment Book')
         self.amplifier = amplifier
         self.daq = daq
         self.pressure = pressure

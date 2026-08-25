@@ -12,6 +12,7 @@ import time
 from PyQt5.QtWidgets import QFileDialog, QWidget,QMessageBox
 
 from patcherbot.controller import TaskController
+from patcherbot.gui.experiment_book_tab import ExperimentBookTab
 from patcherbot.gui.manipulator import ManipulatorGui
 from patcherbot.interface.patch import AutoPatchInterface
 from patcherbot.interface.pipettes import PipetteInterface
@@ -53,6 +54,11 @@ class PatchGui(ManipulatorGui):
                                                         self.patch_reset_signal)
         self.add_config_gui(self.patch_interface.config)
         self.add_config_gui(self.patch_interface.protocol_config)
+        self.experiment_book_tab = self.add_config_gui(
+            self.patch_interface.experiment_book_config,
+            gui_class=ExperimentBookTab,
+        )
+        self.snapshot_captured.connect(self.experiment_book_tab.handle_snapshot)
         logging.debug("Added config GUI.")
         classic_patching_tab = ClassicPatchButtons(self.patch_interface, pipette_interface, self.start_task,self.interface_signals, self.recording_state_manager)
         self.add_tab(classic_patching_tab, 'Classic Auto Patching', index = 0)
