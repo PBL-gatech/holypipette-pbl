@@ -455,6 +455,10 @@ class RigConfigManager:
                 camera.stageManip = stage_controller
             if hasattr(camera, "pipetteManip"):
                 camera.pipetteManip = pipette_controller
+            if (getattr(camera, "_acquisition_thread", None) is None
+                    and getattr(camera, "stageManip", None) is not None
+                    and getattr(camera, "pipetteManip", None) is not None):
+                camera.start_acquisition()
             if hasattr(camera, "cellSorterManip") and "cell_sorter_manipulator" in base_instances:
                 camera.cellSorterManip = base_instances["cell_sorter_manipulator"]
             calibration_cfg = config.get("_resolved_calibration")

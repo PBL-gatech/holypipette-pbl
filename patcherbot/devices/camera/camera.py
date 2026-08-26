@@ -132,7 +132,7 @@ class Camera(object):
 
         self.Cellseg = None
         self._cellseg_error = None
-        device = os.getenv("PIPETTE_DETECTOR_DEVICE", "cuda:0")
+        device = os.getenv("PIPETTE_DETECTOR_DEVICE")
         self.pipdetector = PipetteDetectorYOLO1(device=device)
         # testing flag
         
