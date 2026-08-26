@@ -129,6 +129,12 @@ class AutoPatchInterface(TaskInterface):
     def start_selecting_cells(self):
         self.is_selecting_cells = True
 
+    @blocking_command(category='Patch',
+                      description='Detect cells',
+                      task_description='Detecting cells')
+    def detect_cells(self):
+        self.execute(self.pipette_controller.calibrated_stage.detect_cells)
+
     def start_selecting_corners(self):
         self.is_selecting_corners = True
         self.pipette_controller.calibrated_stage.start_selecting_scan_corners()

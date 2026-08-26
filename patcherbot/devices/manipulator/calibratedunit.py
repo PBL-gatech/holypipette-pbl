@@ -25,6 +25,7 @@ from threading import Thread
 from .StageCalHelper import FocusHelper, StageCalHelper
 from .StageScanHelper import StageScanHelper
 from .PipetteCalHelper import PipetteCalHelper, PipetteFocusHelper
+from .CellDetectHelper import CellDetectHelper
 
 __all__ = ['CalibratedUnit', 'CalibrationError', 'CalibratedStage']
 
@@ -91,6 +92,26 @@ class CalibratedUnit(ManipulatorUnit):
         #setup pipette calibration helper class
         self.pipetteCalHelper = PipetteCalHelper(unit, self.microscope, camera, stage, config=self.config)
         self.pipetteFocusHelper = PipetteFocusHelper(unit, camera, config=self.config)
+
+    def detect_pipette(self):
+        try:
+            frame = self.camera.raw_frame_queue[0][3]
+        except (AttributeError, IndexError, TypeError):
+            frame = None
+        if frame is None:
+            self.camera.show_circles([])
+            return None
+        point = self.pipetteCalHelper.pipetteDetector.detect_pipette(frame.copy())
+        if point is None:
+            self.camera.show_circles([])
+            return None
+        point = np.asarray(point, dtype=float).reshape(-1)
+        if point.size < 2 or not np.all(np.isfinite(point[:2])):
+            self.camera.show_circles([])
+            return None
+        point = tuple(np.rint(point[:2]).astype(int))
+        self.camera.show_circle(point)
+        return point
 
     def save_state(self):
         if self.stage is not None:
@@ -724,6 +745,7 @@ class CalibratedStage(CalibratedUnit):
         self.focusHelper = FocusHelper(microscope, camera)
         self.stageCalHelper = StageCalHelper(unit, camera, self.config.frame_lag)
         self.stageScanHelper = StageScanHelper(camera, config=self.config)
+        self.cellDetectHelper = CellDetectHelper(camera)
         self.cellTrackHelper = None
         if self.config.use_ai_features:
             from .CellTrackHelper import CellTrackHelper
@@ -734,6 +756,9 @@ class CalibratedStage(CalibratedUnit):
         # It should be an XY stage, ie, two axes
         if len(self.axes) != 2:
             raise CalibrationError('The unit should have exactly two axes for horizontal calibration.')
+
+    def detect_cells(self):
+        return self.cellDetectHelper.detect_cells()
 
     def _ensure_cell_track_helper(self):
         if not self.config.use_ai_features:
