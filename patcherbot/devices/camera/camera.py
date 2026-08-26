@@ -54,7 +54,7 @@ class AcquisitionThread(threading.Thread):
         self.last_frame_time = None
         self.fps = 0
 
-        threading.Thread.__init__(self, name='image_acquire_thread')
+        threading.Thread.__init__(self, name='image_acquire_thread', daemon=True)
 
     def get_frame_rate(self):
         """

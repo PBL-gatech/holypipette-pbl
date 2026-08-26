@@ -27,6 +27,127 @@ import os
 
 import qdarktheme
 
+PATCH_GUI_COLORS = {
+    "[light]": {
+        # Main application
+        "primary": "#000000",
+        "background": "#F4F6F8",
+        "foreground": "#202428",
+        "border": "#D2D7DD",
+
+        # Panels / windows
+        "background>panel": "#FFFFFF",
+
+        # Inputs / combo boxes
+        "input.background": "#FFFFFF",
+        "border>input": "#C8CED6",
+        "foreground>input.placeholder": "#858C95",
+
+        # Combo popup
+        "background>popup": "#FFFFFF",
+        "popupItem.selectionBackground": "#E6EEF9",
+
+        # Lists / tables
+        "background>list": "#FFFFFF",
+        "list.alternateBackground": "#F7F8FA",
+        "list.hoverBackground": "#EEF2F6",
+
+        "background>table": "#FFFFFF",
+        "table.alternateBackground": "#F7F8FA",
+        "tableSectionHeader.background": "#EEF1F4",
+
+        # Toolbar
+        "toolbar.background": "#ECEFF2",
+        "toolbar.hoverBackground": "#DDE2E7",
+        "toolbar.activeBackground": "#D2D8DE",
+
+        # Tabs
+        "tab.activeBackground": "#FFFFFF",
+        "tab.hoverBackground": "#E9EDF1",
+
+        # Scrollbars
+        "scrollbar.background": "#EFF1F3",
+        "scrollbarSlider.background": "#C1C7CE",
+        "scrollbarSlider.hoverBackground": "#AEB5BD",
+        "scrollbarSlider.activeBackground": "#989FA8",
+
+        # Status bar
+        "statusBar.background": "#ECEFF2",
+    },
+
+    "[dark]": {
+        # Main application
+        "primary": "#A3A3A3",
+        "background": "#0A0A0A",
+        "foreground": "#EDEDED",
+        "border": "#2A2A2A",
+
+        # Panels / secondary surfaces
+        "background>panel": "#111111",
+
+        # Inputs / combo boxes
+        "input.background": "#171717",
+        "border>input": "#303030",
+        "foreground>input.placeholder": "#777777",
+
+        # Combo popup
+        "background>popup": "#141414",
+        "popupItem.selectionBackground": "#2A2A2A",
+
+        # Lists
+        "background>list": "#111111",
+        "list.alternateBackground": "#151515",
+        "list.hoverBackground": "#202020",
+
+        # Tables
+        "background>table": "#111111",
+        "table.alternateBackground": "#151515",
+        "tableSectionHeader.background": "#1C1C1C",
+
+        # Toolbar
+        "toolbar.background": "#0D0D0D",
+        "toolbar.hoverBackground": "#1C1C1C",
+        "toolbar.activeBackground": "#282828",
+
+        # Tabs
+        "tab.activeBackground": "#202020",
+        "tab.hoverBackground": "#191919",
+
+        # Scrollbars
+        "scrollbar.background": "#0D0D0D",
+        "scrollbarSlider.background": "#333333",
+        "scrollbarSlider.hoverBackground": "#484848",
+        "scrollbarSlider.activeBackground": "#5C5C5C",
+
+        # Status bar
+        "statusBar.background": "#0D0D0D",
+    }
+}
+
+PATCH_GUI_QSS = """
+    QToolBar {
+        spacing: 6px;
+        padding: 4px;
+    }
+
+    QToolBar QLabel {
+        margin-left: 6px;
+        margin-right: 2px;
+    }
+
+    QScrollArea {
+        border: none;
+    }
+
+    QSplitter::handle:horizontal {
+        width: 3px;
+    }
+
+    QTabWidget::pane {
+        padding: 2px;
+    }
+    """
+
 class PatchSignals(QtCore.QObject):
     """
     A dedicated container to hold unique signals for a single pipette.
@@ -60,9 +181,6 @@ class PatchGui(ManipulatorGui):
         self.setWindowTitle("Patch GUI")
         self.resize(1200, 1000)
 
-        if not isinstance (pipette_interfaces, dict):
-            self.pipette_interfaces = {"pipette": pipette_interfaces}
-            self.patch_interfaces = {list(self.pipette_interfaces.keys())[0]: patch_interfaces}
         if not isinstance (pipette_interfaces, dict):
             self.pipette_interfaces = {"pipette": pipette_interfaces}
             self.patch_interfaces = {list(self.pipette_interfaces.keys())[0]: patch_interfaces}
@@ -110,10 +228,7 @@ class PatchGui(ManipulatorGui):
             widget = QtWidgets.QTabWidget()
             self.config_tabs[id] = widget
             curr_config_tab = self.config_tabs[id]
-            self.config_tabs[id] = widget
-            curr_config_tab = self.config_tabs[id]
 
-            curr_patch_interface = self.patch_interfaces[id]
             curr_patch_interface = self.patch_interfaces[id]
 
             self.switch_manipulator_box.addItem(f"{id}")
@@ -152,6 +267,8 @@ class PatchGui(ManipulatorGui):
         self.config_tab_default_style = list(self.config_tabs.values())[0].styleSheet()
         self.cell_list_window_default_style = self.cell_list_window.styleSheet()
         self.pipette_status_window_default_style = self.pipette_status_window.styleSheet()
+
+        self.apply_theme("light")
 
     def register_commands(self):
         """
@@ -259,17 +376,8 @@ class PatchGui(ManipulatorGui):
         Toggle the dark mode for the GUI.
         """
         if not self.dark_mode:
+            self.apply_theme("dark")
             self.dark_mode = True
-            qdarktheme.setup_theme(
-                theme="dark",
-                custom_colors={"[dark]": {
-                            "primary": "#F5F5F5",
-                            "background": "#000000",
-                            "background>panel": "#0D0D0D",
-                            "border": "#222222"
-                        }
-                    }
-                )
             for config_tab in list(self.config_tabs.values()):
                     for i in range(config_tab.count()):
                         curr_tab = config_tab.widget(i)
@@ -280,12 +388,6 @@ class PatchGui(ManipulatorGui):
                         if hasattr(curr_tab, "save_button"):
                             curr_tab.save_button.setIcon(qta.icon('fa.download', color='white'))
                             curr_tab.load_button.setIcon(qta.icon('fa.upload', color='white'))
-
-            toolbar_text_color = """
-                QToolButton, QPushButton, QLabel, QCheckBox, QComboBox { 
-                    color: white; 
-                }
-            """
 
             self.task_progress.setStyleSheet("""
                 QProgressBar {
@@ -301,9 +403,6 @@ class PatchGui(ManipulatorGui):
                 }
             """)
 
-            self.main_toolbar.setStyleSheet(toolbar_text_color)
-            self.patch_toolbar.setStyleSheet(toolbar_text_color)
-
             self.task_abort_button.setIcon(qta.icon('fa.ban', color='white'))
             self.task_success_button.setIcon(qta.icon('fa.check', color='white'))
             self.help_button.setIcon(qta.icon('fa.question-circle', color='white'))
@@ -313,17 +412,9 @@ class PatchGui(ManipulatorGui):
             self.config_button.setIcon(qta.icon('fa.cogs', color='white'))
             
         else:
+            self.apply_theme("light")
             self.dark_mode = False
-            qdarktheme.setup_theme(
-                theme="light",
-                custom_colors={"[light]": {
-                            "primary": "#000000",
-                            "background": "#FFFFFF",
-                            "background>panel": "#FFFFFF",
-                            "border": "#282626"
-                        }
-                    }
-                )
+            
             for config_tab in list(self.config_tabs.values()):
                                 for i in range(config_tab.count()):
                                     curr_tab = config_tab.widget(i)
@@ -335,14 +426,6 @@ class PatchGui(ManipulatorGui):
                                         curr_tab.save_button.setIcon(qta.icon('fa.download', color='black'))
                                         curr_tab.load_button.setIcon(qta.icon('fa.upload', color='black'))
 
-            toolbar_text_color = """
-                QToolButton, QPushButton, QLabel, QCheckBox, QComboBox { 
-                    color: black; 
-                }
-            """
-            self.main_toolbar.setStyleSheet(toolbar_text_color)
-            self.patch_toolbar.setStyleSheet(toolbar_text_color)
-
             self.task_progress.setStyleSheet("")
 
             self.task_abort_button.setIcon(qta.icon('fa.ban', color='black'))
@@ -352,6 +435,14 @@ class PatchGui(ManipulatorGui):
             self.record_button.setIcon(qta.icon('fa.video-camera', color='black'))
             self.snap_image_button.setIcon(qta.icon('fa.camera', color='black'))
             self.config_button.setIcon(qta.icon('fa.cogs', color='black'))
+
+    def apply_theme(self, theme: str):
+        qdarktheme.setup_theme(
+            theme=theme,
+            corner_shape="rounded",
+            custom_colors=PATCH_GUI_COLORS,
+            additional_qss=PATCH_GUI_QSS,
+        )
 
     def switch_active_pipette(self, id):
         """

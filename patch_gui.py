@@ -26,6 +26,34 @@ from patcherbot.devices.camera.FakeCalCamera import FakeCalCamera
 
 setup_logging()  # Log to the standard console as well
 
+def create_protocol_graphs(graph_interface, recording_state_manager):
+    return {
+        "current": CurrentProtocolGraph(
+            graph_interface,
+            recording_state_manager,
+        ),
+        "voltage": VoltageProtocolGraph(
+            graph_interface,
+            recording_state_manager,
+        ),
+        "leak_subtraction": LeakSubtractionGraph(
+            graph_interface,
+            recording_state_manager,
+        ),
+        "holding": HoldingProtocolGraph(
+            graph_interface,
+            recording_state_manager,
+        ),
+        "optogenetic_stim": OptogeneticStimProtocolGraph(
+            graph_interface,
+            recording_state_manager,
+        ),
+        "optogenetic_wavelength": OptogeneticWavelengthProtocolGraph(
+            graph_interface,
+            recording_state_manager,
+        ),
+    }
+
 def main():
     """
     Starts the Patch GUI application and prepares the rig for use.
@@ -92,12 +120,14 @@ def main():
     calibration_data = config_data.get("calibration") if isinstance(config_data, dict) else None
     patch_data = config_data.get("patch") if isinstance(config_data, dict) else None
     protocol_data = config_data.get("protocol") if isinstance(config_data, dict) else None
+    
 
 
     if isinstance(unit, dict):
         patch_controllers = {}
         pipette_controllers = {}
         graph_interface = {}
+        protocol_graphs = {}
         for i, id in enumerate(unit.keys()):
 
             curr_amplifier = list(amplifier.values())[i]
@@ -117,12 +147,7 @@ def main():
 
             graph_interface[id] = GraphInterface(curr_amplifier, curr_daq, curr_pressure, recording_state_manager, laser)
 
-            currentProtocolGraph = CurrentProtocolGraph(graph_interface[id], recording_state_manager)
-            voltageProtocolGraph = VoltageProtocolGraph(graph_interface[id], recording_state_manager)
-            leakSubtractionGraph = LeakSubtractionGraph(graph_interface[id], recording_state_manager)
-            holdingProtocolGraph = HoldingProtocolGraph(graph_interface[id], recording_state_manager)
-            optogeneticStimProtocolGraph = OptogeneticStimProtocolGraph(graph_interface[id], recording_state_manager)
-            optogeneticWavelengthProtocolGraph = OptogeneticWavelengthProtocolGraph(graph_interface[id], recording_state_manager)
+            protocol_graphs[id] = create_protocol_graphs(graph_interface[id], recording_state_manager)
     else:
         pipette_controllers = PipetteInterface(
             stage, microscope, camera, unit, cellSorterManip, cellSorterController,
@@ -137,13 +162,7 @@ def main():
         
         graph_interface = GraphInterface(amplifier, daq, pressure, recording_state_manager, laser)
 
-        currentProtocolGraph = CurrentProtocolGraph(graph_interface, recording_state_manager)
-        voltageProtocolGraph = VoltageProtocolGraph(graph_interface, recording_state_manager)
-        leakSubtractionGraph = LeakSubtractionGraph(graph_interface, recording_state_manager)
-        holdingProtocolGraph = HoldingProtocolGraph(graph_interface, recording_state_manager)
-        optogeneticStimProtocolGraph = OptogeneticStimProtocolGraph(graph_interface, recording_state_manager)
-        optogeneticWavelengthProtocolGraph = OptogeneticWavelengthProtocolGraph(graph_interface, recording_state_manager)
-
+        protocol_graphs = create_protocol_graphs(graph_interface, recording_state_manager)
 
     gui = PatchGui(camera, pipette_camera, pipette_controllers, patch_controllers, recording_state_manager)
     graphs = EPhysGUI(graph_interface, recording_state_manager)
