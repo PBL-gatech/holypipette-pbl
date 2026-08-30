@@ -20,11 +20,11 @@ from simple_pid import PID
 
 # User-facing simulation controls.
 TIME_STEP_S = 0.1
-SIMULATION_DURATION_S = 30.0
+SIMULATION_DURATION_S = 90.0
 BASELINE_RESISTANCE_MOHM = 10.0
 TARGET_RESISTANCE_MOHM = 1200.0
 
-MODULE_PATH = Path(__file__).parents[1] / "patcherbot" / "deepLearning" / "AdaptiveSlidingModeController.py"
+MODULE_PATH = Path(__file__).parents[0] / "patcherbot" / "deepLearning" / "AdaptiveSlidingModeController.py"
 
 
 def load_controller_class():
@@ -154,6 +154,8 @@ def simulate():
             position = states[name][0]
             resistance = position / model_controller._resistance_to_length_m / 1e6
             resistances[name].append(max(0.0, resistance))
+
+        print(asmc_command.pressure_mbar, asmc_command.holding_voltage_v)
 
     return times, np.asarray(desired_resistances), resistances
 
