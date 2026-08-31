@@ -20,9 +20,9 @@ from simple_pid import PID
 
 # User-facing simulation controls.
 TIME_STEP_S = 0.1
-SIMULATION_DURATION_S = 90.0
+SIMULATION_DURATION_S = 60.0
 BASELINE_RESISTANCE_MOHM = 10.0
-TARGET_RESISTANCE_MOHM = 1200.0
+TARGET_RESISTANCE_MOHM = 1000.0
 
 MODULE_PATH = Path(__file__).parents[0] / "patcherbot" / "deepLearning" / "AdaptiveSlidingModeController.py"
 
@@ -60,9 +60,9 @@ def make_pid_controllers():
     mbar and voltage is volts. Negative gains map increasing resistance error
     to the negative-pressure/negative-voltage convention used by this rig.
     """
-    si_pid = PID(-400.0, -600.0, -50.0, setpoint=0.0, sample_time=None, output_limits=(-30.0, -5.0))
-    di_pressure_pid = PID(-300.0, -500.0, -50.0, setpoint=0.0, sample_time=None, output_limits=(-30.0, -5.0))
-    di_voltage_pid = PID(-3.0, -6.0, -0.5, setpoint=0.0, sample_time=None, output_limits=(-0.07, 0.0))
+    si_pid = PID(0.0, 0, 0, setpoint=0.0, sample_time=None, output_limits=(-90.0, -5.0))
+    di_pressure_pid = PID(0.0, 0, 0, setpoint=0.0, sample_time=None, output_limits=(-90.0, -5.0))
+    di_voltage_pid = PID(0.0, 0, 0, setpoint=0.0, sample_time=None, output_limits=(-0.11, 0.0))
     return si_pid, di_pressure_pid, di_voltage_pid
 
 
@@ -143,6 +143,7 @@ def simulate():
             "ASMC": (asmc_command.pressure_mbar or -5.0, asmc_command.holding_voltage_v or 0.0),
         }
         for name, (pressure_mbar, voltage_v) in commands.items():
+            pressure_mbar *= -1 #the controllers default output is negative but the diagnostic is working in positive, the paper just has a flipped convention
             disturbance_m_per_s2 = 2e-6 * np.sin(3.14 * time_s)
             states[name] = advance_plant(
                 states[name],
@@ -155,7 +156,7 @@ def simulate():
             resistance = position / model_controller._resistance_to_length_m / 1e6
             resistances[name].append(max(0.0, resistance))
 
-        print(asmc_command.pressure_mbar, asmc_command.holding_voltage_v)
+        print(di_pressure_mbar, di_voltage_v)
 
     return times, np.asarray(desired_resistances), resistances
 

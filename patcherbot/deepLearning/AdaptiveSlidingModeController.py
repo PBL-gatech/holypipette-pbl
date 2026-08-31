@@ -102,9 +102,7 @@ class AdaptiveSlidingModeController:
         self.previous_resistance_mohm = initial_resistance_mohm
         self.previous_rate_mohm_per_s = 0.0
         self.previous_length_rate_m_per_s = 0.0
-        self.desired_length_m = (
-            0.0 if initial_resistance_mohm is None else float(initial_resistance_mohm)
-        )
+
         self.desired_length_m = self.resistance_to_length(initial_resistance_mohm or 0.0)
         self.desired_length_rate_m_per_s = 0.0
         self.desired_length_acceleration_m_per_s2 = 0.0
@@ -198,8 +196,8 @@ class AdaptiveSlidingModeController:
         #this clipping thing, are u1 and u2 setting the pressure and voltage directly or are they meant to be addative?
         #i might be misremembering, but I think there was a previous version of this code that had them incremint rather that absolute
         #also check if the units are right on voltage, right now its defintely volts but there seems to be some confusion if this code base wants mV or V
-        self.current_pressure_mbar = 0.01 * u1 #self._clip_pressure(0.01 * u1) #0.01 multiple converts from Pascals to mbar, the agent wanted to work in SI units even though all tunable constants are arbitrary
-        self.current_voltage_v = -1*u2 #self._clip_voltage(-u2) 
+        self.current_pressure_mbar = self._clip_pressure(-0.01 * u1) #0.01 multiple converts from Pascals to mbar, the agent wanted to work in SI units even though all tunable constants are arbitrary
+        self.current_voltage_v = self._clip_voltage(-u2) 
         self._remember_measurement(resistance_mohm, measured_rate_mohm_per_s, measured_length_rate_m_per_s)
         return SealControlCommand(
             pressure_mbar=self.current_pressure_mbar,
