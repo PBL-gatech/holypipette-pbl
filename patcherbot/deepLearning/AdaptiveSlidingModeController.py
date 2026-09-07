@@ -47,14 +47,14 @@ class AdaptiveSlidingModeController:
         self.lambda2 = float(controller["lambda2"])
         self.pressure_min_mbar = float(controller["pressure_min_mbar"])
         self.pressure_max_mbar = float(controller["pressure_max_mbar"])
-        self.voltage_min_v = float(controller["voltage_min_v"])
-        self.voltage_max_v = float(controller["voltage_max_v"])
+        self.voltage_min_mv = float(controller["voltage_min_mv"])
+        self.voltage_max_mv = float(controller["voltage_max_mv"])
         model = self.parameters["model"]
-        self.pipette_radius_m = float(model["pipette_radius_um"]) * 1e-6
-        self.liquid_layer_thickness_m = float(model["liquid_layer_thickness_nm"]) * 1e-9
+        self.pipette_radius_um = float(model["pipette_radius_um"]) #formerly converted to meters for SI but once again this does not mix with the paper and thus the tuned constants
+        self.liquid_layer_thickness_nm = float(model["liquid_layer_thickness_nm"]) #formerly converted to meters for SI but once again this does not mix with the paper and thus the tuned constants
         self.seal_media_resistivity_ohm_m = float(model["seal_media_resistivity_ohm_m"])
-        self._resistance_to_length_m = (
-            2.0 * math.pi * self.pipette_radius_m * self.liquid_layer_thickness_m
+        self._resistance_to_length_Mohm_to_nm = (
+            2.0 * math.pi * self.pipette_radius_um * self.liquid_layer_thickness_nm
             / self.seal_media_resistivity_ohm_m
         )
         self._derive_nominal_model_parameters(model)
@@ -64,20 +64,32 @@ class AdaptiveSlidingModeController:
         """Calculate a,b,c,d from the physical model in the paper."""
         epsilon_0 = 8.854e-12
         epsilon_r = float(model["relative_permittivity"])
-        mass_kg = float(model["membrane_mass_g"]) * 1e-3
+        mass_g = float(model["membrane_mass_g"]) #in the paper they used mass in grams, no need to convert to kg but it was in previous version of code
         elastic_n_per_m = float(model["elastic_coefficient_n_per_m"])
         viscous_kg_per_s = float(model["viscous_coefficient_kg_per_s"])
         adhesion_n_per_m2 = float(model["adhesion_friction_n_per_m2"])
-        membrane_potential_v = float(model["membrane_surface_potential_mv"]) * 1e-3
-        pipette_potential_v = float(model["pipette_surface_potential_mv"]) * 1e-3
-        potential_gradient_v_per_m = float(model["surface_potential_gradient_mv_per_nm"]) * 1e6
-        self.model_a = -viscous_kg_per_s / mass_kg
-        self.model_b = -(adhesion_n_per_m2 * 2.0 * math.pi * self.pipette_radius_m + elastic_n_per_m) / mass_kg
-        self.model_c = math.pi * self.pipette_radius_m ** 2 / mass_kg
-        self.model_d = (
-            2.0 * math.pi * self.pipette_radius_m * epsilon_0 * epsilon_r / mass_kg
-            * ((membrane_potential_v - pipette_potential_v) / self.liquid_layer_thickness_m
-               + potential_gradient_v_per_m)
+
+        #the following were all converted to V and the last converted nm -> m, this is all counter to the paper and has thus been deconverted
+        membrane_potential_mv = float(model["membrane_surface_potential_mv"])
+        pipette_potential_mv = float(model["pipette_surface_potential_mv"])
+        potential_gradient_mv_per_nm = float(model["surface_potential_gradient_mv_per_nm"])
+
+        '''
+        length of aspirated membrane in meters, speed of that in meters per second, pressure in mbar, voltage in mV
+        '''
+        self.model_a = -viscous_kg_per_s / mass_g
+        #in the paper there is a typo in this definion that mixes units, the LLM caught it and so did I but separately and after a lot of time wasting
+        #also there is a conversion factor of 1e-6 because you can't mix meters and micrometers without accounting for that
+        #there is also a conversion factor of 1e-3 because the mass is in grams and the force is in newtons, so you have to convert to kg to get m/s^2
+        self.model_b = -(adhesion_n_per_m2 * 2.0 * math.pi * self.pipette_radius_um * 1e-6 + elastic_n_per_m) / (mass_g * 1e-3)
+        self.model_c = 100 * math.pi * self.pipette_radius_um ** 2 * 1e-12 / (mass_g * 1e-3) #converted back to SI units and accounting for the pressure being given in mbar, not pascals, hence the 100*
+
+        #again, there is the mixing of units, radius given in micrometers and permittivity in F/m
+        #to get it in the desired m/s^2 when multiplied by the input V must multiply by 1e12 ugh
+        self.model_d = 1e12*(
+            2.0 * math.pi * self.pipette_radius_um * 1e-6 * epsilon_0 * epsilon_r / mass_g
+            * ((membrane_potential_mv - pipette_potential_mv) / self.liquid_layer_thickness_nm
+               + potential_gradient_mv_per_nm)
         )
         self.nominal_theta = [
             self.model_a / (2.0 * self.model_c),
@@ -154,6 +166,8 @@ class AdaptiveSlidingModeController:
             - self.desired_length_acceleration_m_per_s2
         )
 
+        '''
+        currently not updating thetas to debug the presets, they are essentially negligible compared to the k1 and k2 gains
         self._update_adaptive_estimates(
             measured_length_m,
             measured_length_rate_m_per_s,
@@ -161,6 +175,7 @@ class AdaptiveSlidingModeController:
             sliding_surface,
             measurement_window_s,
         )
+        '''
 
         '''
         This is clearly a check to see if it reached the gigaseal
@@ -197,7 +212,7 @@ class AdaptiveSlidingModeController:
         #i might be misremembering, but I think there was a previous version of this code that had them incremint rather that absolute
         #also check if the units are right on voltage, right now its defintely volts but there seems to be some confusion if this code base wants mV or V
         self.current_pressure_mbar = self._clip_pressure(-0.01 * u1) #0.01 multiple converts from Pascals to mbar, the agent wanted to work in SI units even though all tunable constants are arbitrary
-        self.current_voltage_v = self._clip_voltage(-u2) 
+        self.current_voltage_v = self._clip_voltage(-u2) / 1000.0 #converting from mV to V for compatibility with other patcherbot commands
         self._remember_measurement(resistance_mohm, measured_rate_mohm_per_s, measured_length_rate_m_per_s)
         return SealControlCommand(
             pressure_mbar=self.current_pressure_mbar,
@@ -274,8 +289,11 @@ class AdaptiveSlidingModeController:
         But we can only measure resistance
         They have it as a linear multiple of aspirated membrane length, which I (Dom) am skeptical of
         But it is pretty core to their theory and this function saves a lot of conversion elsewhere if we did it just based on resistance
+
+        Additional note, formerly there was a conversion factor of 10e6 but I have changed to 10e9 because I think that that is the proper converion factor to get to meters
+        They mix units of length all over the place so I might be getting confused, but I think the LLM that did this was the confused one
         """
-        return float(resistance_mohm) * 1e6 * self._resistance_to_length_m
+        return float(resistance_mohm) * 1e9 * self._resistance_to_length_Mohm_to_nm
 
     @staticmethod
     def _sign(value):
@@ -290,5 +308,5 @@ class AdaptiveSlidingModeController:
     def _clip_pressure(self, pressure_mbar):
         return max(self.pressure_min_mbar, min(self.pressure_max_mbar, float(pressure_mbar)))
 
-    def _clip_voltage(self, voltage_v):
-        return max(self.voltage_min_v, min(self.voltage_max_v, float(voltage_v)))
+    def _clip_voltage(self, voltage_mv):
+        return max(self.voltage_min_mv, min(self.voltage_max_mv, float(voltage_mv)))

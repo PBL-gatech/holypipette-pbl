@@ -19,8 +19,8 @@ from simple_pid import PID
 
 
 # User-facing simulation controls.
-TIME_STEP_S = 0.1
-SIMULATION_DURATION_S = 60.0
+TIME_STEP_S = 0.2
+SIMULATION_DURATION_S = 6.0
 BASELINE_RESISTANCE_MOHM = 10.0
 TARGET_RESISTANCE_MOHM = 1000.0
 
@@ -60,9 +60,9 @@ def make_pid_controllers():
     mbar and voltage is volts. Negative gains map increasing resistance error
     to the negative-pressure/negative-voltage convention used by this rig.
     """
-    si_pid = PID(0.0, 0, 0, setpoint=0.0, sample_time=None, output_limits=(-90.0, -5.0))
-    di_pressure_pid = PID(0.0, 0, 0, setpoint=0.0, sample_time=None, output_limits=(-90.0, -5.0))
-    di_voltage_pid = PID(0.0, 0, 0, setpoint=0.0, sample_time=None, output_limits=(-0.11, 0.0))
+    si_pid = PID(400, 600, 50, setpoint=0.0, sample_time=None, output_limits=(-90.0, -5.0))
+    di_pressure_pid = PID(300, 500, 50, setpoint=0.0, sample_time=None, output_limits=(-90.0, -5.0))
+    di_voltage_pid = PID(3, 6, 0.5, setpoint=0.0, sample_time=None, output_limits=(-0.11, 0.0))
     return si_pid, di_pressure_pid, di_voltage_pid
 
 
@@ -123,19 +123,21 @@ def simulate():
             acceleration_m_per_s2,
             constant_rate_m_per_s,
         )
-        desired_resistance_mohm = desired_length_m / model_controller._resistance_to_length_m / 1e6
+        desired_resistance_mohm = desired_length_m * 1e-9 / model_controller._resistance_to_length_Mohm_to_nm
         desired_resistances.append(desired_resistance_mohm)
 
         asmc_command = asmc.update(
             resistance_mohm=resistances["ASMC"][-1] if resistances["ASMC"] else BASELINE_RESISTANCE_MOHM,
             measurement_window_s=TIME_STEP_S,
         )
-        si_pid.setpoint = desired_length_m
-        di_pressure_pid.setpoint = desired_length_m
-        di_voltage_pid.setpoint = desired_length_m
-        si_pressure_mbar = si_pid(states["SI-PID"][0], dt=TIME_STEP_S)
-        di_pressure_mbar = di_pressure_pid(states["DI-PID"][0], dt=TIME_STEP_S)
-        di_voltage_v = di_voltage_pid(states["DI-PID"][0], dt=TIME_STEP_S)
+        #these all have the length to resistance conversion in them because the gains are tuned for that in the paper
+        si_pid.setpoint = desired_length_m * 1e-9 / model_controller._resistance_to_length_Mohm_to_nm
+        di_pressure_pid.setpoint = desired_length_m * 1e-9 / model_controller._resistance_to_length_Mohm_to_nm
+        di_voltage_pid.setpoint = desired_length_m * 1e-9 / model_controller._resistance_to_length_Mohm_to_nm
+        
+        si_pressure_mbar = si_pid(states["SI-PID"][0] * 1e-9 / model_controller._resistance_to_length_Mohm_to_nm, dt=TIME_STEP_S)
+        di_pressure_mbar = di_pressure_pid(states["DI-PID"][0] * 1e-9 / model_controller._resistance_to_length_Mohm_to_nm, dt=TIME_STEP_S)
+        di_voltage_v = di_voltage_pid(states["DI-PID"][0] * 1e-9 / model_controller._resistance_to_length_Mohm_to_nm, dt=TIME_STEP_S)
 
         commands = {
             "SI-PID": (si_pressure_mbar, 0.0),
@@ -153,11 +155,14 @@ def simulate():
                 model_controller,
             )
             position = states[name][0]
-            resistance = position / model_controller._resistance_to_length_m / 1e6
+            resistance = position * 1e-9 / model_controller._resistance_to_length_Mohm_to_nm
             resistances[name].append(max(0.0, resistance))
-
-        print(di_pressure_mbar, di_voltage_v)
-
+        
+        
+        acceleration_vec = [model_controller.model_a*states["ASMC"][0], model_controller.model_b*states["ASMC"][1], model_controller.model_c*asmc_command.pressure_mbar, model_controller.model_d*asmc_command.holding_voltage_v]
+        print(acceleration_vec, np.sum(acceleration_vec))
+        #print(states["ASMC"], asmc_command.pressure_mbar, asmc_command.holding_voltage_v)
+        #print(model_controller.model_a, model_controller.model_b, model_controller.model_c, model_controller.model_d)
     return times, np.asarray(desired_resistances), resistances
 
 
