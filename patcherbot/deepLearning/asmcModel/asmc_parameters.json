@@ -3,7 +3,7 @@
         "status": "discretized implementation of supplemental equations S1-S4",
         "resistance_unit": "MOhm",
         "pressure_unit": "mbar",
-        "voltage_unit": "V",
+        "voltage_unit": "mV",
         "note": "Equation (16) is implemented explicitly. Resistance is converted from MOhm to Ohm, then to membrane length in meters. Values marked as implementation choices are not specified in the paper and must be validated before hardware use.",
         "pressure_limit_note": "pressure_min_mbar is the more-negative numeric lower bound; pressure_max_mbar is the less-negative numeric upper bound. The controller starts at -5 mbar and may move toward -30 mbar.",
         "voltage_limit_note": "Voltage is in volts. Negative values are more hyperpolarized; voltage_min_v is the most-negative allowed command."
@@ -34,8 +34,8 @@
         "lambda2": 0.1,
         "pressure_min_mbar": -90.0,
         "pressure_max_mbar": -5.0,
-        "voltage_min_mv": -110.0,
-        "voltage_max_mv": 0.0,
+        "voltage_min_v": -0.11,
+        "voltage_max_v": 0.0,
         "initial_disturbance_estimates": [0.0, 0.0]
     },
     "model": {
